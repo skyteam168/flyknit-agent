@@ -28,7 +28,9 @@ public partial class MainWindow : Window, IWindowActions
     public MainWindow(AgentHost host, AppSettings settings)
     {
         InitializeComponent();
-        Web.DefaultBackgroundColor = System.Drawing.Color.White;
+        Web.DefaultBackgroundColor = System.Drawing.Color.FromArgb(0xF4, 0xF6, 0xF9);
+        LoadingTitle.Text = NativeStrings.T("loading.title");
+        LoadingSubtitle.Text = NativeStrings.T("loading.subtitle");
         _host = host;
         _settings = settings;
         Width = Math.Max(MinWidth, settings.WindowWidth);
@@ -109,6 +111,7 @@ public partial class MainWindow : Window, IWindowActions
         core.NavigationCompleted += (_, e) =>
         {
             _pageReady.TrySetResult(e.IsSuccess);
+            RevealWeb();
             Log.Info($"页面加载完成：成功={e.IsSuccess} 状态={e.WebErrorStatus} HTTP={e.HttpStatusCode}");
             if (!e.IsSuccess)
             {
@@ -140,7 +143,10 @@ public partial class MainWindow : Window, IWindowActions
         // 用 index.html 的修改时间作为版本参数，每次构建后都会加载最新页面。
         var index = Path.Combine(root, "index.html");
         var version = File.Exists(index) ? File.GetLastWriteTimeUtc(index).Ticks : 0;
-        Web.Source = new Uri($"https://{VirtualHost}/index.html?v={version}");
+        Web.Source = new Uri($"https://{VirtualHost}/index.html?v={version}&lang={_settings.ResolveUiLanguage()}");
+
+        // 兜底：15 秒内没有收到加载完成事件也显示页面，避免一直停在加载卡片
+        _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(_ => Dispatcher.BeginInvoke(() => RevealWeb()));
     }
 
     private readonly System.Threading.Tasks.TaskCompletionSource<bool> _pageReady = new();
@@ -185,8 +191,20 @@ public partial class MainWindow : Window, IWindowActions
         ShowInTaskbar = true;
     }
 
+    /// <summary>页面加载完成后显示 WebView（页面里有同样样式的加载卡片，切换时看不出闪烁）。</summary>
+    private void RevealWeb()
+    {
+        if (ErrorText.Visibility == Visibility.Visible)
+        {
+            return;
+        }
+        Web.Visibility = Visibility.Visible;
+        LoadingCard.Visibility = Visibility.Collapsed;
+    }
+
     private void ShowError(string message)
     {
+        LoadingCard.Visibility = Visibility.Collapsed;
         ErrorText.Text = message + "\n\n日志：" + AppPaths.Logs;
         ErrorText.Visibility = Visibility.Visible;
         Web.Visibility = Visibility.Collapsed; // WebView2 总是盖在 WPF 内容之上，必须隐藏才能看到提示
@@ -292,6 +310,12 @@ public partial class MainWindow : Window, IWindowActions
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Multiselect = true };
         return dialog.ShowDialog(this) == true ? dialog.FileNames : Array.Empty<string>();
+    }
+
+    public string? PickFolder()
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog { Multiselect = false };
+        return dialog.ShowDialog(this) == true ? dialog.FolderName : null;
     }
 
     [DllImport("user32.dll")]

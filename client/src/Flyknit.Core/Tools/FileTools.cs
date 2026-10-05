@@ -163,13 +163,13 @@ public sealed class SearchFilesTool : ITool
 public sealed class WriteFileTool : ITool
 {
     public string Name => "write_file";
-    public string Description => "创建或覆盖文本文件，也可以追加内容。目录不存在时自动创建。需要用户确认。";
+    public string Description => "创建或覆盖文本文件，也可以追加内容。目录不存在时自动创建。相对路径以工作区为准，产出文件优先放在工作区内。";
     public JsonObject Parameters => ToolArgs.Schema(
         ("path", "string", "文件路径", true),
         ("content", "string", "要写入的完整内容", true),
         ("append", "boolean", "为 true 时追加到文件末尾，默认覆盖", false));
 
-    public PolicyDecision Assess(JsonElement args, ToolContext ctx) => ctx.Policy.EvaluateWrite(args.Str("path"));
+    public PolicyDecision Assess(JsonElement args, ToolContext ctx) => ctx.AssessWrite(args.Str("path"));
 
     public string Describe(JsonElement args)
     {
@@ -197,12 +197,12 @@ public sealed class WriteFileTool : ITool
 public sealed class DeletePathTool : ITool
 {
     public string Name => "delete_path";
-    public string Description => "删除文件或文件夹（移入回收站，可恢复）。需要用户确认。";
+    public string Description => "删除文件或文件夹（移入回收站，可恢复）。删除前会请用户确认。";
     public JsonObject Parameters => ToolArgs.Schema(("path", "string", "要删除的文件或目录路径", true));
 
     public PolicyDecision Assess(JsonElement args, ToolContext ctx)
     {
-        var decision = ctx.Policy.EvaluateWrite(args.Str("path"));
+        var decision = ctx.AssessWrite(args.Str("path"), delete: true);
         if (decision.Level == RiskLevel.Blocked)
         {
             return decision;
@@ -216,15 +216,16 @@ public sealed class DeletePathTool : ITool
                     .Take(ctx.Policy.Config.BatchConfirmThreshold + 1).Count();
                 if (count > ctx.Policy.Config.BatchConfirmThreshold)
                 {
-                    return PolicyDecision.Confirm($"该目录包含超过 {ctx.Policy.Config.BatchConfirmThreshold} 个文件，请仔细确认");
+                    // 大批量删除在任何权限下都要逐次确认
+                    return PolicyDecision.Confirm($"该目录包含超过 {ctx.Policy.Config.BatchConfirmThreshold} 个文件，请仔细确认") with { Rememberable = false };
                 }
             }
         }
         catch (Exception)
         {
-            // 评估失败时仍要求确认
+            // 评估失败时按权限判定结果处理
         }
-        return PolicyDecision.Confirm("删除操作需要用户确认");
+        return decision;
     }
 
     public string Describe(JsonElement args) => $"删除 {args.Str("path")}（移入回收站）";

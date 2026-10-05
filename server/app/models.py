@@ -89,7 +89,7 @@ class AuditLog(Base):
     tool_name: Mapped[str] = mapped_column(String(100))
     arguments: Mapped[str] = mapped_column(Text, default="")
     risk: Mapped[str] = mapped_column(String(20))  # blocked / confirm / auto
-    decision: Mapped[str] = mapped_column(String(20))  # blocked / approved / rejected / auto
+    decision: Mapped[str] = mapped_column(String(20))  # blocked / approved / remembered / rejected / auto
     status: Mapped[str] = mapped_column(String(20), default="")  # ok / error / skipped
     summary: Mapped[str] = mapped_column(Text, default="")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

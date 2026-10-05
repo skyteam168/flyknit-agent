@@ -86,6 +86,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             callId = request.Call.Id,
             reason = request.Decision.Reason,
             rationale = request.Rationale,
+            rememberable = request.Decision.Rememberable,
         });
         _dispatcher.BeginInvoke(() => _window.RequestAttention());
 
@@ -151,6 +152,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     {
         string Str(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         bool Bool(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+        string? OptStr(string name) => Str(name) is { Length: > 0 } v ? v : null;
         int? Int(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
 
         switch (method)
@@ -167,7 +169,71 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     serverMessage = _host.ServerMessage,
                     modelName = _host.ModelName,
                     defaultModelId = _settings.DefaultModelId,
+                    defaultWorkspace = _settings.ResolveWorkspace(_settings.DefaultWorkspace),
+                    defaultPermission = _settings.DefaultPermission == "readonly" ? "readonly" : "workspace",
+                    workspaces = WorkspaceList(),
                 };
+
+            case "workspaces.list":
+                return WorkspaceList();
+
+            case "workspaces.add":
+            {
+                var folder = OptStr("path") ?? _window.PickFolder();
+                if (folder is null || !Directory.Exists(folder))
+                {
+                    return null;
+                }
+                var full = AppSettings.NormalizeDir(folder);
+                _settings.AddWorkspace(full);
+                _settings.Save();
+                return full;
+            }
+
+            case "workspaces.remove":
+            {
+                var path = Str("path");
+                if (!string.Equals(path, AppPaths.DefaultWorkspace, StringComparison.OrdinalIgnoreCase))
+                {
+                    _settings.Workspaces.RemoveAll(w => w.Equals(path, StringComparison.OrdinalIgnoreCase));
+                    if (string.Equals(_settings.DefaultWorkspace, path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _settings.DefaultWorkspace = null;
+                    }
+                    _settings.Save();
+                }
+                return WorkspaceList();
+            }
+
+            case "settings.setDefaultWorkspace":
+                _settings.DefaultWorkspace = OptStr("path");
+                _settings.Save();
+                return null;
+
+            case "settings.setDefaultPermission":
+                // 完全权限只对单个任务生效，不保存为默认值
+                _settings.DefaultPermission = Str("permission") == "readonly" ? "readonly" : "workspace";
+                _settings.Save();
+                return null;
+
+            case "approvals.list":
+                return _host.Approvals.List().Select(a => new
+                {
+                    key = a.Key,
+                    tool = a.Tool,
+                    display = a.Display,
+                    approvedAt = a.ApprovedAt.ToString("O"),
+                    lastUsedAt = a.LastUsedAt.ToString("O"),
+                    uses = a.Uses,
+                }).ToList();
+
+            case "approvals.revoke":
+                _host.Approvals.Revoke(Str("key"));
+                return null;
+
+            case "approvals.clear":
+                _host.Approvals.Clear();
+                return null;
 
             case "models.list":
             {
@@ -241,7 +307,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             {
                 var mode = ConversationStore.TextToMode(Str("mode"));
                 var modelId = Int("modelId");
-                var conv = await Task.Run(() => _host.Store.Create(mode, "", modelId));
+                var workspace = OptStr("workspace") ?? _settings.ResolveWorkspace(_settings.DefaultWorkspace);
+                var permission = Flyknit.Core.Security.PermissionModes.Parse(OptStr("permission") ?? _settings.DefaultPermission);
+                var conv = await Task.Run(() => _host.Store.Create(mode, "", modelId, workspace, permission));
                 return ConversationDto.From(conv);
             }
 
@@ -274,6 +342,26 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 await Task.Run(() => _host.Store.SetModel(Str("id"), Int("modelId")));
                 return null;
 
+            case "conversation.setWorkspace":
+                await Task.Run(() => _host.Store.SetWorkspace(Str("id"), OptStr("path")));
+                return null;
+
+            case "conversation.setPermission":
+                await Task.Run(() => _host.Store.SetPermission(Str("id"), Flyknit.Core.Security.PermissionModes.Parse(Str("permission"))));
+                return null;
+
+            case "message.feedback":
+                await Task.Run(() => _host.Store.SetFeedback(Str("id"), Int("value")));
+                return null;
+
+            case "chat.regenerate":
+                _host.Regenerate(Str("conversationId"), _settings.ResolveUiLanguage(), this, this);
+                return null;
+
+            case "chat.edit":
+                _host.EditAndResend(Str("conversationId"), Str("messageId"), Str("text"), OptStr("newMessageId"), _settings.ResolveUiLanguage(), this, this);
+                return null;
+
             case "conversation.setTranslate":
                 await Task.Run(() => _host.Store.SetTranslateLanguages(Str("id"), Str("from"), Str("to")));
                 return null;
@@ -293,6 +381,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     Str("conversationId"),
                     Str("text"),
                     attachments.Where(x => File.Exists(x.LocalPath)).Select(x => x.ToModel()).ToList(),
+                    OptStr("messageId"),
                     _settings.ResolveUiLanguage(),
                     this,
                     this);
@@ -308,7 +397,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 var choice = Str("choice") switch
                 {
                     "allowOnce" => ConfirmChoice.AllowOnce,
-                    "allowForConversation" => ConfirmChoice.AllowForConversation,
+                    "allowAlways" => ConfirmChoice.AllowAlways,
+                    "allowForConversation" => ConfirmChoice.AllowAlways,
                     _ => ConfirmChoice.Reject,
                 };
                 if (_confirms.TryGetValue(Str("requestId"), out var tcs))
@@ -351,6 +441,24 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 throw new NotSupportedException($"未知方法：{method}");
         }
     }
+
+    private object WorkspaceList()
+    {
+        _settings.EnsureWorkspaces();
+        return _settings.Workspaces.Select(w => new
+        {
+            path = w,
+            name = WorkspaceName(w),
+            exists = Directory.Exists(w),
+            isDefault = string.Equals(w, AppPaths.DefaultWorkspace, StringComparison.OrdinalIgnoreCase),
+        }).ToList();
+    }
+
+    private static string WorkspaceName(string path)
+    {
+        var name = Path.GetFileName(path.TrimEnd('\\', '/'));
+        return string.IsNullOrEmpty(name) ? path : name;
+    }
 }
 
 /// <summary>主窗口提供给桥接层的操作。</summary>
@@ -362,4 +470,5 @@ public interface IWindowActions
     void RequestAttention();
     void LanguageChanged(string language);
     IReadOnlyList<string> PickFiles();
+    string? PickFolder();
 }

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Brain, Check, ChevronRight, Copy, FileText, ImageIcon, OctagonAlert } from '@lucide/vue'
+import { Brain, Check, ChevronRight, Copy, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { renderMarkdown } from '../markdown'
-import { current, currentState, state } from '../store'
+import { current, currentState, editAndResend, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 
@@ -32,6 +32,66 @@ const orphanTools = computed(() => {
 })
 
 const waiting = computed(() => Object.values(s.value?.tools ?? {}).some((t) => t.state === 'waiting'))
+const busy = computed(() => s.value?.busy ?? false)
+
+/** 一轮回答的最终消息（有内容、没有工具调用）才显示复制、评价按钮 */
+const isAnswer = (m: UiMessage) => m.role === 'assistant' && !!m.content.trim() && !(m.toolCalls?.length)
+/** 最后一条回答：显示“重新生成”，并且按钮常驻显示 */
+const lastAnswerId = computed(() => {
+  const list = visible.value
+  const last = list[list.length - 1]
+  return last && isAnswer(last) ? last.id : null
+})
+
+// ---------- 编辑用户消息 ----------
+const editingId = ref<string | null>(null)
+const editText = ref('')
+const editBox = ref<HTMLTextAreaElement[]>()
+
+function startEdit(m: UiMessage) {
+  if (busy.value) return
+  editingId.value = m.id
+  editText.value = m.content
+  void nextTick(() => {
+    const el = editBox.value?.[0]
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+    autosize(el)
+  })
+}
+
+function cancelEdit() {
+  editingId.value = null
+}
+
+async function submitEdit(m: UiMessage) {
+  const text = editText.value.trim()
+  if (!text) return
+  editingId.value = null
+  if (text === m.content.trim()) return
+  stick.value = true
+  await editAndResend(m.id, text)
+}
+
+function onEditKey(e: KeyboardEvent, m: UiMessage) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault()
+    void submitEdit(m)
+  } else if (e.key === 'Escape') {
+    cancelEdit()
+  }
+}
+
+function autosize(el: HTMLTextAreaElement) {
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 320)}px`
+}
+
+async function onRegenerate() {
+  stick.value = true
+  await regenerate()
+}
 
 function isContinuation(i: number) {
   return i > 0 && visible.value[i - 1].role === 'assistant' && visible.value[i].role === 'assistant'
@@ -44,10 +104,11 @@ function onScroll() {
 }
 
 watch(
-  () => [visible.value.length, s.value?.draft?.content.length, s.value?.draft?.reasoning.length, state.currentId],
-  async (_n, o) => {
+  () => [visible.value.length, s.value?.draft?.content.length, s.value?.draft?.reasoning.length, state.currentId, waiting.value],
+  async (n, o) => {
     const switched = o && o[3] !== state.currentId
-    if (!stick.value && !switched) return
+    const newConfirm = n[4] && !(o && o[4])
+    if (!stick.value && !switched && !newConfirm) return
     await nextTick()
     scroller.value?.scrollTo({ top: scroller.value.scrollHeight })
   },
@@ -77,7 +138,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
     <div v-if="s" class="column" @click="onContentClick">
       <template v-for="(m, i) in visible" :key="m.id">
         <!-- 用户消息 -->
-        <div v-if="m.role === 'user'" class="user">
+        <div v-if="m.role === 'user'" class="user" :class="{ editing: editingId === m.id }">
           <div v-if="m.attachments?.length" class="files">
             <button v-for="a in m.attachments" :key="a.localPath" type="button" class="file" :title="a.localPath" @click="bridge.openPath(a.localPath)">
               <img v-if="a.preview" :src="a.preview" alt="" />
@@ -85,7 +146,31 @@ const isImage = (mime: string) => mime.startsWith('image/')
               <span>{{ a.fileName }}</span>
             </button>
           </div>
-          <div v-if="m.content" class="bubble">{{ m.content }}</div>
+          <div v-if="editingId === m.id" class="edit-card">
+            <textarea
+              ref="editBox"
+              v-model="editText"
+              rows="1"
+              @input="autosize($event.target as HTMLTextAreaElement)"
+              @keydown="onEditKey($event, m)"
+            />
+            <div class="edit-actions">
+              <span class="edit-hint">{{ t('ui.edit.hint') }}</span>
+              <button type="button" class="btn" @click="cancelEdit">{{ t('ui.edit.cancel') }}</button>
+              <button type="button" class="btn primary" :disabled="!editText.trim()" @click="submitEdit(m)">{{ t('ui.edit.send') }}</button>
+            </div>
+          </div>
+          <template v-else>
+            <div v-if="m.content" class="bubble">{{ m.content }}</div>
+            <div class="actions user-actions">
+              <button type="button" class="icon-btn" :title="t('message.copy')" @click.stop="copy(m)">
+                <component :is="copiedId === m.id ? Check : Copy" :size="15" />
+              </button>
+              <button type="button" class="icon-btn" :title="t('ui.edit.title')" :disabled="busy" @click.stop="startEdit(m)">
+                <Pencil :size="15" />
+              </button>
+            </div>
+          </template>
         </div>
 
         <!-- 助手消息 -->
@@ -102,9 +187,39 @@ const isImage = (mime: string) => mime.startsWith('image/')
             :tool="s.tools[c.id] ?? { callId: c.id, name: c.name, summary: '', risk: 'auto', state: 'done' }"
             :conversation-id="current!.id"
           />
-          <div v-if="m.content.trim() && !(m.toolCalls?.length)" class="actions">
+          <div v-if="isAnswer(m) && !(busy && m.id === lastAnswerId)" class="actions" :class="{ pinned: m.id === lastAnswerId }">
             <button type="button" class="icon-btn" :title="t('message.copy')" @click.stop="copy(m)">
               <component :is="copiedId === m.id ? Check : Copy" :size="15" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn"
+              :class="{ on: m.feedback === 1 }"
+              :title="t('ui.feedback.up')"
+              :aria-pressed="m.feedback === 1"
+              @click.stop="setFeedback(m, 1)"
+            >
+              <ThumbsUp :size="15" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn"
+              :class="{ on: m.feedback === -1 }"
+              :title="t('ui.feedback.down')"
+              :aria-pressed="m.feedback === -1"
+              @click.stop="setFeedback(m, -1)"
+            >
+              <ThumbsDown :size="15" />
+            </button>
+            <button
+              v-if="m.id === lastAnswerId"
+              type="button"
+              class="icon-btn"
+              :title="t('ui.feedback.regenerate')"
+              :disabled="busy"
+              @click.stop="onRegenerate"
+            >
+              <RefreshCw :size="15" />
             </button>
           </div>
         </div>
@@ -138,7 +253,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
 .column {
   max-width: var(--column);
   margin: 0 auto;
-  padding: 28px 32px 32px;
+  padding: 28px 32px 40px;
 }
 .user {
   display: flex;
@@ -238,10 +353,57 @@ const isImage = (mime: string) => mime.startsWith('image/')
   gap: 2px;
   margin: 2px 0 12px -6px;
   opacity: 0;
+  transition: opacity 120ms;
 }
 .assistant:hover .actions,
-.actions:focus-within {
+.user:hover .actions,
+.actions:focus-within,
+.actions.pinned {
   opacity: 1;
+}
+.user-actions {
+  margin: 0 -6px 0 0;
+}
+.actions .icon-btn.on {
+  color: var(--indigo);
+  background: var(--indigo-wash);
+}
+.actions .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.user.editing {
+  align-items: stretch;
+}
+.edit-card {
+  border: 1px solid color-mix(in srgb, var(--indigo) 55%, var(--line-strong));
+  border-radius: var(--r-lg);
+  background: var(--cloth);
+  box-shadow: 0 0 0 4px var(--indigo-wash);
+}
+.edit-card textarea {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  max-height: 320px;
+  padding: 12px 14px 4px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  line-height: 1.6;
+}
+.edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 6px 10px 10px;
+}
+.edit-hint {
+  flex: 1;
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
 }
 .dots {
   display: flex;

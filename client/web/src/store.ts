@@ -9,12 +9,14 @@ import type {
   HostEvent,
   Mode,
   ModelInfo,
+  Permission,
   PlanItem,
   SkillInfo,
   Theme,
   ToolActivity,
   UiLanguage,
   UiMessage,
+  WorkspaceInfo,
 } from './types'
 
 interface ConversationState {
@@ -44,7 +46,15 @@ export const state = reactive({
   filter: 'all' as 'all' | Mode,
   models: [] as ModelInfo[],
   skills: [] as SkillInfo[],
+  workspaces: [] as WorkspaceInfo[],
 })
+
+/** 消息 ID 由界面生成，与宿主数据库保持一致（编辑、重新生成时需要） */
+export function newMessageId(): string {
+  const c = window.crypto
+  if (c?.randomUUID) return c.randomUUID().replace(/-/g, '')
+  return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
+}
 
 export const current = computed(() => state.conversations.find((c) => c.id === state.currentId) ?? null)
 export const currentState = computed(() => (state.currentId ? convState(state.currentId) : null))
@@ -83,6 +93,9 @@ export async function init() {
   applyLanguage(app.uiLanguage)
   applyTheme(app.theme)
   draftMode.modelId = app.defaultModelId
+  draftMode.workspace = app.defaultWorkspace
+  draftMode.permission = app.defaultPermission
+  state.workspaces = app.workspaces ?? []
   await refreshList()
   void loadModels()
   void loadSkills()
@@ -180,7 +193,74 @@ export const draftMode = reactive({
   translateFrom: 'auto',
   translateTo: 'vi',
   modelId: null as number | null,
+  workspace: '' as string,
+  permission: 'workspace' as Permission,
 })
+
+// ---------- 工作区与权限 ----------
+/** 当前任务（或新任务草稿）的工作区 */
+export const selectedWorkspace = computed<string>(() => current.value?.workspace || draftMode.workspace || state.app?.defaultWorkspace || '')
+export const selectedPermission = computed<Permission>(() => current.value?.permission ?? draftMode.permission)
+
+export async function loadWorkspaces() {
+  try {
+    state.workspaces = await bridge.listWorkspaces()
+  } catch (e) {
+    fail(e)
+  }
+}
+
+export async function selectWorkspace(path: string) {
+  const c = current.value
+  if (c) {
+    c.workspace = path
+    await bridge.setWorkspace(c.id, path).catch(fail)
+  } else {
+    draftMode.workspace = path
+  }
+  // 最近一次选择作为以后新任务的默认工作区
+  if (state.app) state.app.defaultWorkspace = path
+  await bridge.setDefaultWorkspace(path).catch(fail)
+}
+
+/** 弹出文件夹选择框添加工作区，添加后直接切换过去 */
+export async function addWorkspace() {
+  try {
+    const path = await bridge.addWorkspace()
+    if (!path) return
+    await loadWorkspaces()
+    await selectWorkspace(path)
+  } catch (e) {
+    fail(e)
+  }
+}
+
+export async function removeWorkspace(path: string) {
+  try {
+    state.workspaces = await bridge.removeWorkspace(path)
+    if (selectedWorkspace.value === path) {
+      const fallback = state.workspaces.find((w) => w.isDefault)?.path ?? ''
+      await selectWorkspace(fallback)
+    }
+  } catch (e) {
+    fail(e)
+  }
+}
+
+/** 切换权限。完全权限只对当前任务生效，不会成为以后新任务的默认值。 */
+export async function setPermission(permission: Permission) {
+  const c = current.value
+  if (c) {
+    c.permission = permission
+    await bridge.setPermission(c.id, permission).catch(fail)
+  } else {
+    draftMode.permission = permission
+  }
+  if (permission !== 'full') {
+    if (state.app) state.app.defaultPermission = permission
+    await bridge.setDefaultPermission(permission).catch(fail)
+  }
+}
 
 export async function renameConversation(id: string, title: string) {
   const t = title.trim()
@@ -252,7 +332,7 @@ export async function send(text: string) {
   let id = state.currentId
   try {
     if (!id) {
-      const c = await bridge.createConversation(draftMode.mode, draftMode.modelId)
+      const c = await bridge.createConversation(draftMode.mode, draftMode.modelId, selectedWorkspace.value || null, draftMode.permission)
       if (draftMode.mode === 'translate') {
         await bridge.setTranslate(c.id, draftMode.translateFrom, draftMode.translateTo)
         c.translateFrom = draftMode.translateFrom
@@ -267,11 +347,10 @@ export async function send(text: string) {
     if (s.busy) return
     const attachments = state.pending.slice()
     state.pending = []
-    s.messages.push({ id: `local-${Date.now()}`, role: 'user', content: body, attachments, createdAt: new Date().toISOString() })
-    s.busy = true
-    s.notice = null
-    s.draft = { content: '', reasoning: '' }
-    await bridge.send(id, body, attachments)
+    const messageId = newMessageId()
+    s.messages.push({ id: messageId, role: 'user', content: body, attachments, createdAt: new Date().toISOString() })
+    beginRun(s)
+    await bridge.send(id, body, attachments, messageId)
   } catch (e) {
     if (id) {
       const s = convState(id)
@@ -282,6 +361,74 @@ export async function send(text: string) {
       fail(e)
     }
   }
+}
+
+function beginRun(s: ConversationState) {
+  s.busy = true
+  s.notice = null
+  s.draft = { content: '', reasoning: '' }
+}
+
+/** 从界面上移除某个位置之后的消息（以及它们的工具卡片） */
+function dropFrom(s: ConversationState, index: number) {
+  const removed = s.messages.splice(index)
+  for (const m of removed) for (const c of m.toolCalls ?? []) delete s.tools[c.id]
+}
+
+/** 重新生成最后一个问题的回答 */
+export async function regenerate() {
+  const id = state.currentId
+  if (!id) return
+  const s = convState(id)
+  if (s.busy) return
+  let last = -1
+  for (let i = s.messages.length - 1; i >= 0; i--) {
+    if (s.messages[i].role === 'user') {
+      last = i
+      break
+    }
+  }
+  if (last < 0) return
+  dropFrom(s, last + 1)
+  beginRun(s)
+  try {
+    await bridge.regenerate(id)
+  } catch (e) {
+    s.busy = false
+    s.draft = null
+    s.notice = { kind: 'error', text: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** 编辑某条用户消息后重新发送：这条消息之后的内容会被替换 */
+export async function editAndResend(messageId: string, text: string) {
+  const id = state.currentId
+  const body = text.trim()
+  if (!id || !body) return
+  const s = convState(id)
+  if (s.busy) return
+  const index = s.messages.findIndex((m) => m.id === messageId)
+  if (index < 0) return
+  const original = s.messages[index]
+  dropFrom(s, index)
+  const newId = newMessageId()
+  s.messages.push({ id: newId, role: 'user', content: body, attachments: original.attachments, createdAt: new Date().toISOString() })
+  beginRun(s)
+  try {
+    await bridge.editMessage(id, messageId, body, newId)
+  } catch (e) {
+    s.busy = false
+    s.draft = null
+    s.notice = { kind: 'error', text: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** 赞 / 踩；再次点击同一个按钮取消 */
+export async function setFeedback(m: UiMessage, value: 1 | -1) {
+  const next = m.feedback === value ? null : value
+  m.feedback = next
+  await bridge.feedback(m.id, next).catch(fail)
+  if (next !== null) toast(i18n.global.t('ui.feedback.thanks'))
 }
 
 export async function stop() {
@@ -377,7 +524,7 @@ function onHostEvent(e: HostEvent) {
       const t = convState(e.conversationId).tools[e.callId]
       if (t) {
         t.state = 'waiting'
-        t.confirm = { requestId: e.requestId, reason: e.reason, rationale: e.rationale }
+        t.confirm = { requestId: e.requestId, reason: e.reason, rationale: e.rationale, rememberable: e.rememberable ?? true }
       }
       break
     }
@@ -386,6 +533,7 @@ function onHostEvent(e: HostEvent) {
       if (t) {
         t.output = e.output
         t.confirm = undefined
+        t.remembered = e.decision === 'remembered'
         t.state =
           e.decision === 'blocked' ? 'blocked' : e.decision === 'rejected' ? 'rejected' : e.ok ? 'done' : 'failed'
       }

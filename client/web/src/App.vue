@@ -90,9 +90,12 @@ onBeforeUnmount(() => {
     <p>{{ initError }}</p>
     <button type="button" class="btn primary" @click="reload">Reload</button>
   </div>
-  <div v-else-if="!ready" class="init-error loading">
-    <span class="spinner" />
-    <p>Flyknit…</p>
+  <div v-else-if="!ready" class="boot">
+    <div class="boot-card" role="status" aria-live="polite">
+      <span class="spinner" />
+      <p class="boot-title">{{ t('ui.loading.title') }}</p>
+      <p class="boot-sub">{{ t('ui.loading.subtitle') }}</p>
+    </div>
   </div>
   <div
     v-else
@@ -137,14 +140,44 @@ onBeforeUnmount(() => {
   text-align: center;
   color: var(--ink-soft);
 }
+/* 启动卡片：与 index.html 和宿主窗口中的加载卡片保持一致，切换时不闪烁 */
+.boot {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #f4f6f9;
+}
+.boot-card {
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  padding: 32px 36px;
+  border-radius: 16px;
+  border: 1px solid #e6e8ee;
+  background: #fff;
+  box-shadow: 0 12px 32px -10px rgba(27, 36, 64, 0.18);
+  text-align: center;
+}
 .spinner {
-  justify-self: center;
-  width: 26px;
-  height: 26px;
+  display: block;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 20px;
   border-radius: 50%;
-  border: 3px solid var(--line);
-  border-top-color: var(--indigo);
-  animation: spin 800ms linear infinite;
+  border: 4px solid #e9ebf2;
+  border-top-color: #3446c9;
+  animation: spin 900ms linear infinite;
+}
+.boot-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #1f2330;
+}
+.boot-sub {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #7a8092;
 }
 @keyframes spin {
   to {

@@ -7,11 +7,14 @@ namespace Flyknit.Core.Agent;
 
 public enum ConfirmChoice
 {
-    /// <summary>允许这一次。</summary>
+    /// <summary>只允许这一次。</summary>
     AllowOnce,
 
-    /// <summary>本会话内同一工具不再询问（命令类工具仍逐条确认）。</summary>
+    /// <summary>旧版选项，等同于 AllowAlways。</summary>
     AllowForConversation,
+
+    /// <summary>允许，并且以后完全相同的操作不再询问。</summary>
+    AllowAlways,
 
     Reject,
 }

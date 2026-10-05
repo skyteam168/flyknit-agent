@@ -67,11 +67,12 @@ public class AgentLoopTests : IDisposable
         public void OnPlanUpdated(IReadOnlyList<PlanItem> plan) => Plans.Add(plan);
     }
 
-    private ToolContext Context() => new()
+    private ToolContext Context(PermissionMode permission = PermissionMode.Workspace) => new()
     {
         Policy = CommandPolicy.Default(),
         ConversationId = "c1",
-        WorkingDirectory = _dir,
+        Workspace = _dir,
+        Permission = permission,
     };
 
     private static ChatTurn Call(string name, string args, string content = "") => new()
@@ -102,12 +103,11 @@ public class AgentLoopTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteNeedsConfirmationAndRejectionIsRespected()
+    public async Task CommandNeedsConfirmationAndRejectionIsRespected()
     {
-        var target = Path.Combine(_dir, "out.txt");
         var gateway = new ScriptedGateway(
-            Call("write_file", $"{{\"path\":{Json(target)},\"content\":\"x\"}}", "我将创建 out.txt"),
-            new ChatTurn { Content = "好的，未创建" });
+            Call("run_shell", "{\"command\":\"echo hi > out.txt\"}", "我将创建 out.txt"),
+            new ChatTurn { Content = "好的，未执行" });
         var confirm = new FixedConfirm(ConfirmChoice.Reject);
         var audit = new Audit();
         var observer = new Observer();
@@ -117,24 +117,96 @@ public class AgentLoopTests : IDisposable
 
         var request = Assert.Single(confirm.Requests);
         Assert.Equal("我将创建 out.txt", request.Rationale);
-        Assert.False(File.Exists(target));
+        Assert.False(File.Exists(Path.Combine(_dir, "out.txt")));
         Assert.Equal("rejected", Assert.Single(audit.Entries).Decision);
-        Assert.Contains("finish:write_file:rejected", observer.Events);
+        Assert.Contains("finish:run_shell:rejected", observer.Events);
     }
 
     [Fact]
-    public async Task ApprovedWriteIsExecuted()
+    public async Task WriteInsideWorkspaceRunsWithoutConfirmation()
     {
         var target = Path.Combine(_dir, "sub", "out.txt");
-        var gateway = new ScriptedGateway(Call("write_file", $"{{\"path\":{Json(target)},\"content\":\"Xin chào\"}}"), new ChatTurn { Content = "已完成" });
+        var gateway = new ScriptedGateway(
+            Call("write_file", "{\"path\":\"sub/out.txt\",\"content\":\"Xin chào\"}"),
+            new ChatTurn { Content = "已完成" });
+        var confirm = new FixedConfirm(ConfirmChoice.Reject);
         var audit = new Audit();
 
-        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), new FixedConfirm(ConfirmChoice.AllowOnce), audit)
+        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), confirm, audit)
             .RunAsync(new List<ChatMessage> { ChatMessage.User("写文件") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
 
-        Assert.Equal("Xin chào", File.ReadAllText(target));
-        Assert.Equal("approved", audit.Entries[0].Decision);
-        Assert.Equal("ok", audit.Entries[0].Status);
+        Assert.Empty(confirm.Requests);
+        Assert.Equal("Xin chào", File.ReadAllText(target)); // 相对路径写到工作区
+        Assert.Equal("auto", audit.Entries[0].Decision);
+    }
+
+    [Fact]
+    public async Task WriteOutsideWorkspaceIsBlocked()
+    {
+        var outside = Directory.CreateTempSubdirectory("flyknit-outside").FullName;
+        try
+        {
+            var target = Path.Combine(outside, "x.txt");
+            var gateway = new ScriptedGateway(Call("write_file", $"{{\"path\":{Json(target)},\"content\":\"x\"}}"), new ChatTurn { Content = "无法写入" });
+            var confirm = new FixedConfirm(ConfirmChoice.AllowOnce);
+
+            var result = await new AgentLoop(gateway, ToolRegistry.CreateDefault(), confirm)
+                .RunAsync(new List<ChatMessage> { ChatMessage.User("写") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
+
+            Assert.Empty(confirm.Requests);
+            Assert.False(File.Exists(target));
+            Assert.Contains("工作区内修改", result.NewMessages[1].Content);
+
+            // 完全权限下可以写工作区外的文件，且无需确认
+            var full = new ScriptedGateway(Call("write_file", $"{{\"path\":{Json(target)},\"content\":\"x\"}}"), new ChatTurn { Content = "ok" });
+            await new AgentLoop(full, ToolRegistry.CreateDefault(), confirm)
+                .RunAsync(new List<ChatMessage> { ChatMessage.User("写") }, Scenes.Agent, Context(PermissionMode.Full), new Observer(), true, CancellationToken.None);
+            Assert.Empty(confirm.Requests);
+            Assert.True(File.Exists(target));
+        }
+        finally
+        {
+            Directory.Delete(outside, true);
+        }
+    }
+
+    [Fact]
+    public async Task ReadOnlyBlocksWritesAndCommandsButAllowsReads()
+    {
+        File.WriteAllText(Path.Combine(_dir, "a.txt"), "hello");
+        var gateway = new ScriptedGateway(
+            Call("read_file", "{\"path\":\"a.txt\"}"),
+            Call("write_file", "{\"path\":\"b.txt\",\"content\":\"x\"}"),
+            Call("run_shell", "{\"command\":\"echo hi > c.txt\"}"),
+            new ChatTurn { Content = "ok" });
+        var confirm = new FixedConfirm(ConfirmChoice.AllowOnce);
+        var audit = new Audit();
+
+        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), confirm, audit)
+            .RunAsync(new List<ChatMessage> { ChatMessage.User("x") }, Scenes.Agent, Context(PermissionMode.ReadOnly), new Observer(), true, CancellationToken.None);
+
+        Assert.Empty(confirm.Requests);
+        Assert.Equal(new[] { "auto", "blocked", "blocked" }, audit.Entries.Select(e => e.Decision));
+        Assert.False(File.Exists(Path.Combine(_dir, "b.txt")));
+        Assert.False(File.Exists(Path.Combine(_dir, "c.txt")));
+    }
+
+    [Fact]
+    public async Task FullPermissionRunsCommandsWithoutAskingButStillBlocksDangerous()
+    {
+        var gateway = new ScriptedGateway(
+            Call("run_shell", "{\"command\":\"echo hi > c.txt\"}"),
+            Call("run_shell", "{\"command\":\"rm -rf /\"}"),
+            new ChatTurn { Content = "ok" });
+        var confirm = new FixedConfirm(ConfirmChoice.AllowOnce);
+        var audit = new Audit();
+
+        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), confirm, audit)
+            .RunAsync(new List<ChatMessage> { ChatMessage.User("x") }, Scenes.Agent, Context(PermissionMode.Full), new Observer(), true, CancellationToken.None);
+
+        Assert.Empty(confirm.Requests);
+        Assert.Equal(new[] { "auto", "blocked" }, audit.Entries.Select(e => e.Decision));
+        Assert.True(File.Exists(Path.Combine(_dir, "c.txt")));
     }
 
     [Fact]
@@ -153,21 +225,67 @@ public class AgentLoopTests : IDisposable
     }
 
     [Fact]
-    public async Task AllowForConversationSkipsLaterConfirmationsExceptShell()
+    public async Task ApprovedCommandIsRememberedAcrossRuns()
     {
-        var gateway = new ScriptedGateway(
-            Call("write_file", $"{{\"path\":{Json(Path.Combine(_dir, "1.txt"))},\"content\":\"1\"}}"),
-            Call("write_file", $"{{\"path\":{Json(Path.Combine(_dir, "2.txt"))},\"content\":\"2\"}}"),
-            Call("run_shell", "{\"command\":\"echo hi\"}"),
-            Call("run_shell", "{\"command\":\"echo again\"}"),
-            new ChatTurn { Content = "完成" });
-        var confirm = new FixedConfirm(ConfirmChoice.AllowForConversation);
+        var approvals = new ApprovalStore();
+        var confirm = new FixedConfirm(ConfirmChoice.AllowAlways);
+        var observer = new Observer();
 
-        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), confirm)
+        async Task Run(params ChatTurn[] turns) =>
+            await new AgentLoop(new ScriptedGateway(turns), ToolRegistry.CreateDefault(), confirm, approvals: approvals)
+                .RunAsync(new List<ChatMessage> { ChatMessage.User("go") }, Scenes.Agent, Context(), observer, true, CancellationToken.None);
+
+        await Run(Call("run_shell", "{\"command\":\"echo hi > a.txt\"}"), new ChatTurn { Content = "ok" });
+        // 新的一次运行（相当于新对话），同样的命令（多余空格、大小写不同）不再询问
+        await Run(Call("run_shell", "{\"command\":\"echo  HI > a.txt\"}"), new ChatTurn { Content = "ok" });
+        // 不同的命令仍要确认
+        await Run(Call("run_shell", "{\"command\":\"echo bye > a.txt\"}"), new ChatTurn { Content = "ok" });
+
+        Assert.Equal(2, confirm.Requests.Count);
+        Assert.Contains("finish:run_shell:remembered", observer.Events);
+        Assert.Equal(2, approvals.List().Count);
+    }
+
+    [Fact]
+    public async Task AllowOnceIsNotRememberedAndDeletesAlwaysAsk()
+    {
+        var approvals = new ApprovalStore();
+        var confirm = new FixedConfirm(ConfirmChoice.AllowAlways);
+        File.WriteAllText(Path.Combine(_dir, "1.txt"), "1");
+        File.WriteAllText(Path.Combine(_dir, "2.txt"), "2");
+        var gateway = new ScriptedGateway(
+            Call("delete_path", "{\"path\":\"1.txt\"}"),
+            Call("delete_path", "{\"path\":\"1.txt\"}"),
+            new ChatTurn { Content = "ok" });
+
+        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), confirm, approvals: approvals)
             .RunAsync(new List<ChatMessage> { ChatMessage.User("go") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
 
-        // write_file 只问一次；run_shell 每次都问
-        Assert.Equal(new[] { "write_file", "run_shell", "run_shell" }, confirm.Requests.Select(r => r.Call.Name));
+        Assert.Equal(2, confirm.Requests.Count); // 删除不能被记住
+        Assert.False(confirm.Requests[0].Decision.Rememberable);
+        Assert.Empty(approvals.List());
+
+        var once = new FixedConfirm(ConfirmChoice.AllowOnce);
+        for (var i = 0; i < 2; i++)
+        {
+            await new AgentLoop(new ScriptedGateway(Call("run_shell", "{\"command\":\"echo x > b.txt\"}"), new ChatTurn { Content = "ok" }), ToolRegistry.CreateDefault(), once, approvals: approvals)
+                .RunAsync(new List<ChatMessage> { ChatMessage.User("go") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
+        }
+        Assert.Equal(2, once.Requests.Count);
+    }
+
+    [Fact]
+    public void ApprovalStorePersistsToFile()
+    {
+        var file = Path.Combine(_dir, "approvals.json");
+        var args = System.Text.Json.JsonDocument.Parse("{\"command\":\"npm install\"}").RootElement;
+        var key = ApprovalStore.KeyFor("run_shell", args);
+        new ApprovalStore(file).Approve(key, "run_shell", "npm install");
+
+        var reloaded = new ApprovalStore(file);
+        Assert.True(reloaded.IsApproved(key));
+        reloaded.Revoke(key);
+        Assert.False(new ApprovalStore(file).IsApproved(key));
     }
 
     [Fact]

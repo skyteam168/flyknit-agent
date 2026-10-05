@@ -45,6 +45,10 @@ public sealed class PromptContext
     /// <summary>翻译模式：源语言（"auto" 表示自动检测）与目标语言代码。</summary>
     public string TranslateFrom { get; init; } = "auto";
     public string TranslateTo { get; init; } = "vi";
+
+    /// <summary>办事模式：工作区目录与权限模式。</summary>
+    public string? Workspace { get; init; }
+    public Security.PermissionMode Permission { get; init; } = Security.PermissionMode.Workspace;
 }
 
 public sealed class PromptBuilder
@@ -82,6 +86,11 @@ public sealed class PromptBuilder
                 5. 用户上传的文件会以路径形式给出，用工具读取。
                 6. 完成后简要总结做了什么、结果在哪里。
                 """);
+            if (!string.IsNullOrWhiteSpace(ctx.Workspace))
+            {
+                sb.AppendLine($"工作区：{ctx.Workspace}。相对路径、命令的默认工作目录都在这里；生成的文件、脚本、编译输出等都放在工作区内（可以建子文件夹），不要散落到桌面或其他目录。");
+            }
+            sb.AppendLine("当前权限：" + Security.PermissionModes.Describe(ctx.Permission, ctx.Workspace));
             sb.AppendLine();
         }
 

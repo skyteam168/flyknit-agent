@@ -17,6 +17,11 @@ public static class AppPaths
     public static string Skills => Path.Combine(Root, "skills");
     public static string OrgSkills => Path.Combine(Root, "skills", "org");
     public static string Logs => Path.Combine(Root, "logs");
+    public static string Approvals => Path.Combine(Root, "approvals.json");
+
+    /// <summary>默认工作区：我的文档\Flyknit。</summary>
+    public static string DefaultWorkspace { get; } =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Flyknit");
 
     public static string Temp { get; } = Path.Combine(Path.GetTempPath(), "Flyknit");
 
@@ -46,6 +51,15 @@ public sealed class AppSettings
 
     public double WindowWidth { get; set; } = 1040;
     public double WindowHeight { get; set; } = 720;
+
+    /// <summary>用户添加过的工作区目录（默认工作区始终在列表中）。</summary>
+    public System.Collections.Generic.List<string> Workspaces { get; set; } = new();
+
+    /// <summary>新任务默认使用的工作区，为空时使用默认工作区。</summary>
+    public string? DefaultWorkspace { get; set; }
+
+    /// <summary>新任务默认的权限：readonly / workspace。完全权限只对单个任务生效，不会成为默认值。</summary>
+    public string DefaultPermission { get; set; } = "workspace";
 
     /// <summary>软件别名，例如 "生产程序" → "D:\MES\client.exe"。后续由服务端下发。</summary>
     public System.Collections.Generic.Dictionary<string, string> AppAliases { get; set; } = new();
@@ -79,6 +93,66 @@ public sealed class AppSettings
         var tmp = AppPaths.SettingsFile + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(this, Json));
         File.Move(tmp, AppPaths.SettingsFile, overwrite: true);
+    }
+
+    /// <summary>确保默认工作区存在并在列表首位，去掉重复项。</summary>
+    public void EnsureWorkspaces()
+    {
+        try
+        {
+            Directory.CreateDirectory(AppPaths.DefaultWorkspace);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("创建默认工作区失败", ex);
+        }
+        var list = new System.Collections.Generic.List<string> { AppPaths.DefaultWorkspace };
+        foreach (var w in Workspaces)
+        {
+            var full = NormalizeDir(w);
+            if (full.Length > 0 && !list.Exists(x => x.Equals(full, StringComparison.OrdinalIgnoreCase)))
+            {
+                list.Add(full);
+            }
+        }
+        Workspaces = list;
+    }
+
+    public void AddWorkspace(string path)
+    {
+        var full = NormalizeDir(path);
+        if (full.Length > 0 && !Workspaces.Exists(x => x.Equals(full, StringComparison.OrdinalIgnoreCase)))
+        {
+            Workspaces.Add(full);
+        }
+    }
+
+    /// <summary>任务实际使用的工作区：指定的目录不存在时退回默认工作区。</summary>
+    public string ResolveWorkspace(string? workspace)
+    {
+        foreach (var candidate in new[] { workspace, DefaultWorkspace })
+        {
+            if (!string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
+            {
+                return NormalizeDir(candidate);
+            }
+        }
+        Directory.CreateDirectory(AppPaths.DefaultWorkspace);
+        return AppPaths.DefaultWorkspace;
+    }
+
+    public static string NormalizeDir(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path.Trim().Trim('"')));
+            var root = Path.GetPathRoot(full);
+            return full.Length > (root?.Length ?? 0) ? full.TrimEnd('\\', '/') : full;
+        }
+        catch (Exception)
+        {
+            return "";
+        }
     }
 
     /// <summary>首次启动时根据 Windows 区域选择界面语言。</summary>

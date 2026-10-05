@@ -54,7 +54,20 @@ public sealed class ToolContext
 {
     public required CommandPolicy Policy { get; init; }
     public required string ConversationId { get; init; }
-    public string WorkingDirectory { get; init; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    /// <summary>任务的工作区：相对路径、命令默认工作目录、产出文件都在这里。</summary>
+    public string? Workspace { get; init; }
+
+    /// <summary>用户为任务选择的权限模式。</summary>
+    public PermissionMode Permission { get; init; } = PermissionMode.Workspace;
+
+    private readonly string? _workingDirectory;
+
+    public string WorkingDirectory
+    {
+        get => _workingDirectory ?? Workspace ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        init => _workingDirectory = value;
+    }
+
     public MemoryStore? Memory { get; init; }
     public SkillCatalog? Skills { get; init; }
     public IFileDeleter Deleter { get; init; } = new PermanentDeleter();
@@ -71,6 +84,23 @@ public sealed class ToolContext
         var expanded = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
         return Path.GetFullPath(Path.IsPathRooted(expanded) ? expanded : Path.Combine(WorkingDirectory, expanded));
     }
+
+    /// <summary>写入或删除路径的判定（结合权限模式与工作区）。</summary>
+    public PolicyDecision AssessWrite(string rawPath, bool delete = false)
+    {
+        string full;
+        try
+        {
+            full = ResolvePath(rawPath);
+        }
+        catch (Exception)
+        {
+            return PolicyDecision.Blocked("路径无效");
+        }
+        return PermissionRules.ForWrite(Policy, Permission, Workspace, full, delete);
+    }
+
+    public bool InWorkspace(string fullPath) => PermissionRules.IsInWorkspace(fullPath, Workspace);
 }
 
 public interface ITool

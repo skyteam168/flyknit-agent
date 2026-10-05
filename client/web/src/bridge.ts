@@ -9,6 +9,9 @@
  */
 import type {
   AppInfo,
+  ApprovalInfo,
+  Permission,
+  WorkspaceInfo,
   AttachmentRef,
   ConfirmChoice,
   Conversation,
@@ -116,8 +119,10 @@ class Bridge {
   // ---------- 会话 ----------
   listConversations = (query = '', trash = false) =>
     this.call<Conversation[]>('conversations.list', { query, trash })
-  createConversation = (mode: Mode, modelId: number | null) =>
-    this.call<Conversation>('conversation.create', { mode, modelId })
+  createConversation = (mode: Mode, modelId: number | null, workspace: string | null, permission: Permission) =>
+    this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission })
+  setWorkspace = (id: string, path: string | null) => this.call<void>('conversation.setWorkspace', { id, path })
+  setPermission = (id: string, permission: Permission) => this.call<void>('conversation.setPermission', { id, permission })
   setModel = (id: string, modelId: number | null) => this.call<void>('conversation.setModel', { id, modelId })
   renameConversation = (id: string, title: string) => this.call<void>('conversation.rename', { id, title })
   deleteConversation = (id: string) => this.call<void>('conversation.delete', { id })
@@ -135,9 +140,24 @@ class Bridge {
   listSkills = () => this.call<SkillInfo[]>('skills.list')
   openSkillsFolder = () => this.call<void>('skills.openFolder')
 
+  // ---------- 工作区与权限 ----------
+  listWorkspaces = () => this.call<WorkspaceInfo[]>('workspaces.list')
+  /** 不传 path 时弹出文件夹选择框；取消返回 null */
+  addWorkspace = (path?: string) => this.call<string | null>('workspaces.add', path ? { path } : {})
+  removeWorkspace = (path: string) => this.call<WorkspaceInfo[]>('workspaces.remove', { path })
+  setDefaultWorkspace = (path: string | null) => this.call<void>('settings.setDefaultWorkspace', { path })
+  setDefaultPermission = (permission: Permission) => this.call<void>('settings.setDefaultPermission', { permission })
+  listApprovals = () => this.call<ApprovalInfo[]>('approvals.list')
+  revokeApproval = (key: string) => this.call<void>('approvals.revoke', { key })
+  clearApprovals = () => this.call<void>('approvals.clear')
+
   // ---------- 对话 ----------
-  send = (conversationId: string, text: string, attachments: AttachmentRef[]) =>
-    this.call<void>('chat.send', { conversationId, text, attachments })
+  send = (conversationId: string, text: string, attachments: AttachmentRef[], messageId: string) =>
+    this.call<void>('chat.send', { conversationId, text, attachments, messageId })
+  regenerate = (conversationId: string) => this.call<void>('chat.regenerate', { conversationId })
+  editMessage = (conversationId: string, messageId: string, text: string, newMessageId: string) =>
+    this.call<void>('chat.edit', { conversationId, messageId, text, newMessageId })
+  feedback = (id: string, value: number | null) => this.call<void>('message.feedback', { id, value })
   stop = (conversationId: string) => this.call<void>('chat.stop', { conversationId })
   confirm = (requestId: string, choice: ConfirmChoice) => this.call<void>('tool.confirm', { requestId, choice })
 

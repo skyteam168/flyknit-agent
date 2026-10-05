@@ -19,6 +19,9 @@ public enum RiskLevel
 
 public sealed record PolicyDecision(RiskLevel Level, string Reason)
 {
+    /// <summary>需要确认时，用户能否选择“以后同样的操作自动允许”。删除等操作每次都要确认。</summary>
+    public bool Rememberable { get; init; } = true;
+
     public static PolicyDecision Auto(string reason = "") => new(RiskLevel.Auto, reason);
     public static PolicyDecision Confirm(string reason = "") => new(RiskLevel.Confirm, reason);
     public static PolicyDecision Blocked(string reason) => new(RiskLevel.Blocked, reason);
@@ -260,7 +263,7 @@ public sealed class CommandPolicy
         }
     }
 
-    internal static bool IsUnder(string fullPath, string root)
+    public static bool IsUnder(string fullPath, string root)
     {
         var a = fullPath.Replace('/', '\\').TrimEnd('\\');
         var b = root.Replace('/', '\\').TrimEnd('\\');

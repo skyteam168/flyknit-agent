@@ -64,8 +64,7 @@ public sealed class OpenAppTool : ITool
         var ext = Path.GetExtension(name).ToLowerInvariant();
         if (ext is ".ps1" or ".bat" or ".cmd" or ".vbs" or ".js" or ".py")
         {
-            var script = ctx.Policy.EvaluateScript(ctx.ResolvePath(name));
-            return script.Level == RiskLevel.Blocked ? script : PolicyDecision.Confirm("运行脚本需要用户确认");
+            return PermissionRules.ForScript(ctx.Policy, ctx.Permission, ctx.ResolvePath(name));
         }
         return PolicyDecision.Auto();
     }

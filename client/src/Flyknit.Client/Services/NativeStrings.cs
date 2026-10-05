@@ -24,6 +24,8 @@ public static class NativeStrings
             ["setup.failed"] = "连接失败：{0}",
             ["error.webview"] = "缺少 Microsoft Edge WebView2 运行时，请联系 IT 安装后重试。",
             ["confirm.notify"] = "Flyknit 需要你确认一个操作",
+            ["loading.title"] = "正在启动 Flyknit…",
+            ["loading.subtitle"] = "准备就绪后将自动打开工作区。",
         },
         ["vi-VN"] = new()
         {
@@ -42,6 +44,8 @@ public static class NativeStrings
             ["setup.failed"] = "Kết nối thất bại: {0}",
             ["error.webview"] = "Thiếu Microsoft Edge WebView2 Runtime, vui lòng liên hệ IT để cài đặt.",
             ["confirm.notify"] = "Flyknit cần bạn xác nhận một thao tác",
+            ["loading.title"] = "Đang khởi động Flyknit…",
+            ["loading.subtitle"] = "Không gian làm việc sẽ tự mở khi sẵn sàng.",
         },
         ["en-US"] = new()
         {
@@ -60,6 +64,8 @@ public static class NativeStrings
             ["setup.failed"] = "Couldn't connect: {0}",
             ["error.webview"] = "Microsoft Edge WebView2 Runtime is missing. Ask IT to install it, then try again.",
             ["confirm.notify"] = "Flyknit needs your approval for an action",
+            ["loading.title"] = "Starting Flyknit…",
+            ["loading.subtitle"] = "Your workspace will open automatically when it's ready.",
         },
     };
 

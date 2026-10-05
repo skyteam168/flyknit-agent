@@ -102,6 +102,51 @@ public class ConversationStoreTests : IDisposable
     }
 
     [Fact]
+    public void WorkspaceAndPermissionArePerConversation()
+    {
+        var a = _store.Create(ConversationMode.Agent, "", null, "D:\\agentwork", Flyknit.Core.Security.PermissionMode.ReadOnly);
+        var loaded = _store.Get(a.Id)!;
+        Assert.Equal("D:\\agentwork", loaded.Workspace);
+        Assert.Equal(Flyknit.Core.Security.PermissionMode.ReadOnly, loaded.Permission);
+        _store.SetWorkspace(a.Id, "E:\\work");
+        _store.SetPermission(a.Id, Flyknit.Core.Security.PermissionMode.Full);
+        loaded = _store.Get(a.Id)!;
+        Assert.Equal("E:\\work", loaded.Workspace);
+        Assert.Equal(Flyknit.Core.Security.PermissionMode.Full, loaded.Permission);
+    }
+
+    [Fact]
+    public void FeedbackAndTruncationForRegenerateAndEdit()
+    {
+        var conv = _store.Create(ConversationMode.Chat);
+        var q1 = ChatMessage.User("问题一");
+        var a1 = ChatMessage.Assistant("回答一");
+        var q2 = ChatMessage.User("问题二");
+        var a2 = ChatMessage.Assistant("回答二");
+        _store.AddMessages(conv.Id, new[] { q1, a1, q2, a2 });
+
+        _store.SetFeedback(a1.Id, 1);
+        _store.SetFeedback(a2.Id, -5);
+        var messages = _store.GetMessages(conv.Id);
+        Assert.Equal(1, messages[1].Feedback);
+        Assert.Equal(-1, messages[3].Feedback);
+        Assert.Null(messages[0].Feedback);
+
+        // 重新生成：删除最后一个问题之后的回答
+        Assert.Equal(1, _store.DeleteMessagesFrom(conv.Id, q2.Id, inclusive: false));
+        Assert.Equal(3, _store.GetMessages(conv.Id).Count);
+
+        // 编辑第一个问题：连同它及之后的消息一起删除
+        Assert.Equal(3, _store.DeleteMessagesFrom(conv.Id, q1.Id, inclusive: true));
+        Assert.Empty(_store.GetMessages(conv.Id));
+        Assert.Equal(-1, _store.DeleteMessagesFrom(conv.Id, "missing", inclusive: true));
+
+        // 删除后继续追加，顺序正确
+        _store.AddMessages(conv.Id, new[] { ChatMessage.User("新问题") });
+        Assert.Equal("新问题", Assert.Single(_store.GetMessages(conv.Id)).Content);
+    }
+
+    [Fact]
     public void RenameUnknownConversationThrows()
     {
         Assert.Throws<KeyNotFoundException>(() => _store.Rename("nope", "x"));

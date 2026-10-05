@@ -21,6 +21,11 @@ public sealed class Conversation
     /// <summary>用户为该会话选择的模型（服务端模型 ID），为空表示自动。</summary>
     public int? ModelId { get; set; }
 
+    /// <summary>办事模式的工作区目录，为空时使用默认工作区。</summary>
+    public string? Workspace { get; set; }
+
+    public Security.PermissionMode Permission { get; set; } = Security.PermissionMode.Workspace;
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? DeletedAt { get; set; }
@@ -88,27 +93,42 @@ public sealed class ConversationStore
             """;
         cmd.ExecuteNonQuery();
 
-        // v0.2：会话记录所选模型
+        // v0.2：会话记录所选模型；v0.3：工作区、权限、回答评价
+        AddColumn(c, "conversations", "model_id", "INTEGER NULL");
+        AddColumn(c, "conversations", "workspace", "TEXT NULL");
+        AddColumn(c, "conversations", "permission", "TEXT NOT NULL DEFAULT 'workspace'");
+        AddColumn(c, "messages", "feedback", "INTEGER NULL");
+    }
+
+    private static void AddColumn(SqliteConnection c, string table, string column, string definition)
+    {
         using var info = c.CreateCommand();
-        info.CommandText = "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'model_id'";
+        info.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'";
         if (Convert.ToInt64(info.ExecuteScalar()) == 0)
         {
             using var alter = c.CreateCommand();
-            alter.CommandText = "ALTER TABLE conversations ADD COLUMN model_id INTEGER NULL";
+            alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}";
             alter.ExecuteNonQuery();
         }
     }
 
-    public Conversation Create(ConversationMode mode, string title = "", int? modelId = null)
+    public Conversation Create(
+        ConversationMode mode,
+        string title = "",
+        int? modelId = null,
+        string? workspace = null,
+        Security.PermissionMode permission = Security.PermissionMode.Workspace)
     {
-        var conv = new Conversation { Mode = mode, Title = title, ModelId = modelId };
+        var conv = new Conversation { Mode = mode, Title = title, ModelId = modelId, Workspace = workspace, Permission = permission };
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO conversations (id, title, title_source, mode, pinned, translate_from, translate_to, model_id, created_at, updated_at)
-            VALUES ($id, $title, 'auto', $mode, 0, $from, $to, $model, $created, $updated)
+            INSERT INTO conversations (id, title, title_source, mode, pinned, translate_from, translate_to, model_id, workspace, permission, created_at, updated_at)
+            VALUES ($id, $title, 'auto', $mode, 0, $from, $to, $model, $ws, $perm, $created, $updated)
             """;
         cmd.Parameters.AddWithValue("$model", (object?)modelId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ws", (object?)workspace ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$perm", Security.PermissionModes.ToText(permission));
         cmd.Parameters.AddWithValue("$id", conv.Id);
         cmd.Parameters.AddWithValue("$title", conv.Title);
         cmd.Parameters.AddWithValue("$mode", ModeToText(mode));
@@ -175,6 +195,56 @@ public sealed class ConversationStore
     public void SetMode(string id, ConversationMode mode) => Update(id, "mode = $v", ModeToText(mode));
 
     public void SetModel(string id, int? modelId) => Update(id, "model_id = $v", (object?)modelId ?? DBNull.Value);
+
+    public void SetWorkspace(string id, string? workspace) => Update(id, "workspace = $v", (object?)workspace ?? DBNull.Value);
+
+    public void SetPermission(string id, Security.PermissionMode mode) => Update(id, "permission = $v", Security.PermissionModes.ToText(mode));
+
+    /// <summary>给回答点赞（1）、踩（-1）或取消（null）。</summary>
+    public void SetFeedback(string messageId, int? value)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE messages SET feedback = $v WHERE id = $id";
+        cmd.Parameters.AddWithValue("$v", value is null ? DBNull.Value : Math.Sign(value.Value));
+        cmd.Parameters.AddWithValue("$id", messageId);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// 删除某条消息之后的所有消息（inclusive 为 true 时连同这条消息一起删除），用于重新生成和编辑后重发。
+    /// 返回删除的条数；消息不存在时返回 -1。
+    /// </summary>
+    public int DeleteMessagesFrom(string conversationId, string messageId, bool inclusive)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        long seq;
+        using (var q = c.CreateCommand())
+        {
+            q.Transaction = tx;
+            q.CommandText = "SELECT seq FROM messages WHERE conversation_id = $conv AND id = $id";
+            q.Parameters.AddWithValue("$conv", conversationId);
+            q.Parameters.AddWithValue("$id", messageId);
+            var found = q.ExecuteScalar();
+            if (found is null)
+            {
+                return -1;
+            }
+            seq = Convert.ToInt64(found);
+        }
+        int removed;
+        using (var d = c.CreateCommand())
+        {
+            d.Transaction = tx;
+            d.CommandText = $"DELETE FROM messages WHERE conversation_id = $conv AND seq {(inclusive ? ">=" : ">")} $seq";
+            d.Parameters.AddWithValue("$conv", conversationId);
+            d.Parameters.AddWithValue("$seq", seq);
+            removed = d.ExecuteNonQuery();
+        }
+        tx.Commit();
+        return removed;
+    }
 
     public void SetTranslateLanguages(string id, string from, string to)
     {
@@ -265,7 +335,7 @@ public sealed class ConversationStore
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            SELECT id, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at
+            SELECT id, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, feedback
             FROM messages WHERE conversation_id = $id ORDER BY seq
             """;
         cmd.Parameters.AddWithValue("$id", conversationId);
@@ -284,6 +354,7 @@ public sealed class ConversationStore
                 ToolName = r.IsDBNull(6) ? null : r.GetString(6),
                 Attachments = r.IsDBNull(7) ? new() : JsonSerializer.Deserialize<List<Attachment>>(r.GetString(7), Json) ?? new(),
                 CreatedAt = DateTimeOffset.Parse(r.GetString(8)),
+                Feedback = r.IsDBNull(9) ? null : (int)r.GetInt64(9),
             });
         }
         return list;
@@ -301,7 +372,7 @@ public sealed class ConversationStore
 
     private const string SelectConversation = """
         SELECT c.id, c.title, c.title_source, c.mode, c.pinned, c.translate_from, c.translate_to,
-               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id
+               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission
         FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id AND m.role IN ('user','assistant')
         """;
 
@@ -319,6 +390,8 @@ public sealed class ConversationStore
         DeletedAt = r.IsDBNull(9) ? null : DateTimeOffset.Parse(r.GetString(9)),
         MessageCount = (int)r.GetInt64(10),
         ModelId = r.IsDBNull(11) ? null : (int)r.GetInt64(11),
+        Workspace = r.IsDBNull(12) ? null : r.GetString(12),
+        Permission = Security.PermissionModes.Parse(r.IsDBNull(13) ? null : r.GetString(13)),
     };
 
     private void Update(string id, string set, object value)

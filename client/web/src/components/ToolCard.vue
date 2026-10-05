@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Ban, Check, ChevronDown, CircleAlert, Hand, LoaderCircle, ShieldAlert, X } from '@lucide/vue'
-import { answerConfirm } from '../store'
+import { Ban, Check, ChevronDown, CircleAlert, Hand, LoaderCircle, ShieldAlert } from '@lucide/vue'
 import type { ToolActivity } from '../types'
 
-const props = defineProps<{ tool: ToolActivity; conversationId: string }>()
+const props = defineProps<{ tool: ToolActivity; conversationId?: string }>()
 const { t, te } = useI18n()
 const open = ref(false)
 
@@ -26,7 +25,7 @@ const quiet = computed(() => ['update_plan', 'memory_write', 'load_skill'].inclu
       <component :is="icon" :size="15" class="state-icon" :class="{ spin: tool.state === 'running' }" />
       <span class="name">{{ label }}</span>
       <span class="summary">{{ tool.summary }}</span>
-      <span class="state-text">{{ t(`tool.${tool.state}`) }}</span>
+      <span class="state-text">{{ tool.remembered && tool.state === 'done' ? t('tool.remembered') : t(`tool.${tool.state}`) }}</span>
       <ChevronDown v-if="tool.output && !quiet" :size="15" class="chev" :class="{ up: open }" />
     </button>
 
@@ -40,26 +39,8 @@ const quiet = computed(() => ['update_plan', 'memory_write', 'load_skill'].inclu
       </div>
     </div>
 
-    <div v-if="tool.state === 'waiting' && tool.confirm" class="banner confirm" role="group" :aria-label="t('tool.confirmTitle')">
-      <strong>{{ t('tool.confirmTitle') }}</strong>
-      <code class="what">{{ tool.summary }}</code>
-      <p v-if="tool.confirm.rationale" class="why">{{ tool.confirm.rationale }}</p>
-      <div class="actions">
-        <button type="button" class="btn primary" @click="answerConfirm(conversationId, tool.callId, 'allowOnce')">
-          <Check :size="15" /> {{ t('tool.allowOnce') }}
-        </button>
-        <button
-          v-if="tool.name !== 'run_shell' && tool.name !== 'delete_path'"
-          type="button"
-          class="btn"
-          @click="answerConfirm(conversationId, tool.callId, 'allowForConversation')"
-        >
-          {{ t('tool.allowConversation') }}
-        </button>
-        <button type="button" class="btn" @click="answerConfirm(conversationId, tool.callId, 'reject')">
-          <X :size="15" /> {{ t('tool.reject') }}
-        </button>
-      </div>
+    <div v-if="tool.state === 'waiting'" class="banner confirm">
+      <span>{{ t('tool.confirmBelow') }}</span>
     </div>
   </div>
 </template>
@@ -167,34 +148,11 @@ const quiet = computed(() => ['update_plan', 'memory_write', 'load_skill'].inclu
   font-size: var(--t-sm);
 }
 .banner.confirm {
+  padding: 8px 14px;
   background: var(--amber-wash);
   border-top-color: color-mix(in srgb, var(--amber) 35%, transparent);
-}
-.banner.confirm strong {
-  display: block;
   color: var(--amber);
-  font-size: var(--t-sm);
-}
-.what {
-  display: block;
-  margin: 8px 0;
-  padding: 8px 10px;
-  border-radius: var(--r-sm);
-  background: var(--cloth);
-  font-family: var(--font-code);
   font-size: var(--t-xs);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.why {
-  margin: 0 0 10px;
-  color: var(--ink-soft);
-  font-size: var(--t-sm);
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 @keyframes spin {
   to {

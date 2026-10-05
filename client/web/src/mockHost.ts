@@ -17,6 +17,13 @@ export function createMockHost(): HostTransport {
   const confirmWaiters = new Map<string, (choice: string) => void>()
   const stopped = new Set<string>()
   let language = 'zh-CN'
+  const workspaces = [
+    { path: 'C:\\Users\\demo\\Documents\\Flyknit', name: 'Flyknit', exists: true, isDefault: true },
+    { path: 'D:\\agentwork', name: 'agentwork', exists: true, isDefault: false },
+    { path: 'D:\\', name: 'D:\\', exists: true, isDefault: false },
+  ]
+  let defaultWorkspace = workspaces[1].path
+  const approvals: { key: string; tool: string; display: string; approvedAt: string; lastUsedAt: string; uses: number }[] = []
 
   const seed = (title: string, mode: Mode, daysAgo: number, pinned = false) => {
     const c = makeConversation(mode)
@@ -45,6 +52,8 @@ export function createMockHost(): HostTransport {
       deletedAt: null,
       messageCount: 0,
       modelId: null,
+      workspace: defaultWorkspace,
+      permission: 'workspace',
     }
   }
 
@@ -62,11 +71,11 @@ export function createMockHost(): HostTransport {
     }
   }
 
-  async function reply(c: Conversation, text: string, attachments: AttachmentRef[]) {
+  async function reply(c: Conversation, text: string, attachments: AttachmentRef[], messageId?: string, addUser = true) {
     const id = c.id
     stopped.delete(id)
     const list = messages.get(id)!
-    list.push({ id: uid(), role: 'user', content: text, attachments, createdAt: now() })
+    if (addUser) list.push({ id: messageId ?? uid(), role: 'user', content: text, attachments, createdAt: now() })
 
     let finalText: string
     if (c.mode === 'translate') {
@@ -132,23 +141,38 @@ export function createMockHost(): HostTransport {
         risk: 'confirm',
       })
       const requestId = uid()
-      const choice = await new Promise<string>((resolve) => {
-        confirmWaiters.set(requestId, resolve)
-        emit({
-          type: 'tool.confirm',
-          conversationId: id,
-          requestId,
-          callId: call2,
-          reason: '需要用户确认后执行',
-          rationale: lead2,
-        })
-      })
-      if (choice === 'reject') {
+      const command = 'Get-ChildItem D:\\日报\\*.xlsx | ForEach-Object { … Move-Item … }'
+      const remembered = approvals.find((a) => a.key === command)
+      const choice = c.permission === 'full' || remembered
+        ? 'allowOnce'
+        : c.permission === 'readonly'
+          ? 'blocked'
+          : await new Promise<string>((resolve) => {
+              confirmWaiters.set(requestId, (choice) => {
+                if (choice === 'allowAlways')
+                  approvals.push({ key: command, tool: 'run_shell', display: '执行命令：' + command, approvedAt: now(), lastUsedAt: now(), uses: 0 })
+                resolve(choice)
+              })
+              emit({
+                type: 'tool.confirm',
+                conversationId: id,
+                requestId,
+                callId: call2,
+                reason: '执行命令需要确认，确认后同样的命令不再询问',
+                rationale: lead2,
+                rememberable: true,
+              })
+            })
+      if (remembered) remembered.uses++
+      if (choice === 'blocked') {
+        emit({ type: 'tool.finished', conversationId: id, callId: call2, ok: false, output: '已被安全策略阻止：当前是“仅可查看”权限，只能执行查询类命令。请不要尝试绕过', decision: 'blocked' })
+        finalText = '当前是“仅可查看”权限，我不能移动文件。需要整理时请把权限切换为“工作区内修改”。'
+      } else if (choice === 'reject') {
         emit({ type: 'tool.finished', conversationId: id, callId: call2, ok: false, output: '用户拒绝了这个操作', decision: 'rejected' })
         finalText = '好的，我没有移动任何文件。你希望按什么方式整理？'
       } else {
         await sleep(700)
-        emit({ type: 'tool.finished', conversationId: id, callId: call2, ok: true, output: '退出码：0\n已移动 34 个文件', decision: 'approved' })
+        emit({ type: 'tool.finished', conversationId: id, callId: call2, ok: true, output: '退出码：0\n已移动 34 个文件', decision: remembered ? 'remembered' : c.permission === 'full' ? 'auto' : 'approved' })
         emit({
           type: 'plan.updated',
           conversationId: id,
@@ -198,7 +222,57 @@ export function createMockHost(): HostTransport {
           serverMessage: '',
           modelName: 'Qwen3.5-397B',
           defaultModelId: null,
+          defaultWorkspace,
+          defaultPermission: 'workspace',
+          workspaces,
         }
+      case 'workspaces.list':
+        return workspaces
+      case 'workspaces.add': {
+        const path = p.path ?? 'E:\\生产报表'
+        if (!workspaces.some((w) => w.path === path)) workspaces.push({ path, name: path.split('\\').pop()!, exists: true, isDefault: false })
+        return path
+      }
+      case 'workspaces.remove':
+        workspaces.splice(workspaces.findIndex((w) => w.path === p.path && !w.isDefault) >>> 0, 1)
+        return workspaces
+      case 'settings.setDefaultWorkspace':
+        defaultWorkspace = p.path
+        return
+      case 'conversation.setWorkspace':
+        conversations.get(p.id)!.workspace = p.path
+        return
+      case 'conversation.setPermission':
+        conversations.get(p.id)!.permission = p.permission
+        return
+      case 'approvals.list':
+        return approvals
+      case 'approvals.revoke':
+        approvals.splice(approvals.findIndex((a) => a.key === p.key) >>> 0, 1)
+        return
+      case 'approvals.clear':
+        approvals.length = 0
+        return
+      case 'message.feedback':
+        for (const list of messages.values()) for (const m of list) if (m.id === p.id) m.feedback = p.value
+        return
+      case 'chat.regenerate': {
+        const list = messages.get(p.conversationId)!
+        let i = list.length - 1
+        while (i >= 0 && list[i].role !== 'user') i--
+        const user = list[i]
+        list.splice(i + 1)
+        void reply(conversations.get(p.conversationId)!, user.content, user.attachments ?? [], user.id, false)
+        return
+      }
+      case 'chat.edit': {
+        const list = messages.get(p.conversationId)!
+        const i = list.findIndex((m) => m.id === p.messageId)
+        const attachments = list[i]?.attachments ?? []
+        if (i >= 0) list.splice(i)
+        void reply(conversations.get(p.conversationId)!, p.text, attachments, p.newMessageId)
+        return
+      }
       case 'models.list':
         return [
           { id: 1, name: 'Qwen3.5-397B', model: 'qwen3.5-397b', provider: '内部模型', supportsTools: true, supportsVision: false },
@@ -231,6 +305,8 @@ export function createMockHost(): HostTransport {
       case 'conversation.create': {
         const c = makeConversation(p.mode)
         c.modelId = p.modelId ?? null
+        c.workspace = p.workspace ?? defaultWorkspace
+        c.permission = p.permission ?? 'workspace'
         conversations.set(c.id, c)
         messages.set(c.id, [])
         return { ...c }
@@ -265,7 +341,7 @@ export function createMockHost(): HostTransport {
       case 'messages.load':
         return messages.get(p.id) ?? []
       case 'chat.send':
-        void reply(conversations.get(p.conversationId)!, p.text, p.attachments)
+        void reply(conversations.get(p.conversationId)!, p.text, p.attachments, p.messageId)
         return
       case 'chat.stop':
         stopped.add(p.conversationId)

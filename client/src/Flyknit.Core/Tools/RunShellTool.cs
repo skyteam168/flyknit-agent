@@ -11,19 +11,28 @@ public sealed class RunShellTool : ITool
     public string Name => "run_shell";
 
     public string Description =>
-        "在用户电脑上执行 PowerShell（默认）或 cmd 命令并返回输出。只读查询类命令会自动执行，其他命令需用户确认，" +
-        "对系统有害的命令（如 rm -rf、format、修改系统注册表）会被直接阻止。优先使用专用工具处理文件。";
+        "在用户电脑上执行 PowerShell（默认）或 cmd 命令并返回输出，默认在工作区目录下执行。只读查询类命令会自动执行，" +
+        "其他命令按用户选择的权限处理；对系统有害的命令（如 rm -rf、format、修改系统注册表）会被直接阻止。优先使用专用工具处理文件。";
 
     public JsonObject Parameters => ToolArgs.Schema(
         ("command", "string", "要执行的命令", true),
         ("shell", "string", "powershell 或 cmd，默认 powershell", false),
-        ("working_directory", "string", "工作目录，默认用户目录", false),
+        ("working_directory", "string", "工作目录，默认为工作区", false),
         ("timeout_seconds", "integer", "超时时间（秒），默认 60，最大 600", false));
 
     public PolicyDecision Assess(JsonElement args, ToolContext ctx)
     {
         var wd = args.Str("working_directory");
-        return ctx.Policy.EvaluateCommand(args.Str("command"), wd.Length > 0 ? ctx.ResolvePath(wd) : ctx.WorkingDirectory);
+        string dir;
+        try
+        {
+            dir = wd.Length > 0 ? ctx.ResolvePath(wd) : ctx.WorkingDirectory;
+        }
+        catch (Exception)
+        {
+            return PolicyDecision.Blocked("工作目录无效");
+        }
+        return PermissionRules.ForCommand(ctx.Policy, ctx.Permission, ctx.Workspace, args.Str("command"), dir);
     }
 
     public string Describe(JsonElement args) => $"执行命令：{args.Str("command")}";

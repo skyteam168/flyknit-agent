@@ -133,7 +133,7 @@ class AuditItem(BaseModel):
     tool_name: str
     arguments: str = ""
     risk: Literal["blocked", "confirm", "auto"]
-    decision: Literal["blocked", "approved", "rejected", "auto"]
+    decision: Literal["blocked", "approved", "remembered", "rejected", "auto"]
     status: str = ""
     summary: str = ""
     occurred_at: datetime | None = None

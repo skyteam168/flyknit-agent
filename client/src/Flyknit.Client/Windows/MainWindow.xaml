@@ -20,7 +20,46 @@
                       UseAeroCaptionButtons="False" />
     </WindowChrome.WindowChrome>
     <Grid>
-        <wv2:WebView2 x:Name="Web" />
+        <!-- 启动加载卡片：WebView2 页面加载完成前显示（WebView2 总在最上层，所以加载期间先隐藏它） -->
+        <Border x:Name="LoadingCard"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Width="380"
+                Padding="36,32"
+                CornerRadius="16"
+                Background="White"
+                BorderBrush="#E6E8EE"
+                BorderThickness="1">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="28" ShadowDepth="6" Direction="270" Opacity="0.10" Color="#1B2440" />
+            </Border.Effect>
+            <StackPanel HorizontalAlignment="Center">
+                <Grid Width="40" Height="40" Margin="0,0,0,20" HorizontalAlignment="Center">
+                    <Ellipse Stroke="#E9EBF2" StrokeThickness="4" />
+                    <Path Stroke="#3446C9" StrokeThickness="4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M 20,2 A 18,18 0 0 1 38,20" RenderTransformOrigin="0.5,0.5">
+                        <Path.RenderTransform>
+                            <RotateTransform Angle="0" />
+                        </Path.RenderTransform>
+                        <Path.Triggers>
+                            <EventTrigger RoutedEvent="Loaded">
+                                <BeginStoryboard>
+                                    <Storyboard RepeatBehavior="Forever">
+                                        <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                         From="0" To="360" Duration="0:0:0.9" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                        </Path.Triggers>
+                    </Path>
+                </Grid>
+                <TextBlock x:Name="LoadingTitle" Text="正在启动 Flyknit…" FontSize="17" FontWeight="SemiBold"
+                           Foreground="#1F2330" HorizontalAlignment="Center" FontFamily="Microsoft YaHei UI, Segoe UI" />
+                <TextBlock x:Name="LoadingSubtitle" Text="准备就绪后将自动打开工作区。" FontSize="13" Margin="0,8,0,0"
+                           Foreground="#7A8092" HorizontalAlignment="Center" FontFamily="Microsoft YaHei UI, Segoe UI" />
+            </StackPanel>
+        </Border>
+        <wv2:WebView2 x:Name="Web" Visibility="Hidden" />
         <TextBlock x:Name="ErrorText"
                    Visibility="Collapsed"
                    Margin="32"

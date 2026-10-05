@@ -45,6 +45,7 @@ public sealed class AgentHost : IDisposable
     public SkillCatalog Skills { get; }
     public ToolRegistry Tools { get; }
     public AuditQueue Audit { get; }
+    public ApprovalStore Approvals { get; }
 
     public bool Connected { get; private set; }
     public string ServerMessage { get; private set; } = "";
@@ -64,12 +65,14 @@ public sealed class AgentHost : IDisposable
         Skills = new SkillCatalog().AddRoot(AppPaths.OrgSkills, isOrganization: true).AddRoot(AppPaths.Skills);
         Tools = ToolRegistry.CreateDefault().Add(new OpenAppTool(() => _settings.AppAliases));
         Audit = new AuditQueue(Server);
+        Approvals = new ApprovalStore(AppPaths.Approvals);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
     public async Task InitializeAsync()
     {
         Memory.EnsureDefaults();
+        _settings.EnsureWorkspaces();
         Directory.CreateDirectory(AppPaths.Skills);
         Skills.Refresh();
         await Task.Run(() => Store.PurgeExpired());
@@ -114,26 +117,86 @@ public sealed class AgentHost : IDisposable
     }
 
     /// <summary>发送一条用户消息并在后台运行，过程通过 events 推送给界面。</summary>
-    public void Send(string conversationId, string text, IReadOnlyList<Attachment> attachments, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
+    /// <param name="messageId">界面生成的消息 ID，保证界面与数据库中的 ID 一致（编辑、重发时使用）。</param>
+    public void Send(string conversationId, string text, IReadOnlyList<Attachment> attachments, string? messageId, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
+    {
+        StartRun(conversationId, uiLanguage, confirm, events, _ => NewUserMessage(messageId, text, attachments));
+    }
+
+    /// <summary>重新生成最后一个问题的回答：删除最后一条用户消息之后的内容，再运行一次。</summary>
+    public void Regenerate(string conversationId, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
+    {
+        StartRun(conversationId, uiLanguage, confirm, events, id =>
+        {
+            var last = Store.GetMessages(id).LastOrDefault(m => m.Role == ChatRole.User)
+                       ?? throw new InvalidOperationException("没有可以重新生成的问题");
+            Store.DeleteMessagesFrom(id, last.Id, inclusive: false);
+            return null;
+        });
+    }
+
+    /// <summary>编辑某条用户消息后重新发送：删除这条消息及之后的所有内容，用新内容重新提问（保留原附件）。</summary>
+    public void EditAndResend(string conversationId, string messageId, string text, string? newMessageId, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
+    {
+        StartRun(conversationId, uiLanguage, confirm, events, id =>
+        {
+            var original = Store.GetMessages(id).FirstOrDefault(m => m.Id == messageId && m.Role == ChatRole.User)
+                           ?? throw new InvalidOperationException("找不到要编辑的消息");
+            Store.DeleteMessagesFrom(id, messageId, inclusive: true);
+            return NewUserMessage(newMessageId, text, original.Attachments);
+        });
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex SafeId = new("^[A-Za-z0-9_-]{8,64}$");
+
+    private static ChatMessage NewUserMessage(string? id, string text, IEnumerable<Attachment> attachments) => new()
+    {
+        Id = id is not null && SafeId.IsMatch(id) ? id : Guid.NewGuid().ToString("N"),
+        Role = ChatRole.User,
+        Content = text,
+        Attachments = attachments.ToList(),
+    };
+
+    /// <summary>占用会话的运行槽位后，在后台准备消息并运行，保证同一会话同时只有一个任务。</summary>
+    private void StartRun(string conversationId, string uiLanguage, IConfirmationHandler confirm, IHostEvents events, Func<string, ChatMessage?> prepare)
     {
         var conv = Store.Get(conversationId) ?? throw new InvalidOperationException("会话不存在");
         var cts = new CancellationTokenSource();
         if (!_runs.TryAdd(conversationId, cts))
         {
+            cts.Dispose();
             throw new InvalidOperationException("该对话正在处理中");
         }
+        ChatMessage? newUser;
+        try
+        {
+            newUser = prepare(conversationId);
+        }
+        catch
+        {
+            _runs.TryRemove(conversationId, out _);
+            cts.Dispose();
+            throw;
+        }
         ActiveRunsChanged?.Invoke(_runs.Count);
-        _ = Task.Run(() => RunAsync(conv, text, attachments, uiLanguage, confirm, events, cts));
+        _ = Task.Run(() => RunAsync(conv, newUser, uiLanguage, confirm, events, cts));
     }
 
-    private async Task RunAsync(Conversation conv, string text, IReadOnlyList<Attachment> attachments, string uiLanguage, IConfirmationHandler confirm, IHostEvents events, CancellationTokenSource cts)
+    private async Task RunAsync(Conversation conv, ChatMessage? newUser, string uiLanguage, IConfirmationHandler confirm, IHostEvents events, CancellationTokenSource cts)
     {
         var id = conv.Id;
         var observer = new RunObserver(id, events);
         try
         {
-            var user = ChatMessage.User(text, attachments);
-            Store.AddMessages(id, new[] { user });
+            if (newUser is not null)
+            {
+                Store.AddMessages(id, new[] { newUser });
+            }
+            var stored = Store.GetMessages(id);
+            var user = stored.LastOrDefault(m => m.Role == ChatRole.User) ?? throw new InvalidOperationException("没有可以回答的问题");
+            var text = user.Content;
+            var attachments = user.Attachments;
+
             var needsTitle = conv.TitleSource == "auto" && string.IsNullOrWhiteSpace(conv.Title);
             if (needsTitle)
             {
@@ -150,6 +213,7 @@ public sealed class AgentHost : IDisposable
                 }
             }
 
+            var workspace = _settings.ResolveWorkspace(conv.Workspace);
             var promptBuilder = new PromptBuilder(Memory, Skills);
             var prompt = promptBuilder.Build(new PromptContext
             {
@@ -157,6 +221,8 @@ public sealed class AgentHost : IDisposable
                 UiLanguage = uiLanguage,
                 TranslateFrom = conv.TranslateFrom,
                 TranslateTo = conv.TranslateTo,
+                Workspace = workspace,
+                Permission = conv.Permission,
             });
 
             var history = new List<ChatMessage> { ChatMessage.System(prompt) };
@@ -166,7 +232,7 @@ public sealed class AgentHost : IDisposable
             }
             else
             {
-                history.AddRange(TrimHistory(Store.GetMessages(id)));
+                history.AddRange(TrimHistory(stored));
             }
 
             var scene = conv.Mode switch
@@ -179,12 +245,14 @@ public sealed class AgentHost : IDisposable
             {
                 Policy = _policy,
                 ConversationId = id,
+                Workspace = workspace,
+                Permission = conv.Permission,
                 Memory = Memory,
                 Skills = Skills,
                 Deleter = new RecycleBinDeleter(),
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, Audit);
+            var loop = new AgentLoop(Server, Tools, confirm, Audit, approvals: Approvals);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId);
             Store.AddMessages(id, result.NewMessages);
 

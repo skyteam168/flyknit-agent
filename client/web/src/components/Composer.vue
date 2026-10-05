@@ -12,13 +12,15 @@ import {
   MessageSquare,
   Paperclip,
   Puzzle,
-  ShieldCheck,
   Square,
   Wrench,
   X,
 } from '@lucide/vue'
 import Popover from './Popover.vue'
 import ModelPicker from './ModelPicker.vue'
+import WorkspacePicker from './WorkspacePicker.vue'
+import PermissionPicker from './PermissionPicker.vue'
+import ConfirmBar from './ConfirmBar.vue'
 import { addPastedImage, current, currentState, draftMode, pickFiles, send, setMode, setTranslate, state, stop } from '../store'
 import type { Mode } from '../types'
 
@@ -117,6 +119,7 @@ onBeforeUnmount(() => window.removeEventListener('flyknit:focus-input', focus))
 
 <template>
   <div class="composer-wrap" :class="{ home: props.home }">
+    <ConfirmBar v-if="!props.home" />
     <div class="card" :class="{ busy }">
       <div v-if="state.pending.length" class="pending">
         <div v-for="(a, i) in state.pending" :key="a.localPath + i" class="chip" :title="a.localPath">
@@ -210,7 +213,10 @@ onBeforeUnmount(() => window.removeEventListener('flyknit:focus-input', focus))
       </div>
     </div>
     <div class="foot">
-      <span v-if="mode === 'agent'" class="safety"><ShieldCheck :size="14" /> {{ t('ui.safety.agent') }}</span>
+      <template v-if="mode === 'agent'">
+        <WorkspacePicker />
+        <PermissionPicker />
+      </template>
       <span class="spacer" />
       <span class="ai-note">{{ t('ui.safety.other') }}</span>
     </div>
@@ -392,10 +398,11 @@ textarea::placeholder {
 .foot {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   max-width: var(--column);
-  margin: 8px auto 0;
-  padding: 0 6px;
+  min-height: 26px;
+  margin: 6px auto 0;
+  padding: 0 2px;
   font-size: var(--t-xs);
   color: var(--ink-faint);
 }

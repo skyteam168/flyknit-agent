@@ -18,18 +18,17 @@ public sealed class AgentLoop
     private readonly IAuditSink _audit;
     private readonly AgentOptions _options;
 
-    /// <summary>用户选择“本会话内允许”的工具，键为 会话ID:工具名（命令类工具不在此列）。</summary>
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _allowedForConversation = new(StringComparer.Ordinal);
+    /// <summary>用户授权过的操作（同样的命令确认一次后不再询问）。由宿主提供并持久化，跨对话、跨重启有效。</summary>
+    private readonly ApprovalStore _approvals;
 
-    private static readonly HashSet<string> AlwaysConfirmTools = new(StringComparer.Ordinal) { "run_shell", "delete_path" };
-
-    public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null)
+    public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
         _tools = tools;
         _confirm = confirm;
         _audit = audit ?? new NullAuditSink();
         _options = options ?? new AgentOptions();
+        _approvals = approvals ?? new ApprovalStore();
     }
 
     /// <param name="history">完整上下文（含系统提示词），新消息会追加到此列表。</param>
@@ -183,8 +182,12 @@ public sealed class AgentLoop
             var decisionText = "auto";
             if (decision.Level == RiskLevel.Confirm)
             {
-                var preApproved = !AlwaysConfirmTools.Contains(call.Name) && _allowedForConversation.ContainsKey($"{context.ConversationId}:{call.Name}");
-                if (!preApproved)
+                var key = ApprovalStore.KeyFor(call.Name, args);
+                if (decision.Rememberable && _approvals.IsApproved(key))
+                {
+                    decisionText = "remembered";
+                }
+                else
                 {
                     var choice = await _confirm.ConfirmAsync(new ConfirmRequest
                     {
@@ -205,12 +208,12 @@ public sealed class AgentLoop
                         AppendTool(call, rejected.Output);
                         return true;
                     }
-                    if (choice == ConfirmChoice.AllowForConversation)
+                    if ((choice is ConfirmChoice.AllowAlways or ConfirmChoice.AllowForConversation) && decision.Rememberable)
                     {
-                        _allowedForConversation[$"{context.ConversationId}:{call.Name}"] = true;
+                        _approvals.Approve(key, call.Name, summary);
                     }
+                    decisionText = "approved";
                 }
-                decisionText = "approved";
             }
 
             ToolResult result;

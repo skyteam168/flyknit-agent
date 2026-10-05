@@ -33,6 +33,9 @@ public sealed class ChatMessage
     public List<Attachment> Attachments { get; init; } = new();
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
 
+    /// <summary>用户对回答的评价：1 赞、-1 踩、null 未评价。不发送给模型。</summary>
+    public int? Feedback { get; set; }
+
     public static ChatMessage System(string content) => new() { Role = ChatRole.System, Content = content };
 
     public static ChatMessage User(string content, IEnumerable<Attachment>? attachments = null) => new()

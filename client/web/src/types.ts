@@ -4,6 +4,7 @@ export type Mode = 'chat' | 'translate' | 'agent'
 export type UiLanguage = 'zh-CN' | 'vi-VN' | 'en-US'
 export type Theme = 'system' | 'light' | 'dark'
 export type Risk = 'auto' | 'confirm' | 'blocked'
+export type Permission = 'readonly' | 'workspace' | 'full'
 
 export interface Conversation {
   id: string
@@ -18,6 +19,24 @@ export interface Conversation {
   deletedAt: string | null
   messageCount: number
   modelId: number | null
+  workspace: string | null
+  permission: Permission
+}
+
+export interface WorkspaceInfo {
+  path: string
+  name: string
+  exists: boolean
+  isDefault: boolean
+}
+
+export interface ApprovalInfo {
+  key: string
+  tool: string
+  display: string
+  approvedAt: string
+  lastUsedAt: string
+  uses: number
 }
 
 export interface ModelInfo {
@@ -61,6 +80,7 @@ export interface UiMessage {
   toolCallId?: string | null
   toolName?: string | null
   createdAt: string
+  feedback?: number | null
 }
 
 export interface PlanItem {
@@ -78,6 +98,9 @@ export interface AppInfo {
   serverMessage: string
   modelName: string
   defaultModelId: number | null
+  defaultWorkspace: string
+  defaultPermission: Permission
+  workspaces: WorkspaceInfo[]
 }
 
 /** 界面上的工具卡片状态 */
@@ -89,15 +112,19 @@ export interface ToolActivity {
   state: 'running' | 'waiting' | 'done' | 'failed' | 'blocked' | 'rejected'
   output?: string
   confirm?: ConfirmPrompt
+  /** 之前授权过的同样操作，本次自动通过 */
+  remembered?: boolean
 }
 
 export interface ConfirmPrompt {
   requestId: string
   reason: string
   rationale: string
+  /** 能否“以后同样的操作自动允许” */
+  rememberable: boolean
 }
 
-export type ConfirmChoice = 'allowOnce' | 'allowForConversation' | 'reject'
+export type ConfirmChoice = 'allowOnce' | 'allowAlways' | 'reject'
 
 // ---------- 宿主推送的事件 ----------
 export type HostEvent =
@@ -112,6 +139,7 @@ export type HostEvent =
       callId: string
       reason: string
       rationale: string
+      rememberable?: boolean
     }
   | { type: 'tool.finished'; conversationId: string; callId: string; ok: boolean; output: string; decision: string }
   | { type: 'plan.updated'; conversationId: string; plan: PlanItem[] }

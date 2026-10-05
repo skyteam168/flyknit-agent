@@ -22,7 +22,9 @@ public sealed record ConversationDto(
     string UpdatedAt,
     string? DeletedAt,
     int MessageCount,
-    int? ModelId)
+    int? ModelId,
+    string? Workspace,
+    string Permission)
 {
     public static ConversationDto From(Conversation c) => new(
         c.Id,
@@ -36,7 +38,9 @@ public sealed record ConversationDto(
         c.UpdatedAt.ToString("O"),
         c.DeletedAt?.ToString("O"),
         c.MessageCount,
-        c.ModelId);
+        c.ModelId,
+        c.Workspace,
+        Flyknit.Core.Security.PermissionModes.ToText(c.Permission));
 }
 
 public sealed class AttachmentDto
@@ -74,7 +78,8 @@ public sealed record MessageDto(
     List<ToolCallDto>? ToolCalls,
     string? ToolCallId,
     string? ToolName,
-    string CreatedAt)
+    string CreatedAt,
+    int? Feedback)
 {
     public static MessageDto From(ChatMessage m) => new(
         m.Id,
@@ -85,7 +90,8 @@ public sealed record MessageDto(
         m.ToolCalls.Count > 0 ? m.ToolCalls.Select(c => new ToolCallDto(c.Id, c.Name, c.ArgumentsJson)).ToList() : null,
         m.ToolCallId,
         m.ToolName,
-        m.CreatedAt.ToString("O"));
+        m.CreatedAt.ToString("O"),
+        m.Feedback);
 }
 
 public static class MimeTypes
