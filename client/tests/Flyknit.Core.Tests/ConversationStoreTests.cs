@@ -41,7 +41,7 @@ public class ConversationStoreTests : IDisposable
         Assert.Equal("a.txt", messages[0].Attachments[0].FileName);
         Assert.Equal("read_file", messages[1].ToolCalls[0].Name);
         Assert.Equal("call_1", messages[2].ToolCallId);
-        Assert.Equal(2, _store.Get(conv.Id)!.MessageCount);
+        Assert.Equal(3, _store.Get(conv.Id)!.MessageCount); // 用户 1 条 + 助手 2 条（含工具调用那条），不计 tool 消息
     }
 
     [Fact]
