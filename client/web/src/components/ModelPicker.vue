@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, ChevronDown, Cpu, Eye, RefreshCw, Sparkles } from '@lucide/vue'
+import { Check, ChevronDown, Cpu, Eye, RefreshCw, Search, Sparkles } from '@lucide/vue'
 import Popover from './Popover.vue'
 import { loadModels, selectModel, selectedModelId, state } from '../store'
 import type { Mode } from '../types'
@@ -9,10 +9,12 @@ import type { Mode } from '../types'
 const props = defineProps<{ mode: Mode }>()
 const { t } = useI18n()
 
+const query = ref('')
 const current = computed(() => state.models.find((m) => m.id === selectedModelId.value) ?? null)
 const groups = computed(() => {
   const map = new Map<string, typeof state.models>()
-  for (const m of state.models) {
+  const q = query.value.trim().toLowerCase()
+  for (const m of state.models.filter((x) => !q || x.name.toLowerCase().includes(q) || x.model.toLowerCase().includes(q))) {
     if (!map.has(m.provider)) map.set(m.provider, [])
     map.get(m.provider)!.push(m)
   }
@@ -21,6 +23,7 @@ const groups = computed(() => {
 
 async function pick(id: number | null, close: () => void) {
   close()
+  query.value = ''
   await selectModel(id)
 }
 </script>
@@ -39,7 +42,11 @@ async function pick(id: number | null, close: () => void) {
         <span>{{ t('ui.model.title') }}</span>
         <button type="button" class="refresh" :title="t('ui.model.title')" @click="loadModels(true)"><RefreshCw :size="13" /></button>
       </div>
-      <button type="button" class="opt" :class="{ on: selectedModelId === null }" @click="pick(null, close)">
+      <label v-if="state.models.length > 8" class="search">
+        <Search :size="14" />
+        <input v-model="query" :placeholder="t('ui.model.search')" @keydown.stop />
+      </label>
+      <button v-if="!query" type="button" class="opt" :class="{ on: selectedModelId === null }" @click="pick(null, close)">
         <Sparkles :size="15" class="ico" />
         <span class="text">
           <strong>{{ t('ui.model.auto') }}</strong>
@@ -119,6 +126,25 @@ async function pick(id: number | null, close: () => void) {
 .refresh:hover {
   background: var(--chip);
   color: var(--ink);
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 4px 6px;
+  padding: 0 8px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--chip);
+  color: var(--ink-faint);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: var(--t-sm);
 }
 .group {
   margin: 8px 8px 4px;

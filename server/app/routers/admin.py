@@ -96,7 +96,12 @@ async def delete_provider(provider_id: int, session: AsyncSession = Depends(get_
 
 
 # 同步模型时默认排除的非对话模型（向量、语音、图像生成等）
-DEFAULT_SYNC_EXCLUDE = r"embed|rerank|tts|asr|whisper|audio|speech|paraformer|sensevoice|cosyvoice|sambert|wanx|wan2|image|flux|stable-diffusion|video|realtime|ocr|moderation"
+# 以及带日期的快照版本（如 qwen3.8-max-0902、qwen-plus-2025-12-01），只保留主版本
+DEFAULT_SYNC_EXCLUDE = (
+    r"embed|rerank|tts|asr|whisper|audio|speech|paraformer|sensevoice|cosyvoice|sambert|wanx|wan2|image|flux"
+    r"|stable-diffusion|video|realtime|ocr|moderation|livetranslate|captioner|character"
+    r"|-\d{4}-\d{2}-\d{2}$|-\d{4}$"
+)
 
 
 @router.post("/providers/{provider_id}/sync-models", response_model=SyncResult)

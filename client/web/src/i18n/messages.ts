@@ -166,7 +166,7 @@ const zh = {
       },
       chat: { email: '帮我写一封邮件，内容是：', explain: '用简单的话解释一下：', summary: '帮我总结下面的内容：', plan: '帮我制定一个计划：' },
     },
-    model: { auto: '自动', autoHint: '按任务类型自动选择', title: '选择模型', empty: '管理员还没有配置可选模型', noTools: '不支持办事', vision: '识图' },
+    model: { search: '搜索模型', auto: '自动', autoHint: '按任务类型自动选择', title: '选择模型', empty: '管理员还没有配置可选模型', noTools: '不支持办事', vision: '识图' },
     skills: {
       button: '技能',
       title: '技能',
@@ -351,7 +351,7 @@ const vi: Messages = {
       },
       chat: { email: 'Viết email với nội dung:', explain: 'Giải thích đơn giản:', summary: 'Tóm tắt nội dung sau:', plan: 'Lập kế hoạch:' },
     },
-    model: { auto: 'Tự động', autoHint: 'Tự chọn theo loại nhiệm vụ', title: 'Chọn mô hình', empty: 'Quản trị viên chưa cấu hình mô hình', noTools: 'Không hỗ trợ làm việc', vision: 'Nhận ảnh' },
+    model: { search: 'Tìm mô hình', auto: 'Tự động', autoHint: 'Tự chọn theo loại nhiệm vụ', title: 'Chọn mô hình', empty: 'Quản trị viên chưa cấu hình mô hình', noTools: 'Không hỗ trợ làm việc', vision: 'Nhận ảnh' },
     skills: {
       button: 'Kỹ năng',
       title: 'Kỹ năng',
@@ -534,7 +534,7 @@ const en: Messages = {
       },
       chat: { email: 'Write an email about:', explain: 'Explain simply:', summary: 'Summarize the following:', plan: 'Make a plan for:' },
     },
-    model: { auto: 'Auto', autoHint: 'Picked for the task type', title: 'Choose a model', empty: 'No models configured by the admin yet', noTools: 'No task support', vision: 'Vision' },
+    model: { search: 'Search models', auto: 'Auto', autoHint: 'Picked for the task type', title: 'Choose a model', empty: 'No models configured by the admin yet', noTools: 'No task support', vision: 'Vision' },
     skills: {
       button: 'Skills',
       title: 'Skills',
