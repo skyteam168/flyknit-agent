@@ -34,7 +34,19 @@ public partial class MainWindow : Window, IWindowActions
         Width = Math.Max(MinWidth, settings.WindowWidth);
         Height = Math.Max(MinHeight, settings.WindowHeight);
         PlaceNearTray();
-        Loaded += async (_, _) => await InitWebAsync();
+        Loaded += async (_, _) =>
+        {
+            try
+            {
+                await InitWebAsync();
+            }
+            catch (Exception ex)
+            {
+                // 任何初始化异常都显示在窗口里，避免只看到空白
+                Log.Error("WebView2 初始化失败", ex);
+                ShowError($"界面加载失败：{ex.GetType().Name}: {ex.Message}");
+            }
+        };
         SizeChanged += (_, _) =>
         {
             if (WindowState == WindowState.Normal)
@@ -54,8 +66,7 @@ public partial class MainWindow : Window, IWindowActions
         }
         catch (WebView2RuntimeNotFoundException)
         {
-            ErrorText.Text = NativeStrings.T("error.webview");
-            ErrorText.Visibility = Visibility.Visible;
+            ShowError(NativeStrings.T("error.webview"));
             Web.Visibility = Visibility.Collapsed;
             return;
         }
@@ -92,13 +103,47 @@ public partial class MainWindow : Window, IWindowActions
 
         Bridge = new WebBridge(core, Dispatcher, _host, _settings, this);
 
+        core.NavigationCompleted += (_, e) =>
+        {
+            Log.Info($"页面加载完成：成功={e.IsSuccess} 状态={e.WebErrorStatus} HTTP={e.HttpStatusCode}");
+            if (!e.IsSuccess)
+            {
+                ShowError($"页面加载失败：{e.WebErrorStatus}（HTTP {e.HttpStatusCode}）。请确认已在 client\\web 执行 npm run build。");
+            }
+        };
+        core.ProcessFailed += (_, e) =>
+        {
+            Log.Error($"WebView2 进程异常：{e.ProcessFailedKind} {e.Reason}");
+            ShowError($"浏览器组件异常：{e.ProcessFailedKind}");
+        };
+        core.WebResourceResponseReceived += (_, e) =>
+        {
+            if (e.Response.StatusCode >= 400)
+            {
+                Log.Warn($"资源加载失败：{e.Request.Uri} → HTTP {e.Response.StatusCode}");
+            }
+        };
+
         var root = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+        Log.Info($"界面目录：{root}（index.html {(File.Exists(Path.Combine(root, "index.html")) ? "存在" : "不存在")}）");
+        if (!File.Exists(Path.Combine(root, "index.html")))
+        {
+            ShowError($"找不到界面文件：{root}\\index.html。请先在 client\\web 执行 npm run build，再重新运行。");
+            return;
+        }
         core.SetVirtualHostNameToFolderMapping(VirtualHost, root, CoreWebView2HostResourceAccessKind.Deny);
         // WebView2 会缓存 index.html；界面重新构建后资源文件名变了，旧缓存会导致白屏。
         // 用 index.html 的修改时间作为版本参数，每次构建后都会加载最新页面。
         var index = Path.Combine(root, "index.html");
         var version = File.Exists(index) ? File.GetLastWriteTimeUtc(index).Ticks : 0;
         Web.Source = new Uri($"https://{VirtualHost}/index.html?v={version}");
+    }
+
+    private void ShowError(string message)
+    {
+        ErrorText.Text = message + "\n\n日志：" + AppPaths.Logs;
+        ErrorText.Visibility = Visibility.Visible;
+        Web.Visibility = Visibility.Collapsed; // WebView2 总是盖在 WPF 内容之上，必须隐藏才能看到提示
     }
 
     private static void OpenExternal(string uri)
