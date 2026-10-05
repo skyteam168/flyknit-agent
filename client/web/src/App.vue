@@ -4,15 +4,18 @@ import { useI18n } from 'vue-i18n'
 import { FilePlus2 } from '@lucide/vue'
 import Sidebar from './components/Sidebar.vue'
 import TopBar from './components/TopBar.vue'
-import Welcome from './components/Welcome.vue'
+import Home from './components/Home.vue'
+import SkillsDialog from './components/SkillsDialog.vue'
 import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
 import PlanPanel from './components/PlanPanel.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
-import { addFiles, currentState, init, newConversation, state } from './store'
+import { addFiles, current, currentState, init, newConversation, state } from './store'
 
 const { t } = useI18n()
 const composer = ref<InstanceType<typeof Composer>>()
+const home = ref<InstanceType<typeof Home>>()
+const sidebarHidden = ref(false)
 const width = ref(window.innerWidth)
 const drawer = ref(false)
 const dragging = ref(0)
@@ -21,7 +24,19 @@ const ready = ref(false)
 /** 窄窗口（迷你模式）：侧栏改为抽屉 */
 const narrow = computed(() => width.value < 760)
 const showPlan = computed(() => width.value >= 1100 && (currentState.value?.plan.length ?? 0) > 0)
-const hasMessages = computed(() => (currentState.value?.messages.length ?? 0) > 0 || currentState.value?.busy)
+/** 有当前对话时显示对话视图，否则显示新任务首页 */
+const inConversation = computed(() => current.value !== null)
+
+function toggleSidebar() {
+  if (narrow.value) drawer.value = !drawer.value
+  else sidebarHidden.value = !sidebarHidden.value
+}
+
+function useSkill(name: string) {
+  state.skillsOpen = false
+  if (inConversation.value) composer.value?.useSkill(name)
+  else home.value?.useSkill(name)
+}
 
 const onResize = () => (width.value = window.innerWidth)
 
@@ -74,18 +89,16 @@ onBeforeUnmount(() => {
     @drop="onDrop"
   >
     <div v-if="narrow && drawer" class="drawer-scrim" @click="drawer = false" />
-    <Sidebar v-show="!narrow || drawer" class="side" :class="{ drawer: narrow }" @navigate="drawer = false" />
+    <Sidebar v-show="narrow ? drawer : !sidebarHidden" class="side" :class="{ drawer: narrow }" @navigate="drawer = false" />
 
     <main class="main">
-      <TopBar :narrow="narrow" @toggle-sidebar="drawer = !drawer" />
+      <TopBar :narrow="narrow" :sidebar-hidden="narrow || sidebarHidden" @toggle-sidebar="toggleSidebar" />
       <div class="body">
-        <div class="conversation">
-          <MessageList v-if="hasMessages" />
-          <div v-else class="welcome-wrap">
-            <Welcome @pick="(text) => composer?.fill(text)" />
-          </div>
+        <div v-if="inConversation" class="conversation">
+          <MessageList />
           <Composer ref="composer" />
         </div>
+        <Home v-else ref="home" />
         <PlanPanel v-if="showPlan" :plan="currentState!.plan" />
       </div>
     </main>
@@ -95,6 +108,7 @@ onBeforeUnmount(() => {
     </div>
 
     <SettingsDialog v-if="state.settingsOpen" />
+    <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />
     <div v-if="state.toast" class="toast" role="status">{{ state.toast }}</div>
   </div>
 </template>
@@ -141,10 +155,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
 }
-.welcome-wrap {
-  flex: 1;
-  overflow-y: auto;
-}
+
 .dropzone {
   position: absolute;
   inset: 10px;

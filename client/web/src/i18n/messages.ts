@@ -3,8 +3,8 @@
 const zh = {
   app: { name: 'Flyknit 智能办公助手', short: 'Flyknit' },
   sidebar: {
-    newChat: '新建对话',
-    search: '搜索对话',
+    newChat: '新建任务',
+    search: '搜索任务',
     pinned: '已置顶',
     today: '今天',
     yesterday: '昨天',
@@ -141,6 +141,45 @@ const zh = {
     version: '版本 {v}',
     close: '完成',
   },
+  ui: {
+    nav: { skills: '技能', memory: '记忆', trash: '回收站', tasks: '任务' },
+    filter: { all: '全部', agent: '办事', chat: '对话', translate: '翻译' },
+    time: { now: '刚刚', minutes: '{n} 分钟前', hours: '{n} 小时前', days: '{n} 天前' },
+    status: { running: '进行中', waiting: '待确认' },
+    home: {
+      title: '说出要做的事，剩下的交给我',
+      subtitle: '翻译、整理文件、分析表格、操作电脑，用你习惯的语言说就行',
+    },
+    chips: {
+      agent: { files: '整理文件', excel: '分析 Excel', ppt: '生成 PPT', word: '写 Word 文档', install: '安装软件', open: '打开软件' },
+      chat: { email: '写邮件', explain: '解释问题', summary: '总结内容', plan: '制定计划' },
+      translate: { vi: '翻译成越南语', zh: '翻译成中文', en: '翻译成英语', km: '翻译成柬埔寨语' },
+    },
+    prompts: {
+      agent: {
+        files: '帮我把 D 盘的日报文件按月份整理好',
+        excel: '帮我分析这份 Excel 的数据，找出异常并总结：',
+        ppt: '根据下面的内容生成一份汇报 PPT：',
+        word: '帮我写一份 Word 文档：',
+        install: '帮我安装软件：',
+        open: '打开 Outlook',
+      },
+      chat: { email: '帮我写一封邮件，内容是：', explain: '用简单的话解释一下：', summary: '帮我总结下面的内容：', plan: '帮我制定一个计划：' },
+    },
+    model: { auto: '自动', autoHint: '按任务类型自动选择', title: '选择模型', empty: '管理员还没有配置可选模型', noTools: '不支持办事', vision: '识图' },
+    skills: {
+      button: '技能',
+      title: '技能',
+      hint: '技能是写给 AI 的工作说明。办事时 AI 会按需自动使用，也可以在这里手动指定。',
+      org: '企业',
+      personal: '个人',
+      empty: '还没有安装技能',
+      openFolder: '打开技能文件夹',
+      use: '使用技能「{name}」：',
+    },
+    safety: { agent: '安全模式：危险命令自动拦截，修改电脑前会先问你', other: '内容由 AI 生成，请核实重要信息' },
+    modeLocked: '切换模式会开始一个新任务',
+  },
   error: { generic: '操作失败：{msg}' },
 }
 
@@ -149,8 +188,8 @@ type Messages = typeof zh
 const vi: Messages = {
   app: { name: 'Trợ lý văn phòng Flyknit', short: 'Flyknit' },
   sidebar: {
-    newChat: 'Trò chuyện mới',
-    search: 'Tìm cuộc trò chuyện',
+    newChat: 'Nhiệm vụ mới',
+    search: 'Tìm nhiệm vụ',
     pinned: 'Đã ghim',
     today: 'Hôm nay',
     yesterday: 'Hôm qua',
@@ -287,14 +326,53 @@ const vi: Messages = {
     version: 'Phiên bản {v}',
     close: 'Xong',
   },
+  ui: {
+    nav: { skills: 'Kỹ năng', memory: 'Ghi nhớ', trash: 'Thùng rác', tasks: 'Nhiệm vụ' },
+    filter: { all: 'Tất cả', agent: 'Làm việc', chat: 'Trò chuyện', translate: 'Dịch' },
+    time: { now: 'Vừa xong', minutes: '{n} phút trước', hours: '{n} giờ trước', days: '{n} ngày trước' },
+    status: { running: 'Đang chạy', waiting: 'Chờ xác nhận' },
+    home: {
+      title: 'Hãy nói việc cần làm, phần còn lại để tôi lo',
+      subtitle: 'Dịch thuật, sắp xếp tệp, phân tích bảng tính, thao tác máy tính — nói bằng ngôn ngữ của bạn',
+    },
+    chips: {
+      agent: { files: 'Sắp xếp tệp', excel: 'Phân tích Excel', ppt: 'Tạo PPT', word: 'Viết tài liệu Word', install: 'Cài phần mềm', open: 'Mở phần mềm' },
+      chat: { email: 'Viết email', explain: 'Giải thích', summary: 'Tóm tắt', plan: 'Lập kế hoạch' },
+      translate: { vi: 'Dịch sang tiếng Việt', zh: 'Dịch sang tiếng Trung', en: 'Dịch sang tiếng Anh', km: 'Dịch sang tiếng Khmer' },
+    },
+    prompts: {
+      agent: {
+        files: 'Sắp xếp các báo cáo ngày ở ổ D theo tháng',
+        excel: 'Phân tích dữ liệu trong file Excel này, tìm điểm bất thường và tóm tắt:',
+        ppt: 'Tạo bài thuyết trình PPT từ nội dung sau:',
+        word: 'Viết tài liệu Word:',
+        install: 'Cài đặt phần mềm:',
+        open: 'Mở Outlook',
+      },
+      chat: { email: 'Viết email với nội dung:', explain: 'Giải thích đơn giản:', summary: 'Tóm tắt nội dung sau:', plan: 'Lập kế hoạch:' },
+    },
+    model: { auto: 'Tự động', autoHint: 'Tự chọn theo loại nhiệm vụ', title: 'Chọn mô hình', empty: 'Quản trị viên chưa cấu hình mô hình', noTools: 'Không hỗ trợ làm việc', vision: 'Nhận ảnh' },
+    skills: {
+      button: 'Kỹ năng',
+      title: 'Kỹ năng',
+      hint: 'Kỹ năng là hướng dẫn công việc cho AI. AI tự dùng khi cần, hoặc bạn có thể chọn ở đây.',
+      org: 'Công ty',
+      personal: 'Cá nhân',
+      empty: 'Chưa cài kỹ năng nào',
+      openFolder: 'Mở thư mục kỹ năng',
+      use: 'Dùng kỹ năng “{name}”: ',
+    },
+    safety: { agent: 'Chế độ an toàn: lệnh nguy hiểm bị chặn, sẽ hỏi bạn trước khi thay đổi máy tính', other: 'Nội dung do AI tạo, hãy kiểm tra thông tin quan trọng' },
+    modeLocked: 'Đổi chế độ sẽ bắt đầu nhiệm vụ mới',
+  },
   error: { generic: 'Thao tác thất bại: {msg}' },
 }
 
 const en: Messages = {
   app: { name: 'Flyknit Office Assistant', short: 'Flyknit' },
   sidebar: {
-    newChat: 'New chat',
-    search: 'Search chats',
+    newChat: 'New task',
+    search: 'Search tasks',
     pinned: 'Pinned',
     today: 'Today',
     yesterday: 'Yesterday',
@@ -430,6 +508,45 @@ const en: Messages = {
     about: 'About',
     version: 'Version {v}',
     close: 'Done',
+  },
+  ui: {
+    nav: { skills: 'Skills', memory: 'Memory', trash: 'Trash', tasks: 'Tasks' },
+    filter: { all: 'All', agent: 'Tasks', chat: 'Chat', translate: 'Translate' },
+    time: { now: 'Just now', minutes: '{n} min ago', hours: '{n} h ago', days: '{n} d ago' },
+    status: { running: 'Running', waiting: 'Needs approval' },
+    home: {
+      title: 'Say what needs doing, I’ll handle the rest',
+      subtitle: 'Translate, organize files, analyze sheets, work on this PC — in your own language',
+    },
+    chips: {
+      agent: { files: 'Organize files', excel: 'Analyze Excel', ppt: 'Make slides', word: 'Write a Word doc', install: 'Install software', open: 'Open an app' },
+      chat: { email: 'Write an email', explain: 'Explain something', summary: 'Summarize', plan: 'Make a plan' },
+      translate: { vi: 'To Vietnamese', zh: 'To Chinese', en: 'To English', km: 'To Khmer' },
+    },
+    prompts: {
+      agent: {
+        files: 'Sort the daily reports on drive D into monthly folders',
+        excel: 'Analyze the data in this Excel file, find anomalies and summarize:',
+        ppt: 'Create a presentation from the following:',
+        word: 'Write a Word document:',
+        install: 'Install this software:',
+        open: 'Open Outlook',
+      },
+      chat: { email: 'Write an email about:', explain: 'Explain simply:', summary: 'Summarize the following:', plan: 'Make a plan for:' },
+    },
+    model: { auto: 'Auto', autoHint: 'Picked for the task type', title: 'Choose a model', empty: 'No models configured by the admin yet', noTools: 'No task support', vision: 'Vision' },
+    skills: {
+      button: 'Skills',
+      title: 'Skills',
+      hint: 'Skills are work instructions for the AI. It uses them automatically when relevant, or you can pick one here.',
+      org: 'Company',
+      personal: 'Personal',
+      empty: 'No skills installed yet',
+      openFolder: 'Open skills folder',
+      use: 'Use the “{name}” skill: ',
+    },
+    safety: { agent: 'Safe mode: dangerous commands are blocked, and you approve changes first', other: 'AI-generated content, check important details' },
+    modeLocked: 'Switching modes starts a new task',
   },
   error: { generic: 'Action failed: {msg}' },
 }

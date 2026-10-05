@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Languages, Menu, MessageSquare, Minus, Pin, Wrench, X } from '@lucide/vue'
+import { Languages, Menu, MessageSquare, Minus, PanelLeft, Pin, Plus, Wrench, X } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { current, draftMode, renameConversation, setMode, state } from '../store'
+import { current, newConversation, renameConversation } from '../store'
 import type { Mode } from '../types'
 
-defineProps<{ narrow: boolean }>()
+defineProps<{ narrow: boolean; sidebarHidden: boolean }>()
 const emit = defineEmits<{ toggleSidebar: [] }>()
 const { t } = useI18n()
 
@@ -15,12 +15,8 @@ const text = ref('')
 const input = ref<HTMLInputElement>()
 const topmost = ref(false)
 
-const mode = computed<Mode>(() => current.value?.mode ?? draftMode.mode)
-const modes: { key: Mode; icon: unknown }[] = [
-  { key: 'agent', icon: Wrench },
-  { key: 'chat', icon: MessageSquare },
-  { key: 'translate', icon: Languages },
-]
+const modeIcon: Record<Mode, unknown> = { agent: Wrench, chat: MessageSquare, translate: Languages }
+const icon = computed(() => (current.value ? modeIcon[current.value.mode] : null))
 
 async function startEdit() {
   if (!current.value) return
@@ -39,61 +35,43 @@ async function commit() {
 async function pin() {
   topmost.value = await bridge.toggleTopmost()
 }
+
+function startNew() {
+  newConversation()
+  window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+}
 </script>
 
 <template>
   <header class="topbar">
-    <button v-if="narrow" type="button" class="icon-btn no-drag" :aria-label="t('topbar.menu')" @click="emit('toggleSidebar')">
-      <Menu :size="18" />
+    <button type="button" class="icon-btn" :aria-label="t('topbar.menu')" @click="emit('toggleSidebar')">
+      <component :is="narrow ? Menu : PanelLeft" :size="18" />
+    </button>
+    <button v-if="sidebarHidden && current" type="button" class="icon-btn" :title="t('sidebar.newChat')" @click="startNew">
+      <Plus :size="18" />
     </button>
 
     <div class="title-wrap">
-      <input
-        v-if="editing"
-        ref="input"
-        v-model="text"
-        class="title-input no-drag"
-        maxlength="100"
-        @keydown.enter.prevent="commit"
-        @keydown.esc.prevent="editing = false"
-        @blur="commit"
-      />
-      <h1 v-else class="no-drag" :title="current ? t('topbar.rename') : undefined" @dblclick="startEdit">
-        {{ current ? current.title || t('sidebar.untitled') : t('sidebar.newChat') }}
-      </h1>
+      <template v-if="current">
+        <span class="mode-chip"><component :is="icon" :size="14" />{{ t(`mode.${current.mode}`) }}</span>
+        <input
+          v-if="editing"
+          ref="input"
+          v-model="text"
+          class="title-input"
+          maxlength="100"
+          @keydown.enter.prevent="commit"
+          @keydown.esc.prevent="editing = false"
+          @blur="commit"
+        />
+        <h1 v-else :title="t('topbar.rename')" @dblclick="startEdit">{{ current.title || t('sidebar.untitled') }}</h1>
+      </template>
     </div>
 
-    <div class="modes no-drag" role="radiogroup">
-      <button
-        v-for="m in modes"
-        :key="m.key"
-        type="button"
-        role="radio"
-        :aria-checked="mode === m.key"
-        :class="{ on: mode === m.key }"
-        :title="t(`mode.${m.key}Hint`)"
-        @click="setMode(m.key)"
-      >
-        <component :is="m.icon" :size="15" />
-        <span>{{ t(`mode.${m.key}`) }}</span>
-      </button>
-    </div>
-
-    <div class="window no-drag">
-      <span
-        class="status"
-        :class="{ off: !state.app?.connected }"
-        :title="state.app?.connected ? t('status.connected', { model: state.app?.modelName }) : state.app?.serverMessage || t('status.offline')"
-      />
-      <button type="button" class="icon-btn" :class="{ active: topmost }" :title="t('topbar.pinWindow')" @click="pin">
-        <Pin :size="16" />
-      </button>
-      <button type="button" class="icon-btn" :title="t('topbar.minimize')" @click="bridge.minimizeWindow()">
-        <Minus :size="17" />
-      </button>
-      <button type="button" class="icon-btn" :title="t('topbar.close')" @click="bridge.hideWindow()">
-        <X :size="17" />
-      </button>
+    <div class="window">
+      <button type="button" class="icon-btn" :class="{ active: topmost }" :title="t('topbar.pinWindow')" @click="pin"><Pin :size="16" /></button>
+      <button type="button" class="icon-btn" :title="t('topbar.minimize')" @click="bridge.minimizeWindow()"><Minus :size="17" /></button>
+      <button type="button" class="icon-btn" :title="t('topbar.close')" @click="bridge.hideWindow()"><X :size="17" /></button>
     </div>
   </header>
 </template>
@@ -102,26 +80,42 @@ async function pin() {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  height: 56px;
-  padding: 0 10px 0 20px;
-  border-bottom: 1px solid var(--line);
+  gap: 6px;
+  height: 52px;
+  padding: 0 10px;
   background: var(--loom);
   app-region: drag;
   -webkit-app-region: drag;
 }
-.no-drag,
-.topbar button {
+.topbar button,
+.title-input,
+h1 {
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
 .title-wrap {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 6px;
+}
+.mode-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 12px;
+  background: var(--chip);
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+  font-weight: 500;
 }
 h1 {
-  display: inline-block;
-  max-width: 100%;
+  min-width: 0;
   margin: 0;
   font-size: var(--t-md);
   font-weight: 600;
@@ -140,56 +134,9 @@ h1 {
   font-weight: 600;
   outline: 0;
 }
-.modes {
-  display: flex;
-  padding: 3px;
-  border-radius: var(--r-md);
-  background: var(--cloth-sunk);
-  border: 1px solid var(--line);
-}
-.modes button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 7px;
-  color: var(--ink-soft);
-  font-size: var(--t-sm);
-  font-weight: 500;
-}
-.modes button:hover {
-  color: var(--ink);
-}
-.modes button.on {
-  background: var(--cloth);
-  color: var(--indigo);
-  box-shadow: 0 1px 2px rgba(26, 36, 51, 0.12);
-}
 .window {
   display: flex;
   align-items: center;
   gap: 2px;
-}
-.status {
-  width: 8px;
-  height: 8px;
-  margin: 0 8px;
-  border-radius: 50%;
-  background: var(--thread);
-}
-.status.off {
-  background: var(--red);
-}
-@media (max-width: 720px) {
-  .modes span {
-    display: none;
-  }
-  .modes button {
-    padding: 0 9px;
-  }
-  .topbar {
-    padding-left: 8px;
-  }
 }
 </style>

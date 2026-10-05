@@ -17,6 +17,23 @@ export interface Conversation {
   updatedAt: string
   deletedAt: string | null
   messageCount: number
+  modelId: number | null
+}
+
+export interface ModelInfo {
+  id: number
+  name: string
+  model: string
+  provider: string
+  supportsTools: boolean
+  supportsVision: boolean
+}
+
+export interface SkillInfo {
+  name: string
+  description: string
+  organization: boolean
+  enabled: boolean
 }
 
 export interface AttachmentRef {
@@ -60,6 +77,7 @@ export interface AppInfo {
   connected: boolean
   serverMessage: string
   modelName: string
+  defaultModelId: number | null
 }
 
 /** 界面上的工具卡片状态 */

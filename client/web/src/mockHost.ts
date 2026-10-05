@@ -44,6 +44,7 @@ export function createMockHost(): HostTransport {
       updatedAt: now(),
       deletedAt: null,
       messageCount: 0,
+      modelId: null,
     }
   }
 
@@ -196,7 +197,26 @@ export function createMockHost(): HostTransport {
           connected: true,
           serverMessage: '',
           modelName: 'Qwen3.5-397B',
+          defaultModelId: null,
         }
+      case 'models.list':
+        return [
+          { id: 1, name: 'Qwen3.5-397B', model: 'qwen3.5-397b', provider: '内部模型', supportsTools: true, supportsVision: false },
+          { id: 2, name: 'qwen3.8-max', model: 'qwen3.8-max', provider: '阿里云百炼', supportsTools: true, supportsVision: false },
+          { id: 3, name: 'qwen-plus', model: 'qwen-plus', provider: '阿里云百炼', supportsTools: true, supportsVision: false },
+          { id: 4, name: 'qwen-vl-max', model: 'qwen-vl-max', provider: '阿里云百炼', supportsTools: true, supportsVision: true },
+        ]
+      case 'skills.list':
+        return [
+          { name: 'excel-report', description: '按公司模板生成 Excel 周报和月报', organization: true, enabled: true },
+          { name: 'factory-terms', description: '工厂专业术语中越柬对照表，翻译时保持用词统一', organization: true, enabled: true },
+          { name: 'meeting-notes', description: '把会议录音文字整理成会议纪要', organization: false, enabled: true },
+        ]
+      case 'conversation.setModel':
+        conversations.get(p.id)!.modelId = p.modelId
+        return
+      case 'settings.setDefaultModel':
+        return
       case 'settings.setLanguage':
         language = p.language
         return
@@ -210,6 +230,7 @@ export function createMockHost(): HostTransport {
       }
       case 'conversation.create': {
         const c = makeConversation(p.mode)
+        c.modelId = p.modelId ?? null
         conversations.set(c.id, c)
         messages.set(c.id, [])
         return { ...c }

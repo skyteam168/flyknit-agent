@@ -8,7 +8,9 @@ import type {
   Conversation,
   HostEvent,
   Mode,
+  ModelInfo,
   PlanItem,
+  SkillInfo,
   Theme,
   ToolActivity,
   UiLanguage,
@@ -37,6 +39,11 @@ export const state = reactive({
   pending: [] as AttachmentRef[],
   toast: '' as string,
   settingsOpen: false,
+  skillsOpen: false,
+  /** 侧栏任务列表按模式筛选 */
+  filter: 'all' as 'all' | Mode,
+  models: [] as ModelInfo[],
+  skills: [] as SkillInfo[],
 })
 
 export const current = computed(() => state.conversations.find((c) => c.id === state.currentId) ?? null)
@@ -75,7 +82,53 @@ export async function init() {
   state.app = app
   applyLanguage(app.uiLanguage)
   applyTheme(app.theme)
+  draftMode.modelId = app.defaultModelId
   await refreshList()
+  void loadModels()
+  void loadSkills()
+}
+
+export async function loadModels(refresh = false) {
+  try {
+    state.models = await bridge.listModels(refresh)
+    // 默认模型已被管理员停用时回到自动
+    if (draftMode.modelId !== null && !state.models.some((m) => m.id === draftMode.modelId)) draftMode.modelId = null
+  } catch (e) {
+    fail(e)
+  }
+}
+
+export async function loadSkills() {
+  try {
+    state.skills = await bridge.listSkills()
+  } catch {
+    state.skills = []
+  }
+}
+
+/** 当前对话（或新任务草稿）使用的模型 */
+export const selectedModelId = computed<number | null>(() =>
+  current.value ? current.value.modelId : draftMode.modelId,
+)
+
+export async function selectModel(modelId: number | null) {
+  const c = current.value
+  if (c) {
+    c.modelId = modelId
+    await bridge.setModel(c.id, modelId).catch(fail)
+  } else {
+    draftMode.modelId = modelId
+  }
+  // 最近一次选择作为以后新任务的默认模型
+  if (state.app) state.app.defaultModelId = modelId
+  await bridge.setDefaultModel(modelId).catch(fail)
+}
+
+/** 侧栏状态：运行中 / 等待确认 / 空闲 */
+export function runStatus(id: string): 'running' | 'waiting' | 'idle' {
+  const s = state.byId[id]
+  if (!s?.busy) return 'idle'
+  return Object.values(s.tools).some((t) => t.state === 'waiting') ? 'waiting' : 'running'
 }
 
 export async function refreshList() {
@@ -115,13 +168,19 @@ export async function openConversation(id: string) {
   }
 }
 
-/** 新建对话只在本地生成草稿，发送第一条消息时才真正创建，避免产生空会话。 */
-export function newConversation() {
+/** 新建任务只在本地生成草稿，发送第一条消息时才真正创建，避免产生空会话。 */
+export function newConversation(mode?: Mode) {
   state.currentId = null
   state.pending = []
+  if (mode) draftMode.mode = mode
 }
 
-export const draftMode = reactive({ mode: 'agent' as Mode, translateFrom: 'auto', translateTo: 'vi' })
+export const draftMode = reactive({
+  mode: 'agent' as Mode,
+  translateFrom: 'auto',
+  translateTo: 'vi',
+  modelId: null as number | null,
+})
 
 export async function renameConversation(id: string, title: string) {
   const t = title.trim()
@@ -155,14 +214,23 @@ export async function togglePin(c: Conversation) {
   await refreshList()
 }
 
+/**
+ * 切换模式：每种模式是独立的任务。新任务页面直接切换；
+ * 在已有对话中切换时，开一个新任务（不把不同模式的消息混在同一个对话里）。
+ */
 export async function setMode(mode: Mode) {
   const c = current.value
   if (!c) {
     draftMode.mode = mode
     return
   }
-  c.mode = mode
-  await bridge.setMode(c.id, mode).catch(fail)
+  if (c.mode === mode) return
+  if (c.messageCount === 0 && (state.byId[c.id]?.messages.length ?? 0) === 0) {
+    c.mode = mode
+    await bridge.setMode(c.id, mode).catch(fail)
+    return
+  }
+  newConversation(mode)
 }
 
 export async function setTranslate(from: string, to: string) {
@@ -184,7 +252,7 @@ export async function send(text: string) {
   let id = state.currentId
   try {
     if (!id) {
-      const c = await bridge.createConversation(draftMode.mode)
+      const c = await bridge.createConversation(draftMode.mode, draftMode.modelId)
       if (draftMode.mode === 'translate') {
         await bridge.setTranslate(c.id, draftMode.translateFrom, draftMode.translateTo)
         c.translateFrom = draftMode.translateFrom

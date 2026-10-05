@@ -34,23 +34,19 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 接口文档：启动后访问 `http://<服务器>:8000/docs`。
 
-首次配置模型（以内部 Qwen3.5-397B 为例）：
+配置模型（服务端启动后，在 server 目录另开一个窗口执行，脚本会自动读取 .env 中的管理员令牌）：
 
 ```bash
-# 1. 添加模型提供方
-curl -X POST http://localhost:8000/api/v1/admin/providers \
-  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"内部模型","base_url":"http://10.0.0.10:8000/v1","api_key":"sk-xxx"}'
+# 同步提供方的全部对话模型供客户端选择，并指定默认模型
+python -m scripts.setup_model --provider-name 阿里云百炼 \
+  --base-url https://<工作空间>.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1 \
+  --api-key sk-xxx --sync --model qwen3.8-max
 
-# 2. 添加模型（provider_id 用上一步返回的 id）
-curl -X POST http://localhost:8000/api/v1/admin/models \
-  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"provider_id":1,"name":"Qwen3.5-397B","model":"qwen3.5-397b","supports_tools":true}'
+# 内部模型作为默认模型；加 --fallback 则作为备用
+python -m scripts.setup_model --base-url http://10.0.0.10:8000/v1 --model qwen3.5-397b --name Qwen3.5-397B
 
-# 3. 把各场景路由到该模型（chat / agent / translate / title / vision）
-curl -X PUT http://localhost:8000/api/v1/admin/routes/agent \
-  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"model_id":1,"fallback_model_id":null}'
+# 查看当前配置
+python -m scripts.setup_model --list
 ```
 
 ### 聊天界面（浏览器预览）

@@ -3,30 +3,33 @@
 @import '@fontsource/be-vietnam-pro/600.css';
 
 :root {
-  /* 色彩：取自针织染色 —— 靛蓝染料、青色纱线、冷灰织机 */
-  --loom: #f4f6f9;          /* 页面底色 */
-  --cloth: #ffffff;         /* 面板、输入框 */
-  --cloth-sunk: #eceff4;    /* 侧栏、次级区域 */
-  --ink: #1a2433;           /* 正文 */
-  --ink-soft: #4f5b6d;      /* 次要文字 */
-  --ink-faint: #8792a3;     /* 提示文字 */
-  --line: #dfe4ec;          /* 分隔线 */
-  --line-strong: #c9d0db;
-  --indigo: #3446c9;        /* 主色：靛蓝 */
+  /* 色彩：中性白底 + 靛蓝品牌色（针织染料）+ 青色纱线作完成色 */
+  --loom: #ffffff;          /* 主区域底色 */
+  --cloth: #ffffff;         /* 卡片、输入框 */
+  --cloth-sunk: #f6f6f7;    /* 侧栏、次级区域 */
+  --chip: #f2f2f4;          /* 快捷入口、标签 */
+  --ink: #18181b;           /* 正文 */
+  --ink-soft: #52525b;      /* 次要文字 */
+  --ink-faint: #a1a1aa;     /* 提示文字 */
+  --line: #e9e9ec;          /* 分隔线 */
+  --line-strong: #d6d6db;
+  --pill: #18181b;          /* 选中的模式胶囊 */
+  --pill-ink: #ffffff;
+  --indigo: #3446c9;        /* 品牌色 */
   --indigo-hover: #2a3aad;
-  --indigo-wash: #e9ecfb;   /* 主色浅底 */
-  --thread: #0e9a8e;        /* 辅色：青线，仅用于完成状态与针织纹 */
+  --indigo-wash: #eef0fc;
+  --thread: #0e9a8e;        /* 完成状态 */
   --thread-wash: #e2f4f2;
   --amber: #b86e00;         /* 需确认 */
   --amber-wash: #fff4e0;
   --red: #c4362d;           /* 阻止、错误 */
   --red-wash: #fdeceb;
-  --shadow-pop: 0 12px 32px -8px rgba(26, 36, 51, 0.22), 0 2px 6px rgba(26, 36, 51, 0.08);
+  --shadow-card: 0 1px 2px rgba(24, 24, 27, 0.04), 0 4px 16px -4px rgba(24, 24, 27, 0.08);
+  --shadow-pop: 0 12px 32px -8px rgba(24, 24, 27, 0.22), 0 2px 6px rgba(24, 24, 27, 0.08);
 
   --font: 'Be Vietnam Pro', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif;
   --font-code: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Microsoft YaHei UI', monospace;
 
-  /* 字号：1.2 比例 */
   --t-xs: 12px;
   --t-sm: 13px;
   --t-md: 14.5px;
@@ -37,30 +40,35 @@
   --r-sm: 6px;
   --r-md: 10px;
   --r-lg: 16px;
-  --sidebar-w: 268px;
+  --r-xl: 22px;
+  --sidebar-w: 272px;
   --plan-w: 272px;
-  --column: 760px;
+  --column: 800px;
   color-scheme: light;
 }
 
 :root[data-theme='dark'] {
-  --loom: #121721;
-  --cloth: #1a2130;
-  --cloth-sunk: #161c28;
-  --ink: #e4e8f0;
-  --ink-soft: #a8b2c3;
-  --ink-faint: #6f7a8c;
-  --line: #273041;
-  --line-strong: #344055;
-  --indigo: #7d8cf2;
-  --indigo-hover: #95a1f5;
-  --indigo-wash: #232b4a;
+  --loom: #141418;
+  --cloth: #1c1c21;
+  --cloth-sunk: #18181c;
+  --chip: #26262c;
+  --ink: #ececef;
+  --ink-soft: #a9a9b2;
+  --ink-faint: #6d6d77;
+  --line: #2a2a31;
+  --line-strong: #3a3a43;
+  --pill: #ececef;
+  --pill-ink: #141418;
+  --indigo: #8d9af5;
+  --indigo-hover: #a3aef7;
+  --indigo-wash: #23264a;
   --thread: #3cc4b6;
   --thread-wash: #173430;
   --amber: #f0a43a;
   --amber-wash: #3a2a12;
   --red: #f0766d;
   --red-wash: #3d1c1a;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 20px -6px rgba(0, 0, 0, 0.5);
   --shadow-pop: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }

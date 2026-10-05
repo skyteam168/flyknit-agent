@@ -14,6 +14,8 @@ import type {
   Conversation,
   HostEvent,
   Mode,
+  ModelInfo,
+  SkillInfo,
   Theme,
   UiLanguage,
   UiMessage,
@@ -100,7 +102,9 @@ class Bridge {
   // ---------- 会话 ----------
   listConversations = (query = '', trash = false) =>
     this.call<Conversation[]>('conversations.list', { query, trash })
-  createConversation = (mode: Mode) => this.call<Conversation>('conversation.create', { mode })
+  createConversation = (mode: Mode, modelId: number | null) =>
+    this.call<Conversation>('conversation.create', { mode, modelId })
+  setModel = (id: string, modelId: number | null) => this.call<void>('conversation.setModel', { id, modelId })
   renameConversation = (id: string, title: string) => this.call<void>('conversation.rename', { id, title })
   deleteConversation = (id: string) => this.call<void>('conversation.delete', { id })
   restoreConversation = (id: string) => this.call<void>('conversation.restore', { id })
@@ -110,6 +114,12 @@ class Bridge {
   setTranslate = (id: string, from: string, to: string) =>
     this.call<void>('conversation.setTranslate', { id, from, to })
   loadMessages = (id: string) => this.call<UiMessage[]>('messages.load', { id })
+
+  // ---------- 模型与技能 ----------
+  listModels = (refresh = false) => this.call<ModelInfo[]>('models.list', { refresh })
+  setDefaultModel = (modelId: number | null) => this.call<void>('settings.setDefaultModel', { modelId })
+  listSkills = () => this.call<SkillInfo[]>('skills.list')
+  openSkillsFolder = () => this.call<void>('skills.openFolder')
 
   // ---------- 对话 ----------
   send = (conversationId: string, text: string, attachments: AttachmentRef[]) =>
