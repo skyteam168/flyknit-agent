@@ -120,3 +120,55 @@ async def test_chinese_model_name_in_header(client, device_headers):
                               json={"model": "chat", "stream": stream, "messages": [{"role": "user", "content": "hi"}]})
         assert r.status_code == 200
         assert unquote(r.headers["x-flyknit-model"]) == "通义千问"
+
+
+@respx.mock
+async def test_client_selected_model_is_used_first(client, device_headers):
+    m1, m2 = await setup_models(client)
+    backup = respx.post("http://backup.local/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "plus"}}]})
+    )
+    r = await client.post("/api/v1/chat/completions", headers=device_headers, json={
+        "model": "agent", "flyknit_model_id": m2["id"], "messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 200
+    import json
+    sent = json.loads(backup.calls.last.request.content)
+    assert sent["model"] == "qwen-plus"
+    assert "flyknit_model_id" not in sent
+
+
+@respx.mock
+async def test_selected_model_falls_back_to_scene_model(client, device_headers):
+    m1, m2 = await setup_models(client)
+    respx.post("http://backup.local/v1/chat/completions").mock(return_value=httpx.Response(503))
+    primary = respx.post("http://primary.local/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": []}))
+    r = await client.post("/api/v1/chat/completions", headers=device_headers, json={
+        "model": "chat", "flyknit_model_id": m2["id"], "messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 200 and primary.called
+
+
+async def test_client_models_lists_enabled_models(client, device_headers):
+    m1, m2 = await setup_models(client)
+    await client.patch(f"/api/v1/admin/models/{m2['id']}", headers=ADMIN, json={"enabled": False})
+    r = await client.get("/api/v1/client/models", headers=device_headers)
+    assert [m["name"] for m in r.json()] == ["Qwen3.5-397B"]
+    assert r.json()[0]["provider"] == "内部"
+
+
+@respx.mock
+async def test_sync_models_from_provider(client):
+    p = (await client.post("/api/v1/admin/providers", headers=ADMIN,
+                           json={"name": "百炼", "base_url": "http://bailian.local/v1", "api_key": "sk-abcdefgh"})).json()
+    route = respx.get("http://bailian.local/v1/models").mock(return_value=httpx.Response(200, json={"data": [
+        {"id": "qwen3.8-max"}, {"id": "qwen-plus"}, {"id": "text-embedding-v4"}, {"id": "qwen-vl-max"}, {"id": "cosyvoice-v2"},
+    ]}))
+    r = await client.post(f"/api/v1/admin/providers/{p['id']}/sync-models", headers=ADMIN)
+    assert r.status_code == 200, r.text
+    assert sorted(r.json()["added"]) == ["qwen-plus", "qwen-vl-max", "qwen3.8-max"]
+    assert route.calls.last.request.headers["authorization"] == "Bearer sk-abcdefgh"
+    models = (await client.get("/api/v1/admin/models", headers=ADMIN)).json()
+    assert next(m for m in models if m["model"] == "qwen-vl-max")["supports_vision"] is True
+    # 再次同步不重复添加
+    r = await client.post(f"/api/v1/admin/providers/{p['id']}/sync-models", headers=ADMIN)
+    assert r.json()["added"] == []

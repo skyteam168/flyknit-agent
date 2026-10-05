@@ -34,17 +34,19 @@ async def chat_completions(
         return _error(400, "缺少 messages", "invalid_request_error")
 
     scene = str(body.get("scene") or body.get("model") or "chat")
+    model_id = body.get("flyknit_model_id")
+    model_id = model_id if isinstance(model_id, int) and scene != "title" else None
     if scene not in ("vision",) and model_router.has_image(body["messages"]):
-        # 带图片的请求：若当前场景的主模型不支持图片，则改走 vision 场景
+        # 带图片的请求：若选中的模型不支持图片，则改走 vision 场景
         try:
-            primary = (await model_router.resolve(session, scene))[0]
+            primary = (await model_router.resolve(session, scene, model_id))[0]
             if not primary.supports_vision:
-                scene = "vision"
+                scene, model_id = "vision", None
         except model_router.NoRouteError:
-            scene = "vision"
+            scene, model_id = "vision", None
 
     try:
-        targets = await model_router.resolve(session, scene)
+        targets = await model_router.resolve(session, scene, model_id)
     except model_router.NoRouteError as exc:
         return _error(503, str(exc))
 

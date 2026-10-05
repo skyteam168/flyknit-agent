@@ -175,3 +175,18 @@ class ClientConfigOut(BaseModel):
     server_version: str
     scenes: list[SceneInfo]
     policy: dict
+
+
+class ClientModelOut(BaseModel):
+    id: int
+    name: str
+    model: str
+    provider: str
+    supports_tools: bool
+    supports_vision: bool
+
+
+class SyncResult(BaseModel):
+    total: int
+    added: list[str]
+    skipped: int

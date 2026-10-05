@@ -27,6 +27,7 @@ from ..schemas import (
     RouteOut,
     SmbIn,
     SmbOut,
+    SyncResult,
 )
 from ..services import settings_store
 from ..services.model_router import Target, build_body, headers_for
@@ -92,6 +93,58 @@ async def delete_provider(provider_id: int, session: AsyncSession = Depends(get_
     p = await _get_or_404(session, Provider, provider_id)
     await session.delete(p)
     await session.commit()
+
+
+# 同步模型时默认排除的非对话模型（向量、语音、图像生成等）
+DEFAULT_SYNC_EXCLUDE = r"embed|rerank|tts|asr|whisper|audio|speech|paraformer|sensevoice|cosyvoice|sambert|wanx|wan2|image|flux|stable-diffusion|video|realtime|ocr|moderation"
+
+
+@router.post("/providers/{provider_id}/sync-models", response_model=SyncResult)
+async def sync_models(
+    provider_id: int,
+    request: Request,
+    include: str = "",
+    exclude: str = DEFAULT_SYNC_EXCLUDE,
+    session: AsyncSession = Depends(get_session),
+):
+    """从提供方的 /models 接口拉取模型列表，新增的模型默认启用，已存在的保持不变。"""
+    import re
+
+    p = await _get_or_404(session, Provider, provider_id)
+    key = decrypt(p.api_key_enc)
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    try:
+        resp = await request.app.state.http.get(f"{p.base_url.rstrip('/')}/models", headers=headers, timeout=30)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"无法访问模型列表：{exc}") from exc
+    if resp.status_code >= 400:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"模型列表接口返回 {resp.status_code}：{resp.text[:300]}")
+    data = resp.json()
+    ids = sorted({str(item.get("id")) for item in data.get("data", []) if isinstance(item, dict) and item.get("id")})
+
+    inc = re.compile(include, re.I) if include else None
+    exc_re = re.compile(exclude, re.I) if exclude else None
+    existing = set((await session.scalars(select(ModelConfig.model).where(ModelConfig.provider_id == p.id))).all())
+    added, skipped = [], 0
+    for model_id in ids:
+        if (inc and not inc.search(model_id)) or (exc_re and exc_re.search(model_id)):
+            skipped += 1
+            continue
+        if model_id in existing:
+            continue
+        lowered = model_id.lower()
+        session.add(
+            ModelConfig(
+                provider_id=p.id,
+                name=model_id,
+                model=model_id,
+                supports_tools=True,
+                supports_vision="vl" in lowered or "omni" in lowered or "qvq" in lowered,
+            )
+        )
+        added.append(model_id)
+    await session.commit()
+    return SyncResult(total=len(ids), added=added, skipped=skipped)
 
 
 # ---------- 模型 ----------

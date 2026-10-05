@@ -11,11 +11,15 @@ from ..config import get_settings
 from ..crypto import hash_token, new_token
 from ..db import get_session
 from ..deps import require_device
-from ..models import AuditLog, Device
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
+
+from ..models import AuditLog, Device, ModelConfig
 from ..schemas import (
     SCENES,
     AuditBatchIn,
     ClientConfigOut,
+    ClientModelOut,
     DeviceRegisterIn,
     DeviceRegisterOut,
     SceneInfo,
@@ -102,3 +106,27 @@ async def report_audit(
                 item.arguments[:500],
             )
     await session.commit()
+
+
+@router.get("/client/models", response_model=list[ClientModelOut])
+async def client_models(
+    device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)
+):
+    """客户端输入框里可选择的模型（管理员启用的模型）。"""
+    rows = (
+        await session.scalars(
+            select(ModelConfig).options(joinedload(ModelConfig.provider)).order_by(ModelConfig.provider_id, ModelConfig.name)
+        )
+    ).unique().all()
+    return [
+        ClientModelOut(
+            id=m.id,
+            name=m.name,
+            model=m.model,
+            provider=m.provider.name,
+            supports_tools=m.supports_tools,
+            supports_vision=m.supports_vision,
+        )
+        for m in rows
+        if m.enabled and m.provider.enabled
+    ]

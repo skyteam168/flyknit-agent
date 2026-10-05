@@ -11,6 +11,10 @@
         --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
         --api-key sk-xxx --model qwen-plus --fallback
 
+    # 同步提供方的全部对话模型，供客户端输入框选择（可与 --model 一起用，--model 作为默认模型）：
+    python -m scripts.setup_model --provider-name 阿里云百炼 --base-url https://...compatible-mode/v1 \
+        --api-key sk-xxx --sync --model qwen3.8-max
+
     # 查看当前配置：
     python -m scripts.setup_model --list
 """
@@ -37,6 +41,8 @@ def main() -> int:
     parser.add_argument("--vision", action="store_true", help="模型支持图片输入")
     parser.add_argument("--scenes", default="chat,agent,translate,title", help="路由到哪些场景，逗号分隔")
     parser.add_argument("--fallback", action="store_true", help="作为备用模型，不替换主模型")
+    parser.add_argument("--sync", action="store_true", help="从提供方 /models 接口同步全部对话模型，供客户端选择")
+    parser.add_argument("--include", default="", help="同步时只保留名称匹配该正则的模型，例如 qwen")
     parser.add_argument("--list", action="store_true", help="只显示当前配置")
     args = parser.parse_args()
 
@@ -72,8 +78,8 @@ def main() -> int:
             print(f"  {r['scene']:<10} 主模型：{main_m}  备用：{fb}")
         return 0
 
-    if not args.base_url or not args.model:
-        parser.error("需要 --base-url 和 --model（或使用 --list 查看配置）")
+    if not args.base_url or not (args.model or args.sync):
+        parser.error("需要 --base-url，以及 --model 或 --sync（或使用 --list 查看配置）")
 
     # 提供方：同名复用并更新地址、密钥
     provider = next((p for p in call("GET", "/providers") if p["name"] == args.provider_name), None)
@@ -83,6 +89,22 @@ def main() -> int:
     else:
         provider = call("POST", "/providers", json={"name": args.provider_name, "base_url": args.base_url, "api_key": args.api_key})
         print(f"已添加提供方：{provider['name']}")
+
+    if args.sync:
+        print("正在同步模型列表…")
+        params = {"include": args.include} if args.include else {}
+        result = call("POST", f"/providers/{provider['id']}/sync-models", params=params)
+        print(f"提供方共有 {result['total']} 个模型，新增 {len(result['added'])} 个，跳过非对话模型 {result['skipped']} 个")
+        for name in result["added"][:30]:
+            print(f"  + {name}")
+        if len(result["added"]) > 30:
+            print(f"  …另外 {len(result['added']) - 30} 个")
+        if not args.model:
+            routes = call("GET", "/routes")
+            if not any(r["model_id"] for r in routes):
+                print("提示：还没有默认模型，请再加上 --model 指定一个默认模型。")
+            print("客户端重新打开后即可在输入框里选择模型。")
+            return 0
 
     # 模型：同一提供方下同名复用
     display = args.name or args.model

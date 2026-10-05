@@ -65,10 +65,25 @@ def has_image(messages: list) -> bool:
     return False
 
 
-async def resolve(session: AsyncSession, scene: str) -> list[Target]:
-    """返回按优先级排列的候选模型（主模型、备用模型）。chat 场景未配置时回退到 agent，反之亦然。"""
+async def resolve(session: AsyncSession, scene: str, model_id: int | None = None) -> list[Target]:
+    """返回按优先级排列的候选模型（主模型、备用模型）。chat 场景未配置时回退到 agent，反之亦然。
+
+    model_id：用户在客户端选择的模型，可用时排在最前，场景配置的模型作为备用。
+    """
     if scene not in SCENES:
         raise NoRouteError(f"未知场景：{scene}")
+
+    if model_id is not None:
+        chosen = await load_model(session, model_id)
+        if _usable(chosen):
+            targets = [_to_target(chosen)]
+            try:
+                for t in await resolve(session, scene):
+                    if t.model_id != chosen.id and len(targets) < 2:
+                        targets.append(t)
+            except NoRouteError:
+                pass
+            return targets
 
     order = [scene]
     if scene in ("translate", "title", "vision"):
@@ -93,7 +108,7 @@ async def resolve(session: AsyncSession, scene: str) -> list[Target]:
 
 
 def build_body(body: dict, target: Target) -> dict:
-    out = {k: v for k, v in body.items() if k not in ("scene",)}
+    out = {k: v for k, v in body.items() if k not in ("scene", "flyknit_model_id")}
     for k, v in target.extra_body.items():
         out.setdefault(k, v)
     out["model"] = target.upstream_model
