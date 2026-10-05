@@ -136,7 +136,9 @@ public sealed class FlyknitServerClient : IChatGateway
         using (resp)
         {
             await EnsureOk(resp, ct);
-            var model = resp.Headers.TryGetValues("X-Flyknit-Model", out var values) ? values.FirstOrDefault() : null;
+            var model = resp.Headers.TryGetValues("X-Flyknit-Model", out var values) && values.FirstOrDefault() is { } raw
+                ? Uri.UnescapeDataString(raw) // 服务端对中文模型名做了 URL 编码
+                : null;
             var acc = new SseAccumulator(sink);
 
             if (!request.Stream)

@@ -1,6 +1,7 @@
 """OpenAI 兼容的模型网关。客户端把 model 字段填成场景名（chat / agent / translate / title / vision）。"""
 
 import logging
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -54,7 +55,8 @@ async def chat_completions(
         log.warning("upstream unavailable scene=%s device=%s: %s", scene, device.id, exc)
         return _error(502, f"模型服务暂时不可用：{exc}")
 
-    headers = {"X-Flyknit-Model": target.display_name, "X-Flyknit-Scene": scene}
+    # HTTP 头只能是 latin-1，模型显示名可能是中文，统一做 URL 编码（客户端解码）
+    headers = {"X-Flyknit-Model": quote(target.display_name, safe=""), "X-Flyknit-Scene": scene}
 
     if upstream.status_code >= 400:
         content = await upstream.aread()

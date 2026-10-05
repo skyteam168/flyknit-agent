@@ -102,3 +102,21 @@ async def test_disabled_device_is_rejected(client, device_headers):
     await client.patch(f"/api/v1/admin/devices/{devices[0]['id']}", headers=ADMIN, json={"disabled": True})
     r = await client.get("/api/v1/client/config", headers=device_headers)
     assert r.status_code == 403
+
+
+@respx.mock
+async def test_chinese_model_name_in_header(client, device_headers):
+    """模型显示名为中文时，响应头不能导致 500（流式与非流式）。"""
+    from urllib.parse import unquote
+
+    await setup_models(client)
+    models = (await client.get("/api/v1/admin/models", headers=ADMIN)).json()
+    await client.patch(f"/api/v1/admin/models/{models[0]['id']}", headers=ADMIN, json={"name": "通义千问"})
+    respx.post("http://primary.local/v1/chat/completions").mock(
+        return_value=httpx.Response(200, content=b"data: [DONE]\n\n", headers={"content-type": "text/event-stream"})
+    )
+    for stream in (True, False):
+        r = await client.post("/api/v1/chat/completions", headers=device_headers,
+                              json={"model": "chat", "stream": stream, "messages": [{"role": "user", "content": "hi"}]})
+        assert r.status_code == 200
+        assert unquote(r.headers["x-flyknit-model"]) == "通义千问"
