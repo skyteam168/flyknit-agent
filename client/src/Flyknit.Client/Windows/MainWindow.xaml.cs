@@ -94,7 +94,11 @@ public partial class MainWindow : Window, IWindowActions
 
         var root = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         core.SetVirtualHostNameToFolderMapping(VirtualHost, root, CoreWebView2HostResourceAccessKind.Deny);
-        Web.Source = new Uri($"https://{VirtualHost}/index.html");
+        // WebView2 会缓存 index.html；界面重新构建后资源文件名变了，旧缓存会导致白屏。
+        // 用 index.html 的修改时间作为版本参数，每次构建后都会加载最新页面。
+        var index = Path.Combine(root, "index.html");
+        var version = File.Exists(index) ? File.GetLastWriteTimeUtc(index).Ticks : 0;
+        Web.Source = new Uri($"https://{VirtualHost}/index.html?v={version}");
     }
 
     private static void OpenExternal(string uri)

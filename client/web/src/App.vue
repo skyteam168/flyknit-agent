@@ -20,6 +20,8 @@ const width = ref(window.innerWidth)
 const drawer = ref(false)
 const dragging = ref(0)
 const ready = ref(false)
+const initError = ref('')
+const reload = () => window.location.reload()
 
 /** 窄窗口（迷你模式）：侧栏改为抽屉 */
 const narrow = computed(() => width.value < 760)
@@ -69,8 +71,12 @@ function onDrop(e: DragEvent) {
 onMounted(async () => {
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', onKey)
-  await init()
-  ready.value = true
+  try {
+    await init()
+    ready.value = true
+  } catch (e) {
+    initError.value = e instanceof Error ? e.message : String(e)
+  }
 })
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
@@ -79,8 +85,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <div v-if="initError" class="init-error">
+    <strong>Flyknit</strong>
+    <p>{{ initError }}</p>
+    <button type="button" class="btn primary" @click="reload">Reload</button>
+  </div>
   <div
-    v-if="ready"
+    v-else-if="ready"
     class="shell"
     :class="{ narrow }"
     @dragenter.prevent="onDragEnter"
@@ -114,6 +125,14 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.init-error {
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  height: 100%;
+  text-align: center;
+  color: var(--ink-soft);
+}
 .shell {
   display: flex;
   height: 100%;
