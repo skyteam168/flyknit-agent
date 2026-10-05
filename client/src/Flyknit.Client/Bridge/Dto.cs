@@ -21,7 +21,8 @@ public sealed record ConversationDto(
     string CreatedAt,
     string UpdatedAt,
     string? DeletedAt,
-    int MessageCount)
+    int MessageCount,
+    int? ModelId)
 {
     public static ConversationDto From(Conversation c) => new(
         c.Id,
@@ -34,7 +35,8 @@ public sealed record ConversationDto(
         c.CreatedAt.ToString("O"),
         c.UpdatedAt.ToString("O"),
         c.DeletedAt?.ToString("O"),
-        c.MessageCount);
+        c.MessageCount,
+        c.ModelId);
 }
 
 public sealed class AttachmentDto

@@ -17,6 +17,10 @@ public sealed class Conversation
     public bool Pinned { get; set; }
     public string TranslateFrom { get; set; } = "auto";
     public string TranslateTo { get; set; } = "vi";
+
+    /// <summary>用户为该会话选择的模型（服务端模型 ID），为空表示自动。</summary>
+    public int? ModelId { get; set; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? DeletedAt { get; set; }
@@ -82,17 +86,28 @@ public sealed class ConversationStore
             CREATE INDEX IF NOT EXISTS ix_conv_updated ON conversations(updated_at);
             """;
         cmd.ExecuteNonQuery();
+
+        // v0.2：会话记录所选模型
+        using var info = c.CreateCommand();
+        info.CommandText = "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'model_id'";
+        if (Convert.ToInt64(info.ExecuteScalar()) == 0)
+        {
+            using var alter = c.CreateCommand();
+            alter.CommandText = "ALTER TABLE conversations ADD COLUMN model_id INTEGER NULL";
+            alter.ExecuteNonQuery();
+        }
     }
 
-    public Conversation Create(ConversationMode mode, string title = "")
+    public Conversation Create(ConversationMode mode, string title = "", int? modelId = null)
     {
-        var conv = new Conversation { Mode = mode, Title = title };
+        var conv = new Conversation { Mode = mode, Title = title, ModelId = modelId };
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO conversations (id, title, title_source, mode, pinned, translate_from, translate_to, created_at, updated_at)
-            VALUES ($id, $title, 'auto', $mode, 0, $from, $to, $created, $updated)
+            INSERT INTO conversations (id, title, title_source, mode, pinned, translate_from, translate_to, model_id, created_at, updated_at)
+            VALUES ($id, $title, 'auto', $mode, 0, $from, $to, $model, $created, $updated)
             """;
+        cmd.Parameters.AddWithValue("$model", (object?)modelId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$id", conv.Id);
         cmd.Parameters.AddWithValue("$title", conv.Title);
         cmd.Parameters.AddWithValue("$mode", ModeToText(mode));
@@ -157,6 +172,8 @@ public sealed class ConversationStore
     public void SetPinned(string id, bool pinned) => Update(id, "pinned = $v", pinned ? 1 : 0);
 
     public void SetMode(string id, ConversationMode mode) => Update(id, "mode = $v", ModeToText(mode));
+
+    public void SetModel(string id, int? modelId) => Update(id, "model_id = $v", (object?)modelId ?? DBNull.Value);
 
     public void SetTranslateLanguages(string id, string from, string to)
     {
@@ -283,7 +300,7 @@ public sealed class ConversationStore
 
     private const string SelectConversation = """
         SELECT c.id, c.title, c.title_source, c.mode, c.pinned, c.translate_from, c.translate_to,
-               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id)
+               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id
         FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id AND m.role IN ('user','assistant')
         """;
 
@@ -300,6 +317,7 @@ public sealed class ConversationStore
         UpdatedAt = DateTimeOffset.Parse(r.GetString(8)),
         DeletedAt = r.IsDBNull(9) ? null : DateTimeOffset.Parse(r.GetString(9)),
         MessageCount = (int)r.GetInt64(10),
+        ModelId = r.IsDBNull(11) ? null : (int)r.GetInt64(11),
     };
 
     private void Update(string id, string set, object value)

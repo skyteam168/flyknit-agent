@@ -8,6 +8,9 @@ public sealed class TitleGenerator
 {
     private readonly IChatGateway _gateway;
 
+    /// <summary>最近一次生成失败的原因（写日志用）。</summary>
+    public string? LastError { get; private set; }
+
     public TitleGenerator(IChatGateway gateway)
     {
         _gateway = gateway;
@@ -24,6 +27,8 @@ public sealed class TitleGenerator
                 Stream = false,
                 MaxTokens = 40,
                 Temperature = 0.3,
+                // Qwen3 等推理模型在非流式请求中必须关闭思考，否则会报错
+                ExtraBody = new Dictionary<string, System.Text.Json.Nodes.JsonNode?> { ["enable_thinking"] = false },
                 Messages = new[]
                 {
                     ChatMessage.System(PromptBuilder.TitlePrompt(uiLanguage)),
@@ -32,8 +37,9 @@ public sealed class TitleGenerator
             }, null, ct);
             return Clean(turn.Content);
         }
-        catch (GatewayException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
+            LastError = ex.Message;
             return null;
         }
     }

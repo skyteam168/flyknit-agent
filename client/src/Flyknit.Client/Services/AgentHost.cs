@@ -134,7 +134,21 @@ public sealed class AgentHost : IDisposable
         {
             var user = ChatMessage.User(text, attachments);
             Store.AddMessages(id, new[] { user });
-            var isFirstTurn = conv.MessageCount == 0;
+            var needsTitle = conv.TitleSource == "auto" && string.IsNullOrWhiteSpace(conv.Title);
+            if (needsTitle)
+            {
+                // 先用问题开头作为临时标题，AI 总结出来后再替换
+                var draft = text.Trim().Replace('\n', ' ');
+                draft = draft.Length > 24 ? draft[..24] + "…" : draft;
+                if (draft.Length == 0 && attachments.Count > 0)
+                {
+                    draft = attachments[0].FileName;
+                }
+                if (draft.Length > 0 && Store.SetAutoTitle(id, draft) && Store.Get(id) is { } drafted)
+                {
+                    events.Post(new { type = "conversation.updated", conversation = ConversationDto.From(drafted) });
+                }
+            }
 
             var promptBuilder = new PromptBuilder(Memory, Skills);
             var prompt = promptBuilder.Build(new PromptContext
@@ -171,23 +185,14 @@ public sealed class AgentHost : IDisposable
             };
 
             var loop = new AgentLoop(Server, Tools, confirm, Audit);
-            var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token);
+            var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId);
             Store.AddMessages(id, result.NewMessages);
 
             events.Post(new { type = "chat.done", conversationId = id, stopReason = result.StopReason.ToString(), modelName = result.ModelName });
 
-            if (isFirstTurn && conv.TitleSource == "auto" && string.IsNullOrWhiteSpace(conv.Title))
+            if (needsTitle && result.StopReason != AgentStopReason.Cancelled)
             {
-                var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Content ?? "";
-                var title = await new TitleGenerator(Server).GenerateAsync(text, answer, uiLanguage, CancellationToken.None);
-                if (string.IsNullOrWhiteSpace(title))
-                {
-                    title = text.Length > 20 ? text[..20] : text;
-                }
-                if (Store.SetAutoTitle(id, title) && Store.Get(id) is { } updated)
-                {
-                    events.Post(new { type = "conversation.updated", conversation = ConversationDto.From(updated) });
-                }
+                await SummarizeTitleAsync(id, text, result, uiLanguage, events);
             }
         }
         catch (Exception ex)
@@ -201,6 +206,54 @@ public sealed class AgentHost : IDisposable
             cts.Dispose();
             ActiveRunsChanged?.Invoke(_runs.Count);
         }
+    }
+
+    private async Task SummarizeTitleAsync(string id, string text, AgentRunResult result, string uiLanguage, IHostEvents events)
+    {
+        try
+        {
+            var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
+            var generator = new TitleGenerator(Server);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var title = await generator.GenerateAsync(text, answer, uiLanguage, cts.Token);
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                Log.Warn($"会话 {id} 标题生成失败：{generator.LastError}");
+                return; // 保留临时标题
+            }
+            if (Store.SetAutoTitle(id, title) && Store.Get(id) is { } updated)
+            {
+                events.Post(new { type = "conversation.updated", conversation = ConversationDto.From(updated) });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"会话 {id} 标题生成异常", ex);
+        }
+    }
+
+    private List<ClientModel>? _models;
+    private DateTime _modelsAt;
+
+    /// <summary>输入框可选的模型列表，缓存 5 分钟。</summary>
+    public async Task<List<ClientModel>> GetModelsAsync(bool refresh = false)
+    {
+        if (!refresh && _models is not null && DateTime.Now - _modelsAt < TimeSpan.FromMinutes(5))
+        {
+            return _models;
+        }
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            _models = await Server.GetModelsAsync(cts.Token);
+            _modelsAt = DateTime.Now;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("获取模型列表失败", ex);
+            _models ??= new List<ClientModel>();
+        }
+        return _models;
     }
 
     /// <summary>只保留最近的消息，并保证从一条用户消息开始，避免工具消息失去对应的调用。</summary>

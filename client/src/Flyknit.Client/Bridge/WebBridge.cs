@@ -148,6 +148,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     {
         string Str(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         bool Bool(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+        int? Int(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
 
         switch (method)
         {
@@ -162,7 +163,42 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     connected = _host.Connected,
                     serverMessage = _host.ServerMessage,
                     modelName = _host.ModelName,
+                    defaultModelId = _settings.DefaultModelId,
                 };
+
+            case "models.list":
+            {
+                var models = await _host.GetModelsAsync(Bool("refresh"));
+                return models.Select(m => new
+                {
+                    id = m.Id,
+                    name = m.Name,
+                    model = m.Model,
+                    provider = m.Provider,
+                    supportsTools = m.SupportsTools,
+                    supportsVision = m.SupportsVision,
+                }).ToList();
+            }
+
+            case "settings.setDefaultModel":
+                _settings.DefaultModelId = Int("modelId");
+                _settings.Save();
+                return null;
+
+            case "skills.list":
+                _host.Skills.Refresh();
+                return _host.Skills.Skills.Select(s => new
+                {
+                    name = s.Name,
+                    description = s.Description,
+                    organization = s.IsOrganization,
+                    enabled = s.Enabled,
+                }).ToList();
+
+            case "skills.openFolder":
+                Directory.CreateDirectory(AppPaths.Skills);
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{AppPaths.Skills}\"") { UseShellExecute = true });
+                return null;
 
             case "settings.setLanguage":
                 _settings.UiLanguage = Str("language");
@@ -201,7 +237,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             case "conversation.create":
             {
                 var mode = ConversationStore.TextToMode(Str("mode"));
-                var conv = await Task.Run(() => _host.Store.Create(mode));
+                var modelId = Int("modelId");
+                var conv = await Task.Run(() => _host.Store.Create(mode, "", modelId));
                 return ConversationDto.From(conv);
             }
 
@@ -228,6 +265,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
 
             case "conversation.setMode":
                 await Task.Run(() => _host.Store.SetMode(Str("id"), ConversationStore.TextToMode(Str("mode"))));
+                return null;
+
+            case "conversation.setModel":
+                await Task.Run(() => _host.Store.SetModel(Str("id"), Int("modelId")));
                 return null;
 
             case "conversation.setTranslate":

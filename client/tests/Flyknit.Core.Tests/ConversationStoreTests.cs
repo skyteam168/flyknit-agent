@@ -90,6 +90,18 @@ public class ConversationStoreTests : IDisposable
     }
 
     [Fact]
+    public void ModelSelectionIsStoredPerConversation()
+    {
+        var a = _store.Create(ConversationMode.Agent, "", modelId: 5);
+        Assert.Equal(5, _store.Get(a.Id)!.ModelId);
+        _store.SetModel(a.Id, null);
+        Assert.Null(_store.Get(a.Id)!.ModelId);
+        // 重新打开数据库（迁移可重复执行）
+        var again = new ConversationStore(Path.Combine(_dir, "history.db"));
+        Assert.Single(again.List());
+    }
+
+    [Fact]
     public void RenameUnknownConversationThrows()
     {
         Assert.Throws<KeyNotFoundException>(() => _store.Rename("nope", "x"));

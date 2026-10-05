@@ -40,7 +40,8 @@ public sealed class AgentLoop
         ToolContext ctx,
         IAgentObserver observer,
         bool useTools,
-        CancellationToken ct)
+        CancellationToken ct,
+        int? modelId = null)
     {
         var newMessages = new List<ChatMessage>();
         var tools = useTools ? _tools.ToOpenAiTools() : null;
@@ -62,7 +63,7 @@ public sealed class AgentLoop
                 try
                 {
                     turn = await _gateway.CompleteAsync(
-                        new ChatRequest { Scene = scene, Messages = history, Tools = tools, Stream = true },
+                        new ChatRequest { Scene = scene, Messages = history, Tools = tools, Stream = true, ModelId = modelId },
                         observer,
                         ct);
                 }

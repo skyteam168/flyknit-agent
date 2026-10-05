@@ -37,6 +37,9 @@ public sealed class AppSettings
     /// <summary>system / light / dark</summary>
     public string Theme { get; set; } = "system";
 
+    /// <summary>新建会话默认使用的模型（服务端模型 ID），为空表示自动。</summary>
+    public int? DefaultModelId { get; set; }
+
     public double? BallLeft { get; set; }
     public double? BallTop { get; set; }
     public bool ShowBall { get; set; } = true;

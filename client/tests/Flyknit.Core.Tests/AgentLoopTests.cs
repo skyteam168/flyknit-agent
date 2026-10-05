@@ -18,12 +18,14 @@ public class AgentLoopTests : IDisposable
     {
         private readonly Queue<ChatTurn> _turns;
         public List<int> MessageCounts { get; } = new();
+        public List<int?> ModelIds { get; } = new();
 
         public ScriptedGateway(params ChatTurn[] turns) => _turns = new Queue<ChatTurn>(turns);
 
         public Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct)
         {
             MessageCounts.Add(request.Messages.Count);
+            ModelIds.Add(request.ModelId);
             var turn = _turns.Count > 0 ? _turns.Dequeue() : new ChatTurn { Content = "完成" };
             if (turn.Content.Length > 0)
             {
@@ -182,6 +184,15 @@ public class AgentLoopTests : IDisposable
         Assert.Equal(AgentStopReason.Completed, result.StopReason);
         Assert.Contains("不存在名为 no_such_tool", result.NewMessages[1].Content);
         Assert.Contains("不是合法的 JSON", result.NewMessages[3].Content);
+    }
+
+    [Fact]
+    public async Task SelectedModelIsSentOnEveryTurn()
+    {
+        var gateway = new ScriptedGateway(Call("list_dir", $"{{\"path\":{Json(_dir)}}}"), new ChatTurn { Content = "ok" });
+        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), new FixedConfirm(ConfirmChoice.Reject))
+            .RunAsync(new List<ChatMessage> { ChatMessage.User("x") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None, modelId: 7);
+        Assert.Equal(new int?[] { 7, 7 }, gateway.ModelIds);
     }
 
     [Fact]

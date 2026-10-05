@@ -128,9 +128,13 @@ public partial class MainWindow : Window, IWindowActions
         Bridge?.Post(new { type = "app.focusInput" });
     }
 
+    /// <summary>
+    /// 悬浮球 / 快捷键：窗口可见就收起，否则打开。
+    /// 注意不能判断 IsActive——点击悬浮球时焦点在悬浮球上，主窗口永远不是活动窗口。
+    /// </summary>
     public void Toggle()
     {
-        if (IsVisible && WindowState != WindowState.Minimized && IsActive)
+        if (IsVisible && WindowState != WindowState.Minimized)
         {
             HideMain();
         }

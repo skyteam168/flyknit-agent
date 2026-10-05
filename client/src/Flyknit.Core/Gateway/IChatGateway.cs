@@ -21,6 +21,12 @@ public sealed class ChatRequest
     public double? Temperature { get; init; }
     public int? MaxTokens { get; init; }
     public bool Stream { get; init; } = true;
+
+    /// <summary>用户在输入框选择的模型（服务端模型 ID），为空时按场景路由。</summary>
+    public int? ModelId { get; init; }
+
+    /// <summary>透传给模型的额外参数，例如 enable_thinking。</summary>
+    public IReadOnlyDictionary<string, JsonNode?>? ExtraBody { get; init; }
 }
 
 public sealed class ChatTurn

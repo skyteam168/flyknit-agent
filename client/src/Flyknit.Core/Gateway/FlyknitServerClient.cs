@@ -30,6 +30,16 @@ public sealed class ClientConfig
     [JsonPropertyName("policy")] public PolicyConfig? Policy { get; set; }
 }
 
+public sealed class ClientModel
+{
+    [JsonPropertyName("id")] public int Id { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("model")] public string Model { get; set; } = "";
+    [JsonPropertyName("provider")] public string Provider { get; set; } = "";
+    [JsonPropertyName("supports_tools")] public bool SupportsTools { get; set; }
+    [JsonPropertyName("supports_vision")] public bool SupportsVision { get; set; }
+}
+
 public sealed class AuditEntry
 {
     [JsonPropertyName("conversation_id")] public string ConversationId { get; set; } = "";
@@ -85,6 +95,15 @@ public sealed class FlyknitServerClient : IChatGateway
         return await resp.Content.ReadFromJsonAsync<ClientConfig>(cancellationToken: ct) ?? new ClientConfig();
     }
 
+    /// <summary>输入框可选择的模型。</summary>
+    public async Task<List<ClientModel>> GetModelsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/models");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<List<ClientModel>>(cancellationToken: ct) ?? new();
+    }
+
     public async Task ReportAuditAsync(IReadOnlyList<AuditEntry> items, CancellationToken ct)
     {
         if (items.Count == 0)
@@ -117,6 +136,17 @@ public sealed class FlyknitServerClient : IChatGateway
         if (request.MaxTokens is { } max)
         {
             body["max_tokens"] = max;
+        }
+        if (request.ModelId is { } modelId)
+        {
+            body["flyknit_model_id"] = modelId;
+        }
+        if (request.ExtraBody is not null)
+        {
+            foreach (var (key, value) in request.ExtraBody)
+            {
+                body[key] = value?.DeepClone();
+            }
         }
 
         using var req = Authorized(HttpMethod.Post, "api/v1/chat/completions");
