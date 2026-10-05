@@ -1,10 +1,17 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="FLYKNIT_", env_file=".env", extra="ignore")
+    # .env 固定从 server 目录读取（不受启动时所在目录影响）；utf-8-sig 兼容记事本保存的 BOM
+    model_config = SettingsConfigDict(
+        env_prefix="FLYKNIT_",
+        env_file=Path(__file__).resolve().parents[1] / ".env",
+        env_file_encoding="utf-8-sig",
+        extra="ignore",
+    )
 
     admin_token: str = "change-me-admin-token"
     secret_key: str = "change-me-to-a-long-random-string"
