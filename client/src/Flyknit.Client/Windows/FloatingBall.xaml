@@ -1,0 +1,40 @@
+<Window x:Class="Flyknit.Client.Windows.FloatingBall"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Flyknit"
+        Width="64" Height="64"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        AllowDrop="True">
+    <Grid x:Name="Root" Cursor="Hand">
+        <Grid.RenderTransform>
+            <ScaleTransform x:Name="Scale" CenterX="32" CenterY="32" ScaleX="1" ScaleY="1" />
+        </Grid.RenderTransform>
+
+        <!-- 状态光环：运行中为青色旋转，等待确认为琥珀色 -->
+        <Ellipse x:Name="Halo" Width="60" Height="60" StrokeThickness="3" Opacity="0"
+                 Stroke="#0E9A8E" StrokeDashArray="6 4" RenderTransformOrigin="0.5,0.5">
+            <Ellipse.RenderTransform>
+                <RotateTransform x:Name="HaloRotate" />
+            </Ellipse.RenderTransform>
+        </Ellipse>
+
+        <Border Width="50" Height="50" CornerRadius="25" Background="#3446C9">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="14" ShadowDepth="3" Direction="270" Opacity="0.28" Color="#1A2433" />
+            </Border.Effect>
+            <Image Source="/Assets/flyknit.png" Width="50" Height="50">
+                <Image.Clip>
+                    <EllipseGeometry Center="25,25" RadiusX="25" RadiusY="25" />
+                </Image.Clip>
+            </Image>
+        </Border>
+
+        <Ellipse x:Name="Badge" Width="14" Height="14" Fill="#F0A43A" Stroke="White" StrokeThickness="2"
+                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0" Visibility="Collapsed" />
+    </Grid>
+</Window>

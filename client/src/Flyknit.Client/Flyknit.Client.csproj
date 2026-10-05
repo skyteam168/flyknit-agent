@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF 与 WinForms 同时启用时关闭隐式 using，避免 Application 等类型重名 -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Flyknit.Client</RootNamespace>
+    <AssemblyName>Flyknit</AssemblyName>
+    <ApplicationIcon>Assets\flyknit.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.1.0</Version>
+    <Product>Flyknit 智能办公助手</Product>
+    <Company>Flyknit</Company>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Flyknit.Core\Flyknit.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\flyknit.png" />
+    <Content Include="Assets\flyknit.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 聊天界面：先在 client/web 执行 npm run build -->
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="CheckWebBuild" BeforeTargets="Build" Condition="!Exists('wwwroot\index.html')">
+    <Warning Text="未找到 wwwroot\index.html，请先在 client\web 目录执行 npm install 和 npm run build。" />
+  </Target>
+
+</Project>

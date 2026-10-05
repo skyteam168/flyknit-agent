@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  client:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build chat UI
+        working-directory: client/web
+        run: |
+          npm ci
+          npm run build
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Test core library
+        run: dotnet test client/tests/Flyknit.Core.Tests -c Release
+      - name: Build Windows client
+        run: dotnet publish client/src/Flyknit.Client -c Release -r win-x64 --self-contained false -o artifacts/Flyknit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Flyknit-win-x64
+          path: artifacts/Flyknit

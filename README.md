@@ -72,13 +72,31 @@ dotnet test tests\Flyknit.Core.Tests
 dotnet run --project src\Flyknit.Client
 ```
 
-首次启动会在 `%APPDATA%\Flyknit\settings.json` 生成配置，填写服务器地址与注册密钥后重启即可。
+首次启动会弹出连接窗口，填写服务器地址与注册密钥即可。配置保存在 `%APPDATA%\Flyknit\settings.json`。
 
 ## 开发进度
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
-| 一 · MVP | 模型网关、后台接口、悬浮球、聊天界面、会话管理、三语界面、翻译模式 | 进行中 |
-| 二 · Agent | Agent 循环、工具集、命令拦截与确认、本地记忆、审计 | 核心已搭建 |
-| 三 · 办公能力 | Excel/PPT/Word、SMB 安装服务、定时任务、Skills 市场、自动更新 | 未开始 |
+| 一 · MVP | 模型网关、后台接口、悬浮球、聊天界面、会话管理（多轮、自动标题、改名、删除、回收站）、三语界面、翻译模式 | 代码已完成，待 Windows 联调 |
+| 二 · Agent | Agent 循环、文件与命令工具、打开软件、命令拦截与确认、本地记忆、Skills 加载、审计 | 代码已完成，待 Windows 联调 |
+| 三 · 办公能力 | 管理后台网页、Excel/PPT/Word、SMB 安装服务、定时任务、Skills 市场、自动更新 | 未开始 |
 | 四 · 扩展 | 部门角色模板、划词翻译、MCP 接入、用量配额 | 未开始 |
+
+## 测试
+
+```bash
+cd server && pip install -r requirements-dev.txt && python -m pytest -q     # 服务端
+dotnet test client/tests/Flyknit.Core.Tests                                 # 客户端核心库
+```
+
+推送到 GitHub 后，`.github/workflows/ci.yml` 会自动运行服务端测试、核心库测试，并在 Windows 上编译客户端，编译产物可在 Actions 页面下载。
+
+## 快捷键
+
+| 按键 | 作用 |
+| --- | --- |
+| Ctrl + Alt + Space | 打开 / 收起主窗口 |
+| Ctrl + N | 新建对话 |
+| Enter / Shift + Enter | 发送 / 换行 |
+| F2 或双击 | 重命名对话 |
