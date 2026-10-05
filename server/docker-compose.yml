@@ -17,8 +17,11 @@ services:
       FLYKNIT_DATABASE_URL: postgresql+asyncpg://flyknit:${POSTGRES_PASSWORD:-flyknit}@db:5432/flyknit
     ports:
       - "8000:8000"
+    volumes:
+      - skilldata:/app/data      # 技能库的 zip 包
     depends_on:
       - db
 
 volumes:
   pgdata:
+  skilldata:
