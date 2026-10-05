@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Copy, Languages, Menu, MessageSquare, Minus, PanelLeft, Pin, Plus, Square, Wrench, X } from '@lucide/vue'
+import { Copy, Languages, Menu, MessageSquare, Minus, PanelLeft, Pin, Plus, Puzzle, Square, Wrench, X } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { current, newConversation, renameConversation, state, toggleMaximize } from '../store'
+import { current, newConversation, renameConversation, state, toggleMaximize, usedSkills } from '../store'
 import type { Mode } from '../types'
 
 defineProps<{ narrow: boolean; sidebarHidden: boolean }>()
@@ -65,6 +65,9 @@ function startNew() {
           @blur="commit"
         />
         <h1 v-else :title="t('topbar.rename')" @dblclick="startEdit">{{ current.title || t('sidebar.untitled') }}</h1>
+        <span v-for="s in usedSkills" :key="s" class="skill-chip" :title="t('ui.skills.usedHint')">
+          <Puzzle :size="12" />{{ s }}
+        </span>
       </template>
     </div>
 
@@ -87,6 +90,20 @@ function startNew() {
 <style scoped>
 .flip {
   transform: scaleX(-1);
+}
+.skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  background: var(--indigo-wash);
+  color: var(--indigo);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  white-space: nowrap;
 }
 .topbar {
   display: flex;

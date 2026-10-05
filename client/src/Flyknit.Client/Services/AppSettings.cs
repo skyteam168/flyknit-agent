@@ -17,6 +17,13 @@ public static class AppPaths
     public static string Skills => Path.Combine(Root, "skills");
     public static string OrgSkills => Path.Combine(Root, "skills", "org");
     public static string LearnedSkills => Path.Combine(Root, "skills", "learned");
+
+    /// <summary>
+    /// 整台电脑共用的技能目录（C:\ProgramData\FlyknitBuddy\skills）。
+    /// IT 拷一次，这台机器上所有 Windows 用户都能用；普通用户没有写权限，所以按企业技能处理（只读、不能卸载）。
+    /// </summary>
+    public static string MachineSkills { get; } =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "FlyknitBuddy", "skills");
     public static string Logs => Path.Combine(Root, "logs");
     public static string Approvals => Path.Combine(Root, "approvals.json");
 

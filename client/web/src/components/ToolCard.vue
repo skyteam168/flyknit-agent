@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Ban, Check, ChevronDown, CircleAlert, Hand, LoaderCircle, ShieldAlert } from '@lucide/vue'
+import { Ban, Check, ChevronDown, CircleAlert, Hand, LoaderCircle, Puzzle, ShieldAlert } from '@lucide/vue'
 import type { ToolActivity } from '../types'
 
 const props = defineProps<{ tool: ToolActivity; conversationId?: string }>()
@@ -16,15 +16,17 @@ const icon = computed(
     ],
 )
 // 计划和记忆类工具只显示一行，不展开结果
-const quiet = computed(() => ['update_plan', 'memory_write', 'load_skill'].includes(props.tool.name))
+const quiet = computed(() => ['update_plan', 'memory_write'].includes(props.tool.name))
+// 加载技能单独做成醒目的卡片：技能决定了 AI 的做法，用户要能一眼看到用了哪个
+const isSkill = computed(() => props.tool.name === 'load_skill')
 </script>
 
 <template>
-  <div class="tool" :class="[tool.state, { quiet }]">
+  <div class="tool" :class="[tool.state, { quiet, skill: isSkill }]">
     <button type="button" class="row" :disabled="!tool.output || quiet" :aria-expanded="open" @click="open = !open">
-      <component :is="icon" :size="15" class="state-icon" :class="{ spin: tool.state === 'running' }" />
-      <span class="name">{{ label }}</span>
-      <span class="summary">{{ tool.summary }}</span>
+      <component :is="isSkill ? Puzzle : icon" :size="15" class="state-icon" :class="{ spin: !isSkill && tool.state === 'running' }" />
+      <span class="name">{{ isSkill ? t('ui.skills.usingSkill') : label }}</span>
+      <span class="summary" :class="{ strong: isSkill }">{{ tool.summary }}</span>
       <span class="state-text">{{ tool.remembered && tool.state === 'done' ? t('tool.remembered') : t(`tool.${tool.state}`) }}</span>
       <ChevronDown v-if="tool.output && !quiet" :size="15" class="chev" :class="{ up: open }" />
     </button>
@@ -52,6 +54,20 @@ const quiet = computed(() => ['update_plan', 'memory_write', 'load_skill'].inclu
   border-radius: var(--r-md);
   background: var(--cloth);
   overflow: hidden;
+}
+.tool.skill {
+  border-color: color-mix(in srgb, var(--indigo) 35%, var(--line));
+  background: var(--indigo-wash);
+}
+.tool.skill .state-icon {
+  color: var(--indigo);
+}
+.summary.strong {
+  flex: none;
+  color: var(--indigo);
+  font-weight: 600;
+  font-family: var(--font);
+  font-size: var(--t-sm);
 }
 .tool.quiet {
   border-color: transparent;

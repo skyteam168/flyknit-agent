@@ -141,6 +141,28 @@ export async function selectModel(modelId: number | null) {
   await bridge.setDefaultModel(modelId).catch(fail)
 }
 
+/** 当前任务用到的技能（从 load_skill 调用里取），显示在标题旁边 */
+export const usedSkills = computed<string[]>(() => {
+  const s = currentState.value
+  if (!s) return []
+  const names = new Set<string>()
+  for (const t of Object.values(s.tools)) {
+    if (t.name === 'load_skill' && t.summary) names.add(t.summary)
+  }
+  for (const m of s.messages) {
+    for (const c of m.toolCalls ?? []) {
+      if (c.name !== 'load_skill') continue
+      try {
+        const n = JSON.parse(c.arguments)?.name
+        if (n) names.add(String(n))
+      } catch {
+        // 参数不是合法 JSON 时忽略
+      }
+    }
+  }
+  return [...names]
+})
+
 /** 侧栏状态：运行中 / 等待确认 / 空闲 */
 export function runStatus(id: string): 'running' | 'waiting' | 'idle' {
   const s = state.byId[id]

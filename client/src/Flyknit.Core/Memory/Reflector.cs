@@ -91,6 +91,9 @@ public sealed class Reflector
         _learnedSkillsDir = learnedSkillsDir;
     }
 
+    /// <summary>用户中途停止的运行：只提炼教训，不记成功经验，也不沉淀技能。</summary>
+    public static bool IsCancelled(string stopReason) => stopReason == "Cancelled";
+
     /// <summary>值得复盘的运行：用过工具的办事任务，或者用户给了评价。</summary>
     public static bool ShouldReflect(IReadOnlyList<ChatMessage> messages, int feedback) =>
         feedback != 0 || messages.Any(m => m.Role == ChatRole.Assistant && m.ToolCalls.Count > 0);
@@ -128,6 +131,18 @@ public sealed class Reflector
     /// <summary>把复盘结果写入记忆、历史任务和技能。</summary>
     public LearningReport Apply(ReflectionInput input, ReflectionResult r)
     {
+        var cancelled = IsCancelled(input.StopReason);
+        if (cancelled)
+        {
+            // 没做完的任务不能当成功经验推广，也不能变成技能
+            r.Successes.Clear();
+            r.Skill = null;
+            if (r.Outcome == "success")
+            {
+                r.Outcome = "partial";
+            }
+        }
+
         Episode? episode = null;
         if (r.WorthSaving && r.Title.Length > 0)
         {
@@ -167,7 +182,7 @@ public sealed class Reflector
             // 先统计以前的同类成功，再保存本次
             var previous = _episodes.CountSimilarSuccesses(episode.Title, episode.Task);
             _episodes.Add(episode);
-            if (r.Skill is { } skill && episode.Outcome == "success" && input.Feedback >= 0 && previous + 1 >= SkillThreshold)
+            if (r.Skill is { } skill && !cancelled && episode.Outcome == "success" && input.Feedback >= 0 && previous + 1 >= SkillThreshold)
             {
                 report.SkillName = SaveSkill(skill);
             }
@@ -236,6 +251,10 @@ public sealed class Reflector
         }
         sb.AppendLine();
         sb.AppendLine($"【结束方式】{input.StopReason switch { "Cancelled" => "用户中途停止", "MaxSteps" => "步骤过多被暂停", "TooManyFailures" => "连续失败被暂停", _ => "正常完成" }}");
+        if (IsCancelled(input.StopReason))
+        {
+            sb.AppendLine("用户在任务做完之前主动停止了，很可能是方向不对、做法不合适或者速度太慢。请重点分析哪里不对，总结成教训；不要把这次当成功经验。");
+        }
         if (input.Feedback > 0) sb.AppendLine("【用户评价】点赞，说明做法符合用户期望。");
         if (input.Feedback < 0) sb.AppendLine("【用户评价】点踩，用户不满意。请重点分析哪里没做好，总结成教训。");
         return sb.ToString();

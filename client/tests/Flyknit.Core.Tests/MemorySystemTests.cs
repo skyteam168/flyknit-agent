@@ -177,6 +177,39 @@ public class MemorySystemTests : IDisposable
     }
 
     [Fact]
+    public async Task CancelledRunIsReflectedForLessonsOnly()
+    {
+        var memory = new MemoryStore(Path.Combine(_dir, "memory"));
+        memory.EnsureDefaults();
+        var episodes = new EpisodeStore(Path.Combine(_dir, "memory"));
+        var skills = Path.Combine(_dir, "skills", "learned");
+        var json = ReflectionJson.Replace("\"lessons\": []", "\"lessons\": [\"整理前先确认用户要按月份还是按车间\"]");
+        var gateway = new FakeGateway(_ => new ChatTurn { Content = json });
+        var reflector = new Reflector(gateway, memory, episodes, skills);
+        var call = new ToolCall("c1", "run_shell", "{}");
+        var input = new ReflectionInput
+        {
+            ConversationId = "conv",
+            UserRequest = "生成质检周报",
+            StopReason = "Cancelled",
+            Messages = new[] { ChatMessage.Assistant("", new[] { call }), ChatMessage.ToolResult(call, "…") },
+        };
+
+        var report = await reflector.ReflectAsync(input, CancellationToken.None);
+
+        Assert.NotNull(report);
+        // 记教训
+        Assert.Contains(report!.Added, a => a.Kind == MemoryKind.Lesson && a.Text.Contains("按月份"));
+        // 不记成功经验、不沉淀技能、历史任务不算成功
+        Assert.DoesNotContain(report.Added, a => a.Kind == MemoryKind.Success);
+        Assert.Null(report.SkillName);
+        Assert.Equal("partial", report.Episode!.Outcome);
+        Assert.False(Directory.Exists(Path.Combine(skills, "qc-weekly-report")));
+        // 提示词里明确告诉模型这次被用户叫停了
+        Assert.Contains("用户中途停止", gateway.Requests[0].Messages[1].Content);
+    }
+
+    [Fact]
     public void OnlyToolRunsOrFeedbackTriggerReflection()
     {
         Assert.False(Reflector.ShouldReflect(new[] { ChatMessage.Assistant("你好") }, 0));

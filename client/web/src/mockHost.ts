@@ -155,6 +155,10 @@ export function createMockHost(): HostTransport {
           { step: '移动文件并汇报结果', status: 'pending' },
         ],
       })
+      const skillCall = uid()
+      emit({ type: 'tool.started', conversationId: id, callId: skillCall, name: 'load_skill', summary: 'excel-report', risk: 'auto' })
+      await sleep(500)
+      emit({ type: 'tool.finished', conversationId: id, callId: skillCall, ok: true, output: '# 技能：excel-report\n按公司模板生成周报…', decision: 'auto' })
       const lead = '我先看一下 D:\\日报 里有哪些文件。'
       await stream(id, lead)
       const call1 = uid()
@@ -163,7 +167,10 @@ export function createMockHost(): HostTransport {
         id: uid(),
         role: 'assistant',
         content: lead,
-        toolCalls: [{ id: call1, name: 'list_dir', arguments: '{"path":"D:\\\\日报"}' }],
+        toolCalls: [
+          { id: skillCall, name: 'load_skill', arguments: '{"name":"excel-report"}' },
+          { id: call1, name: 'list_dir', arguments: '{"path":"D:\\\\日报"}' },
+        ],
         createdAt: now(),
       })
       emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })

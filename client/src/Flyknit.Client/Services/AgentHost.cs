@@ -78,6 +78,8 @@ public sealed class AgentHost : IDisposable
         Store = new ConversationStore(AppPaths.Database);
         Memory = new MemoryStore(AppPaths.Memory);
         Skills = new SkillCatalog()
+            // 机器级目录优先：IT 统一预装的技能对所有 Windows 用户可见
+            .AddRoot(AppPaths.MachineSkills, SkillSource.Organization)
             .AddRoot(AppPaths.OrgSkills, SkillSource.Organization)
             .AddRoot(AppPaths.LearnedSkills, SkillSource.Learned)
             .AddRoot(AppPaths.Skills);
@@ -337,8 +339,9 @@ public sealed class AgentHost : IDisposable
                 await SummarizeTitleAsync(id, text, result, uiLanguage, events);
             }
 
-            // 长期记忆：办事任务结束后在后台复盘，提炼偏好、经验和可复用的做法
-            if (_settings.EnableLearning && conv.Mode == ConversationMode.Agent && result.StopReason != AgentStopReason.Cancelled
+            // 长期记忆：办事任务结束后在后台复盘，提炼偏好、经验和可复用的做法。
+            // 被用户中途停止的任务同样复盘——用户喊停往往说明做错了方向，这是最该记下来的教训（只记教训，不记成功经验）。
+            if (_settings.EnableLearning && conv.Mode == ConversationMode.Agent
                 && Reflector.ShouldReflect(result.NewMessages, 0))
             {
                 var previous = stored.Take(stored.Count - 1).LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
