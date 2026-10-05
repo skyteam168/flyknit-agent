@@ -51,6 +51,16 @@ python -m scripts.setup_model --base-url http://10.0.0.10:8000/v1 --model qwen3.
 python -m scripts.setup_model --list
 ```
 
+配置公司技能库（技能可以从 GitHub、社区链接导入，或上传 zip）：
+
+```bash
+python -m scripts.setup_skill --import https://github.com/owner/skills-repo   # 仓库里的技能全部导入
+python -m scripts.setup_skill --import https://example.com/excel-report.zip   # 社区下载链接
+python -m scripts.setup_skill --upload D:\技能\excel-report.zip               # 离线环境上传
+python -m scripts.setup_skill --require excel-report                          # 标记必装，所有电脑自动安装
+python -m scripts.setup_skill --list
+```
+
 ### 聊天界面（浏览器预览）
 
 ```bash

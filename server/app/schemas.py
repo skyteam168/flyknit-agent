@@ -186,6 +186,38 @@ class ClientModelOut(BaseModel):
     supports_vision: bool
 
 
+class SkillOut(BaseModel):
+    name: str
+    description: str = ""
+    version: str = ""
+    author: str = ""
+    origin: str = ""
+    size: int = 0
+    file_count: int = 0
+    required: bool = False
+    enabled: bool = True
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SkillImportIn(BaseModel):
+    """从链接导入：GitHub 仓库/子目录页面链接，或任意技能包 zip 的下载链接。"""
+
+    url: str
+    required: bool = False
+
+
+class SkillPatch(BaseModel):
+    required: bool | None = None
+    enabled: bool | None = None
+
+
+class SkillImportResult(BaseModel):
+    imported: list[str] = []
+    skipped: list[str] = []
+
+
 class SyncResult(BaseModel):
     total: int
     added: list[str]

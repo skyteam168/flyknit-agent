@@ -11,7 +11,11 @@ import type {
   AppInfo,
   ApprovalInfo,
   MemoryKind,
+  LibrarySkill,
   MemoryOverview,
+  SkillActionResult,
+  SkillInspection,
+  SkillInstallOutcome,
   Permission,
   WorkspaceInfo,
   AttachmentRef,
@@ -150,7 +154,17 @@ class Bridge {
   listModels = (refresh = false) => this.call<ModelInfo[]>('models.list', { refresh })
   setDefaultModel = (modelId: number | null) => this.call<void>('settings.setDefaultModel', { modelId })
   listSkills = () => this.call<SkillInfo[]>('skills.list')
-  openSkillsFolder = () => this.call<void>('skills.openFolder')
+  /** 不传路径时弹文件夹选择框 */
+  openSkillsFolder = (path?: string) => this.call<void>('skills.openFolder', path ? { path } : {})
+  setSkillEnabled = (name: string, enabled: boolean) => this.call<SkillActionResult>('skills.setEnabled', { name, enabled })
+  uninstallSkill = (name: string) => this.call<SkillActionResult>('skills.uninstall', { name })
+  /** 选择 zip 文件安装；取消选择返回 null */
+  inspectSkill = (path?: string) => this.call<{ path: string; inspection: SkillInspection } | null>('skills.inspect', path ? { path } : {})
+  installSkill = (path?: string) => this.call<SkillInstallOutcome | null>('skills.install', path ? { path } : {})
+  installSkillFolder = (path?: string) => this.call<SkillInstallOutcome | null>('skills.installFolder', path ? { path } : {})
+  installSkillFromUrl = (url: string) => this.call<SkillInstallOutcome>('skills.installFromUrl', { url })
+  skillLibrary = () => this.call<LibrarySkill[]>('skills.library')
+  installSkillFromLibrary = (name: string) => this.call<SkillInstallOutcome>('skills.installFromLibrary', { name })
 
   // ---------- 工作区与权限 ----------
   listWorkspaces = () => this.call<WorkspaceInfo[]>('workspaces.list')

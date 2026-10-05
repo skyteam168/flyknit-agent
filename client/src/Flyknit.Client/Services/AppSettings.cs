@@ -16,6 +16,7 @@ public static class AppPaths
     public static string Memory => Path.Combine(Root, "memory");
     public static string Skills => Path.Combine(Root, "skills");
     public static string OrgSkills => Path.Combine(Root, "skills", "org");
+    public static string LearnedSkills => Path.Combine(Root, "skills", "learned");
     public static string Logs => Path.Combine(Root, "logs");
     public static string Approvals => Path.Combine(Root, "approvals.json");
 
@@ -60,6 +61,12 @@ public sealed class AppSettings
 
     /// <summary>新任务默认的权限：readonly / workspace。完全权限只对单个任务生效，不会成为默认值。</summary>
     public string DefaultPermission { get; set; } = "workspace";
+
+    /// <summary>被用户停用的技能名。</summary>
+    public System.Collections.Generic.List<string> DisabledSkills { get; set; } = new();
+
+    /// <summary>企业要求安装的技能名（服务端下发，不允许停用或卸载）。</summary>
+    public System.Collections.Generic.List<string> RequiredSkills { get; set; } = new();
 
     /// <summary>任务结束后自动复盘，学习偏好与经验。</summary>
     public bool EnableLearning { get; set; } = true;

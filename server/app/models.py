@@ -78,6 +78,24 @@ class Setting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class SkillPackage(Base):
+    """公司技能库里的一个技能包（zip 存在磁盘上，这里只存元数据）。"""
+
+    __tablename__ = "skill_packages"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[str] = mapped_column(String(50), default="")
+    author: Mapped[str] = mapped_column(String(100), default="")
+    origin: Mapped[str] = mapped_column(String(500), default="")  # 导入来源（链接或上传的文件名）
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
+    required: Mapped[bool] = mapped_column(Boolean, default=False)  # 所有电脑必装
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

@@ -40,6 +40,22 @@ public sealed class ClientModel
     [JsonPropertyName("supports_vision")] public bool SupportsVision { get; set; }
 }
 
+/// <summary>公司技能库里的一个技能。</summary>
+public sealed class ServerSkill
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("description")] public string Description { get; set; } = "";
+    [JsonPropertyName("version")] public string Version { get; set; } = "";
+    [JsonPropertyName("author")] public string Author { get; set; } = "";
+    [JsonPropertyName("origin")] public string Origin { get; set; } = "";
+    [JsonPropertyName("size")] public long Size { get; set; }
+
+    /// <summary>管理员要求所有电脑都安装。</summary>
+    [JsonPropertyName("required")] public bool Required { get; set; }
+
+    [JsonPropertyName("updated_at")] public DateTimeOffset UpdatedAt { get; set; }
+}
+
 public sealed class AuditEntry
 {
     [JsonPropertyName("conversation_id")] public string ConversationId { get; set; } = "";
@@ -114,6 +130,26 @@ public sealed class FlyknitServerClient : IChatGateway
         req.Content = JsonContent.Create(new { items });
         using var resp = await _http.SendAsync(req, ct);
         await EnsureOk(resp, ct);
+    }
+
+    /// <summary>公司技能库列表。</summary>
+    public async Task<List<ServerSkill>> GetSkillsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/skills");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<List<ServerSkill>>(cancellationToken: ct) ?? new();
+    }
+
+    /// <summary>下载技能包到本地文件。</summary>
+    public async Task DownloadSkillAsync(string name, string destination, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/skills/{Uri.EscapeDataString(name)}/download");
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        await EnsureOk(resp, ct);
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        await using var file = File.Create(destination);
+        await stream.CopyToAsync(file, ct);
     }
 
     public async Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct)

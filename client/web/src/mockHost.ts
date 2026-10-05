@@ -44,6 +44,43 @@ export function createMockHost(): HostTransport {
     ],
     skills: [{ name: 'qc-weekly-report', description: '生成质检周报（按车间汇总、折线图、保存到 D:\\报表）', path: 'C:\\Users\\demo\\AppData\\Roaming\\Flyknit\\skills\\learned\\qc-weekly-report' }],
   }
+  const makeSkill = (name: string, description: string, extra: Record<string, any> = {}) => ({
+    name,
+    description,
+    version: '1.0.0',
+    author: 'IT',
+    license: 'MIT',
+    homepage: '',
+    origin: '公司技能库',
+    source: 'personal',
+    organization: false,
+    learned: false,
+    required: false,
+    enabled: true,
+    directory: `C:\\Users\\demo\\AppData\\Roaming\\Flyknit\\skills\\${name}`,
+    files: ['references/template.xlsx'],
+    scripts: [] as string[],
+    bytes: 48000,
+    ...extra,
+  })
+  let skills = [
+    makeSkill('excel-report', '按公司模板生成 Excel 周报和月报。需要汇总质检或生产数据时使用。', {
+      source: 'organization', organization: true, required: true, version: '1.2.0', origin: '公司技能库',
+      files: ['references/周报模板.xlsx', 'scripts/build.py'], scripts: ['scripts/build.py'], bytes: 182000,
+    }),
+    makeSkill('factory-terms', '工厂专业术语中越柬对照表，翻译时保持用词统一。', {
+      source: 'organization', organization: true, version: '3.1.0', files: ['references/terms.csv'], bytes: 96000,
+    }),
+    makeSkill('meeting-notes', '把会议录音转写的文字整理成结构化会议纪要。', { origin: 'meeting-notes.zip' }),
+    makeSkill('qc-weekly-report', '生成质检周报（按车间汇总、折线图、保存到 D:\\报表）', {
+      source: 'learned', learned: true, origin: '任务复盘自动总结', version: '', files: [], bytes: 3200,
+    }),
+  ]
+  const libraryItems = [
+    { name: 'excel-report', description: '按公司模板生成 Excel 周报和月报', version: '1.2.0', author: 'IT', origin: '上传：excel-report.zip', size: 182000, required: true, installed: true, updatable: false },
+    { name: 'pdf-toolkit', description: 'PDF 合并、拆分、提取文字和表格', version: '2.0.1', author: 'community', origin: 'https://github.com/acme/agent-skills', size: 64000, required: false, installed: false, updatable: false },
+    { name: 'erp-install', description: '在新电脑上安装并配置 ERP 客户端', version: '1.0.0', author: 'IT', origin: '上传：erp-install.zip', size: 24000, required: false, installed: false, updatable: false },
+  ]
   const approvals: { key: string; tool: string; display: string; approvedAt: string; lastUsedAt: string; uses: number }[] = []
 
   const seed = (title: string, mode: Mode, daysAgo: number, pinned = false) => {
@@ -329,11 +366,35 @@ export function createMockHost(): HostTransport {
           { id: 4, name: 'qwen-vl-max', model: 'qwen-vl-max', provider: '阿里云百炼', supportsTools: true, supportsVision: true },
         ]
       case 'skills.list':
-        return [
-          { name: 'excel-report', description: '按公司模板生成 Excel 周报和月报', organization: true, enabled: true },
-          { name: 'factory-terms', description: '工厂专业术语中越柬对照表，翻译时保持用词统一', organization: true, enabled: true },
-          { name: 'meeting-notes', description: '把会议录音文字整理成会议纪要', organization: false, enabled: true },
-        ]
+        return skills
+      case 'skills.setEnabled': {
+        const s = skills.find((x) => x.name === p.name)!
+        if (s.required && !p.enabled) return { ok: false, message: '这是企业要求安装的技能，不能停用', skills }
+        s.enabled = p.enabled
+        return { ok: true, message: '', skills }
+      }
+      case 'skills.uninstall': {
+        const s = skills.find((x) => x.name === p.name)!
+        if (s.organization) return { ok: false, message: '企业下发的技能不能卸载', skills }
+        skills = skills.filter((x) => x.name !== p.name)
+        return { ok: true, message: `已卸载 ${p.name}`, skills }
+      }
+      case 'skills.install':
+      case 'skills.installFolder':
+      case 'skills.installFromUrl':
+      case 'skills.installFromLibrary': {
+        await sleep(900)
+        const name = p.name ?? 'pdf-toolkit'
+        if (!skills.some((x) => x.name === name)) {
+          skills = [...skills, makeSkill(name, 'PDF 合并、拆分、提取文字和表格', { version: '2.0.1', origin: p.url ?? '公司技能库', scripts: ['scripts/merge.py'] })]
+          const lib = libraryItems.find((x) => x.name === name)
+          if (lib) lib.installed = true
+        }
+        return { ok: true, installed: [name], messages: [`已安装技能 ${name}`], warnings: ['包含 1 个脚本，运行时仍会按权限逐条确认'], skills }
+      }
+      case 'skills.library':
+        await sleep(500)
+        return libraryItems
       case 'conversation.setModel':
         conversations.get(p.id)!.modelId = p.modelId
         return

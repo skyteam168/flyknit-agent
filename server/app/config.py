@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     enrollment_key: str = "flyknit-enroll"
     database_url: str = "sqlite+aiosqlite:///./flyknit.db"
     upstream_timeout: float = 300.0
+    # 技能包等文件的存放目录（相对路径相对于 server 目录）
+    data_dir: str = str(Path(__file__).resolve().parents[1] / "data")
     cors_origins: list[str] = ["*"]
 
 

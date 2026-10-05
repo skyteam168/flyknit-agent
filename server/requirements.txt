@@ -7,3 +7,4 @@ asyncpg>=0.29
 pydantic>=2.7
 pydantic-settings>=2.3
 cryptography>=42
+python-multipart>=0.0.9

@@ -47,5 +47,6 @@ public sealed class ToolRegistry
         .Add(new UpdatePlanTool())
         .Add(new MemoryWriteTool())
         .Add(new MemorySearchTool())
-        .Add(new LoadSkillTool());
+        .Add(new LoadSkillTool())
+        .Add(new SearchSkillsTool());
 }

@@ -86,6 +86,9 @@ public partial class App : Application
             _ball.Show();
         }
 
+        // 技能目录变化（安装、卸载、手动拷入）后通知界面刷新
+        _host.SkillsChanged += () => Dispatcher.BeginInvoke(() => _main?.Bridge?.Post(new { type = "skills.changed" }));
+
         _host.ActiveRunsChanged += count => Dispatcher.BeginInvoke(() =>
         {
             _activeRuns = count;

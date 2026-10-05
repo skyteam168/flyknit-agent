@@ -86,11 +86,68 @@ export interface ModelInfo {
   supportsVision: boolean
 }
 
+export type SkillSourceKind = 'personal' | 'organization' | 'learned'
+
 export interface SkillInfo {
   name: string
   description: string
+  version: string
+  author: string
+  license: string
+  homepage: string
+  /** 安装来源：本地文件名、公司技能库、下载链接 */
+  origin: string
+  source: SkillSourceKind
   organization: boolean
+  learned: boolean
+  /** 企业要求安装，不能停用或卸载 */
+  required: boolean
   enabled: boolean
+  directory: string
+  files: string[]
+  scripts: string[]
+  bytes: number
+}
+
+/** 公司技能库里的一个技能 */
+export interface LibrarySkill {
+  name: string
+  description: string
+  version: string
+  author: string
+  origin: string
+  size: number
+  required: boolean
+  installed: boolean
+  updatable: boolean
+}
+
+/** 安装前的检查结果 */
+export interface SkillInspection {
+  ok: boolean
+  error: string | null
+  name: string
+  description: string
+  version: string
+  files: string[]
+  scripts: string[]
+  bytes: number
+  warnings: string[]
+  replaces: boolean
+}
+
+export interface SkillInstallOutcome {
+  ok: boolean
+  installed: string[]
+  messages: string[]
+  warnings: string[]
+  skills: SkillInfo[]
+}
+
+export interface SkillActionResult {
+  ok: boolean
+  message: string
+  skills: SkillInfo[]
 }
 
 export interface AttachmentRef {
@@ -200,6 +257,7 @@ export type HostEvent =
   | { type: 'memory.learned'; conversationId: string; items: { kind: MemoryKind; text: string }[]; skill: string | null }
   | { type: 'app.openConversation'; conversationId: string }
   | { type: 'window.state'; maximized: boolean }
+  | { type: 'skills.changed' }
   | { type: 'chat.error'; conversationId: string; message: string }
   | { type: 'conversation.updated'; conversation: Conversation }
   | { type: 'files.added'; attachments: AttachmentRef[] }

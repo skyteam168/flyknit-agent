@@ -1,17 +1,19 @@
 """管理后台接口。所有请求需带 Authorization: Bearer <FLYKNIT_ADMIN_TOKEN>。"""
 
 import time
+from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from ..config import get_settings
 from ..crypto import decrypt, encrypt, mask
 from ..db import get_session
 from ..deps import require_admin
-from ..models import AuditLog, Device, ModelConfig, Provider, RouteRule
+from ..models import AuditLog, Device, ModelConfig, Provider, RouteRule, SkillPackage
 from ..schemas import (
     SCENES,
     AuditOut,
@@ -25,11 +27,15 @@ from ..schemas import (
     ProviderPatch,
     RouteIn,
     RouteOut,
+    SkillImportIn,
+    SkillImportResult,
+    SkillOut,
+    SkillPatch,
     SmbIn,
     SmbOut,
     SyncResult,
 )
-from ..services import settings_store
+from ..services import settings_store, skill_library
 from ..services.model_router import Target, build_body, headers_for
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -293,6 +299,98 @@ async def put_smb(data: SmbIn, session: AsyncSession = Depends(get_session)):
         password_set=bool(value["password_enc"]),
         share_root=value["share_root"],
     )
+
+
+# ---------- 技能库 ----------
+def _skill_dir() -> Path:
+    return skill_library.storage_dir(Path(get_settings().data_dir))
+
+
+def _save_packages(skills: list[skill_library.ParsedSkill], session: AsyncSession, origin: str, required: bool) -> list[str]:
+    saved = []
+    for s in skills:
+        (_skill_dir() / f"{s.name}.zip").write_bytes(s.data)
+        session.add(
+            SkillPackage(
+                name=s.name,
+                description=s.description,
+                version=s.version,
+                author=s.author,
+                origin=origin[:500],
+                size=len(s.data),
+                file_count=len(s.files),
+                required=required,
+            )
+        )
+        saved.append(s.name)
+    return saved
+
+
+async def _replace(session: AsyncSession, name: str) -> None:
+    existing = await session.get(SkillPackage, name)
+    if existing is not None:
+        await session.delete(existing)
+        await session.flush()
+
+
+@router.get("/skills", response_model=list[SkillOut])
+async def list_skills(session: AsyncSession = Depends(get_session)):
+    return (await session.scalars(select(SkillPackage).order_by(SkillPackage.name))).all()
+
+
+@router.post("/skills/import", response_model=SkillImportResult)
+async def import_skill(data: SkillImportIn, request: Request, session: AsyncSession = Depends(get_session)):
+    """从 GitHub 页面链接或任意技能包 zip 的下载链接导入。一个仓库里有多个技能时全部导入。"""
+    try:
+        content = await skill_library.download(request.app.state.http, data.url)
+        skills = skill_library.filter_subdir(skill_library.parse_packages(content), skill_library.github_subdir(data.url))
+    except skill_library.SkillError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    for s in skills:
+        await _replace(session, s.name)
+    saved = _save_packages(skills, session, data.url, data.required)
+    await session.commit()
+    return SkillImportResult(imported=saved)
+
+
+@router.post("/skills/upload", response_model=SkillImportResult)
+async def upload_skill(
+    file: UploadFile = File(...),
+    required: bool = False,
+    session: AsyncSession = Depends(get_session),
+):
+    """上传技能包 zip（离线环境用）。"""
+    content = await file.read()
+    if len(content) > skill_library.MAX_TOTAL_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件过大")
+    try:
+        skills = skill_library.parse_packages(content)
+    except skill_library.SkillError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    for s in skills:
+        await _replace(session, s.name)
+    saved = _save_packages(skills, session, file.filename or "上传", required)
+    await session.commit()
+    return SkillImportResult(imported=saved)
+
+
+@router.patch("/skills/{name}", response_model=SkillOut)
+async def update_skill(name: str, data: SkillPatch, session: AsyncSession = Depends(get_session)):
+    skill = await _get_or_404(session, SkillPackage, name)
+    if data.required is not None:
+        skill.required = data.required
+    if data.enabled is not None:
+        skill.enabled = data.enabled
+    await session.commit()
+    return skill
+
+
+@router.delete("/skills/{name}", status_code=204)
+async def delete_skill(name: str, session: AsyncSession = Depends(get_session)):
+    skill = await _get_or_404(session, SkillPackage, name)
+    await session.delete(skill)
+    await session.commit()
+    (_skill_dir() / f"{name}.zip").unlink(missing_ok=True)
 
 
 # ---------- 设备 ----------

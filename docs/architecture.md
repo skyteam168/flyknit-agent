@@ -72,6 +72,33 @@
 `skills/learned/<name>/SKILL.md`（frontmatter 带 `source: learned`），之后与手写技能一样被加载。
 用户点踩会立刻对那一轮做一次复盘，重点记录教训。可以在界面的「记忆」里查看、删除，或关掉自动学习。
 
+## 技能（Skills）
+
+技能是写给模型的工作说明，格式沿用社区开放标准，所以 GitHub、ClawHub 等处发布的技能可以直接安装：
+
+```
+skill-name/
+├─ SKILL.md     必需。frontmatter 至少有 name 和 description，可选 version、author、license、keywords
+├─ scripts/     可选，脚本
+├─ references/  可选，参考资料
+└─ assets/      可选，模板文件
+```
+
+**安装来源**：本地 zip、文件夹（含共享盘）、公司技能库（服务端）、直链下载。
+工厂电脑通常上不了外网，所以由服务端统一从 GitHub / 社区链接导入，客户端再从公司技能库安装；
+管理员标记为「必装」的技能，客户端启动和每次刷新配置时自动下发到 `skills\org\`。
+
+**安装流程**（`Flyknit.Core/Skills/SkillPackage.cs`）：解压到临时目录 → 校验 → 整体替换，失败不留残骸。
+校验包括：必须有 SKILL.md 和 description、拒绝路径穿越（zip slip）、大小与文件数上限、
+拒绝 .exe/.dll 等可执行程序、脚本内容过一遍命令策略（命中危险规则直接拒绝）。一个压缩包里有多个技能时全部安装。
+
+**热插拔**：`FileSystemWatcher` 监听技能目录，变化后防抖 400ms 重新扫描并通知界面，不需要重启；
+直接往技能文件夹拷目录同样生效。停用的技能名存在 settings.json，停用后不进提示词，load_skill 也会拒绝；企业必装的不能停用或卸载。
+
+**模型如何发现和使用**（渐进式披露）：系统提示词里只放「名称 + 描述」清单；
+模型判断相关后调用 `load_skill` 读取正文和文件列表。技能超过 12 个时按与当前任务的相关度只列出前 N 个，
+其余通过 `search_skills` 工具按关键词检索，避免提示词被技能挤满。
+
 ## 工作区与权限
 
 每个办事任务有自己的工作区（默认 `我的文档\Flyknit`，可在输入框下方添加、切换）和权限模式。
@@ -114,7 +141,10 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 │  ├─ memory.md       偏好与习惯、常用信息
 │  ├─ lessons.md      成功经验、失败教训
 │  └─ episodes.json   历史任务
-└─ skills\            已安装的 Skills（org\ 企业下发只读，learned\ 复盘自动生成）
+└─ skills\            已安装的 Skills
+   ├─ org\            企业下发（必装，只读）
+   ├─ learned\        复盘自动沉淀
+   └─ <name>\         用户自己安装的
 ```
 
 默认工作区是 `我的文档\Flyknit`（不是上面的数据目录），用户可以另外添加。

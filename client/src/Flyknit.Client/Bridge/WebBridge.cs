@@ -372,19 +372,98 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 return null;
 
             case "skills.list":
-                _host.Skills.Refresh();
-                return _host.Skills.Skills.Select(s => new
+                _host.SkillManager.Refresh();
+                return SkillList();
+
+            case "skills.setEnabled":
+            {
+                var (ok, message) = _host.SkillManager.Enable(Str("name"), Bool("enabled"));
+                return new { ok, message, skills = SkillList() };
+            }
+
+            case "skills.uninstall":
+            {
+                var (ok, message) = _host.SkillManager.Uninstall(Str("name"));
+                return new { ok, message, skills = SkillList() };
+            }
+
+            case "skills.inspect":
+            {
+                var path = OptStr("path") ?? _window.PickFiles().FirstOrDefault();
+                if (path is null)
+                {
+                    return null;
+                }
+                return new { path, inspection = Inspection(_host.SkillManager.Inspect(path)) };
+            }
+
+            case "skills.install":
+            {
+                // path 为空时弹文件选择框；zip 里有多个技能时全部安装
+                var path = OptStr("path") ?? _window.PickFiles().FirstOrDefault();
+                if (path is null)
+                {
+                    return null;
+                }
+                var results = Directory.Exists(path)
+                    ? new List<Flyknit.Core.Skills.SkillInstallResult> { _host.SkillManager.InstallFrom(path) }
+                    : _host.SkillManager.InstallAllFrom(path);
+                return InstallOutcome(results);
+            }
+
+            case "skills.installFolder":
+            {
+                var folder = OptStr("path") ?? _window.PickFolder();
+                if (folder is null)
+                {
+                    return null;
+                }
+                var roots = Flyknit.Core.Skills.SkillPackage.FindAllSkillRoots(folder);
+                var results = (roots.Count > 0 ? roots : new List<string> { folder })
+                    .Select(r => _host.SkillManager.InstallFrom(r, folder)).ToList();
+                return InstallOutcome(results);
+            }
+
+            case "skills.installFromUrl":
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                var result = await _host.SkillManager.InstallFromUrlAsync(Str("url"), cts.Token);
+                return InstallOutcome(new List<Flyknit.Core.Skills.SkillInstallResult> { result });
+            }
+
+            case "skills.library":
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                var library = await _host.Server.GetSkillsAsync(cts.Token);
+                var installed = _host.Skills.Skills.ToDictionary(s => s.Name, s => s.Version, StringComparer.OrdinalIgnoreCase);
+                return library.Select(s => new
                 {
                     name = s.Name,
                     description = s.Description,
-                    organization = s.IsOrganization,
-                    enabled = s.Enabled,
+                    version = s.Version,
+                    author = s.Author,
+                    origin = s.Origin,
+                    size = s.Size,
+                    required = s.Required,
+                    installed = installed.ContainsKey(s.Name),
+                    updatable = installed.TryGetValue(s.Name, out var v) && s.Version.Length > 0 && v != s.Version,
                 }).ToList();
+            }
+
+            case "skills.installFromLibrary":
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                var result = await _host.SkillManager.InstallFromLibraryAsync(Str("name"), cts.Token);
+                return InstallOutcome(new List<Flyknit.Core.Skills.SkillInstallResult> { result });
+            }
 
             case "skills.openFolder":
-                Directory.CreateDirectory(AppPaths.Skills);
-                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{AppPaths.Skills}\"") { UseShellExecute = true });
+            {
+                var target = OptStr("path") is { } p2 && Directory.Exists(p2) ? p2 : AppPaths.Skills;
+                Directory.CreateDirectory(target);
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{target}\"") { UseShellExecute = true });
                 return null;
+            }
 
             case "settings.setLanguage":
                 _settings.UiLanguage = Str("language");
@@ -563,6 +642,49 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 throw new NotSupportedException($"未知方法：{method}");
         }
     }
+
+    private object SkillList() => _host.Skills.Skills.Select(s => new
+    {
+        name = s.Name,
+        description = s.Description,
+        version = s.Version,
+        author = s.Author,
+        license = s.License,
+        homepage = s.Homepage,
+        origin = s.Origin,
+        source = s.Source.ToString().ToLowerInvariant(),
+        organization = s.IsOrganization,
+        learned = s.IsLearned,
+        required = s.Required,
+        enabled = s.Enabled,
+        directory = s.Directory,
+        files = s.ListFiles(60),
+        scripts = s.ListScripts(),
+        bytes = s.TotalBytes(),
+    }).ToList();
+
+    private object Inspection(Flyknit.Core.Skills.SkillInspection i) => new
+    {
+        ok = i.Ok,
+        error = i.Error,
+        name = i.Name,
+        description = i.Description,
+        version = i.Version,
+        files = i.Files,
+        scripts = i.Scripts,
+        bytes = i.Bytes,
+        warnings = i.Warnings,
+        replaces = i.Replaces,
+    };
+
+    private object InstallOutcome(List<Flyknit.Core.Skills.SkillInstallResult> results) => new
+    {
+        ok = results.Any(r => r.Ok),
+        installed = results.Where(r => r.Ok).Select(r => r.Inspection.Name).ToList(),
+        messages = results.Select(r => r.Message).ToList(),
+        warnings = results.Where(r => r.Ok).SelectMany(r => r.Inspection.Warnings).Distinct().ToList(),
+        skills = SkillList(),
+    };
 
     private object WorkspaceList()
     {

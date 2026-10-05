@@ -142,7 +142,7 @@ public sealed class PromptBuilder
             }
             if (_skills is not null)
             {
-                sb.Append(_skills.BuildPromptSection());
+                sb.Append(_skills.BuildPromptSection(ctx.Query));
             }
         }
         return sb.ToString().TrimEnd();

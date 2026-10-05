@@ -626,6 +626,10 @@ function onHostEvent(e: HostEvent) {
     case 'window.state':
       state.maximized = e.maximized
       break
+    case 'skills.changed':
+      // 技能目录被安装、卸载或手动改动，重新注册后刷新界面
+      void loadSkills()
+      break
     case 'app.focusInput':
       window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
       break

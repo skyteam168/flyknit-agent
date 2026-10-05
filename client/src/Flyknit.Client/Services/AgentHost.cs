@@ -44,13 +44,14 @@ public sealed class AgentHost : IDisposable
     public ConversationStore Store { get; }
     public MemoryStore Memory { get; }
     public SkillCatalog Skills { get; }
+    public SkillService SkillManager { get; }
     public ToolRegistry Tools { get; }
     public AuditQueue Audit { get; }
     public ApprovalStore Approvals { get; }
     public EpisodeStore Episodes { get; }
 
     /// <summary>复盘沉淀出的技能放在个人技能目录下的 learned 子目录。</summary>
-    public static string LearnedSkills => Path.Combine(AppPaths.Skills, "learned");
+    public static string LearnedSkills => AppPaths.LearnedSkills;
 
     /// <summary>最近一次得知的模型上下文长度。</summary>
     private int _contextLength;
@@ -64,13 +65,20 @@ public sealed class AgentHost : IDisposable
     /// <summary>有运行中的任务或等待确认时变化，悬浮球据此显示状态。</summary>
     public event Action<int>? ActiveRunsChanged;
 
+    /// <summary>技能目录发生变化（安装、卸载、手动拷入）。</summary>
+    public event Action? SkillsChanged;
+
     public AgentHost(AppSettings settings)
     {
         _settings = settings;
         Server = new FlyknitServerClient(new HttpClient(), settings.ServerUrl, settings.DeviceToken);
         Store = new ConversationStore(AppPaths.Database);
         Memory = new MemoryStore(AppPaths.Memory);
-        Skills = new SkillCatalog().AddRoot(AppPaths.OrgSkills, isOrganization: true).AddRoot(AppPaths.Skills);
+        Skills = new SkillCatalog()
+            .AddRoot(AppPaths.OrgSkills, SkillSource.Organization)
+            .AddRoot(AppPaths.LearnedSkills, SkillSource.Learned)
+            .AddRoot(AppPaths.Skills);
+        SkillManager = new SkillService(Skills, settings, Server, () => _policy);
         Tools = ToolRegistry.CreateDefault().Add(new OpenAppTool(() => _settings.AppAliases));
         Audit = new AuditQueue(Server);
         Approvals = new ApprovalStore(AppPaths.Approvals);
@@ -83,7 +91,11 @@ public sealed class AgentHost : IDisposable
         Memory.EnsureDefaults();
         _settings.EnsureWorkspaces();
         Directory.CreateDirectory(AppPaths.Skills);
-        Skills.Refresh();
+        Directory.CreateDirectory(AppPaths.OrgSkills);
+        Directory.CreateDirectory(AppPaths.LearnedSkills);
+        SkillManager.Refresh();
+        Skills.Changed += () => SkillsChanged?.Invoke();
+        Skills.StartWatching();
         await Task.Run(() => Store.PurgeExpired());
         await RefreshConfigAsync();
     }
@@ -108,6 +120,8 @@ public sealed class AgentHost : IDisposable
             ServerMessage = agent is { Available: true } ? "" : "服务端尚未配置模型";
             ModelName = agent?.ModelName ?? "";
             _configTimer.Change(TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
+            // 同步公司技能库里管理员标记为必装的技能
+            _ = SkillManager.SyncRequiredAsync(CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -372,7 +386,7 @@ public sealed class AgentHost : IDisposable
             Log.Info($"对话 {conv.Id} 复盘完成：新增记忆 {report.Added.Count} 条，历史任务 {(report.Episode is null ? "无" : report.Episode.Title)}，技能 {report.SkillName ?? "无"}");
             if (report.SkillName is not null)
             {
-                Skills.Refresh();
+                SkillManager.Refresh();
             }
             if (report.Added.Count > 0 || report.SkillName is not null)
             {
@@ -490,6 +504,7 @@ public sealed class AgentHost : IDisposable
             cts.Cancel();
         }
         _configTimer.Dispose();
+        Skills.Dispose();
         Audit.FlushAsync().Wait(TimeSpan.FromSeconds(3));
         Audit.Dispose();
     }

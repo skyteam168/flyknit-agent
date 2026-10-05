@@ -21,10 +21,16 @@ ADMIN = {"Authorization": "Bearer test-admin"}
 @pytest_asyncio.fixture
 async def client(tmp_path):
     get_settings().database_url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
+    get_settings().data_dir = str(tmp_path / "data")
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
             yield c
+
+
+@pytest.fixture
+def admin_headers():
+    return dict(ADMIN)
 
 
 @pytest_asyncio.fixture

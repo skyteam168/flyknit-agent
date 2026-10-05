@@ -155,7 +155,7 @@ public sealed class MemorySearchTool : ITool
     }
 }
 
-/// <summary>按需加载某个 Skill 的完整说明。</summary>
+/// <summary>按需加载某个 Skill 的完整说明（渐进式披露：提示词里只有名称和描述，正文用到时才读）。</summary>
 public sealed class LoadSkillTool : ITool
 {
     public string Name => "load_skill";
@@ -167,13 +167,25 @@ public sealed class LoadSkillTool : ITool
 
     public Task<ToolResult> ExecuteAsync(JsonElement args, ToolContext ctx, CancellationToken ct)
     {
-        var skill = ctx.Skills?.Find(args.Required("name"));
+        var name = args.Required("name");
+        var skill = ctx.Skills?.Find(name);
         if (skill is null)
         {
-            return Task.FromResult(ToolResult.Fail($"未找到技能：{args.Str("name")}"));
+            // 技能存在但被停用时说明原因，避免模型反复尝试
+            if (ctx.Skills?.FindAny(name) is { } disabled)
+            {
+                return Task.FromResult(ToolResult.Fail($"技能 {disabled.Name} 已被用户停用，不能使用。可以告诉用户在「技能」里启用它。"));
+            }
+            var similar = ctx.Skills?.Search(name, max: 3) ?? new();
+            var hint = similar.Count > 0 ? $"相近的技能有：{string.Join("、", similar.Select(s => s.Skill.Name))}" : "可以用 search_skills 按关键词查找";
+            return Task.FromResult(ToolResult.Fail($"未找到技能：{name}。{hint}"));
         }
         var sb = new StringBuilder();
         sb.AppendLine($"# 技能：{skill.Name}");
+        if (skill.Version.Length > 0)
+        {
+            sb.AppendLine($"版本：{skill.Version}");
+        }
         sb.AppendLine($"技能目录：{skill.Directory}（说明中的相对路径都相对于此目录）");
         sb.AppendLine();
         sb.AppendLine(skill.LoadBody());
@@ -181,11 +193,47 @@ public sealed class LoadSkillTool : ITool
         if (files.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("技能包含的文件：");
+            sb.AppendLine("技能包含的文件（需要时用 read_file 读取，脚本用 run_shell 执行）：");
             foreach (var f in files)
             {
                 sb.AppendLine("- " + f);
             }
+        }
+        return Task.FromResult(ToolResult.Success(sb.ToString()));
+    }
+}
+
+/// <summary>按关键词检索已安装的技能（技能很多时提示词里只列出相关的几个）。</summary>
+public sealed class SearchSkillsTool : ITool
+{
+    public string Name => "search_skills";
+    public string Description =>
+        "按关键词检索已安装的技能，返回名称和用途。系统提示里列出的技能都不合适、或者怀疑还有更合适的技能时使用；" +
+        "找到后用 load_skill 读取完整说明。";
+
+    public JsonObject Parameters => ToolArgs.Schema(("query", "string", "任务关键词，如“Excel 周报”“PDF 合并”", true));
+
+    public PolicyDecision Assess(JsonElement args, ToolContext ctx) => PolicyDecision.Auto();
+    public string Describe(JsonElement args) => $"查找技能：{args.Str("query")}";
+
+    public Task<ToolResult> ExecuteAsync(JsonElement args, ToolContext ctx, CancellationToken ct)
+    {
+        if (ctx.Skills is null)
+        {
+            return Task.FromResult(ToolResult.Fail("技能功能不可用"));
+        }
+        var found = ctx.Skills.Search(args.Required("query"), max: 8);
+        if (found.Count == 0)
+        {
+            var total = ctx.Skills.Skills.Count(s => s.Enabled);
+            return Task.FromResult(ToolResult.Success(
+                total == 0 ? "还没有安装任何技能，按常规方式完成任务即可。" : "没有找到相关的技能，按常规方式完成任务即可。"));
+        }
+        var sb = new StringBuilder("找到以下技能（用 load_skill 读取完整说明）：");
+        sb.AppendLine();
+        foreach (var (skill, _) in found)
+        {
+            sb.AppendLine($"- {skill.Name}：{skill.Description}");
         }
         return Task.FromResult(ToolResult.Success(sb.ToString()));
     }

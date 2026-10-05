@@ -23,3 +23,6 @@ client/src/Flyknit.Client/wwwroot/
 Thumbs.db
 .idea/
 .vscode/
+
+# 服务端技能库等运行时数据
+server/data/

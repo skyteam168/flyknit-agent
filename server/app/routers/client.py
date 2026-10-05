@@ -2,8 +2,10 @@
 
 import hmac
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import __version__
@@ -14,9 +16,10 @@ from ..deps import require_device
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from ..models import AuditLog, Device, ModelConfig
+from ..models import AuditLog, Device, ModelConfig, SkillPackage
 from ..schemas import (
     SCENES,
+    SkillOut,
     AuditBatchIn,
     ClientConfigOut,
     ClientModelOut,
@@ -24,7 +27,7 @@ from ..schemas import (
     DeviceRegisterOut,
     SceneInfo,
 )
-from ..services import model_router
+from ..services import model_router, skill_library
 from ..services.settings_store import get_policy
 
 log = logging.getLogger("flyknit.audit")
@@ -130,3 +133,22 @@ async def client_models(
         for m in rows
         if m.enabled and m.provider.enabled
     ]
+
+
+# ---------- 公司技能库 ----------
+@router.get("/client/skills", response_model=list[SkillOut])
+async def client_skills(_: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
+    """客户端可以安装的技能；required 的会被客户端自动安装。"""
+    rows = await session.scalars(select(SkillPackage).where(SkillPackage.enabled.is_(True)).order_by(SkillPackage.name))
+    return rows.all()
+
+
+@router.get("/client/skills/{name}/download")
+async def download_skill(name: str, _: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
+    skill = await session.get(SkillPackage, name)
+    if skill is None or not skill.enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "技能不存在")
+    path = skill_library.storage_dir(Path(get_settings().data_dir)) / f"{name}.zip"
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "技能包文件丢失，请在管理后台重新导入")
+    return FileResponse(path, media_type="application/zip", filename=f"{name}.zip")
