@@ -340,7 +340,8 @@ docker compose up -d --build          # Docker
 # 或：pip install -r requirements.txt && 重启 uvicorn
 ```
 
-数据库表结构会在启动时自动升级，不用手动迁移。
+数据库表结构会在启动时自动升级（缺的表、字段、索引都会补上），不用手动迁移。
+升级完成后日志里会有一行 `表结构已升级：...`，没有改动就不打印。
 
 **客户端**
 
@@ -371,6 +372,10 @@ FlyknitBuddy 还在运行。`taskkill /F /IM FlyknitBuddy.exe` 之后重试（`r
 **系统通知点了没反应 / 收不到通知**
 第一次用会在开始菜单建一个 FlyknitBuddy 快捷方式（Windows 要求，用来标识发通知的程序），是正常现象。
 公司策略关掉通知的话，程序会自动退回到托盘气泡提示。
+
+**服务端日志报 `table xxx has no column named yyy`**
+v0.4 之前的版本有这个问题：老库升级上来缺字段。升到最新版本后启动时会自动补齐，
+日志里能看到 `表结构已升级：...`。如果还有，把日志发出来。
 
 **员工说「今天的 token 已用完」**
 执行 `python -m scripts.setup_quota --daily <更大的数>` 提高额度，立即生效。

@@ -20,11 +20,17 @@ def init_engine(url: str) -> AsyncEngine:
 
 
 async def create_all() -> None:
+    """建表并补齐缺失的字段与索引（老版本升级上来时会用到）。"""
     assert _engine is not None
     from . import models  # noqa: F401  确保模型已注册
+    from .migrate import ensure_schema
 
     async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        changes = await conn.run_sync(ensure_schema)
+    if changes:
+        import logging
+
+        logging.getLogger("flyknit").info("表结构已升级：%s", "、".join(changes))
 
 
 async def dispose() -> None:

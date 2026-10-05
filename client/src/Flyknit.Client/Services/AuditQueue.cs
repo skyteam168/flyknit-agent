@@ -8,7 +8,11 @@ using Flyknit.Core.Gateway;
 
 namespace Flyknit.Client.Services;
 
-/// <summary>审计记录先放入队列，每 20 秒批量上报；上报失败保留在队列中稍后重试。</summary>
+/// <summary>
+/// 审计记录先放入队列，每 20 秒批量上报；上报失败保留在队列中稍后重试。
+/// 服务端返回 4xx（数据本身有问题，重试也不会成功）或连续失败多次时丢弃这一批，
+/// 避免一个服务端问题让队列永远卡住、日志刷屏。
+/// </summary>
 public sealed class AuditQueue : IAuditSink, IDisposable
 {
     private const int MaxQueued = 5000;
@@ -16,6 +20,10 @@ public sealed class AuditQueue : IAuditSink, IDisposable
     private readonly FlyknitServerClient _server;
     private readonly Timer _timer;
     private int _flushing;
+    private int _consecutiveFailures;
+
+    /// <summary>同一批连续失败这么多次后放弃。</summary>
+    private const int MaxRetries = 5;
 
     public AuditQueue(FlyknitServerClient server)
     {
@@ -55,14 +63,22 @@ public sealed class AuditQueue : IAuditSink, IDisposable
                 {
                     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                     await _server.ReportAuditAsync(batch, cts.Token);
+                    _consecutiveFailures = 0;
                 }
                 catch (Exception ex)
                 {
+                    var permanent = ex is GatewayException { StatusCode: >= 400 and < 500 };
+                    if (permanent || ++_consecutiveFailures >= MaxRetries)
+                    {
+                        _consecutiveFailures = 0;
+                        Log.Error($"审计上报失败，丢弃 {batch.Count} 条记录（{(permanent ? "服务端拒绝" : $"连续失败 {MaxRetries} 次")}）", ex);
+                        return;
+                    }
                     foreach (var item in batch)
                     {
                         _queue.Enqueue(item);
                     }
-                    Log.Warn("审计上报失败，稍后重试", ex);
+                    Log.Warn($"审计上报失败，稍后重试（第 {_consecutiveFailures} 次）", ex);
                     return;
                 }
             }

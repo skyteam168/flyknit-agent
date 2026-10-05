@@ -163,6 +163,15 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 
 完整列表见 `client/web/src/bridge.ts` 与 `client/src/Flyknit.Client/Bridge/WebBridge.cs`，两边需保持一致。
 
+## 数据库升级
+
+服务端每次启动时自动对比模型定义和实际表结构（`app/migrate.py`）：缺失的表、字段、索引都会补上，
+不改类型、不删任何东西，SQLite 和 PostgreSQL 都适用。
+
+SQLAlchemy 的 `create_all` 只建缺失的**表**，不会给已有的表加**字段**——
+v0.4 给 `audit_logs` 加 `scene` 时踩过这个坑，老库升级上来后审计上报全部 500。
+以后再加字段不用手动迁移，但记得给非空字段写默认值，否则 SQLite 不允许加列（迁移会退化成可空并记一条告警）。
+
 ## 本地目录
 
 ```
