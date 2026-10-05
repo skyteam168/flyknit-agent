@@ -190,6 +190,7 @@ public sealed class AgentLoop
             var audit = new AuditEntry
             {
                 ConversationId = context.ConversationId,
+                Scene = scene,
                 ToolName = call.Name,
                 Arguments = call.ArgumentsJson,
                 Risk = decision.Level switch { RiskLevel.Blocked => "blocked", RiskLevel.Confirm => "confirm", _ => "auto" },

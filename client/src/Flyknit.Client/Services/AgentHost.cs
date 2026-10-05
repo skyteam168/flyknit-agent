@@ -47,6 +47,9 @@ public sealed class AgentHost : IDisposable
     public SkillService SkillManager { get; }
     public ToolRegistry Tools { get; }
     public AuditQueue Audit { get; }
+
+    /// <summary>上报服务端的同时，把拦截与放行记录存一份在本机（用量与安全面板用）。</summary>
+    private readonly RecordingAuditSink _auditSink;
     public ApprovalStore Approvals { get; }
     public EpisodeStore Episodes { get; }
 
@@ -81,6 +84,7 @@ public sealed class AgentHost : IDisposable
         SkillManager = new SkillService(Skills, settings, Server, () => _policy);
         Tools = ToolRegistry.CreateDefault().Add(new OpenAppTool(() => _settings.AppAliases));
         Audit = new AuditQueue(Server);
+        _auditSink = new RecordingAuditSink(Audit, Store);
         Approvals = new ApprovalStore(AppPaths.Approvals);
         Episodes = new EpisodeStore(AppPaths.Memory);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
@@ -310,7 +314,7 @@ public sealed class AgentHost : IDisposable
                 Deleter = new RecycleBinDeleter(),
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, Audit, approvals: Approvals);
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, approvals: Approvals);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId, context);
             Store.AddMessages(id, result.NewMessages);
             if (context is { ContextLength: > 0 })
@@ -507,6 +511,48 @@ public sealed class AgentHost : IDisposable
         Skills.Dispose();
         Audit.FlushAsync().Wait(TimeSpan.FromSeconds(3));
         Audit.Dispose();
+    }
+
+    /// <summary>
+    /// 审计出口：危险命令拦截、用户放行和拒绝都记在本机一份，同时照常上报服务端。
+    /// 自动执行的只读操作不记（量大且没有安全意义）。
+    /// </summary>
+    private sealed class RecordingAuditSink : IAuditSink
+    {
+        private readonly IAuditSink _inner;
+        private readonly ConversationStore _store;
+
+        public RecordingAuditSink(IAuditSink inner, ConversationStore store)
+        {
+            _inner = inner;
+            _store = store;
+        }
+
+        public void Record(AuditEntry entry)
+        {
+            _inner.Record(entry);
+            if (entry.Decision is not ("blocked" or "approved" or "remembered" or "rejected"))
+            {
+                return;
+            }
+            try
+            {
+                _store.AddSecurityEvent(new SecurityEvent
+                {
+                    ConversationId = entry.ConversationId,
+                    Scene = entry.Scene,
+                    Tool = entry.ToolName,
+                    Detail = ToolDetail.From(entry.Arguments),
+                    Decision = entry.Decision,
+                    Reason = entry.Decision == "blocked" ? entry.Summary : "",
+                    CreatedAt = entry.OccurredAt,
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("保存安全记录失败", ex);
+            }
+        }
     }
 
     /// <summary>把一次运行中的事件转成界面消息。</summary>

@@ -7,6 +7,8 @@ import TopBar from './components/TopBar.vue'
 import Home from './components/Home.vue'
 import SkillsDialog from './components/SkillsDialog.vue'
 import MemoryDialog from './components/MemoryDialog.vue'
+import ResizeEdges from './components/ResizeEdges.vue'
+import UsageDialog from './components/UsageDialog.vue'
 import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
 import PlanPanel from './components/PlanPanel.vue'
@@ -129,7 +131,9 @@ onBeforeUnmount(() => {
     <SettingsDialog v-if="state.settingsOpen" />
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />
     <MemoryDialog v-if="state.memoryOpen" />
+    <UsageDialog v-if="state.usageOpen" />
     <div v-if="state.toast" class="toast" role="status">{{ state.toast }}</div>
+    <ResizeEdges />
   </div>
 </template>
 

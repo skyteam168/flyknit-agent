@@ -48,6 +48,7 @@ export const state = reactive({
   skills: [] as SkillInfo[],
   workspaces: [] as WorkspaceInfo[],
   memoryOpen: false,
+  usageOpen: false,
   maximized: false,
 })
 

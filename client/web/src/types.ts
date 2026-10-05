@@ -86,6 +86,43 @@ export interface ModelInfo {
   supportsVision: boolean
 }
 
+export interface SceneUsage {
+  scene: string
+  prompt: number
+  completion: number
+  total: number
+  requests: number
+}
+
+export interface UsageStats {
+  day: string
+  todayTokens: number
+  /** 0 表示管理员没有设上限 */
+  dailyLimit: number
+  remaining: number
+  exceeded: boolean
+  byScene: SceneUsage[]
+  byDay: { day: string; tokens: number }[]
+  contactName: string
+  contactEmail: string
+  contactPhone: string
+}
+
+export type SecurityDecision = 'blocked' | 'approved' | 'remembered' | 'rejected'
+
+export interface SecurityEvent {
+  id: number
+  conversationId: string
+  title: string
+  /** agent / chat / translate */
+  scene: string
+  tool: string
+  detail: string
+  decision: SecurityDecision
+  reason: string
+  createdAt: string
+}
+
 export type SkillSourceKind = 'personal' | 'organization' | 'learned'
 
 export interface SkillInfo {

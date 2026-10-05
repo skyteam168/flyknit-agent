@@ -40,6 +40,36 @@ public sealed class ClientModel
     [JsonPropertyName("supports_vision")] public bool SupportsVision { get; set; }
 }
 
+/// <summary>本机的 token 用量与配额。</summary>
+public sealed class UsageStats
+{
+    [JsonPropertyName("day")] public string Day { get; set; } = "";
+    [JsonPropertyName("today_tokens")] public int TodayTokens { get; set; }
+    [JsonPropertyName("daily_limit")] public int DailyLimit { get; set; }
+    [JsonPropertyName("remaining")] public int Remaining { get; set; }
+    [JsonPropertyName("exceeded")] public bool Exceeded { get; set; }
+    [JsonPropertyName("by_scene")] public List<SceneUsage> ByScene { get; set; } = new();
+    [JsonPropertyName("by_day")] public List<DayUsage> ByDay { get; set; } = new();
+    [JsonPropertyName("contact_name")] public string ContactName { get; set; } = "";
+    [JsonPropertyName("contact_email")] public string ContactEmail { get; set; } = "";
+    [JsonPropertyName("contact_phone")] public string ContactPhone { get; set; } = "";
+}
+
+public sealed class SceneUsage
+{
+    [JsonPropertyName("scene")] public string Scene { get; set; } = "";
+    [JsonPropertyName("prompt")] public int Prompt { get; set; }
+    [JsonPropertyName("completion")] public int Completion { get; set; }
+    [JsonPropertyName("total")] public int Total { get; set; }
+    [JsonPropertyName("requests")] public int Requests { get; set; }
+}
+
+public sealed class DayUsage
+{
+    [JsonPropertyName("day")] public string Day { get; set; } = "";
+    [JsonPropertyName("tokens")] public int Tokens { get; set; }
+}
+
 /// <summary>公司技能库里的一个技能。</summary>
 public sealed class ServerSkill
 {
@@ -61,6 +91,9 @@ public sealed class AuditEntry
     [JsonPropertyName("conversation_id")] public string ConversationId { get; set; } = "";
     [JsonPropertyName("tool_name")] public string ToolName { get; set; } = "";
     [JsonPropertyName("arguments")] public string Arguments { get; set; } = "";
+    /// <summary>发生在哪种模式：agent / chat / translate。</summary>
+    [JsonPropertyName("scene")] public string Scene { get; set; } = "";
+
     [JsonPropertyName("risk")] public string Risk { get; set; } = "auto";
     [JsonPropertyName("decision")] public string Decision { get; set; } = "auto";
     [JsonPropertyName("status")] public string Status { get; set; } = "";
@@ -130,6 +163,15 @@ public sealed class FlyknitServerClient : IChatGateway
         req.Content = JsonContent.Create(new { items });
         using var resp = await _http.SendAsync(req, ct);
         await EnsureOk(resp, ct);
+    }
+
+    /// <summary>本机今天和最近几天的 token 用量。</summary>
+    public async Task<UsageStats> GetUsageAsync(CancellationToken ct, int days = 7)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/usage?days={days}");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<UsageStats>(cancellationToken: ct) ?? new UsageStats();
     }
 
     /// <summary>公司技能库列表。</summary>

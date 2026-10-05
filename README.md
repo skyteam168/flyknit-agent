@@ -61,6 +61,13 @@ python -m scripts.setup_skill --require excel-report                          # 
 python -m scripts.setup_skill --list
 ```
 
+设置 token 配额（0 表示不限制）：
+
+```bash
+python -m scripts.setup_quota --daily 200000
+python -m scripts.setup_quota                  # 查看配额与各电脑用量
+```
+
 ### 聊天界面（浏览器预览）
 
 ```bash

@@ -72,6 +72,24 @@
 `skills/learned/<name>/SKILL.md`（frontmatter 带 `source: learned`），之后与手写技能一样被加载。
 用户点踩会立刻对那一轮做一次复盘，重点记录教训。可以在界面的「记忆」里查看、删除，或关掉自动学习。
 
+## 用量与配额
+
+模型返回的 `usage` 由**服务端**在转发时解析（流式请求边转发边扫 SSE 的 `usage` 行），
+按「设备 + 日期 + 场景」累加到 `usage_daily` 表，客户端改不了这个数字。
+
+- 管理员用 `scripts/setup_quota.py` 设置每台电脑每天的 token 上限（0 = 不限）和额度联系人。
+- 网关在转发前检查当天用量，超额返回 `429` + `type: quota_exceeded`，消息里带联系人邮箱和电话，客户端直接显示。
+- 客户端「用量」面板读 `GET /api/v1/client/usage`：今天总量与进度条、按模式（办事 / 对话 / 翻译）分布、最近 7 天柱状图。
+
+## 安全记录
+
+每次工具调用的判定都会上报审计（`POST /api/v1/audit`，带 `scene` 字段），同时在本机留一份：
+
+- 本机表 `security_events` 只记有安全意义的四类：`blocked` 拦截、`approved` 用户放行、`remembered` 记住后自动放行、`rejected` 用户拒绝；
+  自动执行的只读操作不记。最多保留 500 条，可在界面清空。
+- 「用量与安全 → 安全记录」按类别筛选，每条显示模式（办事 / 对话 / 翻译）、工具、命令原文、拦截原因和所属任务。
+- 服务端的 `audit_logs` 保留全量，管理员通过 `GET /api/v1/admin/audit` 查看所有电脑的记录。
+
 ## 技能（Skills）
 
 技能是写给模型的工作说明，格式沿用社区开放标准，所以 GitHub、ClawHub 等处发布的技能可以直接安装：
@@ -135,7 +153,7 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 %APPDATA%\Flyknit\
 ├─ settings.json      服务器地址、设备 Token、界面语言、工作区、权限默认值
 ├─ approvals.json     已记住的命令授权
-├─ data\history.db    会话与消息（含摘要、模型与 token 用量）
+├─ data\history.db    会话与消息（含摘要、模型与 token 用量）、本机安全记录
 ├─ memory\
 │  ├─ agent.md / soul.md / role.md   行为准则、语气、用户身份
 │  ├─ memory.md       偏好与习惯、常用信息

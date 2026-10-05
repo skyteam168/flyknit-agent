@@ -20,6 +20,7 @@ from ..models import AuditLog, Device, ModelConfig, SkillPackage
 from ..schemas import (
     SCENES,
     SkillOut,
+    UsageOut,
     AuditBatchIn,
     ClientConfigOut,
     ClientModelOut,
@@ -27,7 +28,7 @@ from ..schemas import (
     DeviceRegisterOut,
     SceneInfo,
 )
-from ..services import model_router, skill_library
+from ..services import model_router, skill_library, usage_store
 from ..services.settings_store import get_policy
 
 log = logging.getLogger("flyknit.audit")
@@ -90,6 +91,7 @@ async def report_audit(
             conversation_id=item.conversation_id,
             tool_name=item.tool_name,
             arguments=item.arguments[:8000],
+            scene=item.scene,
             risk=item.risk,
             decision=item.decision,
             status=item.status,
@@ -133,6 +135,17 @@ async def client_models(
         for m in rows
         if m.enabled and m.provider.enabled
     ]
+
+
+# ---------- 用量 ----------
+@router.get("/client/usage", response_model=UsageOut)
+async def client_usage(
+    days: int = 7,
+    device: Device = Depends(require_device),
+    session: AsyncSession = Depends(get_session),
+):
+    """这台电脑的 token 用量与配额，界面上的用量面板用它。"""
+    return await usage_store.device_stats(session, device.id, max(1, min(days, 90)))
 
 
 # ---------- 公司技能库 ----------

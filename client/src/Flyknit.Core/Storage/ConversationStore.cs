@@ -36,6 +36,28 @@ public sealed class Conversation
     public int MessageCount { get; set; }
 }
 
+/// <summary>一条安全记录：被阻止的危险命令，或用户放行过的操作。</summary>
+public sealed class SecurityEvent
+{
+    public long Id { get; set; }
+    public string ConversationId { get; set; } = "";
+    public string ConversationTitle { get; set; } = "";
+
+    /// <summary>发生在哪种模式：agent / chat / translate。</summary>
+    public string Scene { get; set; } = "";
+
+    public string Tool { get; set; } = "";
+
+    /// <summary>命令原文或操作对象。</summary>
+    public string Detail { get; set; } = "";
+
+    /// <summary>blocked 阻止 / approved 用户放行 / remembered 记住后自动放行 / rejected 用户拒绝。</summary>
+    public string Decision { get; set; } = "";
+
+    public string Reason { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+}
+
 /// <summary>会话与消息的本地存储（SQLite）。删除为软删除，回收站保留 30 天。</summary>
 public sealed class ConversationStore
 {
@@ -108,6 +130,23 @@ public sealed class ConversationStore
         AddColumn(c, "messages", "model", "TEXT NULL");
         AddColumn(c, "messages", "prompt_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
+
+        // v0.5：安全记录（危险命令拦截与放行）
+        using var sec = c.CreateCommand();
+        sec.CommandText = """
+            CREATE TABLE IF NOT EXISTS security_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id TEXT NOT NULL DEFAULT '',
+                scene TEXT NOT NULL DEFAULT '',
+                tool TEXT NOT NULL DEFAULT '',
+                detail TEXT NOT NULL DEFAULT '',
+                decision TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_security_created ON security_events(created_at);
+            """;
+        sec.ExecuteNonQuery();
     }
 
     private static void AddColumn(SqliteConnection c, string table, string column, string definition)
@@ -408,6 +447,75 @@ public sealed class ConversationStore
         using var cmd = c.CreateCommand();
         cmd.CommandText = "DELETE FROM messages WHERE conversation_id = $id";
         cmd.Parameters.AddWithValue("$id", conversationId);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>保留最近这么多条安全记录。</summary>
+    public const int SecurityEventLimit = 500;
+
+    public void AddSecurityEvent(SecurityEvent e)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO security_events (conversation_id, scene, tool, detail, decision, reason, created_at)
+            VALUES ($conv, $scene, $tool, $detail, $decision, $reason, $created);
+            DELETE FROM security_events WHERE id <= (SELECT MAX(id) FROM security_events) - $limit;
+            """;
+        cmd.Parameters.AddWithValue("$conv", e.ConversationId);
+        cmd.Parameters.AddWithValue("$scene", e.Scene);
+        cmd.Parameters.AddWithValue("$tool", e.Tool);
+        cmd.Parameters.AddWithValue("$detail", Trim(e.Detail, 1000));
+        cmd.Parameters.AddWithValue("$decision", e.Decision);
+        cmd.Parameters.AddWithValue("$reason", Trim(e.Reason, 500));
+        cmd.Parameters.AddWithValue("$created", e.CreatedAt.ToString("O"));
+        cmd.Parameters.AddWithValue("$limit", SecurityEventLimit);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>安全记录，最新的在前。decision 为空表示全部。</summary>
+    public List<SecurityEvent> ListSecurityEvents(string? decision = null, int limit = 200)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        var where = string.IsNullOrEmpty(decision) ? "" : " WHERE e.decision = $d";
+        cmd.CommandText = $"""
+            SELECT e.id, e.conversation_id, e.scene, e.tool, e.detail, e.decision, e.reason, e.created_at,
+                   COALESCE(c.title, '')
+            FROM security_events e LEFT JOIN conversations c ON c.id = e.conversation_id
+            {where}
+            ORDER BY e.id DESC LIMIT $limit
+            """;
+        if (!string.IsNullOrEmpty(decision))
+        {
+            cmd.Parameters.AddWithValue("$d", decision);
+        }
+        cmd.Parameters.AddWithValue("$limit", limit);
+        using var r = cmd.ExecuteReader();
+        var list = new List<SecurityEvent>();
+        while (r.Read())
+        {
+            list.Add(new SecurityEvent
+            {
+                Id = r.GetInt64(0),
+                ConversationId = r.GetString(1),
+                Scene = r.GetString(2),
+                Tool = r.GetString(3),
+                Detail = r.GetString(4),
+                Decision = r.GetString(5),
+                Reason = r.GetString(6),
+                CreatedAt = DateTimeOffset.Parse(r.GetString(7)),
+                ConversationTitle = r.GetString(8),
+            });
+        }
+        return list;
+    }
+
+    public void ClearSecurityEvents()
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "DELETE FROM security_events";
         cmd.ExecuteNonQuery();
     }
 

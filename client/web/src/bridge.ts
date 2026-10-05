@@ -16,6 +16,8 @@ import type {
   SkillActionResult,
   SkillInspection,
   SkillInstallOutcome,
+  SecurityEvent,
+  UsageStats,
   Permission,
   WorkspaceInfo,
   AttachmentRef,
@@ -122,6 +124,8 @@ class Bridge {
   minimizeWindow = () => this.call<void>('window.minimize')
   toggleTopmost = () => this.call<boolean>('window.toggleTopmost')
   toggleMaximize = () => this.call<boolean>('window.toggleMaximize')
+  /** 从窗口边缘开始调整大小（无边框窗口自己实现） */
+  startResize = (direction: string) => this.call<void>('window.startResize', { direction })
   setLearning = (enabled: boolean) => this.call<void>('settings.setLearning', { enabled })
   setNotifications = (enabled: boolean) => this.call<void>('settings.setNotifications', { enabled })
 
@@ -173,6 +177,9 @@ class Bridge {
   removeWorkspace = (path: string) => this.call<WorkspaceInfo[]>('workspaces.remove', { path })
   setDefaultWorkspace = (path: string | null) => this.call<void>('settings.setDefaultWorkspace', { path })
   setDefaultPermission = (permission: Permission) => this.call<void>('settings.setDefaultPermission', { permission })
+  usageStats = () => this.call<UsageStats>('usage.stats')
+  securityEvents = (decision = '') => this.call<SecurityEvent[]>('security.list', { decision })
+  clearSecurityEvents = () => this.call<void>('security.clear')
   listApprovals = () => this.call<ApprovalInfo[]>('approvals.list')
   revokeApproval = (key: string) => this.call<void>('approvals.revoke', { key })
   clearApprovals = () => this.call<void>('approvals.clear')

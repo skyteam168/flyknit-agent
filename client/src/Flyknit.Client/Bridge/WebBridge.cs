@@ -218,6 +218,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             case "window.toggleMaximize":
                 return _window.ToggleMaximize();
 
+            case "window.startResize":
+                _window.StartResize(Str("direction"));
+                return null;
+
             case "settings.setLearning":
                 _settings.EnableLearning = Bool("enabled");
                 _settings.Save();
@@ -331,6 +335,47 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 // 完全权限只对单个任务生效，不保存为默认值
                 _settings.DefaultPermission = Str("permission") == "readonly" ? "readonly" : "workspace";
                 _settings.Save();
+                return null;
+
+            case "usage.stats":
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                var usage = await _host.Server.GetUsageAsync(cts.Token);
+                return new
+                {
+                    day = usage.Day,
+                    todayTokens = usage.TodayTokens,
+                    dailyLimit = usage.DailyLimit,
+                    remaining = usage.Remaining,
+                    exceeded = usage.Exceeded,
+                    byScene = usage.ByScene.Select(x => new { scene = x.Scene, prompt = x.Prompt, completion = x.Completion, total = x.Total, requests = x.Requests }).ToList(),
+                    byDay = usage.ByDay.Select(x => new { day = x.Day, tokens = x.Tokens }).ToList(),
+                    contactName = usage.ContactName,
+                    contactEmail = usage.ContactEmail,
+                    contactPhone = usage.ContactPhone,
+                };
+            }
+
+            case "security.list":
+            {
+                var filter = Str("decision");
+                var events = await Task.Run(() => _host.Store.ListSecurityEvents(filter.Length > 0 ? filter : null));
+                return events.Select(e => new
+                {
+                    id = e.Id,
+                    conversationId = e.ConversationId,
+                    title = e.ConversationTitle,
+                    scene = e.Scene,
+                    tool = e.Tool,
+                    detail = e.Detail,
+                    decision = e.Decision,
+                    reason = e.Reason,
+                    createdAt = e.CreatedAt.ToString("O"),
+                }).ToList();
+            }
+
+            case "security.clear":
+                await Task.Run(() => _host.Store.ClearSecurityEvents());
                 return null;
 
             case "approvals.list":
@@ -717,6 +762,7 @@ public interface IWindowActions
     string? PickFolder();
     bool IsMaximized { get; }
     bool ToggleMaximize();
+    void StartResize(string direction);
 }
 
 /// <summary>一个等待用户回答的确认请求。</summary>

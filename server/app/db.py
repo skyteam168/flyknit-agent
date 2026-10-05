@@ -32,6 +32,12 @@ async def dispose() -> None:
         await _engine.dispose()
 
 
+def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
+    """后台任务里需要自己开会话（请求的会话在响应结束后就关了）。"""
+    assert _sessionmaker is not None, "数据库未初始化"
+    return _sessionmaker
+
+
 async def get_session() -> AsyncIterator[AsyncSession]:
     assert _sessionmaker is not None, "数据库未初始化"
     async with _sessionmaker() as session:

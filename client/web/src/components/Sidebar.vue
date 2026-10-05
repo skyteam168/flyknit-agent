@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import {
   ArrowLeft,
   Brain,
+  ChartColumn,
   Check,
   ChevronRight,
   Hand,
@@ -199,6 +200,7 @@ onBeforeUnmount(() => {
       <nav class="nav">
         <button type="button" @click="state.skillsOpen = true"><Puzzle :size="17" /> {{ t('ui.nav.skills') }}</button>
         <button type="button" @click="state.memoryOpen = true"><Brain :size="17" /> {{ t('ui.nav.memory') }}</button>
+        <button type="button" @click="state.usageOpen = true"><ChartColumn :size="17" /> {{ t('ui.nav.usage') }}</button>
         <button type="button" @click="toggleTrash"><Trash2 :size="17" /> {{ t('ui.nav.trash') }}</button>
       </nav>
 

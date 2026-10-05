@@ -294,6 +294,44 @@ export function createMockHost(): HostTransport {
           notifications: true,
           maximized,
         }
+      case 'usage.stats':
+        await sleep(300)
+        return {
+          day: now().slice(0, 10),
+          todayTokens: 86420,
+          dailyLimit: 200000,
+          remaining: 113580,
+          exceeded: false,
+          byScene: [
+            { scene: 'agent', prompt: 52100, completion: 6800, total: 58900, requests: 14 },
+            { scene: 'chat', prompt: 14200, completion: 3900, total: 18100, requests: 9 },
+            { scene: 'translate', prompt: 7600, completion: 1820, total: 9420, requests: 21 },
+          ],
+          byDay: [
+            { day: '2026-09-29', tokens: 42000 }, { day: '2026-09-30', tokens: 128000 },
+            { day: '2026-10-01', tokens: 96000 }, { day: '2026-10-02', tokens: 151000 },
+            { day: '2026-10-03', tokens: 23000 }, { day: '2026-10-04', tokens: 61000 },
+            { day: '2026-10-05', tokens: 86420 },
+          ],
+          contactName: 'IT 管理员',
+          contactEmail: 'jamesyang@shenzhougroup.com',
+          contactPhone: '7815',
+        }
+      case 'security.list': {
+        const all = [
+          { id: 6, conversationId: '', title: '整理 D 盘的日报文件', scene: 'agent', tool: 'run_shell', detail: 'Get-ChildItem D:\\日报\\*.xlsx | ForEach-Object { … Move-Item … }', decision: 'approved', reason: '', createdAt: new Date(Date.now() - 3 * 60000).toISOString() },
+          { id: 5, conversationId: '', title: '清理临时文件', scene: 'agent', tool: 'run_shell', detail: 'Remove-Item -Recurse -Force C:\\Windows\\Temp', decision: 'blocked', reason: '命中安全规则（Remove-Item -Recurse -Force），此类命令可能损害系统，已阻止', createdAt: new Date(Date.now() - 26 * 60000).toISOString() },
+          { id: 4, conversationId: '', title: '质检数据周报', scene: 'agent', tool: 'write_file', detail: 'E:\\备份\\质检周报.xlsx', decision: 'rejected', reason: '', createdAt: new Date(Date.now() - 95 * 60000).toISOString() },
+          { id: 3, conversationId: '', title: '安装 ERP 客户端', scene: 'agent', tool: 'run_shell', detail: 'msiexec /i \\\\fileserver\\soft\\erp.msi /qn', decision: 'remembered', reason: '', createdAt: new Date(Date.now() - 180 * 60000).toISOString() },
+          { id: 2, conversationId: '', title: 'Email gửi nhà cung cấp', scene: 'chat', tool: 'write_file', detail: 'D:\\草稿\\供应商邮件.txt', decision: 'approved', reason: '', createdAt: new Date(Date.now() - 300 * 60000).toISOString() },
+          { id: 1, conversationId: '', title: '车间排班表翻译成越南语', scene: 'translate', tool: 'write_file', detail: 'D:\\排班\\排班表_vi.docx', decision: 'approved', reason: '', createdAt: new Date(Date.now() - 460 * 60000).toISOString() },
+        ]
+        return p.decision ? all.filter((x) => x.decision === p.decision) : all
+      }
+      case 'security.clear':
+        return
+      case 'window.startResize':
+        return
       case 'window.toggleMaximize':
         maximized = !maximized
         return maximized

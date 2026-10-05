@@ -320,6 +320,47 @@ public partial class MainWindow : Window, IWindowActions
     /// <summary>当前是否在前台（窗口可见、未最小化且处于激活状态）。用于决定是否需要系统通知。</summary>
     public bool IsInForeground => IsVisible && WindowState != WindowState.Minimized && IsActive && !_prewarming;
 
+    /// <summary>
+    /// 从网页边缘开始拖拽调整窗口大小。
+    /// 无边框窗口里 WebView2 盖住了整个客户区，鼠标消息都被子窗口吃掉，WPF 的 ResizeBorderThickness 不起作用；
+    /// 所以由网页在四边放透明热区，按下时调这里，走系统自己的调整大小流程（和拖标准窗口边框一样）。
+    /// </summary>
+    public void StartResize(string direction)
+    {
+        if (WindowState != WindowState.Normal)
+        {
+            return;
+        }
+        var code = direction switch
+        {
+            "left" => HtLeft,
+            "right" => HtRight,
+            "top" => HtTop,
+            "topLeft" => HtTopLeft,
+            "topRight" => HtTopRight,
+            "bottom" => HtBottom,
+            "bottomLeft" => HtBottomLeft,
+            "bottomRight" => HtBottomRight,
+            _ => 0,
+        };
+        if (code == 0)
+        {
+            return;
+        }
+        var handle = new WindowInteropHelper(this).Handle;
+        ReleaseCapture();
+        SendMessage(handle, WmNcLButtonDown, (IntPtr)code, IntPtr.Zero);
+    }
+
+    private const int WmNcLButtonDown = 0x00A1;
+    private const int HtLeft = 10, HtRight = 11, HtTop = 12, HtTopLeft = 13, HtTopRight = 14, HtBottom = 15, HtBottomLeft = 16, HtBottomRight = 17;
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
     // ---------- 最大化尺寸 ----------
 
     private const int WmGetMinMaxInfo = 0x0024;

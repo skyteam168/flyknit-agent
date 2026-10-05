@@ -27,6 +27,9 @@ from ..schemas import (
     ProviderPatch,
     RouteIn,
     RouteOut,
+    DeviceUsageOut,
+    QuotaIn,
+    QuotaOut,
     SkillImportIn,
     SkillImportResult,
     SkillOut,
@@ -35,7 +38,7 @@ from ..schemas import (
     SmbOut,
     SyncResult,
 )
-from ..services import settings_store, skill_library
+from ..services import settings_store, skill_library, usage_store
 from ..services.model_router import Target, build_body, headers_for
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -299,6 +302,22 @@ async def put_smb(data: SmbIn, session: AsyncSession = Depends(get_session)):
         password_set=bool(value["password_enc"]),
         share_root=value["share_root"],
     )
+
+
+# ---------- 用量与配额 ----------
+@router.get("/quota", response_model=QuotaOut)
+async def get_quota(session: AsyncSession = Depends(get_session)):
+    return await usage_store.get_quota(session)
+
+
+@router.put("/quota", response_model=QuotaOut)
+async def put_quota(data: QuotaIn, session: AsyncSession = Depends(get_session)):
+    return await usage_store.set_quota(session, data.model_dump(exclude_none=True))
+
+
+@router.get("/usage", response_model=list[DeviceUsageOut])
+async def list_usage(days: int = Query(7, ge=1, le=90), session: AsyncSession = Depends(get_session)):
+    return await usage_store.all_stats(session, days)
 
 
 # ---------- 技能库 ----------

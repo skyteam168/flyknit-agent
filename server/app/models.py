@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -78,6 +78,22 @@ class Setting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class UsageDaily(Base):
+    """Token 用量：每台电脑、每天、每个场景一行。"""
+
+    __tablename__ = "usage_daily"
+    __table_args__ = (UniqueConstraint("device_id", "day", "scene", name="uq_usage_device_day_scene"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=True, index=True)
+    day: Mapped[str] = mapped_column(String(10), index=True)  # YYYY-MM-DD（本地时区）
+    scene: Mapped[str] = mapped_column(String(20))
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    requests: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class SkillPackage(Base):
     """公司技能库里的一个技能包（zip 存在磁盘上，这里只存元数据）。"""
 
@@ -106,6 +122,7 @@ class AuditLog(Base):
     conversation_id: Mapped[str] = mapped_column(String(64), default="")
     tool_name: Mapped[str] = mapped_column(String(100))
     arguments: Mapped[str] = mapped_column(Text, default="")
+    scene: Mapped[str] = mapped_column(String(20), default="")  # agent / chat / translate
     risk: Mapped[str] = mapped_column(String(20))  # blocked / confirm / auto
     decision: Mapped[str] = mapped_column(String(20))  # blocked / approved / remembered / rejected / auto
     status: Mapped[str] = mapped_column(String(20), default="")  # ok / error / skipped

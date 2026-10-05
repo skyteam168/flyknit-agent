@@ -133,6 +133,7 @@ class AuditItem(BaseModel):
     tool_name: str
     arguments: str = ""
     risk: Literal["blocked", "confirm", "auto"]
+    scene: str = ""
     decision: Literal["blocked", "approved", "remembered", "rejected", "auto"]
     status: str = ""
     summary: str = ""
@@ -153,6 +154,7 @@ class AuditOut(BaseModel):
     conversation_id: str
     tool_name: str
     arguments: str
+    scene: str = ""
     risk: str
     decision: str
     status: str
@@ -184,6 +186,55 @@ class ClientModelOut(BaseModel):
     provider: str
     supports_tools: bool
     supports_vision: bool
+
+
+class QuotaIn(BaseModel):
+    daily_tokens: int | None = Field(default=None, ge=0)
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+
+
+class QuotaOut(BaseModel):
+    daily_tokens: int = 0
+    contact_name: str = ""
+    contact_email: str = ""
+    contact_phone: str = ""
+
+
+class SceneUsage(BaseModel):
+    scene: str
+    prompt: int = 0
+    completion: int = 0
+    total: int = 0
+    requests: int = 0
+
+
+class DayUsage(BaseModel):
+    day: str
+    tokens: int = 0
+
+
+class UsageOut(BaseModel):
+    day: str
+    today_tokens: int = 0
+    daily_limit: int = 0
+    remaining: int = 0
+    exceeded: bool = False
+    by_scene: list[SceneUsage] = []
+    by_day: list[DayUsage] = []
+    contact_name: str = ""
+    contact_email: str = ""
+    contact_phone: str = ""
+
+
+class DeviceUsageOut(BaseModel):
+    device_id: int | None = None
+    machine_name: str = ""
+    user_name: str = ""
+    tokens: int = 0
+    requests: int = 0
+    today_tokens: int = 0
 
 
 class SkillOut(BaseModel):

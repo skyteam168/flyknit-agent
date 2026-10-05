@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..deps import require_device
 from ..models import Device
-from ..services import model_router
+from ..db import get_sessionmaker
+from ..services import model_router, usage_store
 
 log = logging.getLogger("flyknit.gateway")
 router = APIRouter(prefix="/api/v1", tags=["gateway"])
@@ -45,6 +46,25 @@ async def chat_completions(
         except model_router.NoRouteError:
             scene, model_id = "vision", None
 
+    # 配额：超出当天上限后直接拒绝，客户端会提示联系 IT
+    quota = await usage_store.get_quota(session)
+    if quota["daily_tokens"]:
+        used = await usage_store.used_today(session, device.id)
+        if used >= quota["daily_tokens"]:
+            log.info("quota exceeded device=%s used=%s limit=%s", device.id, used, quota["daily_tokens"])
+            return JSONResponse(
+                {
+                    "error": {
+                        "message": (
+                            f"今天的 token 用量已达上限（{used:,}/{quota['daily_tokens']:,}）。"
+                            f"请联系 {quota['contact_name']} 增加额度：{quota['contact_email']}，电话 {quota['contact_phone']}。"
+                        ),
+                        "type": "quota_exceeded",
+                    }
+                },
+                status_code=429,
+            )
+
     try:
         targets = await model_router.resolve(session, scene, model_id)
     except model_router.NoRouteError as exc:
@@ -75,16 +95,32 @@ async def chat_completions(
             headers=headers,
         )
 
+    device_id = device.id
+
+    async def save_usage(prompt: int, completion: int) -> None:
+        """用量记在服务端自己解析出来的数字上，和客户端上报无关。"""
+        if prompt <= 0 and completion <= 0:
+            return
+        try:
+            async with get_sessionmaker()() as s2:
+                await usage_store.record(s2, device_id, scene, prompt, completion)
+        except Exception:  # noqa: BLE001  统计失败不能影响对话
+            log.warning("记录用量失败 device=%s", device_id, exc_info=True)
+
     if body.get("stream"):
         headers["Cache-Control"] = "no-cache"
         headers["X-Accel-Buffering"] = "no"
 
         async def relay():
+            scanner = usage_store.StreamUsageScanner()
             try:
                 async for chunk in upstream.aiter_raw():
+                    scanner.feed(chunk)
                     yield chunk
             finally:
                 await upstream.aclose()
+                scanner.finish()
+                await save_usage(scanner.prompt, scanner.completion)
 
         return StreamingResponse(
             relay(),
@@ -95,6 +131,7 @@ async def chat_completions(
 
     content = await upstream.aread()
     await upstream.aclose()
+    await save_usage(*usage_store.extract_usage(content))
     return Response(
         content=content,
         status_code=upstream.status_code,

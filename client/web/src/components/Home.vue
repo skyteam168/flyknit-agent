@@ -189,12 +189,13 @@ h1 {
   color: var(--ink);
 }
 .modes button.on {
-  background: var(--pill);
-  color: var(--pill-ink);
+  background: var(--seg);
+  color: var(--seg-ink);
+  box-shadow: var(--seg-shadow);
 }
 .modes button.on .dot {
-  background: color-mix(in srgb, var(--pill-ink) 18%, transparent);
-  color: var(--pill-ink);
+  background: var(--indigo-wash);
+  color: var(--indigo);
 }
 .chips {
   display: flex;
