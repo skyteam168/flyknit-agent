@@ -61,6 +61,15 @@ public sealed class AppSettings
     /// <summary>新任务默认的权限：readonly / workspace。完全权限只对单个任务生效，不会成为默认值。</summary>
     public string DefaultPermission { get; set; } = "workspace";
 
+    /// <summary>任务结束后自动复盘，学习偏好与经验。</summary>
+    public bool EnableLearning { get; set; } = true;
+
+    /// <summary>窗口不在前台时，用 Windows 系统通知提醒确认和任务完成。</summary>
+    public bool EnableNotifications { get; set; } = true;
+
+    /// <summary>上次关闭时窗口是否最大化。</summary>
+    public bool WindowMaximized { get; set; }
+
     /// <summary>软件别名，例如 "生产程序" → "D:\MES\client.exe"。后续由服务端下发。</summary>
     public System.Collections.Generic.Dictionary<string, string> AppAliases { get; set; } = new();
 

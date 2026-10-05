@@ -25,6 +25,7 @@ public partial class App : Application
     private MainWindow? _main;
     private FloatingBall? _ball;
     private System.Windows.Forms.NotifyIcon? _tray;
+    private NotificationService? _notifications;
     private HwndSource? _hotkeySource;
     private CancellationTokenSource _pipeCts = new();
     private int _activeRuns;
@@ -91,6 +92,25 @@ public partial class App : Application
             UpdateBall();
         });
 
+        // Windows 系统通知：确认按钮直接生效，点通知回到对应任务
+        _notifications = new NotificationService();
+        _notifications.ConfirmAnswered += (requestId, choice) => Dispatcher.BeginInvoke(() =>
+        {
+            if (_main?.Bridge?.ResolveConfirm(requestId, choice) != true)
+            {
+                Log.Info($"通知中的确认 {requestId} 已失效（可能已在界面中处理）");
+            }
+        });
+        _notifications.OpenRequested += conversationId => Dispatcher.BeginInvoke(() => OpenConversation(conversationId));
+        _host.RunFinished += info => Dispatcher.BeginInvoke(() =>
+        {
+            // 用户正在看着窗口时不打扰；被用户停止的任务不通知
+            if (_settings.EnableNotifications && _main is { IsInForeground: false } && info.StopReason != Flyknit.Core.Agent.AgentStopReason.Cancelled)
+            {
+                _notifications.ShowFinished(info);
+            }
+        });
+
         CreateTray();
         RegisterHotkey();
 
@@ -119,14 +139,42 @@ public partial class App : Application
                 {
                     _pendingConfirms = count;
                     UpdateBall();
-                    if (count > 0 && _main is { IsVisible: false })
+                });
+                bridge.ConfirmRequested += pending => Dispatcher.BeginInvoke(() =>
+                {
+                    if (_main is null || _main.IsInForeground)
                     {
-                        _tray?.ShowBalloonTip(4000, "Flyknit", NativeStrings.T("confirm.notify"), System.Windows.Forms.ToolTipIcon.Info);
+                        return; // 界面上已经显示确认条
+                    }
+                    if (_settings.EnableNotifications && _notifications is { Available: true })
+                    {
+                        _notifications.ShowConfirm(pending);
+                    }
+                    else if (_main.IsVisible)
+                    {
+                        _main.RequestAttention();
+                    }
+                    else
+                    {
+                        _tray?.ShowBalloonTip(4000, "FlyknitBuddy", NativeStrings.T("confirm.notify"), System.Windows.Forms.ToolTipIcon.Info);
                     }
                 });
+                bridge.ConfirmClosed += pending => Dispatcher.BeginInvoke(() => _notifications?.RemoveConfirm(pending.RequestId));
             }
         };
         timer.Start();
+    }
+
+    /// <summary>显示主窗口并打开指定任务。</summary>
+    private void OpenConversation(string conversationId)
+    {
+        if (_main is null)
+        {
+            return;
+        }
+        _main.ShowAndFocus();
+        _main.Bridge?.Post(new { type = "app.openConversation", conversationId });
+        _notifications?.RemoveFinished(conversationId);
     }
 
     private void UpdateBall() => _ball?.SetState(_activeRuns > 0, _pendingConfirms > 0);
@@ -151,8 +199,8 @@ public partial class App : Application
     {
         _tray = new System.Windows.Forms.NotifyIcon
         {
-            Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "flyknit.ico")),
-            Text = "Flyknit",
+            Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "flyknitbuddy.ico")),
+            Text = "FlyknitBuddy",
             Visible = true,
         };
         _tray.MouseClick += (_, e) =>
@@ -203,6 +251,7 @@ public partial class App : Application
             _tray.Dispose();
         }
         _settings.Save();
+        _notifications?.ClearAll();
         _host?.Dispose();
         _main?.ExitForReal();
         _ball?.Close();

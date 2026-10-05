@@ -69,6 +69,7 @@ public sealed class ToolContext
     }
 
     public MemoryStore? Memory { get; init; }
+    public EpisodeStore? Episodes { get; init; }
     public SkillCatalog? Skills { get; init; }
     public IFileDeleter Deleter { get; init; } = new PermanentDeleter();
 

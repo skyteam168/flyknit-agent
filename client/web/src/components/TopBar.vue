@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Languages, Menu, MessageSquare, Minus, PanelLeft, Pin, Plus, Wrench, X } from '@lucide/vue'
+import { Copy, Languages, Menu, MessageSquare, Minus, PanelLeft, Pin, Plus, Square, Wrench, X } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { current, newConversation, renameConversation } from '../store'
+import { current, newConversation, renameConversation, state, toggleMaximize } from '../store'
 import type { Mode } from '../types'
 
 defineProps<{ narrow: boolean; sidebarHidden: boolean }>()
@@ -43,7 +43,7 @@ function startNew() {
 </script>
 
 <template>
-  <header class="topbar">
+  <header class="topbar" @dblclick.self="toggleMaximize">
     <button type="button" class="icon-btn" :aria-label="t('topbar.menu')" @click="emit('toggleSidebar')">
       <component :is="narrow ? Menu : PanelLeft" :size="18" />
     </button>
@@ -71,12 +71,23 @@ function startNew() {
     <div class="window">
       <button type="button" class="icon-btn" :class="{ active: topmost }" :title="t('topbar.pinWindow')" @click="pin"><Pin :size="16" /></button>
       <button type="button" class="icon-btn" :title="t('topbar.minimize')" @click="bridge.minimizeWindow()"><Minus :size="17" /></button>
+      <button
+        type="button"
+        class="icon-btn"
+        :title="state.maximized ? t('topbar.restore') : t('topbar.maximize')"
+        @click="toggleMaximize"
+      >
+        <component :is="state.maximized ? Copy : Square" :size="state.maximized ? 14 : 13" :class="{ flip: state.maximized }" />
+      </button>
       <button type="button" class="icon-btn" :title="t('topbar.close')" @click="bridge.hideWindow()"><X :size="17" /></button>
     </div>
   </header>
 </template>
 
 <style scoped>
+.flip {
+  transform: scaleX(-1);
+}
 .topbar {
   display: flex;
   align-items: center;

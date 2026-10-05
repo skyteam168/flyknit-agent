@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Brain, Check, ChevronRight, Copy, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
+import { Archive, Brain, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { renderMarkdown } from '../markdown'
 import { current, currentState, editAndResend, regenerate, setFeedback, state } from '../store'
@@ -42,6 +42,47 @@ const lastAnswerId = computed(() => {
   const last = list[list.length - 1]
   return last && isAnswer(last) ? last.id : null
 })
+
+// ---------- 模型与 token 用量 ----------
+const fmt = new Intl.NumberFormat()
+
+/** 一轮回答（从上一条用户消息之后到这条回答）的模型和 token 合计 */
+function turnUsage(m: UiMessage) {
+  const list = s.value?.messages ?? []
+  const end = list.indexOf(m)
+  if (end < 0) return null
+  let prompt = 0
+  let completion = 0
+  let model = m.modelName ?? ''
+  for (let i = end; i >= 0 && list[i].role !== 'user'; i--) {
+    const x = list[i]
+    if (x.role !== 'assistant') continue
+    prompt += x.promptTokens ?? 0
+    completion += x.completionTokens ?? 0
+    if (!model && x.modelName) model = x.modelName
+  }
+  if (!model && prompt + completion === 0) return null
+  return { model, prompt, completion, total: prompt + completion }
+}
+
+function usageTitle(u: { prompt: number; completion: number }) {
+  return t('ui.usage.detail', { prompt: fmt.format(u.prompt), completion: fmt.format(u.completion) })
+}
+
+/** 较早对话已压缩时，在摘要覆盖的最后一条消息后显示分隔线 */
+const summaryUpto = computed(() => current.value?.summaryUpto ?? null)
+function compactedAfter(m: UiMessage, i: number) {
+  if (!summaryUpto.value) return false
+  if (m.id === summaryUpto.value) return true
+  // 摘要覆盖到的是工具消息（列表中隐藏）时，显示在它之前最后一条可见消息后面
+  const list = s.value?.messages ?? []
+  const at = list.findIndex((x) => x.id === summaryUpto.value)
+  if (at < 0) return false
+  const next = visible.value[i + 1]
+  const mi = list.indexOf(m)
+  const ni = next ? list.indexOf(next) : list.length
+  return mi < at && at < ni
+}
 
 // ---------- 编辑用户消息 ----------
 const editingId = ref<string | null>(null)
@@ -221,7 +262,19 @@ const isImage = (mime: string) => mime.startsWith('image/')
             >
               <RefreshCw :size="15" />
             </button>
+            <template v-for="u in [turnUsage(m)]" :key="'u' + m.id">
+              <span v-if="u" class="usage" :title="u.total ? usageTitle(u) : u.model">
+                <Cpu :size="13" />
+                <span v-if="u.model" class="usage-model">{{ u.model }}</span>
+                <span v-if="u.model && u.total" class="dot">·</span>
+                <span v-if="u.total">{{ t('ui.usage.tokens', { n: fmt.format(u.total) }) }}</span>
+              </span>
+            </template>
           </div>
+        </div>
+        <div v-if="compactedAfter(m, i)" class="compacted" role="separator">
+          <Archive :size="13" />
+          <span>{{ t('ui.context.divider') }}</span>
         </div>
       </template>
 
@@ -352,13 +405,17 @@ const isImage = (mime: string) => mime.startsWith('image/')
   display: flex;
   gap: 2px;
   margin: 2px 0 12px -6px;
+}
+/* 按钮在鼠标悬停时显示；最后一条回答常驻显示；模型和用量始终显示 */
+.actions .icon-btn {
   opacity: 0;
   transition: opacity 120ms;
 }
-.assistant:hover .actions,
-.user:hover .actions,
-.actions:focus-within,
-.actions.pinned {
+.assistant:hover .actions .icon-btn,
+.user:hover .actions .icon-btn,
+.actions:focus-within .icon-btn,
+.actions.pinned .icon-btn,
+.actions .icon-btn.on {
   opacity: 1;
 }
 .user-actions {
@@ -369,8 +426,45 @@ const isImage = (mime: string) => mime.startsWith('image/')
   background: var(--indigo-wash);
 }
 .actions .icon-btn:disabled {
-  opacity: 0.4;
+  color: var(--line-strong);
   cursor: default;
+}
+.usage {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-left: 6px;
+  padding: 0 8px;
+  height: 24px;
+  align-self: center;
+  border-radius: 12px;
+  background: var(--cloth-sunk);
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.usage-model {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-soft);
+}
+.compacted {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.compacted::before,
+.compacted::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
 }
 .user.editing {
   align-items: stretch;

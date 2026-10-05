@@ -40,12 +40,15 @@ public sealed class AgentLoop
         IAgentObserver observer,
         bool useTools,
         CancellationToken ct,
-        int? modelId = null)
+        int? modelId = null,
+        Context.ContextManager? context = null)
     {
         var newMessages = new List<ChatMessage>();
         var tools = useTools ? _tools.ToOpenAiTools() : null;
         var failures = 0;
         string? modelName = null;
+        TokenUsage? usage = null;
+        Context.CompactionInfo? compaction = null;
 
         void PlanChanged(IReadOnlyList<PlanItem> plan) => observer.OnPlanUpdated(plan);
         ctx.PlanChanged += PlanChanged;
@@ -61,6 +64,16 @@ public sealed class AgentLoop
                 ChatTurn turn;
                 try
                 {
+                    if (context is not null)
+                    {
+                        // 短期记忆管理：上下文过长时裁剪旧工具输出或压缩为摘要
+                        var info = await context.PrepareAsync(history, ct);
+                        if (info is not null)
+                        {
+                            compaction = info;
+                            observer.OnContextCompacted(info);
+                        }
+                    }
                     turn = await _gateway.CompleteAsync(
                         new ChatRequest { Scene = scene, Messages = history, Tools = tools, Stream = true, ModelId = modelId },
                         observer,
@@ -71,8 +84,16 @@ public sealed class AgentLoop
                     return Result(AgentStopReason.Cancelled);
                 }
                 modelName ??= turn.ModelName;
+                context?.Observe(turn);
+                if (turn.Usage is { } u)
+                {
+                    usage = usage is null ? u : usage + u;
+                }
 
                 var assistant = ChatMessage.Assistant(turn.Content, turn.ToolCalls, turn.Reasoning.Length > 0 ? turn.Reasoning : null);
+                assistant.ModelName = turn.ModelName;
+                assistant.PromptTokens = turn.Usage?.PromptTokens;
+                assistant.CompletionTokens = turn.Usage?.CompletionTokens;
                 Append(assistant);
                 observer.OnAssistantMessage(assistant);
 
@@ -109,7 +130,14 @@ public sealed class AgentLoop
             ctx.PlanChanged -= PlanChanged;
         }
 
-        AgentRunResult Result(AgentStopReason reason) => new() { StopReason = reason, NewMessages = newMessages, ModelName = modelName };
+        AgentRunResult Result(AgentStopReason reason) => new()
+        {
+            StopReason = reason,
+            NewMessages = newMessages,
+            ModelName = modelName,
+            Usage = usage,
+            Compaction = compaction,
+        };
 
         void Append(ChatMessage m)
         {

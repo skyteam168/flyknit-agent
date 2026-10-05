@@ -49,18 +49,31 @@ public sealed class PromptContext
     /// <summary>办事模式：工作区目录与权限模式。</summary>
     public string? Workspace { get; init; }
     public Security.PermissionMode Permission { get; init; } = Security.PermissionMode.Workspace;
+
+    /// <summary>当前的用户请求，用于挑选相关的记忆和历史任务。</summary>
+    public string Query { get; init; } = "";
 }
 
 public sealed class PromptBuilder
 {
+    /// <summary>工作区中的项目说明文件（同 Claude Code 的 CLAUDE.md、Codex 的 AGENTS.md），按顺序取第一个存在的。</summary>
+    public static readonly string[] WorkspaceInstructionFiles = { "FLYKNIT.md", "AGENTS.md", "CLAUDE.md" };
+
+    private const int MaxWorkspaceInstructionChars = 8000;
+
     private readonly MemoryStore? _memory;
     private readonly SkillCatalog? _skills;
+    private readonly EpisodeStore? _episodes;
 
-    public PromptBuilder(MemoryStore? memory, SkillCatalog? skills)
+    public PromptBuilder(MemoryStore? memory, SkillCatalog? skills, EpisodeStore? episodes = null)
     {
         _memory = memory;
         _skills = skills;
+        _episodes = episodes;
     }
+
+    /// <summary>本次提示词引用的历史任务数。</summary>
+    public int EpisodesUsed { get; private set; }
 
     public string Build(PromptContext ctx)
     {
@@ -96,13 +109,74 @@ public sealed class PromptBuilder
 
         if (_memory is not null)
         {
-            sb.Append(_memory.BuildPromptSection());
+            sb.AppendLine("""
+                <记忆使用说明>
+                下面的偏好、信息、经验教训和历史任务来自你和这位用户以前的工作。已知的偏好和信息直接使用，不要再问用户；
+                同类任务优先沿用以前成功的做法，避开记录过的错误。记忆可能过时，与用户当前的明确要求冲突时以当前要求为准，
+                并用 memory_write 记下新的偏好。用户纠正你的做法、或说“记住”“以后都”时，也要用 memory_write 记下来。
+                </记忆使用说明>
+                """);
+            sb.AppendLine();
+            sb.Append(_memory.BuildPromptSection(ctx.Query));
         }
-        if (ctx.Mode == ConversationMode.Agent && _skills is not null)
+        if (ctx.Mode == ConversationMode.Agent)
         {
-            sb.Append(_skills.BuildPromptSection());
+            var project = ReadWorkspaceInstructions(ctx.Workspace);
+            if (project is not null)
+            {
+                sb.AppendLine($"<工作区说明 文件=\"{project.Value.File}\">");
+                sb.AppendLine(project.Value.Text);
+                sb.AppendLine("</工作区说明>");
+                sb.AppendLine();
+            }
+            if (_episodes is not null && ctx.Query.Length > 0)
+            {
+                var found = _episodes.Search(ctx.Query, max: 3, workspace: ctx.Workspace);
+                EpisodesUsed = found.Count;
+                if (found.Count > 0)
+                {
+                    sb.Append(EpisodeStore.BuildPromptSection(found));
+                    sb.AppendLine();
+                    _episodes.MarkUsed(found.Select(f => f.Episode.Id));
+                }
+            }
+            if (_skills is not null)
+            {
+                sb.Append(_skills.BuildPromptSection());
+            }
         }
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>读取工作区的项目说明（FLYKNIT.md / AGENTS.md / CLAUDE.md）。</summary>
+    public static (string File, string Text)? ReadWorkspaceInstructions(string? workspace)
+    {
+        if (string.IsNullOrWhiteSpace(workspace) || !System.IO.Directory.Exists(workspace))
+        {
+            return null;
+        }
+        foreach (var name in WorkspaceInstructionFiles)
+        {
+            var path = Path.Combine(workspace, name);
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    continue;
+                }
+                var text = File.ReadAllText(path).Trim();
+                if (text.Length == 0)
+                {
+                    continue;
+                }
+                return (name, text.Length > MaxWorkspaceInstructionChars ? text[..MaxWorkspaceInstructionChars] + "\n…（已截断）" : text);
+            }
+            catch (IOException)
+            {
+                // 文件被占用时跳过
+            }
+        }
+        return null;
     }
 
     private static string BuildTranslate(PromptContext ctx)

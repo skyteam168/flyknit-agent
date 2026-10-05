@@ -55,6 +55,11 @@ public interface IAgentObserver : IStreamSink
     void OnToolFinished(ToolCall call, ToolResult result, string decision);
     void OnToolMessage(ChatMessage message);
     void OnPlanUpdated(IReadOnlyList<PlanItem> plan);
+
+    /// <summary>上下文被自动压缩。</summary>
+    void OnContextCompacted(Context.CompactionInfo info)
+    {
+    }
 }
 
 public sealed class AgentOptions
@@ -83,4 +88,10 @@ public sealed class AgentRunResult
     public required IReadOnlyList<ChatMessage> NewMessages { get; init; }
 
     public string? ModelName { get; init; }
+
+    /// <summary>本次运行所有模型调用的 token 用量合计。</summary>
+    public TokenUsage? Usage { get; init; }
+
+    /// <summary>运行中发生的上下文压缩（最后一次）。</summary>
+    public Context.CompactionInfo? Compaction { get; init; }
 }

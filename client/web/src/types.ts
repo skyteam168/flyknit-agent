@@ -21,6 +21,44 @@ export interface Conversation {
   modelId: number | null
   workspace: string | null
   permission: Permission
+  /** 较早对话已压缩为摘要，摘要覆盖到这条消息（含） */
+  summaryUpto?: string | null
+}
+
+export type MemoryKind = 'preference' | 'fact' | 'success' | 'lesson'
+
+export interface MemoryItem {
+  id: string
+  kind: MemoryKind
+  text: string
+  date: string | null
+}
+
+export interface EpisodeInfo {
+  id: string
+  conversationId: string
+  title: string
+  task: string
+  summary: string
+  outcome: 'success' | 'partial' | 'failure'
+  procedure: string
+  lessons: string[]
+  feedback: number
+  uses: number
+  createdAt: string
+}
+
+export interface LearnedSkillInfo {
+  name: string
+  description: string
+  path: string
+}
+
+export interface MemoryOverview {
+  items: MemoryItem[]
+  episodes: EpisodeInfo[]
+  skills: LearnedSkillInfo[]
+  learning: boolean
 }
 
 export interface WorkspaceInfo {
@@ -81,6 +119,10 @@ export interface UiMessage {
   toolName?: string | null
   createdAt: string
   feedback?: number | null
+  /** 助手消息：使用的模型与本次调用的 token 用量 */
+  modelName?: string | null
+  promptTokens?: number | null
+  completionTokens?: number | null
 }
 
 export interface PlanItem {
@@ -101,6 +143,9 @@ export interface AppInfo {
   defaultWorkspace: string
   defaultPermission: Permission
   workspaces: WorkspaceInfo[]
+  learning: boolean
+  notifications: boolean
+  maximized: boolean
 }
 
 /** 界面上的工具卡片状态 */
@@ -143,7 +188,18 @@ export type HostEvent =
     }
   | { type: 'tool.finished'; conversationId: string; callId: string; ok: boolean; output: string; decision: string }
   | { type: 'plan.updated'; conversationId: string; plan: PlanItem[] }
-  | { type: 'chat.done'; conversationId: string; stopReason: string; modelName?: string }
+  | {
+      type: 'chat.done'
+      conversationId: string
+      stopReason: string
+      modelName?: string
+      usage?: { promptTokens: number; completionTokens: number } | null
+    }
+  | { type: 'tool.confirmResolved'; conversationId: string; callId: string; choice: 'allow' | 'reject' }
+  | { type: 'context.compacted'; conversationId: string; uptoMessageId: string; tokensBefore: number; tokensAfter: number }
+  | { type: 'memory.learned'; conversationId: string; items: { kind: MemoryKind; text: string }[]; skill: string | null }
+  | { type: 'app.openConversation'; conversationId: string }
+  | { type: 'window.state'; maximized: boolean }
   | { type: 'chat.error'; conversationId: string; message: string }
   | { type: 'conversation.updated'; conversation: Conversation }
   | { type: 'files.added'; attachments: AttachmentRef[] }

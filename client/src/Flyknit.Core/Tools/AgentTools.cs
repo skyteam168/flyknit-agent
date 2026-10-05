@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Flyknit.Core.Memory;
 using Flyknit.Core.Security;
 
 namespace Flyknit.Core.Tools;
@@ -64,12 +65,30 @@ public sealed class UpdatePlanTool : ITool
     }
 }
 
-/// <summary>把值得长期记住的信息写入本地 memory.md。</summary>
+/// <summary>把值得长期记住的信息写入本地记忆（偏好、常用信息、经验、教训）。</summary>
 public sealed class MemoryWriteTool : ITool
 {
     public string Name => "memory_write";
-    public string Description => "把关于用户的长期有用信息记下来（如常用路径、工作习惯、偏好），以后的对话都能用到。不要记录密码等敏感信息。";
-    public JsonObject Parameters => ToolArgs.Schema(("fact", "string", "要记住的一条信息，一句话", true));
+    public string Description =>
+        "把对以后有用的信息记入长期记忆，以后的所有对话都会用到。用户说“记住…”“以后都…”，或纠正了你的做法时使用。" +
+        "category：preference=用户偏好与习惯，fact=常用信息（路径、系统、术语），success=有效的做法，lesson=踩过的坑和避免方法。" +
+        "不要记录密码等敏感信息，也不要记录一次性的临时数据。";
+
+    public JsonObject Parameters => new()
+    {
+        ["type"] = "object",
+        ["properties"] = new JsonObject
+        {
+            ["fact"] = new JsonObject { ["type"] = "string", ["description"] = "要记住的内容，一句话" },
+            ["category"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["enum"] = new JsonArray("preference", "fact", "success", "lesson"),
+                ["description"] = "类别，默认 fact",
+            },
+        },
+        ["required"] = new JsonArray("fact"),
+    };
 
     public PolicyDecision Assess(JsonElement args, ToolContext ctx) => PolicyDecision.Auto();
     public string Describe(JsonElement args) => $"记住：{args.Str("fact")}";
@@ -80,8 +99,59 @@ public sealed class MemoryWriteTool : ITool
         {
             return Task.FromResult(ToolResult.Fail("记忆功能不可用"));
         }
-        ctx.Memory.Remember(args.Required("fact"));
-        return Task.FromResult(ToolResult.Success("已记住"));
+        var kind = args.Str("category", "fact").ToLowerInvariant() switch
+        {
+            "preference" => MemoryKind.Preference,
+            "success" => MemoryKind.Success,
+            "lesson" => MemoryKind.Lesson,
+            _ => MemoryKind.Fact,
+        };
+        var added = ctx.Memory.Add(kind, args.Required("fact"));
+        return Task.FromResult(ToolResult.Success(added ? "已记住" : "记忆中已有相同内容"));
+    }
+}
+
+/// <summary>搜索长期记忆和历史任务。</summary>
+public sealed class MemorySearchTool : ITool
+{
+    public string Name => "memory_search";
+    public string Description =>
+        "搜索长期记忆（用户偏好、常用信息、经验教训）和以前完成过的相似任务。" +
+        "开始一个不熟悉的任务前、或需要用户以前提供过的信息（路径、格式、习惯）时先搜索，找到就直接用，不要再问用户。";
+
+    public JsonObject Parameters => ToolArgs.Schema(("query", "string", "要找的内容，如“周报格式”“ERP 安装”", true));
+
+    public PolicyDecision Assess(JsonElement args, ToolContext ctx) => PolicyDecision.Auto();
+    public string Describe(JsonElement args) => $"回忆：{args.Str("query")}";
+
+    public Task<ToolResult> ExecuteAsync(JsonElement args, ToolContext ctx, CancellationToken ct)
+    {
+        var query = args.Required("query");
+        var sb = new StringBuilder();
+        var memories = ctx.Memory?.Search(query, max: 12) ?? new();
+        if (memories.Count > 0)
+        {
+            sb.AppendLine("记忆：");
+            foreach (var (item, _) in memories)
+            {
+                var label = item.Kind switch
+                {
+                    MemoryKind.Preference => "偏好",
+                    MemoryKind.Success => "经验",
+                    MemoryKind.Lesson => "教训",
+                    _ => "信息",
+                };
+                sb.AppendLine($"- [{label}] {item.Text}");
+            }
+        }
+        var episodes = ctx.Episodes?.Search(query, max: 3, minScore: 0.15) ?? new();
+        if (episodes.Count > 0)
+        {
+            sb.AppendLine();
+            sb.Append(EpisodeStore.BuildPromptSection(episodes));
+            ctx.Episodes!.MarkUsed(episodes.Select(e => e.Episode.Id));
+        }
+        return Task.FromResult(ToolResult.Success(sb.Length == 0 ? "没有找到相关的记忆" : sb.ToString().TrimEnd()));
     }
 }
 

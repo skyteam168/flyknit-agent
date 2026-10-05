@@ -1,7 +1,7 @@
 <Window x:Class="Flyknit.Client.Windows.FloatingBall"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Flyknit"
+        Title="FlyknitBuddy"
         Width="64" Height="64"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -27,7 +27,7 @@
             <Border.Effect>
                 <DropShadowEffect BlurRadius="14" ShadowDepth="3" Direction="270" Opacity="0.28" Color="#1A2433" />
             </Border.Effect>
-            <Image Source="/Assets/flyknit.png" Width="50" Height="50">
+            <Image Source="/Assets/flyknitbuddy.png" Width="50" Height="50">
                 <Image.Clip>
                     <EllipseGeometry Center="25,25" RadiusX="25" RadiusY="25" />
                 </Image.Clip>

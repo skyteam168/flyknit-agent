@@ -2,14 +2,14 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="Flyknit"
+        Title="FlyknitBuddy"
         Width="1040" Height="720"
         MinWidth="400" MinHeight="520"
         WindowStartupLocation="Manual"
         WindowStyle="None"
         ResizeMode="CanResize"
         Background="#F4F6F9"
-        Icon="/Assets/flyknit.png"
+        Icon="/Assets/flyknitbuddy.png"
         ShowInTaskbar="True">
     <!-- 无边框窗口：标题栏由网页绘制（app-region: drag），这里只保留可调整大小的边框 -->
     <WindowChrome.WindowChrome>

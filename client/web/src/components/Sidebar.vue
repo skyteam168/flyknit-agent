@@ -198,7 +198,7 @@ onBeforeUnmount(() => {
 
       <nav class="nav">
         <button type="button" @click="state.skillsOpen = true"><Puzzle :size="17" /> {{ t('ui.nav.skills') }}</button>
-        <button type="button" @click="bridge.openMemoryFolder()"><Brain :size="17" /> {{ t('ui.nav.memory') }}</button>
+        <button type="button" @click="state.memoryOpen = true"><Brain :size="17" /> {{ t('ui.nav.memory') }}</button>
         <button type="button" @click="toggleTrash"><Trash2 :size="17" /> {{ t('ui.nav.trash') }}</button>
       </nav>
 

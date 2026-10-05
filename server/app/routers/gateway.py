@@ -58,7 +58,12 @@ async def chat_completions(
         return _error(502, f"模型服务暂时不可用：{exc}")
 
     # HTTP 头只能是 latin-1，模型显示名可能是中文，统一做 URL 编码（客户端解码）
-    headers = {"X-Flyknit-Model": quote(target.display_name, safe=""), "X-Flyknit-Scene": scene}
+    headers = {
+        "X-Flyknit-Model": quote(target.display_name, safe=""),
+        "X-Flyknit-Scene": scene,
+        # 客户端据此计算上下文预算，决定何时压缩对话
+        "X-Flyknit-Context": str(target.context_length),
+    }
 
     if upstream.status_code >= 400:
         content = await upstream.aread()

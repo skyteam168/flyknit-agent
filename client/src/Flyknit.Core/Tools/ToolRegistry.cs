@@ -46,5 +46,6 @@ public sealed class ToolRegistry
         .Add(new RunShellTool())
         .Add(new UpdatePlanTool())
         .Add(new MemoryWriteTool())
+        .Add(new MemorySearchTool())
         .Add(new LoadSkillTool());
 }

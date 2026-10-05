@@ -36,6 +36,20 @@ public sealed class ChatTurn
     public IReadOnlyList<ToolCall> ToolCalls { get; init; } = Array.Empty<ToolCall>();
     public string? FinishReason { get; init; }
     public string? ModelName { get; init; }
+
+    /// <summary>本次调用的 token 用量（模型未返回时为 null）。</summary>
+    public TokenUsage? Usage { get; init; }
+
+    /// <summary>实际使用模型的上下文长度（服务端通过响应头告知，未知时为 0）。</summary>
+    public int ContextLength { get; init; }
+}
+
+public sealed record TokenUsage(int PromptTokens, int CompletionTokens)
+{
+    public int Total => PromptTokens + CompletionTokens;
+
+    public static TokenUsage operator +(TokenUsage a, TokenUsage b) =>
+        new(a.PromptTokens + b.PromptTokens, a.CompletionTokens + b.CompletionTokens);
 }
 
 /// <summary>流式输出回调。</summary>

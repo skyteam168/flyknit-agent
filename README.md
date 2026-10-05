@@ -1,4 +1,6 @@
-# Flyknit 智能办公助手
+# FlyknitBuddy 智能办公助手
+
+<img src="docs/flyknitbuddy-logo.svg" width="96" alt="FlyknitBuddy" />
 
 面向工厂办公电脑的桌面 AI 助手：右下角悬浮球，点开即可用中文、越南语或英语与 AI 对话、翻译、处理文件、执行办公任务。
 

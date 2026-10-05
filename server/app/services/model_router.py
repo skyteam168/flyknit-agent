@@ -24,6 +24,7 @@ class Target:
     api_key: str
     extra_body: dict
     supports_vision: bool
+    context_length: int = 131072
 
 
 class NoRouteError(Exception):
@@ -40,6 +41,7 @@ def _to_target(m: ModelConfig) -> Target:
         api_key=decrypt(m.provider.api_key_enc),
         extra_body=dict(m.extra_body or {}),
         supports_vision=m.supports_vision,
+        context_length=m.context_length or 131072,
     )
 
 

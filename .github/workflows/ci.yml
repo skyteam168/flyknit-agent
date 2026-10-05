@@ -37,8 +37,8 @@ jobs:
       - name: Test core library
         run: dotnet test client/tests/Flyknit.Core.Tests -c Release
       - name: Build Windows client
-        run: dotnet publish client/src/Flyknit.Client -c Release -r win-x64 --self-contained false -o artifacts/Flyknit
+        run: dotnet publish client/src/Flyknit.Client -c Release -r win-x64 --self-contained false -o artifacts/FlyknitBuddy
       - uses: actions/upload-artifact@v4
         with:
-          name: Flyknit-win-x64
-          path: artifacts/Flyknit
+          name: FlyknitBuddy-win-x64
+          path: artifacts/FlyknitBuddy

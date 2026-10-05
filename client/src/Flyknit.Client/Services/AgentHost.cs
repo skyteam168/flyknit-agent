@@ -10,6 +10,7 @@ using Flyknit.Client.Bridge;
 using Flyknit.Client.Tools;
 using Flyknit.Core.Agent;
 using Flyknit.Core.Chat;
+using Flyknit.Core.Context;
 using Flyknit.Core.Gateway;
 using Flyknit.Core.Memory;
 using Flyknit.Core.Security;
@@ -31,8 +32,8 @@ public interface IHostEvents
 /// </summary>
 public sealed class AgentHost : IDisposable
 {
-    /// <summary>发给模型的最大历史消息数（更早的消息不再发送）。</summary>
-    private const int HistoryWindow = 60;
+    /// <summary>发给模型的最大历史消息数（兜底；正常情况下由上下文压缩控制长度）。</summary>
+    private const int HistoryWindow = 300;
 
     private readonly AppSettings _settings;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _runs = new();
@@ -46,6 +47,13 @@ public sealed class AgentHost : IDisposable
     public ToolRegistry Tools { get; }
     public AuditQueue Audit { get; }
     public ApprovalStore Approvals { get; }
+    public EpisodeStore Episodes { get; }
+
+    /// <summary>复盘沉淀出的技能放在个人技能目录下的 learned 子目录。</summary>
+    public static string LearnedSkills => Path.Combine(AppPaths.Skills, "learned");
+
+    /// <summary>最近一次得知的模型上下文长度。</summary>
+    private int _contextLength;
 
     public bool Connected { get; private set; }
     public string ServerMessage { get; private set; } = "";
@@ -66,6 +74,7 @@ public sealed class AgentHost : IDisposable
         Tools = ToolRegistry.CreateDefault().Add(new OpenAppTool(() => _settings.AppAliases));
         Audit = new AuditQueue(Server);
         Approvals = new ApprovalStore(AppPaths.Approvals);
+        Episodes = new EpisodeStore(AppPaths.Memory);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -91,6 +100,10 @@ public sealed class AgentHost : IDisposable
                 _policy = new CommandPolicy(config.Policy);
             }
             var agent = config.Scenes.FirstOrDefault(s => s.Scene == Scenes.Agent);
+            if (agent is { ContextLength: > 0 } && _contextLength == 0)
+            {
+                _contextLength = agent.ContextLength;
+            }
             Connected = true;
             ServerMessage = agent is { Available: true } ? "" : "服务端尚未配置模型";
             ModelName = agent?.ModelName ?? "";
@@ -214,7 +227,7 @@ public sealed class AgentHost : IDisposable
             }
 
             var workspace = _settings.ResolveWorkspace(conv.Workspace);
-            var promptBuilder = new PromptBuilder(Memory, Skills);
+            var promptBuilder = new PromptBuilder(Memory, Skills, Episodes);
             var prompt = promptBuilder.Build(new PromptContext
             {
                 Mode = conv.Mode,
@@ -223,17 +236,8 @@ public sealed class AgentHost : IDisposable
                 TranslateTo = conv.TranslateTo,
                 Workspace = workspace,
                 Permission = conv.Permission,
+                Query = text,
             });
-
-            var history = new List<ChatMessage> { ChatMessage.System(prompt) };
-            if (conv.Mode == ConversationMode.Translate)
-            {
-                history.Add(user); // 翻译不需要上下文，避免把上一段译文混进来
-            }
-            else
-            {
-                history.AddRange(TrimHistory(stored));
-            }
 
             var scene = conv.Mode switch
             {
@@ -241,6 +245,45 @@ public sealed class AgentHost : IDisposable
                 ConversationMode.Chat => Scenes.Chat,
                 _ => Scenes.Agent,
             };
+
+            // 短期记忆：之前压缩过的部分用摘要代替，只发送摘要之后的消息
+            var summary = conv.Summary;
+            var recent = (IEnumerable<ChatMessage>)stored;
+            var uptoIndex = conv.SummaryUpto is null ? -1 : stored.FindIndex(m => m.Id == conv.SummaryUpto);
+            if (uptoIndex >= 0)
+            {
+                recent = stored.Skip(uptoIndex + 1);
+            }
+            else
+            {
+                summary = null; // 摘要覆盖的消息已不存在（编辑或重新生成过），摘要作废
+            }
+
+            ContextManager? context = null;
+            var history = new List<ChatMessage>();
+            if (conv.Mode == ConversationMode.Translate)
+            {
+                history.Add(ChatMessage.System(prompt));
+                history.Add(user); // 翻译不需要上下文，避免把上一段译文混进来
+            }
+            else
+            {
+                context = new ContextManager(Server, prompt, summary, _contextLength) { Scene = scene, ModelId = conv.ModelId };
+                context.Compacted += info =>
+                {
+                    Store.SetSummary(id, info.Summary, info.UptoMessageId);
+                    Log.Info($"对话 {id} 上下文已压缩：{info.MessagesCompacted} 条消息，{info.TokensBefore} → {info.TokensAfter} tokens");
+                    events.Post(new { type = "context.compacted", conversationId = id, uptoMessageId = info.UptoMessageId, tokensBefore = info.TokensBefore, tokensAfter = info.TokensAfter });
+                };
+                history.Add(ChatMessage.System(context.SystemPrompt));
+                var window = TrimHistory(recent.ToList()).ToList();
+                if (window.Count > 0 && window[0].Role != ChatRole.User)
+                {
+                    history.Add(ChatMessage.User(ContextManager.ContinueMarker));
+                }
+                history.AddRange(window);
+            }
+
             var ctx = new ToolContext
             {
                 Policy = _policy,
@@ -248,25 +291,47 @@ public sealed class AgentHost : IDisposable
                 Workspace = workspace,
                 Permission = conv.Permission,
                 Memory = Memory,
+                Episodes = Episodes,
                 Skills = Skills,
                 Deleter = new RecycleBinDeleter(),
             };
 
             var loop = new AgentLoop(Server, Tools, confirm, Audit, approvals: Approvals);
-            var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId);
+            var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId, context);
             Store.AddMessages(id, result.NewMessages);
+            if (context is { ContextLength: > 0 })
+            {
+                _contextLength = context.ContextLength;
+            }
 
-            events.Post(new { type = "chat.done", conversationId = id, stopReason = result.StopReason.ToString(), modelName = result.ModelName });
+            events.Post(new
+            {
+                type = "chat.done",
+                conversationId = id,
+                stopReason = result.StopReason.ToString(),
+                modelName = result.ModelName,
+                usage = result.Usage is { } u ? new { promptTokens = u.PromptTokens, completionTokens = u.CompletionTokens } : null,
+            });
+            RunFinished?.Invoke(new RunFinishedInfo(id, Store.Get(id)?.Title ?? "", LastAnswer(result.NewMessages), result.StopReason));
 
             if (needsTitle && result.StopReason != AgentStopReason.Cancelled)
             {
                 await SummarizeTitleAsync(id, text, result, uiLanguage, events);
+            }
+
+            // 长期记忆：办事任务结束后在后台复盘，提炼偏好、经验和可复用的做法
+            if (_settings.EnableLearning && conv.Mode == ConversationMode.Agent && result.StopReason != AgentStopReason.Cancelled
+                && Reflector.ShouldReflect(result.NewMessages, 0))
+            {
+                var previous = stored.Take(stored.Count - 1).LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
+                _ = Task.Run(() => ReflectAsync(conv, workspace, text, previous, result.NewMessages, result.StopReason.ToString(), 0, uiLanguage, events));
             }
         }
         catch (Exception ex)
         {
             Log.Error($"对话 {id} 运行失败", ex);
             events.Post(new { type = "chat.error", conversationId = id, message = ex is GatewayException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}" });
+            RunFinished?.Invoke(new RunFinishedInfo(id, Store.Get(id)?.Title ?? "", ex.Message, null));
         }
         finally
         {
@@ -274,6 +339,85 @@ public sealed class AgentHost : IDisposable
             cts.Dispose();
             ActiveRunsChanged?.Invoke(_runs.Count);
         }
+    }
+
+    /// <summary>一次运行结束（用于系统通知）。StopReason 为 null 表示出错。</summary>
+    public event Action<RunFinishedInfo>? RunFinished;
+
+    private static string LastAnswer(IReadOnlyList<ChatMessage> messages) =>
+        messages.LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Trim().Length > 0)?.Content.Trim() ?? "";
+
+    private async Task ReflectAsync(Conversation conv, string workspace, string request, string previousAnswer, IReadOnlyList<ChatMessage> messages, string stopReason, int feedback, string uiLanguage, IHostEvents events)
+    {
+        try
+        {
+            var reflector = new Reflector(Server, Memory, Episodes, LearnedSkills) { Scene = Scenes.Agent, ModelId = conv.ModelId };
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            var report = await reflector.ReflectAsync(new ReflectionInput
+            {
+                ConversationId = conv.Id,
+                Workspace = workspace,
+                UserRequest = request,
+                PreviousAnswer = previousAnswer,
+                Messages = messages,
+                StopReason = stopReason,
+                Feedback = feedback,
+                UiLanguage = uiLanguage,
+            }, cts.Token);
+            if (report is null)
+            {
+                Log.Warn($"对话 {conv.Id} 复盘失败：{reflector.LastError}");
+                return;
+            }
+            Log.Info($"对话 {conv.Id} 复盘完成：新增记忆 {report.Added.Count} 条，历史任务 {(report.Episode is null ? "无" : report.Episode.Title)}，技能 {report.SkillName ?? "无"}");
+            if (report.SkillName is not null)
+            {
+                Skills.Refresh();
+            }
+            if (report.Added.Count > 0 || report.SkillName is not null)
+            {
+                events.Post(new
+                {
+                    type = "memory.learned",
+                    conversationId = conv.Id,
+                    items = report.Added.Select(a => new { kind = a.Kind.ToString().ToLowerInvariant(), text = a.Text }).ToList(),
+                    skill = report.SkillName,
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"对话 {conv.Id} 复盘异常", ex);
+        }
+    }
+
+    /// <summary>
+    /// 用户对回答点赞或点踩：保存评价，同步到历史任务；点踩时复盘这一轮，记下教训。
+    /// </summary>
+    public void Feedback(string conversationId, string messageId, int? value, string uiLanguage, IHostEvents events)
+    {
+        Store.SetFeedback(messageId, value);
+        if (value is null)
+        {
+            return;
+        }
+        Episodes.SetFeedback(conversationId, value.Value);
+        if (value.Value >= 0 || !_settings.EnableLearning || Store.Get(conversationId) is not { } conv)
+        {
+            return;
+        }
+        var messages = Store.GetMessages(conversationId);
+        var index = messages.FindIndex(m => m.Id == messageId);
+        var userIndex = index < 0 ? -1 : messages.FindLastIndex(index, m => m.Role == ChatRole.User);
+        if (userIndex < 0)
+        {
+            return;
+        }
+        var nextUser = messages.FindIndex(userIndex + 1, m => m.Role == ChatRole.User);
+        var turn = messages.Skip(userIndex + 1).Take((nextUser < 0 ? messages.Count : nextUser) - userIndex - 1).ToList();
+        var previous = messages.Take(userIndex).LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
+        var workspace = _settings.ResolveWorkspace(conv.Workspace);
+        _ = Task.Run(() => ReflectAsync(conv, workspace, messages[userIndex].Content, previous, turn, "Completed", -1, uiLanguage, events));
     }
 
     private async Task SummarizeTitleAsync(string id, string text, AgentRunResult result, string uiLanguage, IHostEvents events)
@@ -392,6 +536,11 @@ public sealed class AgentHost : IDisposable
             decision,
         });
 
+        public void OnContextCompacted(CompactionInfo info)
+        {
+            // 由 ContextManager.Compacted 事件统一处理（保存摘要并通知界面）
+        }
+
         public void OnPlanUpdated(IReadOnlyList<PlanItem> plan) => _events.Post(new
         {
             type = "plan.updated",
@@ -400,3 +549,5 @@ public sealed class AgentHost : IDisposable
         });
     }
 }
+
+public sealed record RunFinishedInfo(string ConversationId, string Title, string Answer, AgentStopReason? StopReason);

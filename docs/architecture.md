@@ -50,6 +50,28 @@
 
 脚本文件（.ps1 / .bat / .cmd / .py）执行前同样扫描内容。
 
+## 记忆体系
+
+参照 Claude Code / Codex 的 Agent 范式，分四层，实现在 `Flyknit.Core/Context` 与 `Flyknit.Core/Memory`。
+
+| 层 | 存放位置 | 作用 | 何时写 | 何时读 |
+| --- | --- | --- | --- | --- |
+| 短期（工作上下文） | SQLite `conversations.summary` | 让长对话不超出模型上下文 | 超出预算时自动压缩 | 每次请求模型前 |
+| 项目 | 工作区的 `FLYKNIT.md` / `AGENTS.md` / `CLAUDE.md` | 这个工作区的固定约定 | 用户自己写 | 组装系统提示词时 |
+| 长期（语义） | `memory.md`、`lessons.md` | 偏好、常用信息、经验、教训 | memory_write 工具、任务复盘 | 按与当前任务的相关度挑选 |
+| 情景 | `episodes.json` | 做过的任务及当时的做法 | 任务复盘 | 相似任务开始时、memory_search |
+
+**上下文压缩**（`ContextManager`）：预算 = 模型上下文长度（服务端通过 `X-Flyknit-Context` 下发）− 8K 输出预留。
+超过 50% 先裁剪较早的工具输出（保留开头，需要时模型重新读取）；超过 75% 让模型把较早的对话压缩成结构化摘要
+（目标、已完成、关键信息、问题、下一步），摘要放进系统提示词，最近 25% 预算的消息保留原文。
+摘要保存在会话里，下次打开继续使用；编辑或重新生成删掉了摘要覆盖的消息时，摘要自动作废。
+
+**复盘**（`Reflector`，参照 Reflexion）：办事任务结束后在后台让模型回顾经过，输出 JSON：
+可复用的步骤、用户偏好、常用信息、成功经验、失败教训，以及（可选）一个技能。
+偏好等写入长期记忆（自动去重），任务写入 `episodes.json`；同类任务成功 2 次以上时，把技能写成
+`skills/learned/<name>/SKILL.md`（frontmatter 带 `source: learned`），之后与手写技能一样被加载。
+用户点踩会立刻对那一轮做一次复盘，重点记录教训。可以在界面的「记忆」里查看、删除，或关掉自动学习。
+
 ## 工作区与权限
 
 每个办事任务有自己的工作区（默认 `我的文档\Flyknit`，可在输入框下方添加、切换）和权限模式。
@@ -84,8 +106,15 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 
 ```
 %APPDATA%\Flyknit\
-├─ settings.json      服务器地址、设备 Token、界面语言
-├─ data\history.db    会话与消息
-├─ memory\            agent.md / soul.md / role.md / memory.md
-└─ skills\            已安装的 Skills（org\ 为企业下发，只读）
+├─ settings.json      服务器地址、设备 Token、界面语言、工作区、权限默认值
+├─ approvals.json     已记住的命令授权
+├─ data\history.db    会话与消息（含摘要、模型与 token 用量）
+├─ memory\
+│  ├─ agent.md / soul.md / role.md   行为准则、语气、用户身份
+│  ├─ memory.md       偏好与习惯、常用信息
+│  ├─ lessons.md      成功经验、失败教训
+│  └─ episodes.json   历史任务
+└─ skills\            已安装的 Skills（org\ 企业下发只读，learned\ 复盘自动生成）
 ```
+
+默认工作区是 `我的文档\Flyknit`（不是上面的数据目录），用户可以另外添加。

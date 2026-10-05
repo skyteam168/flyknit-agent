@@ -16,6 +16,7 @@ public sealed class SseAccumulator
     private readonly IStreamSink? _sink;
 
     public string? FinishReason { get; private set; }
+    public TokenUsage? Usage { get; private set; }
     public bool Done { get; private set; }
 
     public SseAccumulator(IStreamSink? sink = null)
@@ -51,6 +52,16 @@ public sealed class SseAccumulator
         {
             var msg = error.TryGetProperty("message", out var m) ? m.GetString() : error.ToString();
             throw new GatewayException(msg ?? "模型返回错误");
+        }
+        // include_usage 时最后一个分片带 usage（choices 为空数组）
+        if (root.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object)
+        {
+            var prompt = usage.TryGetProperty("prompt_tokens", out var p) && p.TryGetInt32(out var pv) ? pv : 0;
+            var completion = usage.TryGetProperty("completion_tokens", out var c) && c.TryGetInt32(out var cv) ? cv : 0;
+            if (prompt + completion > 0)
+            {
+                Usage = new TokenUsage(prompt, completion);
+            }
         }
         if (!root.TryGetProperty("choices", out var choices) || choices.ValueKind != JsonValueKind.Array)
         {
@@ -116,7 +127,7 @@ public sealed class SseAccumulator
         }
     }
 
-    public ChatTurn Build(string? modelName = null)
+    public ChatTurn Build(string? modelName = null, int contextLength = 0)
     {
         var calls = _calls.Values
             .Where(c => c.Name.Length > 0)
@@ -132,6 +143,8 @@ public sealed class SseAccumulator
             ToolCalls = calls,
             FinishReason = FinishReason,
             ModelName = modelName,
+            Usage = Usage,
+            ContextLength = contextLength,
         };
     }
 

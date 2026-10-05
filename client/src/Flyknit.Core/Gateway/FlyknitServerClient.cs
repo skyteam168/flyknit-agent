@@ -124,6 +124,11 @@ public sealed class FlyknitServerClient : IChatGateway
             ["messages"] = OpenAiSerializer.ToMessages(request.Messages),
             ["stream"] = request.Stream,
         };
+        if (request.Stream)
+        {
+            // 让模型在流的最后返回 token 用量（OpenAI 兼容接口通用参数，百炼、vLLM 均支持）
+            body["stream_options"] = new JsonObject { ["include_usage"] = true };
+        }
         if (request.Tools is { Count: > 0 })
         {
             body["tools"] = request.Tools.DeepClone();
@@ -169,12 +174,15 @@ public sealed class FlyknitServerClient : IChatGateway
             var model = resp.Headers.TryGetValues("X-Flyknit-Model", out var values) && values.FirstOrDefault() is { } raw
                 ? Uri.UnescapeDataString(raw) // 服务端对中文模型名做了 URL 编码
                 : null;
+            var context = resp.Headers.TryGetValues("X-Flyknit-Context", out var ctxValues) && int.TryParse(ctxValues.FirstOrDefault(), out var len)
+                ? len
+                : 0;
             var acc = new SseAccumulator(sink);
 
             if (!request.Stream)
             {
                 acc.FeedChunk(await resp.Content.ReadAsStringAsync(ct));
-                return acc.Build(model);
+                return acc.Build(model, context);
             }
 
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -188,7 +196,7 @@ public sealed class FlyknitServerClient : IChatGateway
                 }
                 acc.FeedLine(line);
             }
-            return acc.Build(model);
+            return acc.Build(model, context);
         }
     }
 

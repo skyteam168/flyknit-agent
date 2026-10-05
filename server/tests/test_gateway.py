@@ -35,6 +35,7 @@ async def test_forwards_with_upstream_model_and_key(client, device_headers):
     assert r.status_code == 200
     assert r.json()["choices"][0]["message"]["content"] == "你好"
     assert r.headers["x-flyknit-model"] == "Qwen3.5-397B"
+    assert int(r.headers["x-flyknit-context"]) > 0  # 客户端据此决定何时压缩上下文
     sent = route.calls.last.request
     assert sent.headers["authorization"] == "Bearer sk-internal-123456"
     import json

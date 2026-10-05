@@ -10,6 +10,8 @@
 import type {
   AppInfo,
   ApprovalInfo,
+  MemoryKind,
+  MemoryOverview,
   Permission,
   WorkspaceInfo,
   AttachmentRef,
@@ -115,6 +117,16 @@ class Bridge {
   hideWindow = () => this.call<void>('window.hide')
   minimizeWindow = () => this.call<void>('window.minimize')
   toggleTopmost = () => this.call<boolean>('window.toggleTopmost')
+  toggleMaximize = () => this.call<boolean>('window.toggleMaximize')
+  setLearning = (enabled: boolean) => this.call<void>('settings.setLearning', { enabled })
+  setNotifications = (enabled: boolean) => this.call<void>('settings.setNotifications', { enabled })
+
+  // ---------- 记忆 ----------
+  memoryOverview = () => this.call<MemoryOverview>('memory.list')
+  deleteMemory = (id: string) => this.call<void>('memory.delete', { id })
+  addMemory = (kind: MemoryKind, text: string) => this.call<boolean>('memory.add', { kind, text })
+  deleteEpisode = (id: string) => this.call<void>('episodes.delete', { id })
+  deleteLearnedSkill = (name: string) => this.call<void>('skills.deleteLearned', { name })
 
   // ---------- 会话 ----------
   listConversations = (query = '', trash = false) =>
@@ -157,7 +169,8 @@ class Bridge {
   regenerate = (conversationId: string) => this.call<void>('chat.regenerate', { conversationId })
   editMessage = (conversationId: string, messageId: string, text: string, newMessageId: string) =>
     this.call<void>('chat.edit', { conversationId, messageId, text, newMessageId })
-  feedback = (id: string, value: number | null) => this.call<void>('message.feedback', { id, value })
+  feedback = (conversationId: string, id: string, value: number | null) =>
+    this.call<void>('message.feedback', { conversationId, id, value })
   stop = (conversationId: string) => this.call<void>('chat.stop', { conversationId })
   confirm = (requestId: string, choice: ConfirmChoice) => this.call<void>('tool.confirm', { requestId, choice })
 

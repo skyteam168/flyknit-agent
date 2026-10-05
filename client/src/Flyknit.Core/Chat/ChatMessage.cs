@@ -36,6 +36,11 @@ public sealed class ChatMessage
     /// <summary>用户对回答的评价：1 赞、-1 踩、null 未评价。不发送给模型。</summary>
     public int? Feedback { get; set; }
 
+    /// <summary>助手消息：实际使用的模型与本次调用的 token 用量。不发送给模型。</summary>
+    public string? ModelName { get; set; }
+    public int? PromptTokens { get; set; }
+    public int? CompletionTokens { get; set; }
+
     public static ChatMessage System(string content) => new() { Role = ChatRole.System, Content = content };
 
     public static ChatMessage User(string content, IEnumerable<Attachment>? attachments = null) => new()

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { FolderOpen, TerminalSquare, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { uiLanguages } from '../i18n'
-import { setLanguage, setTheme, state } from '../store'
+import { setLanguage, setLearning, setNotifications, setTheme, state } from '../store'
 import type { ApprovalInfo, Theme } from '../types'
 
 const { t } = useI18n()
@@ -60,6 +60,23 @@ onMounted(loadApprovals)
             {{ t(`settings.themes.${th}`) }}
           </button>
         </div>
+      </section>
+
+      <section class="toggles">
+        <label class="toggle">
+          <span>
+            <strong>{{ t('settings.notifications') }}</strong>
+            <small>{{ t('settings.notificationsHint') }}</small>
+          </span>
+          <input type="checkbox" :checked="state.app?.notifications ?? true" @change="setNotifications(($event.target as HTMLInputElement).checked)" />
+        </label>
+        <label class="toggle">
+          <span>
+            <strong>{{ t('ui.memory.learning') }}</strong>
+            <small>{{ t('ui.memory.learningHint') }}</small>
+          </span>
+          <input type="checkbox" :checked="state.app?.learning ?? true" @change="setLearning(($event.target as HTMLInputElement).checked)" />
+        </label>
       </section>
 
       <section>
@@ -152,6 +169,39 @@ h3 {
   margin: 0 0 10px;
   font-size: var(--t-sm);
   color: var(--ink-faint);
+}
+.toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--cloth-sunk);
+  cursor: pointer;
+}
+.toggle span {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.toggle strong {
+  font-size: var(--t-sm);
+  font-weight: 500;
+}
+.toggle small {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+.toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--indigo);
 }
 .row-head {
   display: flex;

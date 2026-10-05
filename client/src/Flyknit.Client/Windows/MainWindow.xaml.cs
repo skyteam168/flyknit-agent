@@ -49,6 +49,19 @@ public partial class MainWindow : Window, IWindowActions
                 ShowError($"界面加载失败：{ex.GetType().Name}: {ex.Message}");
             }
         };
+        SourceInitialized += (_, _) =>
+        {
+            // 无边框窗口最大化时按显示器工作区计算大小：不盖住任务栏，也不溢出屏幕边缘
+            HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WndProc);
+        };
+        StateChanged += (_, _) =>
+        {
+            if (WindowState != WindowState.Minimized && !_prewarming)
+            {
+                _settings.WindowMaximized = WindowState == WindowState.Maximized;
+            }
+            Bridge?.Post(new { type = "window.state", maximized = WindowState == WindowState.Maximized });
+        };
         SizeChanged += (_, _) =>
         {
             if (WindowState == WindowState.Normal)
@@ -226,6 +239,8 @@ public partial class MainWindow : Window, IWindowActions
         Top = Math.Max(area.Top + 16, area.Bottom - Height - 96);
     }
 
+    private bool _shownOnce;
+
     public void ShowAndFocus()
     {
         if (_prewarming)
@@ -236,6 +251,14 @@ public partial class MainWindow : Window, IWindowActions
         if (!IsVisible)
         {
             Show();
+        }
+        if (!_shownOnce)
+        {
+            _shownOnce = true;
+            if (_settings.WindowMaximized)
+            {
+                WindowState = WindowState.Maximized; // 恢复上次的最大化状态
+            }
         }
         if (WindowState == WindowState.Minimized)
         {
@@ -285,6 +308,83 @@ public partial class MainWindow : Window, IWindowActions
     public void HideMain() => Hide();
 
     public void MinimizeMain() => WindowState = WindowState.Minimized;
+
+    public bool IsMaximized => WindowState == WindowState.Maximized;
+
+    public bool ToggleMaximize()
+    {
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        return WindowState == WindowState.Maximized;
+    }
+
+    /// <summary>当前是否在前台（窗口可见、未最小化且处于激活状态）。用于决定是否需要系统通知。</summary>
+    public bool IsInForeground => IsVisible && WindowState != WindowState.Minimized && IsActive && !_prewarming;
+
+    // ---------- 最大化尺寸 ----------
+
+    private const int WmGetMinMaxInfo = 0x0024;
+    private const uint MonitorDefaultToNearest = 2;
+
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WmGetMinMaxInfo)
+        {
+            var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+            var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+            if (monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref info))
+            {
+                var mmi = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+                mmi.MaxPosition.X = info.Work.Left - info.Monitor.Left;
+                mmi.MaxPosition.Y = info.Work.Top - info.Monitor.Top;
+                mmi.MaxSize.X = info.Work.Right - info.Work.Left;
+                mmi.MaxSize.Y = info.Work.Bottom - info.Work.Top;
+                Marshal.StructureToPtr(mmi, lParam, true);
+            }
+            // 不设置 handled，让 WPF 继续处理最小尺寸等限制
+        }
+        return IntPtr.Zero;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public NativeRect Monitor;
+        public NativeRect Work;
+        public uint Flags;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
 
     public bool ToggleTopmost()
     {

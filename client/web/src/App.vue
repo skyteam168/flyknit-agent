@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar.vue'
 import TopBar from './components/TopBar.vue'
 import Home from './components/Home.vue'
 import SkillsDialog from './components/SkillsDialog.vue'
+import MemoryDialog from './components/MemoryDialog.vue'
 import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
 import PlanPanel from './components/PlanPanel.vue'
@@ -86,7 +87,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="initError" class="init-error">
-    <strong>Flyknit</strong>
+    <strong>FlyknitBuddy</strong>
     <p>{{ initError }}</p>
     <button type="button" class="btn primary" @click="reload">Reload</button>
   </div>
@@ -127,6 +128,7 @@ onBeforeUnmount(() => {
 
     <SettingsDialog v-if="state.settingsOpen" />
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />
+    <MemoryDialog v-if="state.memoryOpen" />
     <div v-if="state.toast" class="toast" role="status">{{ state.toast }}</div>
   </div>
 </template>

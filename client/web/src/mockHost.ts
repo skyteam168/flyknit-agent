@@ -23,6 +23,27 @@ export function createMockHost(): HostTransport {
     { path: 'D:\\', name: 'D:\\', exists: true, isDefault: false },
   ]
   let defaultWorkspace = workspaces[1].path
+  let maximized = false
+  const memory = {
+    items: [
+      { id: 'm1', kind: 'preference', text: '报表默认保存到 D:\\报表，文件名带日期', date: '2026-09-28' },
+      { id: 'm2', kind: 'preference', text: '给越南同事的通知用中越双语', date: '2026-10-02' },
+      { id: 'm3', kind: 'fact', text: '日报放在 D:\\日报，按月份分文件夹', date: '2026-10-05' },
+      { id: 'm4', kind: 'success', text: '质检周报先按车间汇总再画折线图，阅读最清楚', date: '2026-10-01' },
+      { id: 'm5', kind: 'lesson', text: '.xls 旧格式要先另存为 .xlsx 再读取，否则会乱码', date: '2026-09-30' },
+    ],
+    episodes: [
+      {
+        id: 'e1', conversationId: '', title: '生成质检周报', task: '根据 9 月质检数据生成周报', summary: '读取 D:\\质检\\9月.xlsx，按车间汇总不良率，生成 Excel 周报并保存到 D:\\报表',
+        outcome: 'success', procedure: '1. 读取质检数据\n2. 按车间汇总不良率\n3. 生成折线图\n4. 保存到 D:\\报表\\质检周报_日期.xlsx', lessons: [], feedback: 1, uses: 3, createdAt: '2026-10-01T10:00:00+08:00',
+      },
+      {
+        id: 'e2', conversationId: '', title: '安装 ERP 客户端', task: '从共享盘安装 ERP 客户端', summary: '安装程序被杀毒软件拦截', outcome: 'failure',
+        procedure: '1. 先暂停实时防护\n2. 以管理员身份运行安装包', lessons: ['安装前先确认杀毒软件不会拦截'], feedback: 0, uses: 0, createdAt: '2026-09-25T15:00:00+08:00',
+      },
+    ],
+    skills: [{ name: 'qc-weekly-report', description: '生成质检周报（按车间汇总、折线图、保存到 D:\\报表）', path: 'C:\\Users\\demo\\AppData\\Roaming\\Flyknit\\skills\\learned\\qc-weekly-report' }],
+  }
   const approvals: { key: string; tool: string; display: string; approvedAt: string; lastUsedAt: string; uses: number }[] = []
 
   const seed = (title: string, mode: Mode, daysAgo: number, pinned = false) => {
@@ -196,10 +217,17 @@ export function createMockHost(): HostTransport {
       emit({ type: 'chat.done', conversationId: id, stopReason: 'Cancelled' })
       return
     }
-    const assistant: UiMessage = { id: uid(), role: 'assistant', content: finalText, createdAt: now() }
+    const model = c.modelId === 2 ? 'qwen3.8-max' : 'Qwen3.5-397B'
+    const assistant: UiMessage = {
+      id: uid(), role: 'assistant', content: finalText, createdAt: now(),
+      modelName: model, promptTokens: 2860 + text.length * 2, completionTokens: 180 + finalText.length,
+    }
     list.push(assistant)
     emit({ type: 'chat.message', conversationId: id, message: assistant })
-    emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed', modelName: 'Qwen3.5-397B' })
+    emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed', modelName: model })
+    if (c.mode === 'agent') {
+      setTimeout(() => emit({ type: 'memory.learned', conversationId: id, items: [{ kind: 'preference', text: '日报按月份整理' }, { kind: 'success', text: '先列目录再批量移动' }], skill: null }), 1500)
+    }
     c.messageCount += 2
     c.updatedAt = now()
     if (!c.title) {
@@ -225,7 +253,27 @@ export function createMockHost(): HostTransport {
           defaultWorkspace,
           defaultPermission: 'workspace',
           workspaces,
+          learning: true,
+          notifications: true,
+          maximized,
         }
+      case 'window.toggleMaximize':
+        maximized = !maximized
+        return maximized
+      case 'memory.list':
+        return { ...memory, learning: true }
+      case 'memory.delete':
+        memory.items = memory.items.filter((i) => i.id !== p.id)
+        return
+      case 'memory.add':
+        memory.items.push({ id: uid(), kind: p.kind, text: p.text, date: now().slice(0, 10) })
+        return true
+      case 'episodes.delete':
+        memory.episodes = memory.episodes.filter((e) => e.id !== p.id)
+        return
+      case 'skills.deleteLearned':
+        memory.skills = memory.skills.filter((k) => k.name !== p.name)
+        return
       case 'workspaces.list':
         return workspaces
       case 'workspaces.add': {

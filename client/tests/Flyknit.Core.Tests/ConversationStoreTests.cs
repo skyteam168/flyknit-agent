@@ -147,6 +147,32 @@ public class ConversationStoreTests : IDisposable
     }
 
     [Fact]
+    public void SummaryAndUsageArePersisted()
+    {
+        var conv = _store.Create(ConversationMode.Agent);
+        var q = ChatMessage.User("问题");
+        var a = ChatMessage.Assistant("回答");
+        a.ModelName = "qwen3.8-max";
+        a.PromptTokens = 1200;
+        a.CompletionTokens = 80;
+        _store.AddMessages(conv.Id, new[] { q, a });
+
+        var loaded = _store.GetMessages(conv.Id)[1];
+        Assert.Equal("qwen3.8-max", loaded.ModelName);
+        Assert.Equal(1200, loaded.PromptTokens);
+        Assert.Equal(80, loaded.CompletionTokens);
+
+        _store.SetSummary(conv.Id, "## 目标\n整理日报", a.Id);
+        var c = _store.Get(conv.Id)!;
+        Assert.Equal(a.Id, c.SummaryUpto);
+        Assert.Contains("整理日报", c.Summary);
+
+        // 编辑第一个问题后，摘要覆盖的消息被删除，摘要随之作废
+        _store.DeleteMessagesFrom(conv.Id, q.Id, inclusive: true);
+        Assert.Null(_store.Get(conv.Id)!.Summary);
+    }
+
+    [Fact]
     public void RenameUnknownConversationThrows()
     {
         Assert.Throws<KeyNotFoundException>(() => _store.Rename("nope", "x"));

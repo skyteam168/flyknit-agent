@@ -26,6 +26,10 @@ public sealed class Conversation
 
     public Security.PermissionMode Permission { get; set; } = Security.PermissionMode.Workspace;
 
+    /// <summary>较早对话的压缩摘要，以及它覆盖到的最后一条消息 ID。</summary>
+    public string? Summary { get; set; }
+    public string? SummaryUpto { get; set; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? DeletedAt { get; set; }
@@ -98,6 +102,12 @@ public sealed class ConversationStore
         AddColumn(c, "conversations", "workspace", "TEXT NULL");
         AddColumn(c, "conversations", "permission", "TEXT NOT NULL DEFAULT 'workspace'");
         AddColumn(c, "messages", "feedback", "INTEGER NULL");
+        // v0.4：上下文压缩摘要、模型与 token 用量
+        AddColumn(c, "conversations", "summary", "TEXT NULL");
+        AddColumn(c, "conversations", "summary_upto", "TEXT NULL");
+        AddColumn(c, "messages", "model", "TEXT NULL");
+        AddColumn(c, "messages", "prompt_tokens", "INTEGER NULL");
+        AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
     }
 
     private static void AddColumn(SqliteConnection c, string table, string column, string definition)
@@ -198,6 +208,18 @@ public sealed class ConversationStore
 
     public void SetWorkspace(string id, string? workspace) => Update(id, "workspace = $v", (object?)workspace ?? DBNull.Value);
 
+    /// <summary>保存上下文压缩的摘要；summary 为 null 时清除。</summary>
+    public void SetSummary(string id, string? summary, string? uptoMessageId)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE conversations SET summary = $s, summary_upto = $u WHERE id = $id";
+        cmd.Parameters.AddWithValue("$s", (object?)summary ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$u", (object?)uptoMessageId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.ExecuteNonQuery();
+    }
+
     public void SetPermission(string id, Security.PermissionMode mode) => Update(id, "permission = $v", Security.PermissionModes.ToText(mode));
 
     /// <summary>给回答点赞（1）、踩（-1）或取消（null）。</summary>
@@ -241,6 +263,18 @@ public sealed class ConversationStore
             d.Parameters.AddWithValue("$conv", conversationId);
             d.Parameters.AddWithValue("$seq", seq);
             removed = d.ExecuteNonQuery();
+        }
+        using (var u = c.CreateCommand())
+        {
+            // 摘要覆盖的消息被删掉后，摘要也失效
+            u.Transaction = tx;
+            u.CommandText = """
+                UPDATE conversations SET summary = NULL, summary_upto = NULL
+                WHERE id = $conv AND summary_upto IS NOT NULL
+                  AND summary_upto NOT IN (SELECT id FROM messages WHERE conversation_id = $conv)
+                """;
+            u.Parameters.AddWithValue("$conv", conversationId);
+            u.ExecuteNonQuery();
         }
         tx.Commit();
         return removed;
@@ -303,8 +337,8 @@ public sealed class ConversationStore
             using var cmd = c.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO messages (id, conversation_id, seq, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at)
-                VALUES ($id, $conv, $seq, $role, $content, $reasoning, $calls, $callId, $toolName, $attachments, $created)
+                INSERT INTO messages (id, conversation_id, seq, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, model, prompt_tokens, completion_tokens)
+                VALUES ($id, $conv, $seq, $role, $content, $reasoning, $calls, $callId, $toolName, $attachments, $created, $model, $pt, $ct)
                 """;
             cmd.Parameters.AddWithValue("$id", m.Id);
             cmd.Parameters.AddWithValue("$conv", conversationId);
@@ -317,6 +351,9 @@ public sealed class ConversationStore
             cmd.Parameters.AddWithValue("$toolName", (object?)m.ToolName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$attachments", m.Attachments.Count > 0 ? JsonSerializer.Serialize(m.Attachments, Json) : DBNull.Value);
             cmd.Parameters.AddWithValue("$created", m.CreatedAt.ToString("O"));
+            cmd.Parameters.AddWithValue("$model", (object?)m.ModelName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pt", (object?)m.PromptTokens ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ct", (object?)m.CompletionTokens ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
         using (var u = c.CreateCommand())
@@ -335,7 +372,8 @@ public sealed class ConversationStore
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            SELECT id, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, feedback
+            SELECT id, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, feedback,
+                   model, prompt_tokens, completion_tokens
             FROM messages WHERE conversation_id = $id ORDER BY seq
             """;
         cmd.Parameters.AddWithValue("$id", conversationId);
@@ -355,6 +393,9 @@ public sealed class ConversationStore
                 Attachments = r.IsDBNull(7) ? new() : JsonSerializer.Deserialize<List<Attachment>>(r.GetString(7), Json) ?? new(),
                 CreatedAt = DateTimeOffset.Parse(r.GetString(8)),
                 Feedback = r.IsDBNull(9) ? null : (int)r.GetInt64(9),
+                ModelName = r.IsDBNull(10) ? null : r.GetString(10),
+                PromptTokens = r.IsDBNull(11) ? null : (int)r.GetInt64(11),
+                CompletionTokens = r.IsDBNull(12) ? null : (int)r.GetInt64(12),
             });
         }
         return list;
@@ -372,7 +413,7 @@ public sealed class ConversationStore
 
     private const string SelectConversation = """
         SELECT c.id, c.title, c.title_source, c.mode, c.pinned, c.translate_from, c.translate_to,
-               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission
+               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto
         FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id AND m.role IN ('user','assistant')
         """;
 
@@ -392,6 +433,8 @@ public sealed class ConversationStore
         ModelId = r.IsDBNull(11) ? null : (int)r.GetInt64(11),
         Workspace = r.IsDBNull(12) ? null : r.GetString(12),
         Permission = Security.PermissionModes.Parse(r.IsDBNull(13) ? null : r.GetString(13)),
+        Summary = r.IsDBNull(14) ? null : r.GetString(14),
+        SummaryUpto = r.IsDBNull(15) ? null : r.GetString(15),
     };
 
     private void Update(string id, string set, object value)

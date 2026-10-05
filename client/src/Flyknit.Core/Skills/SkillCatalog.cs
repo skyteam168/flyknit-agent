@@ -14,6 +14,9 @@ public sealed class SkillInfo
 
     public bool Enabled { get; set; } = true;
 
+    /// <summary>由 Agent 复盘自动沉淀的技能（frontmatter 中 source: learned）。</summary>
+    public bool IsLearned { get; init; }
+
     public string SkillFile => Path.Combine(Directory, "SKILL.md");
 
     /// <summary>SKILL.md 去掉 frontmatter 后的正文。</summary>
@@ -112,7 +115,8 @@ public sealed class SkillCatalog
             {
                 return null; // 规范要求 description，没有就无法判断何时使用
             }
-            return new SkillInfo { Name = name, Description = description, Directory = dir, IsOrganization = isOrg };
+            var learned = meta.TryGetValue("source", out var src) && src.Equals("learned", StringComparison.OrdinalIgnoreCase);
+            return new SkillInfo { Name = name, Description = description, Directory = dir, IsOrganization = isOrg, IsLearned = learned };
         }
         catch (IOException)
         {

@@ -28,10 +28,16 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     private readonly AgentHost _host;
     private readonly AppSettings _settings;
     private readonly IWindowActions _window;
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<ConfirmChoice>> _confirms = new();
+    private readonly ConcurrentDictionary<string, PendingConfirm> _confirms = new();
 
     /// <summary>等待用户确认的数量变化（悬浮球提示用）。</summary>
     public event Action<int>? PendingConfirmsChanged;
+
+    /// <summary>新的确认请求（宿主据此弹出系统通知或闪烁窗口）。</summary>
+    public event Action<PendingConfirm>? ConfirmRequested;
+
+    /// <summary>确认请求已结束（已回答、取消或超时），对应的系统通知应撤下。</summary>
+    public event Action<PendingConfirm>? ConfirmClosed;
 
     public WebBridge(CoreWebView2 web, Dispatcher dispatcher, AgentHost host, AppSettings settings, IWindowActions window)
     {
@@ -74,33 +80,65 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
 
     public async Task<ConfirmChoice> ConfirmAsync(ConfirmRequest request, CancellationToken ct)
     {
-        var requestId = Guid.NewGuid().ToString("N");
-        var tcs = new TaskCompletionSource<ConfirmChoice>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _confirms[requestId] = tcs;
+        var pending = new PendingConfirm
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            ConversationId = request.ConversationId,
+            CallId = request.Call.Id,
+            ToolName = request.Call.Name,
+            Detail = ToolDetail.From(request.Call.ArgumentsJson) is { Length: > 0 } d ? d : request.Summary,
+            Rationale = request.Rationale,
+            Rememberable = request.Decision.Rememberable,
+            Title = _host.Store.Get(request.ConversationId)?.Title ?? "",
+        };
+        _confirms[pending.RequestId] = pending;
         PendingConfirmsChanged?.Invoke(_confirms.Count);
         Post(new
         {
             type = "tool.confirm",
             conversationId = request.ConversationId,
-            requestId,
+            requestId = pending.RequestId,
             callId = request.Call.Id,
             reason = request.Decision.Reason,
             rationale = request.Rationale,
             rememberable = request.Decision.Rememberable,
         });
-        _dispatcher.BeginInvoke(() => _window.RequestAttention());
+        ConfirmRequested?.Invoke(pending);
 
-        await using var registration = ct.Register(() => tcs.TrySetResult(ConfirmChoice.Reject));
+        await using var registration = ct.Register(() => pending.Completion.TrySetResult(ConfirmChoice.Reject));
         try
         {
-            return await tcs.Task;
+            return await pending.Completion.Task;
         }
         finally
         {
-            _confirms.TryRemove(requestId, out _);
+            _confirms.TryRemove(pending.RequestId, out _);
             PendingConfirmsChanged?.Invoke(_confirms.Count);
+            ConfirmClosed?.Invoke(pending);
         }
     }
+
+    /// <summary>
+    /// 在界面以外（例如系统通知的按钮）回答确认请求，并通知页面更新卡片状态。
+    /// 返回 false 表示该请求已经结束。
+    /// </summary>
+    public bool ResolveConfirm(string requestId, ConfirmChoice choice)
+    {
+        if (!_confirms.TryGetValue(requestId, out var pending) || !pending.Completion.TrySetResult(choice))
+        {
+            return false;
+        }
+        Post(new
+        {
+            type = "tool.confirmResolved",
+            conversationId = pending.ConversationId,
+            callId = pending.CallId,
+            choice = choice == ConfirmChoice.Reject ? "reject" : "allow",
+        });
+        return true;
+    }
+
+    public PendingConfirm? FindConfirm(string requestId) => _confirms.TryGetValue(requestId, out var p) ? p : null;
 
     // ---------- 页面 → 宿主 ----------
 
@@ -172,7 +210,86 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     defaultWorkspace = _settings.ResolveWorkspace(_settings.DefaultWorkspace),
                     defaultPermission = _settings.DefaultPermission == "readonly" ? "readonly" : "workspace",
                     workspaces = WorkspaceList(),
+                    learning = _settings.EnableLearning,
+                    notifications = _settings.EnableNotifications,
+                    maximized = _window.IsMaximized,
                 };
+
+            case "window.toggleMaximize":
+                return _window.ToggleMaximize();
+
+            case "settings.setLearning":
+                _settings.EnableLearning = Bool("enabled");
+                _settings.Save();
+                return null;
+
+            case "settings.setNotifications":
+                _settings.EnableNotifications = Bool("enabled");
+                _settings.Save();
+                return null;
+
+            case "memory.list":
+            {
+                _host.Skills.Refresh();
+                var items = _host.Memory.List();
+                return new
+                {
+                    items = items.Select(i => new
+                    {
+                        id = i.Id,
+                        kind = i.Kind.ToString().ToLowerInvariant(),
+                        text = i.Text,
+                        date = i.Date?.ToString("yyyy-MM-dd"),
+                    }).ToList(),
+                    episodes = _host.Episodes.List().Select(e => new
+                    {
+                        id = e.Id,
+                        conversationId = e.ConversationId,
+                        title = e.Title,
+                        task = e.Task,
+                        summary = e.Summary,
+                        outcome = e.Outcome,
+                        procedure = e.Procedure,
+                        lessons = e.Lessons,
+                        feedback = e.Feedback,
+                        uses = e.Uses,
+                        createdAt = e.CreatedAt.ToString("O"),
+                    }).ToList(),
+                    skills = _host.Skills.Skills.Where(k => k.IsLearned).Select(k => new { name = k.Name, description = k.Description, path = k.Directory }).ToList(),
+                    learning = _settings.EnableLearning,
+                };
+            }
+
+            case "memory.delete":
+                _host.Memory.Delete(Str("id"));
+                return null;
+
+            case "memory.add":
+            {
+                var kind = Str("kind") switch
+                {
+                    "preference" => Flyknit.Core.Memory.MemoryKind.Preference,
+                    "success" => Flyknit.Core.Memory.MemoryKind.Success,
+                    "lesson" => Flyknit.Core.Memory.MemoryKind.Lesson,
+                    _ => Flyknit.Core.Memory.MemoryKind.Fact,
+                };
+                return _host.Memory.Add(kind, Str("text"));
+            }
+
+            case "episodes.delete":
+                _host.Episodes.Delete(Str("id"));
+                return null;
+
+            case "skills.deleteLearned":
+            {
+                var skill = _host.Skills.Skills.FirstOrDefault(k => k.IsLearned && k.Name == Str("name"));
+                if (skill is not null && Directory.Exists(skill.Directory))
+                {
+                    Directory.Delete(skill.Directory, recursive: true);
+                    _host.Skills.Refresh();
+                }
+                return null;
+            }
 
             case "workspaces.list":
                 return WorkspaceList();
@@ -351,8 +468,13 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 return null;
 
             case "message.feedback":
-                await Task.Run(() => _host.Store.SetFeedback(Str("id"), Int("value")));
+            {
+                var conversationId = Str("conversationId");
+                var messageId = Str("id");
+                var value = Int("value");
+                await Task.Run(() => _host.Feedback(conversationId, messageId, value, _settings.ResolveUiLanguage(), this));
                 return null;
+            }
 
             case "chat.regenerate":
                 _host.Regenerate(Str("conversationId"), _settings.ResolveUiLanguage(), this, this);
@@ -401,9 +523,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     "allowForConversation" => ConfirmChoice.AllowAlways,
                     _ => ConfirmChoice.Reject,
                 };
-                if (_confirms.TryGetValue(Str("requestId"), out var tcs))
+                if (_confirms.TryGetValue(Str("requestId"), out var pending))
                 {
-                    tcs.TrySetResult(choice);
+                    pending.Completion.TrySetResult(choice);
                 }
                 return null;
             }
@@ -471,4 +593,20 @@ public interface IWindowActions
     void LanguageChanged(string language);
     IReadOnlyList<string> PickFiles();
     string? PickFolder();
+    bool IsMaximized { get; }
+    bool ToggleMaximize();
+}
+
+/// <summary>一个等待用户回答的确认请求。</summary>
+public sealed class PendingConfirm
+{
+    public required string RequestId { get; init; }
+    public required string ConversationId { get; init; }
+    public required string CallId { get; init; }
+    public required string ToolName { get; init; }
+    public required string Detail { get; init; }
+    public string Rationale { get; init; } = "";
+    public bool Rememberable { get; init; }
+    public string Title { get; init; } = "";
+    public TaskCompletionSource<ConfirmChoice> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 }

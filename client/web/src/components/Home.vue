@@ -17,7 +17,6 @@ import {
   Wrench,
 } from '@lucide/vue'
 import KnitMark from './KnitMark.vue'
-import StitchRow from './StitchRow.vue'
 import Composer from './Composer.vue'
 import { draftMode, setMode, setTranslate } from '../store'
 import type { Mode } from '../types'
@@ -84,7 +83,7 @@ async function pick(key: string) {
       </div>
       <h1>{{ t('ui.home.title') }}</h1>
       <p class="sub">{{ t('ui.home.subtitle') }}</p>
-      <StitchRow class="stitches" />
+      <div class="stitches" aria-hidden="true" />
 
       <div class="modes" role="radiogroup">
         <button
@@ -157,7 +156,8 @@ h1 {
   text-align: center;
 }
 .stitches {
-  margin: 18px 0 22px;
+  height: 0;
+  margin: 14px 0 18px;
 }
 .modes {
   display: inline-flex;

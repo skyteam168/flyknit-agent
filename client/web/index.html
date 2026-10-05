@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Flyknit</title>
+    <title>FlyknitBuddy</title>
   </head>
   <body>
     <!-- 脚本加载前显示的启动卡片（与宿主窗口里的加载卡片一致），Vue 挂载后会被替换 -->
@@ -20,7 +20,7 @@
       <div class="fk-boot">
         <div class="fk-card">
           <div class="fk-spin"></div>
-          <p class="fk-title" id="fk-title">正在启动 Flyknit…</p>
+          <p class="fk-title" id="fk-title">正在启动 FlyknitBuddy…</p>
           <p class="fk-sub" id="fk-sub">准备就绪后将自动打开工作区。</p>
         </div>
       </div>
@@ -28,8 +28,8 @@
         ;(function () {
           var lang = new URLSearchParams(location.search).get('lang')
           var text = {
-            'vi-VN': ['Đang khởi động Flyknit…', 'Không gian làm việc sẽ tự mở khi sẵn sàng.'],
-            'en-US': ['Starting Flyknit…', "Your workspace will open automatically when it's ready."],
+            'vi-VN': ['Đang khởi động FlyknitBuddy…', 'Không gian làm việc sẽ tự mở khi sẵn sàng.'],
+            'en-US': ['Starting FlyknitBuddy…', "Your workspace will open automatically when it's ready."],
           }[lang]
           if (text) {
             document.getElementById('fk-title').textContent = text[0]

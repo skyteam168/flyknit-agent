@@ -47,6 +47,8 @@ export const state = reactive({
   models: [] as ModelInfo[],
   skills: [] as SkillInfo[],
   workspaces: [] as WorkspaceInfo[],
+  memoryOpen: false,
+  maximized: false,
 })
 
 /** 消息 ID 由界面生成，与宿主数据库保持一致（编辑、重新生成时需要） */
@@ -96,6 +98,7 @@ export async function init() {
   draftMode.workspace = app.defaultWorkspace
   draftMode.permission = app.defaultPermission
   state.workspaces = app.workspaces ?? []
+  state.maximized = app.maximized ?? false
   await refreshList()
   void loadModels()
   void loadSkills()
@@ -427,8 +430,24 @@ export async function editAndResend(messageId: string, text: string) {
 export async function setFeedback(m: UiMessage, value: 1 | -1) {
   const next = m.feedback === value ? null : value
   m.feedback = next
-  await bridge.feedback(m.id, next).catch(fail)
-  if (next !== null) toast(i18n.global.t('ui.feedback.thanks'))
+  if (!state.currentId) return
+  await bridge.feedback(state.currentId, m.id, next).catch(fail)
+  if (next === 1) toast(i18n.global.t('ui.feedback.thanks'))
+  if (next === -1) toast(i18n.global.t('ui.feedback.learn'))
+}
+
+export async function toggleMaximize() {
+  state.maximized = await bridge.toggleMaximize().catch(() => state.maximized)
+}
+
+export async function setLearning(enabled: boolean) {
+  if (state.app) state.app.learning = enabled
+  await bridge.setLearning(enabled).catch(fail)
+}
+
+export async function setNotifications(enabled: boolean) {
+  if (state.app) state.app.notifications = enabled
+  await bridge.setNotifications(enabled).catch(fail)
 }
 
 export async function stop() {
@@ -576,6 +595,36 @@ function onHostEvent(e: HostEvent) {
         state.app.serverMessage = e.serverMessage
         if (e.modelName) state.app.modelName = e.modelName
       }
+      break
+    case 'tool.confirmResolved': {
+      // 在系统通知里确认或拒绝
+      const t = convState(e.conversationId).tools[e.callId]
+      if (t) {
+        t.confirm = undefined
+        t.state = e.choice === 'reject' ? 'rejected' : 'running'
+      }
+      break
+    }
+    case 'context.compacted': {
+      const c = state.conversations.find((x) => x.id === e.conversationId)
+      if (c) c.summaryUpto = e.uptoMessageId
+      if (e.conversationId === state.currentId) toast(i18n.global.t('ui.context.compacted'))
+      break
+    }
+    case 'memory.learned': {
+      const n = e.items.length
+      if (e.skill) toast(i18n.global.t('ui.memory.learnedSkill', { name: e.skill }))
+      else if (n > 0) toast(i18n.global.t('ui.memory.learned', { n }))
+      break
+    }
+    case 'app.openConversation':
+      void (async () => {
+        if (!state.conversations.some((c) => c.id === e.conversationId)) await refreshList()
+        await openConversation(e.conversationId)
+      })()
+      break
+    case 'window.state':
+      state.maximized = e.maximized
       break
     case 'app.focusInput':
       window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
