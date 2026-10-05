@@ -38,7 +38,8 @@ public sealed class ConversationStore
     public ConversationStore(string databasePath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(databasePath))!);
-        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, Cache = SqliteCacheMode.Shared }.ToString();
+        // 不使用共享缓存：多线程同时读写时共享缓存会出现表锁等待；WAL 模式本身支持并发读写
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, DefaultTimeout = 5 }.ToString();
         Migrate();
     }
 

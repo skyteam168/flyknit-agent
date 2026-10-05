@@ -131,8 +131,11 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 }
             }
 
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            Log.Info($"页面请求 {method} ({id})");
             var result = await HandleAsync(method, p, droppedPaths);
             Send(new { kind = "response", id, ok = true, result });
+            Log.Info($"页面请求 {method} ({id}) 完成，耗时 {watch.ElapsedMilliseconds} ms");
         }
         catch (Exception ex)
         {

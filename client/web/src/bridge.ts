@@ -56,6 +56,7 @@ class Bridge {
   }
 
   private receive(raw: unknown) {
+    console.debug('[flyknit] host →', raw)
     const data = (typeof raw === 'string' ? JSON.parse(raw) : raw) as {
       kind: string
       id?: string
@@ -79,7 +80,20 @@ class Bridge {
     const id = `r${++this.seq}`
     const message = { kind: 'request', id, method, params }
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
+      // 宿主 20 秒未响应视为失败，避免界面一直空白
+      const timer = window.setTimeout(() => {
+        if (this.pending.delete(id)) reject(new Error(`宿主未响应：${method}`))
+      }, 20000)
+      this.pending.set(id, {
+        resolve: (v) => {
+          clearTimeout(timer)
+          ;(resolve as (v: unknown) => void)(v)
+        },
+        reject: (e) => {
+          clearTimeout(timer)
+          reject(e)
+        },
+      })
       if (files && files.length) this.transport.sendWithFiles(message, files)
       else this.transport.send(message)
     })

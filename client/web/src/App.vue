@@ -90,8 +90,12 @@ onBeforeUnmount(() => {
     <p>{{ initError }}</p>
     <button type="button" class="btn primary" @click="reload">Reload</button>
   </div>
+  <div v-else-if="!ready" class="init-error loading">
+    <span class="spinner" />
+    <p>Flyknit…</p>
+  </div>
   <div
-    v-else-if="ready"
+    v-else
     class="shell"
     :class="{ narrow }"
     @dragenter.prevent="onDragEnter"
@@ -132,6 +136,20 @@ onBeforeUnmount(() => {
   height: 100%;
   text-align: center;
   color: var(--ink-soft);
+}
+.spinner {
+  justify-self: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid var(--line);
+  border-top-color: var(--indigo);
+  animation: spin 800ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .shell {
   display: flex;
