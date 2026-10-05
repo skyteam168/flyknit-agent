@@ -86,6 +86,35 @@ export interface ModelInfo {
   supportsVision: boolean
 }
 
+export type ScheduleKind = 'manual' | 'once' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly'
+
+/** 定时任务。到点后 Agent 新建一个会话自动执行。 */
+export interface ScheduledTask {
+  id: string
+  name: string
+  instructions: string
+  kind: ScheduleKind
+  hour: number
+  minute: number
+  /** 周日 = 0 */
+  weekday: number
+  dayOfMonth: number
+  at: string | null
+  enabled: boolean
+  workspace: string | null
+  permission: Permission
+  modelId: number | null
+  /** 错过的任务开机后补跑 */
+  catchUp: boolean
+  nextRunAt: string | null
+  lastRunAt: string | null
+  /** ok / failed / stopped / running */
+  lastStatus: string
+  lastSummary: string
+  lastConversationId: string | null
+  runCount: number
+}
+
 export interface SceneUsage {
   scene: string
   prompt: number
@@ -295,6 +324,7 @@ export type HostEvent =
   | { type: 'app.openConversation'; conversationId: string }
   | { type: 'window.state'; maximized: boolean }
   | { type: 'skills.changed' }
+  | { type: 'schedules.changed' }
   | { type: 'chat.error'; conversationId: string; message: string }
   | { type: 'conversation.updated'; conversation: Conversation }
   | { type: 'files.added'; attachments: AttachmentRef[] }

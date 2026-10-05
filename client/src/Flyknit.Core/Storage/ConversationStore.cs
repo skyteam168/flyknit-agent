@@ -74,6 +74,11 @@ public sealed class ConversationStore
         Migrate();
     }
 
+    /// <summary>定时任务与会话共用同一个数据库文件。</summary>
+    public Scheduling.ScheduledTaskStore Schedules => _schedules ??= new Scheduling.ScheduledTaskStore(Open);
+
+    private Scheduling.ScheduledTaskStore? _schedules;
+
     private SqliteConnection Open()
     {
         var c = new SqliteConnection(_connectionString);
@@ -147,6 +152,9 @@ public sealed class ConversationStore
             CREATE INDEX IF NOT EXISTS ix_security_created ON security_events(created_at);
             """;
         sec.ExecuteNonQuery();
+
+        // v0.6：定时任务
+        Scheduling.ScheduledTaskStore.Migrate(c);
     }
 
     private static void AddColumn(SqliteConnection c, string table, string column, string definition)

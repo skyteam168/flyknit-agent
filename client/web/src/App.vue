@@ -9,6 +9,7 @@ import SkillsDialog from './components/SkillsDialog.vue'
 import MemoryDialog from './components/MemoryDialog.vue'
 import ResizeEdges from './components/ResizeEdges.vue'
 import UsageDialog from './components/UsageDialog.vue'
+import SchedulesDialog from './components/SchedulesDialog.vue'
 import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
 import PlanPanel from './components/PlanPanel.vue'
@@ -132,6 +133,7 @@ onBeforeUnmount(() => {
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />
     <MemoryDialog v-if="state.memoryOpen" />
     <UsageDialog v-if="state.usageOpen" />
+    <SchedulesDialog v-if="state.schedulesOpen" />
     <div v-if="state.toast" class="toast" role="status">{{ state.toast }}</div>
     <ResizeEdges />
   </div>

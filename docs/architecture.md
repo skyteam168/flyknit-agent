@@ -151,6 +151,35 @@ skill-name/
 - 完全权限需要在弹窗中勾选“我已了解风险”，只对当前任务生效，不会成为新任务的默认值。
 - 已允许的命令记录在 `%APPDATA%\Flyknit\approvals.json`，按“Shell + 规范化后的命令”（忽略多余空格和大小写）匹配，可在设置中撤销。删除和大批量删除不会被记住。
 
+## 定时任务
+
+用户在侧栏「定时任务」里写一句指令和一个频率，到点客户端自动新建一个办事任务去执行，不需要有人守着。
+
+**为什么跑在客户端。** 任务要操作的是这台电脑的文件、共享盘和命令，服务端碰不到；
+而且权限判定、工作区限制、命令确认这套逻辑都在客户端，放服务端会变成两套。
+代价是程序得开着（可以收在托盘里），关机期间的任务靠下面的补跑机制。
+
+**频率**（`Flyknit.Core/Scheduling/ScheduleSpec.cs`）：手动、每小时、每天、每个工作日（周一到周五）、每周、每月、仅一次。
+按本机本地时间算；工厂都在同一个时区，不处理夏令时。每月 31 号这种在小月自动落到当月最后一天。
+
+**调度**（`Flyknit.Client/Services/TaskScheduler.cs`）：
+
+- 启动 10 秒后开始，之后每 30 秒查一次到点的任务，串行执行，不会并发压住机器
+- **先排下次时间再运行**，所以某一次失败或程序崩了也不会反复触发同一次
+- **补跑**：关机错过的任务，开机后补跑最近一次，超过 **12 小时**就跳过（避免早上开机一次性跑一堆）。
+  任务上的「补跑错过的任务」可以关掉，关掉后只跑 5 分钟内的
+- 「仅一次」执行完自动停用，留在列表里可以看结果
+- 每次运行新建一个会话，标题固定为 `任务名 · 日期时间`，不让 AI 改掉；列表里点「查看上次结果」直接跳进去
+
+**无人值守时的确认。** 任务按自己配置的权限模式跑。需要确认的操作：已记住的授权照常自动通过；
+其余照常弹 Windows 系统通知和界面确认卡片，等 **5 分钟**；没人应答按**拒绝**处理，让任务走完剩下的步骤而不是一直挂着。
+拒绝记录会写进安全记录，并标明来自定时任务。危险命令和权限模式的限制不因为是定时任务而放宽。
+
+**状态**：`running` / `ok` / `stopped`（被手动结束）/ `failed`。回写由 `AgentHost.RunFinished` 触发，
+结果摘要截前 300 字存在任务上。记忆、复盘、经验教训与手动任务完全一样，定时跑出来的经验也会沉淀。
+
+存储在 `history.db` 的 `scheduled_tasks` 表（`Flyknit.Core/Scheduling/ScheduledTaskStore.cs`）。
+
 ## 客户端与 Web 界面的通信
 
 WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消息，宿主通过 `PostWebMessageAsJson` 推送事件。消息格式：
@@ -159,7 +188,7 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 { "type": "chat.send", "id": "req-1", "payload": { "conversationId": "...", "text": "..." } }
 ```
 
-宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`。
+宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`。
 
 完整列表见 `client/web/src/bridge.ts` 与 `client/src/Flyknit.Client/Bridge/WebBridge.cs`，两边需保持一致。
 
@@ -178,7 +207,7 @@ v0.4 给 `audit_logs` 加 `scene` 时踩过这个坑，老库升级上来后审�
 %APPDATA%\Flyknit\
 ├─ settings.json      服务器地址、设备 Token、界面语言、工作区、权限默认值
 ├─ approvals.json     已记住的命令授权
-├─ data\history.db    会话与消息（含摘要、模型与 token 用量）、本机安全记录
+├─ data\history.db    会话与消息（含摘要、模型与 token 用量）、本机安全记录、定时任务
 ├─ memory\
 │  ├─ agent.md / soul.md / role.md   行为准则、语气、用户身份
 │  ├─ memory.md       偏好与习惯、常用信息

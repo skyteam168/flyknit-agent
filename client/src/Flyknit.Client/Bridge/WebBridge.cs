@@ -47,6 +47,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
         _settings = settings;
         _window = window;
         _web.WebMessageReceived += OnMessage;
+        _host.AttachUi(this, this);
+        _host.Scheduler.Changed += () => Post(new { type = "schedules.changed" });
         _host.StatusChanged += () => Post(new
         {
             type = "app.status",
@@ -336,6 +338,56 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 _settings.DefaultPermission = Str("permission") == "readonly" ? "readonly" : "workspace";
                 _settings.Save();
                 return null;
+
+            case "schedules.list":
+                return await Task.Run(() => _host.Store.Schedules.List().Select(ScheduleDto).ToList());
+
+            case "schedules.save":
+            {
+                var id = Str("id");
+                var task = id.Length > 0 ? _host.Store.Schedules.Get(id) : null;
+                task ??= new Flyknit.Core.Scheduling.ScheduledTask();
+                task.Name = Str("name");
+                task.Instructions = Str("instructions");
+                task.Schedule = ParseSchedule(p);
+                task.Workspace = OptStr("workspace");
+                task.Permission = Flyknit.Core.Security.PermissionModes.Parse(Str("permission"));
+                task.ModelId = Int("modelId");
+                task.CatchUp = !p.TryGetProperty("catchUp", out var cu) || cu.ValueKind != JsonValueKind.False;
+                if (p.TryGetProperty("enabled", out var en))
+                {
+                    task.Enabled = en.ValueKind != JsonValueKind.False;
+                }
+                _host.Store.Schedules.Reschedule(task, DateTimeOffset.Now);
+                return ScheduleDto(task);
+            }
+
+            case "schedules.setEnabled":
+            {
+                var task = _host.Store.Schedules.Get(Str("id"));
+                if (task is null)
+                {
+                    return null;
+                }
+                task.Enabled = Bool("enabled");
+                _host.Store.Schedules.Reschedule(task, DateTimeOffset.Now);
+                return ScheduleDto(task);
+            }
+
+            case "schedules.delete":
+                _host.Store.Schedules.Delete(Str("id"));
+                return null;
+
+            case "schedules.run":
+            {
+                var task = _host.Store.Schedules.Get(Str("id"));
+                if (task is null)
+                {
+                    return new { ok = false, message = "任务不存在" };
+                }
+                var (ok, message) = await _host.Scheduler.RunAsync(task, DateTimeOffset.Now, manual: true);
+                return new { ok, message, conversationId = task.LastConversationId };
+            }
 
             case "usage.stats":
             {
@@ -686,6 +738,46 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             default:
                 throw new NotSupportedException($"未知方法：{method}");
         }
+    }
+
+    private static object ScheduleDto(Flyknit.Core.Scheduling.ScheduledTask t) => new
+    {
+        id = t.Id,
+        name = t.Name,
+        instructions = t.Instructions,
+        kind = t.Schedule.Kind.ToString().ToLowerInvariant(),
+        hour = t.Schedule.Hour,
+        minute = t.Schedule.Minute,
+        weekday = (int)t.Schedule.Weekday,
+        dayOfMonth = t.Schedule.DayOfMonth,
+        at = t.Schedule.At?.ToString("O"),
+        enabled = t.Enabled,
+        workspace = t.Workspace,
+        permission = Flyknit.Core.Security.PermissionModes.ToText(t.Permission),
+        modelId = t.ModelId,
+        catchUp = t.CatchUp,
+        nextRunAt = t.NextRunAt?.ToString("O"),
+        lastRunAt = t.LastRunAt?.ToString("O"),
+        lastStatus = t.LastStatus,
+        lastSummary = t.LastSummary,
+        lastConversationId = t.LastConversationId,
+        runCount = t.RunCount,
+    };
+
+    private static Flyknit.Core.Scheduling.ScheduleSpec ParseSchedule(JsonElement p)
+    {
+        string S(string n) => p.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        int I(string n, int fallback) => p.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : fallback;
+        var kind = Enum.TryParse<Flyknit.Core.Scheduling.ScheduleKind>(S("kind"), ignoreCase: true, out var k)
+            ? k
+            : Flyknit.Core.Scheduling.ScheduleKind.Manual;
+        return new Flyknit.Core.Scheduling.ScheduleSpec(
+            kind,
+            I("hour", 9),
+            I("minute", 0),
+            (DayOfWeek)Math.Clamp(I("weekday", 1), 0, 6),
+            I("dayOfMonth", 1),
+            DateTimeOffset.TryParse(S("at"), out var at) ? at : null);
     }
 
     private object SkillList() => _host.Skills.Skills.Select(s => new

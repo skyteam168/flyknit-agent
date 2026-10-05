@@ -52,6 +52,20 @@ public sealed class AgentHost : IDisposable
     private readonly RecordingAuditSink _auditSink;
     public ApprovalStore Approvals { get; }
     public EpisodeStore Episodes { get; }
+    public TaskScheduler Scheduler { get; }
+
+    /// <summary>界面就绪后由 WebBridge 挂上，定时任务用它推送事件和请求确认。</summary>
+    public IHostEvents? Events { get; private set; }
+    public IConfirmationHandler? Confirm { get; private set; }
+
+    public string UiLanguage => _settings.ResolveUiLanguage();
+
+    /// <summary>界面（WebBridge）准备好之后调用一次。</summary>
+    public void AttachUi(IHostEvents events, IConfirmationHandler confirm)
+    {
+        Events = events;
+        Confirm = confirm;
+    }
 
     /// <summary>复盘沉淀出的技能放在个人技能目录下的 learned 子目录。</summary>
     public static string LearnedSkills => AppPaths.LearnedSkills;
@@ -89,6 +103,8 @@ public sealed class AgentHost : IDisposable
         _auditSink = new RecordingAuditSink(Audit, Store);
         Approvals = new ApprovalStore(AppPaths.Approvals);
         Episodes = new EpisodeStore(AppPaths.Memory);
+        Scheduler = new TaskScheduler(this);
+        RunFinished += Scheduler.OnRunFinished;
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -104,6 +120,7 @@ public sealed class AgentHost : IDisposable
         Skills.StartWatching();
         await Task.Run(() => Store.PurgeExpired());
         await RefreshConfigAsync();
+        Scheduler.Start();
     }
 
     /// <summary>从服务端拉取策略与模型信息，失败时 1 分钟后重试，成功后每 10 分钟刷新。</summary>
@@ -511,6 +528,7 @@ public sealed class AgentHost : IDisposable
             cts.Cancel();
         }
         _configTimer.Dispose();
+        Scheduler.Dispose();
         Skills.Dispose();
         Audit.FlushAsync().Wait(TimeSpan.FromSeconds(3));
         Audit.Dispose();

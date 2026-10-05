@@ -81,6 +81,28 @@ export function createMockHost(): HostTransport {
     { name: 'pdf-toolkit', description: 'PDF 合并、拆分、提取文字和表格', version: '2.0.1', author: 'community', origin: 'https://github.com/acme/agent-skills', size: 64000, required: false, installed: false, updatable: false },
     { name: 'erp-install', description: '在新电脑上安装并配置 ERP 客户端', version: '1.0.0', author: 'IT', origin: '上传：erp-install.zip', size: 24000, required: false, installed: false, updatable: false },
   ]
+  let schedules: any[] = [
+    {
+      id: 's1', name: '整理日报', instructions: '把 D:\\日报 里的 Excel 文件按月份归档到对应的子文件夹，完成后告诉我整理了多少个文件。',
+      kind: 'weekdays', hour: 8, minute: 30, weekday: 1, dayOfMonth: 1, at: null, enabled: true,
+      workspace: null, permission: 'workspace', modelId: null, catchUp: true,
+      nextRunAt: new Date(Date.now() + 9 * 3600000).toISOString(), lastRunAt: new Date(Date.now() - 15 * 3600000).toISOString(),
+      lastStatus: 'ok', lastSummary: '已整理 34 个文件', lastConversationId: null, runCount: 12,
+    },
+    {
+      id: 's2', name: '生成质检周报', instructions: '汇总本周的质检数据，按车间做成 Excel 周报，保存到 D:\\报表，文件名带上日期。',
+      kind: 'weekly', hour: 16, minute: 0, weekday: 5, dayOfMonth: 1, at: null, enabled: true,
+      workspace: null, permission: 'workspace', modelId: null, catchUp: true,
+      nextRunAt: new Date(Date.now() + 3 * 86400000).toISOString(), lastRunAt: new Date(Date.now() - 4 * 86400000).toISOString(),
+      lastStatus: 'failed', lastSummary: '读取 9月.xls 失败：旧格式需要先另存为 .xlsx', lastConversationId: null, runCount: 3,
+    },
+    {
+      id: 's3', name: '清理临时文件', instructions: '检查工作区里超过 30 天没有改动的临时文件，列出清单让我确认后再删除。',
+      kind: 'monthly', hour: 9, minute: 0, weekday: 1, dayOfMonth: 1, at: null, enabled: false,
+      workspace: null, permission: 'readonly', modelId: null, catchUp: false,
+      nextRunAt: null, lastRunAt: null, lastStatus: '', lastSummary: '', lastConversationId: null, runCount: 0,
+    },
+  ]
   const approvals: { key: string; tool: string; display: string; approvedAt: string; lastUsedAt: string; uses: number }[] = []
 
   const seed = (title: string, mode: Mode, daysAgo: number, pinned = false) => {
@@ -301,6 +323,31 @@ export function createMockHost(): HostTransport {
           notifications: true,
           maximized,
         }
+      case 'schedules.list':
+        return schedules
+      case 'schedules.save': {
+        const existing = schedules.find((x: any) => x.id === p.id)
+        const task = existing ?? { id: uid(), lastRunAt: null, lastStatus: '', lastSummary: '', lastConversationId: null, runCount: 0 }
+        Object.assign(task, p, { nextRunAt: new Date(Date.now() + 3600000).toISOString() })
+        if (!existing) schedules.push(task)
+        return task
+      }
+      case 'schedules.setEnabled': {
+        const task = schedules.find((x: any) => x.id === p.id)
+        if (task) task.enabled = p.enabled
+        return task ?? null
+      }
+      case 'schedules.delete':
+        schedules = schedules.filter((x: any) => x.id !== p.id)
+        return
+      case 'schedules.run': {
+        const task = schedules.find((x: any) => x.id === p.id)
+        if (task) {
+          task.lastStatus = 'running'
+          task.runCount++
+        }
+        return { ok: true, message: '', conversationId: null }
+      }
       case 'usage.stats':
         await sleep(300)
         return {

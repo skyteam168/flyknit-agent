@@ -11,6 +11,7 @@ import type {
   ModelInfo,
   Permission,
   PlanItem,
+  ScheduledTask,
   SkillInfo,
   Theme,
   ToolActivity,
@@ -49,6 +50,8 @@ export const state = reactive({
   workspaces: [] as WorkspaceInfo[],
   memoryOpen: false,
   usageOpen: false,
+  schedulesOpen: false,
+  schedules: [] as ScheduledTask[],
   maximized: false,
 })
 
@@ -110,6 +113,14 @@ export async function loadModels(refresh = false) {
     state.models = await bridge.listModels(refresh)
     // 默认模型已被管理员停用时回到自动
     if (draftMode.modelId !== null && !state.models.some((m) => m.id === draftMode.modelId)) draftMode.modelId = null
+  } catch (e) {
+    fail(e)
+  }
+}
+
+export async function loadSchedules() {
+  try {
+    state.schedules = await bridge.listSchedules()
   } catch (e) {
     fail(e)
   }
@@ -652,6 +663,10 @@ function onHostEvent(e: HostEvent) {
     case 'skills.changed':
       // 技能目录被安装、卸载或手动改动，重新注册后刷新界面
       void loadSkills()
+      break
+    case 'schedules.changed':
+      // 定时任务到点运行、状态变化
+      if (state.schedulesOpen) void loadSchedules()
       break
     case 'app.focusInput':
       window.dispatchEvent(new CustomEvent('flyknit:focus-input'))

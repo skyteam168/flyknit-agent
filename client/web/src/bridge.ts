@@ -16,6 +16,7 @@ import type {
   SkillActionResult,
   SkillInspection,
   SkillInstallOutcome,
+  ScheduledTask,
   SecurityEvent,
   UsageStats,
   Permission,
@@ -177,6 +178,13 @@ class Bridge {
   removeWorkspace = (path: string) => this.call<WorkspaceInfo[]>('workspaces.remove', { path })
   setDefaultWorkspace = (path: string | null) => this.call<void>('settings.setDefaultWorkspace', { path })
   setDefaultPermission = (permission: Permission) => this.call<void>('settings.setDefaultPermission', { permission })
+  // ---------- 定时任务 ----------
+  listSchedules = () => this.call<ScheduledTask[]>('schedules.list')
+  saveSchedule = (task: Partial<ScheduledTask>) => this.call<ScheduledTask>('schedules.save', task as Record<string, unknown>)
+  setScheduleEnabled = (id: string, enabled: boolean) => this.call<ScheduledTask | null>('schedules.setEnabled', { id, enabled })
+  deleteSchedule = (id: string) => this.call<void>('schedules.delete', { id })
+  runSchedule = (id: string) => this.call<{ ok: boolean; message: string; conversationId: string | null }>('schedules.run', { id })
+
   usageStats = () => this.call<UsageStats>('usage.stats')
   securityEvents = (decision = '') => this.call<SecurityEvent[]>('security.list', { decision })
   clearSecurityEvents = () => this.call<void>('security.clear')
