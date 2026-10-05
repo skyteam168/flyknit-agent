@@ -12,7 +12,7 @@ namespace Flyknit.Client.Services;
 /// 定时任务调度：每 30 秒检查一次，到点的任务新建一个会话自动执行。
 /// 调度跑在客户端，因为任务要操作这台电脑的文件和命令；程序在托盘里即可，不需要开着窗口。
 /// </summary>
-public sealed class TaskScheduler : IDisposable
+public sealed class ScheduleRunner : IDisposable
 {
     /// <summary>错过超过这个时间就不补跑了，避免早上开机一次性跑一堆。</summary>
     public static readonly TimeSpan CatchUpWindow = TimeSpan.FromHours(12);
@@ -29,7 +29,7 @@ public sealed class TaskScheduler : IDisposable
     /// <summary>任务列表有变化（界面刷新用）。</summary>
     public event Action? Changed;
 
-    public TaskScheduler(AgentHost host)
+    public ScheduleRunner(AgentHost host)
     {
         _host = host;
         _timer = new Timer(_ => _ = TickAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);

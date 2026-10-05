@@ -52,7 +52,7 @@ public sealed class AgentHost : IDisposable
     private readonly RecordingAuditSink _auditSink;
     public ApprovalStore Approvals { get; }
     public EpisodeStore Episodes { get; }
-    public TaskScheduler Scheduler { get; }
+    public ScheduleRunner Scheduler { get; }
 
     /// <summary>界面就绪后由 WebBridge 挂上，定时任务用它推送事件和请求确认。</summary>
     public IHostEvents? Events { get; private set; }
@@ -103,7 +103,7 @@ public sealed class AgentHost : IDisposable
         _auditSink = new RecordingAuditSink(Audit, Store);
         Approvals = new ApprovalStore(AppPaths.Approvals);
         Episodes = new EpisodeStore(AppPaths.Memory);
-        Scheduler = new TaskScheduler(this);
+        Scheduler = new ScheduleRunner(this);
         RunFinished += Scheduler.OnRunFinished;
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }

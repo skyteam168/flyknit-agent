@@ -162,7 +162,7 @@ skill-name/
 **频率**（`Flyknit.Core/Scheduling/ScheduleSpec.cs`）：手动、每小时、每天、每个工作日（周一到周五）、每周、每月、仅一次。
 按本机本地时间算；工厂都在同一个时区，不处理夏令时。每月 31 号这种在小月自动落到当月最后一天。
 
-**调度**（`Flyknit.Client/Services/TaskScheduler.cs`）：
+**调度**（`Flyknit.Client/Services/ScheduleRunner.cs`）：
 
 - 启动 10 秒后开始，之后每 30 秒查一次到点的任务，串行执行，不会并发压住机器
 - **先排下次时间再运行**，所以某一次失败或程序崩了也不会反复触发同一次
