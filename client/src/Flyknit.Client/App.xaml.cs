@@ -96,8 +96,7 @@ public partial class App : Application
 
         // 先创建主窗口（初始化 WebView2）再隐藏，之后点击悬浮球可以秒开
         _main.Loaded += (_, _) => HookBridge();
-        _main.Show();
-        _main.Hide();
+        _main.Prewarm();
 
         await _host.InitializeAsync();
 

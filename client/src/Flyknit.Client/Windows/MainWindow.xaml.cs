@@ -28,7 +28,7 @@ public partial class MainWindow : Window, IWindowActions
     public MainWindow(AgentHost host, AppSettings settings)
     {
         InitializeComponent();
-        Web.DefaultBackgroundColor = System.Drawing.Color.FromArgb(0xF4, 0xF6, 0xF9);
+        Web.DefaultBackgroundColor = System.Drawing.Color.White;
         _host = host;
         _settings = settings;
         Width = Math.Max(MinWidth, settings.WindowWidth);
@@ -61,8 +61,11 @@ public partial class MainWindow : Window, IWindowActions
     {
         try
         {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
             var env = await CoreWebView2Environment.CreateAsync(null, AppPaths.WebViewData);
+            Log.Info($"WebView2 环境就绪，耗时 {watch.ElapsedMilliseconds} ms（运行时 {env.BrowserVersionString}）");
             await Web.EnsureCoreWebView2Async(env);
+            Log.Info($"WebView2 控件就绪，累计 {watch.ElapsedMilliseconds} ms");
         }
         catch (WebView2RuntimeNotFoundException)
         {
@@ -105,6 +108,7 @@ public partial class MainWindow : Window, IWindowActions
 
         core.NavigationCompleted += (_, e) =>
         {
+            _pageReady.TrySetResult(e.IsSuccess);
             Log.Info($"页面加载完成：成功={e.IsSuccess} 状态={e.WebErrorStatus} HTTP={e.HttpStatusCode}");
             if (!e.IsSuccess)
             {
@@ -139,6 +143,48 @@ public partial class MainWindow : Window, IWindowActions
         Web.Source = new Uri($"https://{VirtualHost}/index.html?v={version}");
     }
 
+    private readonly System.Threading.Tasks.TaskCompletionSource<bool> _pageReady = new();
+    private bool _prewarming;
+    private double _savedLeft, _savedTop;
+
+    /// <summary>
+    /// 启动时在屏幕外预先加载界面（WebView2 在隐藏窗口里不会渲染），
+    /// 加载完成后再隐藏，之后点悬浮球就能立刻显示，不会白屏。
+    /// </summary>
+    public async void Prewarm()
+    {
+        _prewarming = true;
+        _savedLeft = Left;
+        _savedTop = Top;
+        ShowActivated = false;
+        ShowInTaskbar = false;
+        Left = -32000;
+        Top = -32000;
+        Show();
+        var done = await System.Threading.Tasks.Task.WhenAny(_pageReady.Task, System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(30)));
+        if (done == _pageReady.Task)
+        {
+            await System.Threading.Tasks.Task.Delay(800); // 等页面完成首次渲染
+        }
+        if (_prewarming)
+        {
+            EndPrewarm(visible: false);
+        }
+    }
+
+    private void EndPrewarm(bool visible)
+    {
+        _prewarming = false;
+        if (!visible)
+        {
+            Hide();
+        }
+        Left = _savedLeft;
+        Top = _savedTop;
+        ShowActivated = true;
+        ShowInTaskbar = true;
+    }
+
     private void ShowError(string message)
     {
         ErrorText.Text = message + "\n\n日志：" + AppPaths.Logs;
@@ -164,6 +210,11 @@ public partial class MainWindow : Window, IWindowActions
 
     public void ShowAndFocus()
     {
+        if (_prewarming)
+        {
+            // 预加载还没结束时用户就点了悬浮球：直接把窗口移回屏幕内显示
+            EndPrewarm(visible: true);
+        }
         if (!IsVisible)
         {
             Show();
@@ -183,7 +234,7 @@ public partial class MainWindow : Window, IWindowActions
     /// </summary>
     public void Toggle()
     {
-        if (IsVisible && WindowState != WindowState.Minimized)
+        if (!_prewarming && IsVisible && WindowState != WindowState.Minimized)
         {
             HideMain();
         }
