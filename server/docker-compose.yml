@@ -1,0 +1,24 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flyknit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flyknit}
+      POSTGRES_DB: flyknit
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  server:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FLYKNIT_DATABASE_URL: postgresql+asyncpg://flyknit:${POSTGRES_PASSWORD:-flyknit}@db:5432/flyknit
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+volumes:
+  pgdata:

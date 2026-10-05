@@ -1,0 +1,161 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Flyknit.Core.Memory;
+using Flyknit.Core.Security;
+using Flyknit.Core.Skills;
+
+namespace Flyknit.Core.Tools;
+
+public sealed record ToolResult(bool Ok, string Output)
+{
+    public const int DefaultMaxChars = 12000;
+
+    public static ToolResult Success(string output) => new(true, output);
+    public static ToolResult Fail(string error) => new(false, error);
+
+    /// <summary>截断过长的输出，避免撑爆模型上下文。</summary>
+    public ToolResult Truncate(int maxChars = DefaultMaxChars)
+    {
+        if (Output.Length <= maxChars)
+        {
+            return this;
+        }
+        var head = Output[..(maxChars * 2 / 3)];
+        var tail = Output[^(maxChars / 3)..];
+        return this with { Output = $"{head}\n\n…（已省略 {Output.Length - maxChars} 个字符）…\n\n{tail}" };
+    }
+}
+
+public sealed record PlanItem(string Step, string Status);
+
+/// <summary>删除文件的方式。Windows 客户端实现为移入回收站。</summary>
+public interface IFileDeleter
+{
+    void Delete(string path);
+}
+
+public sealed class PermanentDeleter : IFileDeleter
+{
+    public void Delete(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+        }
+        else
+        {
+            File.Delete(path);
+        }
+    }
+}
+
+/// <summary>工具执行时可用的上下文。</summary>
+public sealed class ToolContext
+{
+    public required CommandPolicy Policy { get; init; }
+    public required string ConversationId { get; init; }
+    public string WorkingDirectory { get; init; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    public MemoryStore? Memory { get; init; }
+    public SkillCatalog? Skills { get; init; }
+    public IFileDeleter Deleter { get; init; } = new PermanentDeleter();
+
+    /// <summary>update_plan 工具写入的计划，Agent 循环会把变化通知界面。</summary>
+    public List<PlanItem> Plan { get; } = new();
+
+    public event Action<IReadOnlyList<PlanItem>>? PlanChanged;
+
+    internal void RaisePlanChanged() => PlanChanged?.Invoke(Plan.ToList());
+
+    public string ResolvePath(string path)
+    {
+        var expanded = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
+        return Path.GetFullPath(Path.IsPathRooted(expanded) ? expanded : Path.Combine(WorkingDirectory, expanded));
+    }
+}
+
+public interface ITool
+{
+    /// <summary>工具名，模型通过它调用。</summary>
+    string Name { get; }
+
+    /// <summary>给模型看的说明。</summary>
+    string Description { get; }
+
+    /// <summary>参数的 JSON Schema。</summary>
+    JsonObject Parameters { get; }
+
+    /// <summary>根据参数评估风险等级。</summary>
+    PolicyDecision Assess(JsonElement args, ToolContext ctx);
+
+    /// <summary>给用户看的一句话描述，用于确认卡片。</summary>
+    string Describe(JsonElement args);
+
+    Task<ToolResult> ExecuteAsync(JsonElement args, ToolContext ctx, CancellationToken ct);
+}
+
+public static class ToolArgs
+{
+    public static string Str(this JsonElement args, string name, string fallback = "")
+    {
+        return args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v)
+            ? v.ValueKind == JsonValueKind.String ? v.GetString() ?? fallback : v.ToString()
+            : fallback;
+    }
+
+    public static string Required(this JsonElement args, string name)
+    {
+        var value = args.Str(name);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"缺少参数 {name}");
+        }
+        return value;
+    }
+
+    public static int Int(this JsonElement args, string name, int fallback)
+    {
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v))
+        {
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n))
+            {
+                return n;
+            }
+            if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out n))
+            {
+                return n;
+            }
+        }
+        return fallback;
+    }
+
+    public static bool Bool(this JsonElement args, string name, bool fallback)
+    {
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v))
+        {
+            return v.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.String => bool.TryParse(v.GetString(), out var b) ? b : fallback,
+                _ => fallback,
+            };
+        }
+        return fallback;
+    }
+
+    /// <summary>构造 JSON Schema 的简便方法。</summary>
+    public static JsonObject Schema(params (string Name, string Type, string Description, bool Required)[] props)
+    {
+        var properties = new JsonObject();
+        var required = new JsonArray();
+        foreach (var p in props)
+        {
+            properties[p.Name] = new JsonObject { ["type"] = p.Type, ["description"] = p.Description };
+            if (p.Required)
+            {
+                required.Add(p.Name);
+            }
+        }
+        return new JsonObject { ["type"] = "object", ["properties"] = properties, ["required"] = required };
+    }
+}

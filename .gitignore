@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.db
+.env
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+# Node
+node_modules/
+dist/
+client/src/Flyknit.Client/wwwroot/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
