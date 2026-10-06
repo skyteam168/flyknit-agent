@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Archive, Brain, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
+import { Activity, Archive, Brain, Info, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { renderMarkdown } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
-import { current, currentState, editAndResend, regenerate, setFeedback, state } from '../store'
+import { current, currentState, editAndResend, openTrace, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 import OutputFiles from './OutputFiles.vue'
@@ -39,6 +39,16 @@ const busy = computed(() => s.value?.busy ?? false)
 /** 一轮回答的最终消息（有内容、没有工具调用）才显示复制、评价按钮 */
 // 把回答里的 mermaid / dot / chart 代码块画出来；内容变了就重画
 useRichBlocks(scroller, () => [visible.value.map((m) => m.id + m.content.length).join(), s.value?.draft?.content?.length ?? 0])
+
+/** 链路芯片上只显示总耗时，细节在弹窗里 */
+function traceSeconds(json: string | null | undefined): string {
+  try {
+    const ms = (JSON.parse(json ?? '{}') as { durationMs?: number }).durationMs ?? 0
+    return ms >= 1000 ? (ms / 1000).toFixed(1) : '0.' + Math.round(ms / 100)
+  } catch {
+    return '0'
+  }
+}
 
 const isAnswer = (m: UiMessage) => m.role === 'assistant' && !!m.content.trim() && !(m.toolCalls?.length)
 /** 最后一条回答：显示“重新生成”，并且按钮常驻显示 */
@@ -268,6 +278,16 @@ const isImage = (mime: string) => mime.startsWith('image/')
             >
               <RefreshCw :size="15" />
             </button>
+            <button
+              v-if="m.trace"
+              type="button"
+              class="usage trace-chip"
+              :title="t('ui.trace.open')"
+              @click.stop="openTrace(m.trace)"
+            >
+              <Activity :size="13" />
+              <span>{{ t('ui.trace.chip', { s: traceSeconds(m.trace) }) }}</span>
+            </button>
             <template v-for="u in [turnUsage(m)]" :key="'u' + m.id">
               <span v-if="u" class="usage" :title="u.total ? usageTitle(u) : u.model">
                 <Cpu :size="13" />
@@ -293,6 +313,11 @@ const isImage = (mime: string) => mime.startsWith('image/')
         <div v-if="s.draft?.content" class="md" v-html="renderMarkdown(s.draft.content)" />
         <div v-else-if="!s.draft?.reasoning && orphanTools.length === 0 && !waiting" class="dots" aria-label="…"><i /><i /><i /></div>
         <ToolCard v-for="tool in orphanTools" :key="tool.callId" :tool="tool" :conversation-id="current!.id" />
+      </div>
+
+      <div v-for="n in s.notices" :key="n" class="notice run-notice">
+        <Info :size="15" />
+        <span>{{ n }}</span>
       </div>
 
       <div v-if="s.notice" class="notice" :class="s.notice.kind">
@@ -596,6 +621,15 @@ const isImage = (mime: string) => mime.startsWith('image/')
   font-size: 0.88em;
 }
 /* mermaid / dot / chart 渲染出来的块 */
+.trace-chip {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.trace-chip:hover {
+  color: var(--accent);
+}
 .md :deep(pre.rich-block) {
   display: grid;
   place-items: center;

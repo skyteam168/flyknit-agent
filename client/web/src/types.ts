@@ -114,6 +114,36 @@ export interface PreviewDoc {
   sections: PreviewSection[]
 }
 
+export interface TraceStep {
+  index: number
+  /** model / tool / compact */
+  kind: string
+  name: string
+  summary: string
+  /** ok / error / blocked / stopped / skipped */
+  status: string
+  startedAt: string
+  durationMs: number
+  promptTokens: number
+  completionTokens: number
+}
+
+/** 一次任务的执行链路 */
+export interface TraceInfo {
+  id: string
+  startedAt: string
+  durationMs: number
+  stopReason: string
+  steps: number
+  modelCalls: number
+  toolCalls: number
+  errors: number
+  promptTokens: number
+  completionTokens: number
+  slowest: string | null
+  items: TraceStep[]
+}
+
 export interface ModelInfo {
   id: number
   name: string
@@ -285,6 +315,8 @@ export interface UiMessage {
   completionTokens?: number | null
   /** 这条回答产出的文件 */
   outputs?: OutputFile[] | null
+  /** 这一轮的执行链路（JSON 字符串） */
+  trace?: string | null
 }
 
 export interface PlanItem {
@@ -357,6 +389,7 @@ export type HostEvent =
   | { type: 'tool.finished'; conversationId: string; callId: string; ok: boolean; output: string; decision: string }
   | { type: 'plan.updated'; conversationId: string; plan: PlanItem[] }
   | { type: 'files.produced'; conversationId: string; files: OutputFile[] }
+  | { type: 'chat.notice'; conversationId: string; text: string }
   | {
       type: 'context.compacting'
       conversationId: string

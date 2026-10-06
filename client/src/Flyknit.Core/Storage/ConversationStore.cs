@@ -136,6 +136,7 @@ public sealed class ConversationStore
         AddColumn(c, "messages", "prompt_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "outputs", "TEXT NULL");
+        AddColumn(c, "messages", "trace", "TEXT NULL");
 
         // v0.5：安全记录（危险命令拦截与放行）
         using var sec = c.CreateCommand();
@@ -396,8 +397,8 @@ public sealed class ConversationStore
             using var cmd = c.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO messages (id, conversation_id, seq, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, model, prompt_tokens, completion_tokens, outputs)
-                VALUES ($id, $conv, $seq, $role, $content, $reasoning, $calls, $callId, $toolName, $attachments, $created, $model, $pt, $ct, $outputs)
+                INSERT INTO messages (id, conversation_id, seq, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, model, prompt_tokens, completion_tokens, outputs, trace)
+                VALUES ($id, $conv, $seq, $role, $content, $reasoning, $calls, $callId, $toolName, $attachments, $created, $model, $pt, $ct, $outputs, $trace)
                 """;
             cmd.Parameters.AddWithValue("$id", m.Id);
             cmd.Parameters.AddWithValue("$conv", conversationId);
@@ -411,6 +412,7 @@ public sealed class ConversationStore
             cmd.Parameters.AddWithValue("$attachments", m.Attachments.Count > 0 ? JsonSerializer.Serialize(m.Attachments, Json) : DBNull.Value);
             cmd.Parameters.AddWithValue("$created", m.CreatedAt.ToString("O"));
             cmd.Parameters.AddWithValue("$outputs", m.Outputs.Count > 0 ? JsonSerializer.Serialize(m.Outputs, Json) : DBNull.Value);
+            cmd.Parameters.AddWithValue("$trace", (object?)m.TraceJson ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$model", (object?)m.ModelName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$pt", (object?)m.PromptTokens ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$ct", (object?)m.CompletionTokens ?? DBNull.Value);
@@ -433,7 +435,7 @@ public sealed class ConversationStore
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
             SELECT id, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, feedback,
-                   model, prompt_tokens, completion_tokens, outputs
+                   model, prompt_tokens, completion_tokens, outputs, trace
             FROM messages WHERE conversation_id = $id ORDER BY seq
             """;
         cmd.Parameters.AddWithValue("$id", conversationId);
@@ -457,6 +459,7 @@ public sealed class ConversationStore
                 PromptTokens = r.IsDBNull(11) ? null : (int)r.GetInt64(11),
                 CompletionTokens = r.IsDBNull(12) ? null : (int)r.GetInt64(12),
                 Outputs = r.IsDBNull(13) ? new() : JsonSerializer.Deserialize<List<string>>(r.GetString(13), Json) ?? new(),
+                TraceJson = r.IsDBNull(14) ? null : r.GetString(14),
             });
         }
         return list;

@@ -14,6 +14,7 @@ import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
 import PlanPanel from './components/PlanPanel.vue'
 import PreviewPane from './components/PreviewPane.vue'
+import TraceDialog from './components/TraceDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import { addFiles, current, currentState, init, newConversation, state } from './store'
 
@@ -131,6 +132,7 @@ onBeforeUnmount(() => {
       <div><FilePlus2 :size="30" /><span>{{ t('input.drop') }}</span></div>
     </div>
 
+    <TraceDialog v-if="state.trace" />
     <SettingsDialog v-if="state.settingsOpen" />
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />
     <MemoryDialog v-if="state.memoryOpen" />

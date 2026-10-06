@@ -47,6 +47,7 @@ public sealed class AgentLoop
         Context.ContextManager? context = null)
     {
         var newMessages = new List<ChatMessage>();
+        var trace = new Trace(ctx.ConversationId);
         var tools = useTools ? _tools.ToOpenAiTools() : null;
         var failures = 0;
         string? modelName = null;
@@ -65,16 +66,23 @@ public sealed class AgentLoop
                 }
 
                 ChatTurn turn;
+                using var modelStep = trace.Begin("model", modelName ?? "", $"第 {step + 1} 轮");
                 try
                 {
                     if (context is not null)
                     {
                         // 短期记忆管理：上下文过长时裁剪旧工具输出或压缩为摘要
+                        using var compactStep = trace.Begin("compact", "context");
                         var info = await context.PrepareAsync(history, ct);
                         if (info is not null)
                         {
                             compaction = info;
+                            compactStep.Summary = $"压缩 {info.MessagesCompacted} 条，{info.TokensBefore} → {info.TokensAfter} tokens";
                             observer.OnContextCompacted(info);
+                        }
+                        else
+                        {
+                            compactStep.Status = "skipped";
                         }
                     }
                     turn = await _gateway.CompleteAsync(
@@ -84,9 +92,36 @@ public sealed class AgentLoop
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
+                    modelStep.Status = "stopped";
                     return Result(AgentStopReason.Cancelled);
                 }
+                catch (GatewayException ex) when (ContentFilter.IsBlocked(ex) && ContentFilter.Redact(history))
+                {
+                    modelStep.Status = "blocked";
+                    modelStep.Summary = "内容审核拦截，省略后重试";
+                    // 内容审核拦截：多半是刚读进来的文件里有触发词。
+                    // 把最近那段大的工具输出换成占位符再试一次，让任务能走下去，而不是整轮报废。
+                    observer.OnNotice(ContentFilter.RetryNotice);
+                    continue;
+                }
+                catch (GatewayException ex)
+                {
+                    modelStep.Status = "error";
+                    modelStep.Summary = ex.Message;
+                    // 模型服务出错：把原因作为一条回答留在对话里，已经做完的步骤照常保存
+                    var failure = ChatMessage.Assistant(ContentFilter.Explain(ex));
+                    Append(failure);
+                    observer.OnAssistantMessage(failure);
+                    return Result(AgentStopReason.Failed);
+                }
                 modelName ??= turn.ModelName;
+                modelStep.PromptTokens = turn.Usage?.PromptTokens ?? 0;
+                modelStep.CompletionTokens = turn.Usage?.CompletionTokens ?? 0;
+                modelStep.Summary = turn.ToolCalls.Count > 0
+                    ? $"决定调用 {string.Join("、", turn.ToolCalls.Select(c => c.Name))}"
+                    : "给出回答";
+                modelStep.Dispose(); // 这一轮的模型调用到此结束，后面是工具执行
+
                 context?.Observe(turn);
                 if (turn.Usage is { } u)
                 {
@@ -113,7 +148,7 @@ public sealed class AgentLoop
                         AppendTool(call, "用户已停止任务，未执行");
                         continue;
                     }
-                    var ok = await HandleCallAsync(call, turn.Content, ctx, observer, ct);
+                    var ok = await HandleCallAsync(call, turn.Content, ctx, observer, trace, ct);
                     failures = ok ? 0 : failures + 1;
                 }
 
@@ -136,6 +171,7 @@ public sealed class AgentLoop
         AgentRunResult Result(AgentStopReason reason) => new()
         {
             StopReason = reason,
+            Trace = trace,
             NewMessages = newMessages,
             ModelName = modelName,
             Usage = usage,
@@ -155,8 +191,9 @@ public sealed class AgentLoop
             observer.OnToolMessage(m);
         }
 
-        async Task<bool> HandleCallAsync(ToolCall call, string rationale, ToolContext context, IAgentObserver obs, CancellationToken token)
+        async Task<bool> HandleCallAsync(ToolCall call, string rationale, ToolContext context, IAgentObserver obs, Trace trace, CancellationToken token)
         {
+            using var step = trace.Begin("tool", call.Name);
             var tool = _tools.Get(call.Name);
             if (tool is null)
             {

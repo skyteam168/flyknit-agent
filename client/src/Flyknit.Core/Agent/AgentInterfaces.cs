@@ -65,6 +65,11 @@ public interface IAgentObserver : IStreamSink
     void OnOutputsProduced(IReadOnlyList<OutputFile> files)
     {
     }
+
+    /// <summary>运行中的一条提示（例如内容被审核拦截后省略重试），显示给用户但不算回答。</summary>
+    void OnNotice(string text)
+    {
+    }
 }
 
 public sealed class AgentOptions
@@ -83,11 +88,17 @@ public enum AgentStopReason
     MaxSteps,
     TooManyFailures,
     Cancelled,
+
+    /// <summary>模型服务返回错误（网络、鉴权、内容审核等），已经做完的部分照常保留。</summary>
+    Failed,
 }
 
 public sealed class AgentRunResult
 {
     public required AgentStopReason StopReason { get; init; }
+
+    /// <summary>本次运行的完整链路：每一步做了什么、花了多久、用了多少 token。</summary>
+    public Trace? Trace { get; init; }
 
     /// <summary>本次运行新产生的消息（assistant 与 tool），需要保存到会话。</summary>
     public required IReadOnlyList<ChatMessage> NewMessages { get; init; }

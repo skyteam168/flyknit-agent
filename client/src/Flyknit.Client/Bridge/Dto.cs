@@ -85,7 +85,8 @@ public sealed record MessageDto(
     string? ModelName,
     int? PromptTokens,
     int? CompletionTokens,
-    List<OutputFileDto>? Outputs)
+    List<OutputFileDto>? Outputs,
+    string? Trace)
 {
     public static MessageDto From(ChatMessage m) => new(
         m.Id,
@@ -101,7 +102,8 @@ public sealed record MessageDto(
         m.ModelName,
         m.PromptTokens,
         m.CompletionTokens,
-        m.Outputs.Count > 0 ? OutputFileDto.From(m.Outputs) : null);
+        m.Outputs.Count > 0 ? OutputFileDto.From(m.Outputs) : null,
+        m.TraceJson);
 }
 
 /// <summary>任务产出的一个文件，界面用它渲染「打开 / 在资源管理器中显示 / 预览」卡片。</summary>
@@ -180,5 +182,42 @@ public static class ToolDetail
         {
         }
         return "";
+    }
+}
+
+/// <summary>执行链路，存在回答上（messages.trace），界面点开能顺着看每一步。</summary>
+public static class TraceDto
+{
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    public static string Serialize(Flyknit.Core.Agent.Trace trace, string stopReason)
+    {
+        var s = trace.Summarize();
+        return JsonSerializer.Serialize(new
+        {
+            id = s.TraceId,
+            startedAt = s.StartedAt.ToString("O"),
+            durationMs = s.DurationMs,
+            stopReason,
+            steps = s.Steps,
+            modelCalls = s.ModelCalls,
+            toolCalls = s.ToolCalls,
+            errors = s.Errors,
+            promptTokens = s.PromptTokens,
+            completionTokens = s.CompletionTokens,
+            slowest = s.Slowest?.Name,
+            items = trace.Steps.Select(x => new
+            {
+                index = x.Index,
+                kind = x.Kind,
+                name = x.Name,
+                summary = x.Summary,
+                status = x.Status,
+                startedAt = x.StartedAt.ToString("O"),
+                durationMs = x.DurationMs,
+                promptTokens = x.PromptTokens,
+                completionTokens = x.CompletionTokens,
+            }).ToList(),
+        }, Json);
     }
 }

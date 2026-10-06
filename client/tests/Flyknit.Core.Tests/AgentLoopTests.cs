@@ -35,6 +35,39 @@ public class AgentLoopTests : IDisposable
         }
     }
 
+    /// <summary>在指定的第几次调用上抛错，用来验证模型服务出问题时整轮任务不会报废。</summary>
+    private sealed class FailingGateway : IChatGateway
+    {
+        private readonly Queue<ChatTurn> _turns;
+        private readonly HashSet<int> _failAt;
+        private readonly string _error;
+        public int Calls { get; private set; }
+        public List<List<ChatMessage>> Sent { get; } = new();
+
+        public FailingGateway(string error, int[] failAt, params ChatTurn[] turns)
+        {
+            _error = error;
+            _failAt = new HashSet<int>(failAt);
+            _turns = new Queue<ChatTurn>(turns);
+        }
+
+        public Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct)
+        {
+            Calls++;
+            Sent.Add(request.Messages.ToList());
+            if (_failAt.Contains(Calls))
+            {
+                throw new GatewayException(_error);
+            }
+            var turn = _turns.Count > 0 ? _turns.Dequeue() : new ChatTurn { Content = "完成" };
+            if (turn.Content.Length > 0)
+            {
+                sink?.OnContent(turn.Content);
+            }
+            return Task.FromResult(turn);
+        }
+    }
+
     private sealed class FixedConfirm : IConfirmationHandler
     {
         private readonly ConfirmChoice _choice;
@@ -222,6 +255,65 @@ public class AgentLoopTests : IDisposable
         Assert.Empty(confirm.Requests);
         Assert.Equal("blocked", audit.Entries[0].Decision);
         Assert.Contains("已被安全策略阻止", result.NewMessages[1].Content);
+    }
+
+    [Fact]
+    public async Task ModerationBlockRedactsTheToolOutputAndCarriesOn()
+    {
+        File.WriteAllText(Path.Combine(_dir, "质检.txt"), new string('甲', 800));
+        // 第 2 次调用（读完文件之后那次）被内容审核拦截
+        var gateway = new FailingGateway(
+            "Output data may contain inappropriate content.",
+            new[] { 2 },
+            Call("read_file", "{\"path\":\"质检.txt\"}"),
+            new ChatTurn { Content = "文件已读完，共 800 个字符。" });
+        var observer = new Observer();
+
+        var result = await new AgentLoop(gateway, ToolRegistry.CreateDefault(), new FixedConfirm(ConfirmChoice.AllowOnce))
+            .RunAsync(new List<ChatMessage> { ChatMessage.User("读一下质检.txt") }, Scenes.Agent, Context(), observer, true, CancellationToken.None);
+
+        // 整轮没有报废，而是省略那段内容后继续跑完
+        Assert.Equal(AgentStopReason.Completed, result.StopReason);
+        Assert.Equal(3, gateway.Calls);                       // 第 3 次是省略后的重试
+        Assert.Contains("文件已读完", result.NewMessages[^1].Content);
+
+        // 重试时送出去的上下文里，大段文件内容已被占位符替换
+        var retried = gateway.Sent[2];
+        Assert.Contains(retried, m => m.Role == ChatRole.Tool && m.Content == ContentFilter.Placeholder);
+        Assert.DoesNotContain(retried, m => m.Content.Contains(new string('甲', 100)));
+    }
+
+    [Fact]
+    public async Task WhenRedactingDoesNotHelpTheRunStopsWithAnExplanationInsteadOfDying()
+    {
+        // 每次都被拦截：换完也没用，应该停下来并把原因留在对话里
+        var gateway = new FailingGateway("Output data may contain inappropriate content.", new[] { 1, 2, 3, 4 });
+
+        var result = await new AgentLoop(gateway, ToolRegistry.CreateDefault(), new FixedConfirm(ConfirmChoice.AllowOnce))
+            .RunAsync(new List<ChatMessage> { ChatMessage.User("随便问点什么") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
+
+        Assert.Equal(AgentStopReason.Failed, result.StopReason);
+        var answer = Assert.Single(result.NewMessages);      // 失败说明也作为一条回答保存下来
+        Assert.Equal(ChatRole.Assistant, answer.Role);
+        Assert.Contains("内容审核", answer.Content);
+    }
+
+    [Fact]
+    public async Task OtherGatewayErrorsAlsoKeepTheWorkDoneSoFar()
+    {
+        File.WriteAllText(Path.Combine(_dir, "a.txt"), "一些内容");
+        var gateway = new FailingGateway(
+            "HTTP 503 服务暂时不可用",
+            new[] { 2 },
+            Call("read_file", "{\"path\":\"a.txt\"}"));
+
+        var result = await new AgentLoop(gateway, ToolRegistry.CreateDefault(), new FixedConfirm(ConfirmChoice.AllowOnce))
+            .RunAsync(new List<ChatMessage> { ChatMessage.User("读一下") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
+
+        Assert.Equal(AgentStopReason.Failed, result.StopReason);
+        // 读文件那一步的结果没有丢，下次用户接着聊时上下文还在
+        Assert.Contains(result.NewMessages, m => m.Role == ChatRole.Tool && m.Content.Contains("一些内容"));
+        Assert.Contains("503", result.NewMessages[^1].Content);
     }
 
     [Fact]

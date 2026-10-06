@@ -267,6 +267,46 @@ Excel 的空单元格在 XML 里会被省略，按 `A1`/`B1` 的列号补齐，�
 分屏宽度可拖拽（也支持键盘左右键），存在 localStorage 里，下次打开保持；最小 320px，最宽占窗口 72%。
 产出文件里第一个能预览的会自动打开分屏。
 
+## 执行链路（Trace）
+
+每次运行开一条 Trace（`Flyknit.Core/Agent/Trace.cs`），按顺序记下每一步：
+
+| 类型 | 记什么 |
+| --- | --- |
+| `model` | 第几轮、决定调用哪些工具还是直接回答、耗时、prompt / completion token |
+| `tool` | 工具名、操作摘要、结果状态（ok / error / blocked / rejected）、耗时 |
+| `compact` | 压缩了多少条、token 从多少降到多少、耗时 |
+
+链路存在那条回答上（`messages.trace`），重开会话还能查。界面上回答下方有个耗时芯片，
+点开是完整的步骤表：每步耗时画成长度条，最慢的一眼能看出来；出错和被拦截的步骤标红。
+一次任务最多记 500 步，长任务不会把内存和界面撑爆。
+
+这解决的是一个具体问题：用户说「结果不对」时，以前只能翻日志猜，
+现在顺着链路能直接区分**是模型判断错了，还是某个工具返回了不对的东西**——
+这两种情况的修法完全不同（改 Prompt vs 修工具 / 数据源）。
+
+汇总指标（`TraceSummary`）：步数、模型调用次数、工具调用次数、出错数、总 token、最慢的一步。
+
+## 内容审核拦截
+
+国内模型服务（百炼 / DashScope 等）在请求前后各过一道内容审核，命中直接返回
+`Input/Output data may contain inappropriate content.`。工厂场景里很容易误伤：
+质检记录、客诉邮件、设备故障描述都可能带上审核模型不喜欢的词，而文件内容本身完全正常。
+
+以前这种错误会一路抛到最外层——整轮任务报废、已做完的步骤不保存、用户只看到一句英文报错，
+重试还是同样结果（触发词还在上下文里）。
+
+现在（`Flyknit.Core/Agent/ContentFilter.cs`）：
+
+1. 识别出是内容审核拦截（中英文关键词都认）
+2. 把**最近一条足够大的工具输出**换成占位符，重试一次。替换时保留 `tool_call_id`，
+   否则下一轮请求会被模型服务判为非法
+3. 还不行就停下来，把原因作为一条回答留在对话里，**已经做完的步骤照常保存**
+4. 报错翻译成用户看得懂的话，并给出下一步怎么办（只提取需要的字段 / 换个模型）
+
+其他网关错误（401 / 429 / 5xx）走同一条路径：不再让整轮报废，而是以 `AgentStopReason.Failed`
+收尾，产出的消息、产出的文件、链路全部保留，用户可以直接接着聊。
+
 ## 客户端与 Web 界面的通信
 
 WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消息，宿主通过 `PostWebMessageAsJson` 推送事件。消息格式：
@@ -275,7 +315,7 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 { "type": "chat.send", "id": "req-1", "payload": { "conversationId": "...", "text": "..." } }
 ```
 
-宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`、`context.compacting`、`context.compacted`、`files.produced`。
+宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`、`context.compacting`、`context.compacted`、`files.produced`、`chat.notice`。
 
 完整列表见 `client/web/src/bridge.ts` 与 `client/src/Flyknit.Client/Bridge/WebBridge.cs`，两边需保持一致。
 
@@ -294,7 +334,7 @@ v0.4 给 `audit_logs` 加 `scene` 时踩过这个坑，老库升级上来后审�
 %APPDATA%\Flyknit\
 ├─ settings.json      服务器地址、设备 Token、界面语言、工作区、权限默认值
 ├─ approval-rules.json  自动执行规则（命令前缀 + 工作区）授权
-├─ data\history.db    会话与消息（含摘要、模型与 token 用量、产出文件）、本机安全记录、定时任务
+├─ data\history.db    会话与消息（含摘要、模型与 token 用量、产出文件、执行链路）、本机安全记录、定时任务
 ├─ memory\
 │  ├─ agent.md / soul.md / role.md   行为准则、语气、用户身份
 │  ├─ memory.md       偏好与习惯、常用信息

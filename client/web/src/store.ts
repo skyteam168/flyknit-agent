@@ -19,6 +19,7 @@ import type {
   UiMessage,
   OutputFile,
   PreviewDoc,
+  TraceInfo,
   UsageStats,
   WorkspaceInfo,
 } from './types'
@@ -31,7 +32,9 @@ interface ConversationState {
   draft: { content: string; reasoning: string } | null
   tools: Record<string, ToolActivity>
   plan: PlanItem[]
-  notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures'; text?: string } | null
+  notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'failed'; text?: string } | null
+  /** 运行过程中的一次性提示（例如内容被审核拦截后省略重试） */
+  notices: string[]
 }
 
 export const state = reactive({
@@ -68,7 +71,19 @@ export const state = reactive({
   previewWidth: readPreviewWidth(),
   /** 产出文件后自动打开分屏 */
   autoPreview: true,
+  /** 正在查看的执行链路 */
+  trace: null as TraceInfo | null,
 })
+
+/** 打开某条回答的执行链路。解析失败就当没有，不要因为一条坏数据让界面报错。 */
+export function openTrace(json: string | null | undefined) {
+  if (!json) return
+  try {
+    state.trace = JSON.parse(json) as TraceInfo
+  } catch {
+    toast(i18n.global.t('ui.trace.broken'))
+  }
+}
 
 const PreviewWidthKey = 'flyknit.previewWidth'
 export const MinPreviewWidth = 320
@@ -154,7 +169,7 @@ export const currentState = computed(() => (state.currentId ? convState(state.cu
 
 function convState(id: string): ConversationState {
   if (!state.byId[id]) {
-    state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null }
+    state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null, notices: [] }
   }
   return state.byId[id]
 }
@@ -499,6 +514,7 @@ export async function send(text: string) {
 function beginRun(s: ConversationState) {
   s.busy = true
   s.notice = null
+  s.notices = []
   s.draft = { content: '', reasoning: '' }
 }
 
@@ -703,6 +719,7 @@ function onHostEvent(e: HostEvent) {
       s.busy = false
       s.draft = null
       if (e.stopReason === 'Cancelled') s.notice = { kind: 'stopped' }
+      else if (e.stopReason === 'Failed') s.notice = { kind: 'failed' }
       else if (e.stopReason === 'MaxSteps') s.notice = { kind: 'maxSteps' }
       else if (e.stopReason === 'TooManyFailures') s.notice = { kind: 'tooManyFailures' }
       for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
@@ -742,6 +759,11 @@ function onHostEvent(e: HostEvent) {
         t.confirm = undefined
         t.state = e.choice === 'reject' ? 'rejected' : 'running'
       }
+      break
+    }
+    case 'chat.notice': {
+      const s = convState(e.conversationId)
+      if (!s.notices.includes(e.text)) s.notices.push(e.text)
       break
     }
     case 'files.produced': {

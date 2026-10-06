@@ -343,11 +343,15 @@ public sealed class AgentHost : IDisposable
 
             var loop = new AgentLoop(Server, Tools, confirm, _auditSink, approvals: Approvals);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId, context);
-            // 把本轮产出的文件挂到最后一条回答上，重开会话时卡片还在
+            // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
+            var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
             if (observer.Outputs.Count > 0)
             {
-                var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
                 answer?.Outputs.AddRange(observer.Outputs);
+            }
+            if (answer is not null && result.Trace is { } trace)
+            {
+                answer.TraceJson = Bridge.TraceDto.Serialize(trace, result.StopReason.ToString());
             }
             Store.AddMessages(id, result.NewMessages);
             if (context is { ContextLength: > 0 })
@@ -639,6 +643,8 @@ public sealed class AgentHost : IDisposable
 
         /// <summary>本轮产出的文件，按出现顺序去重。</summary>
         public List<string> Outputs { get; } = new();
+
+        public void OnNotice(string text) => _events.Post(new { type = "chat.notice", conversationId = _id, text });
 
         public void OnOutputsProduced(IReadOnlyList<OutputFile> files)
         {

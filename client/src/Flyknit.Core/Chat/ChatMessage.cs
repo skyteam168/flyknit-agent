@@ -44,6 +44,9 @@ public sealed class ChatMessage
     /// <summary>这条回答产出的文件（绝对路径）。界面据此给出打开 / 预览的卡片。</summary>
     public List<string> Outputs { get; set; } = new();
 
+    /// <summary>这一轮的执行链路（JSON）。排查「结果不对」时顺着它看是哪一步出的问题。</summary>
+    public string? TraceJson { get; set; }
+
     public static ChatMessage System(string content) => new() { Role = ChatRole.System, Content = content };
 
     public static ChatMessage User(string content, IEnumerable<Attachment>? attachments = null) => new()
