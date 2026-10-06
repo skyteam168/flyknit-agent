@@ -12,6 +12,15 @@
     # 建一个只管配置、不能看聊天的账号
     python -m scripts.setup_admin --add it.li --name "李工"
 
+    # 用自己的账号登录（初次登录会引导改密，之后的命令不用再输密码）
+    python -m scripts.setup_admin --login it.zhang
+
+    # 看最近的会话（只有元数据，没有正文）
+    python -m scripts.setup_admin --chats
+
+    # 看某次对话的正文。这一步会留痕
+    python -m scripts.setup_admin --chat conv-9f2a
+
     # 看看谁看过谁的对话
     python -m scripts.setup_admin --access
 
@@ -20,13 +29,48 @@
 """
 
 import argparse
+import getpass
+import json
 import secrets
 import string
 import sys
+from pathlib import Path
 
 import httpx
 
 from app.config import get_settings
+
+
+#: 登录后的令牌存这里，省得每条命令都重输密码。放用户目录不放仓库里。
+TOKEN_FILE = Path.home() / ".flyknit-admin.json"
+
+
+def save_token(server: str, username: str, token: str) -> None:
+    try:
+        TOKEN_FILE.write_text(json.dumps({"server": server, "username": username, "token": token}), encoding="utf-8")
+        # 只有自己能读。Windows 上这行无效，但那边本来就按用户隔离
+        try:
+            TOKEN_FILE.chmod(0o600)
+        except OSError:
+            pass
+    except OSError as exc:
+        print(f"（提示：登录状态没能保存到 {TOKEN_FILE}：{exc}）")
+
+
+def load_token(server: str) -> str:
+    try:
+        saved = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return saved.get("token", "") if saved.get("server") == server else ""
+
+
+def ask(prompt: str) -> str:
+    """读密码时不回显。管道里跑（没有终端）就退回普通输入。"""
+    try:
+        return getpass.getpass(prompt)
+    except (EOFError, OSError):
+        return input(prompt)
 
 
 def strong_password(length: int = 14) -> str:
@@ -45,6 +89,10 @@ def main() -> int:
     parser.add_argument("--password", default="", help="指定初始密码；不指定则自动生成")
     parser.add_argument("--list", action="store_true", help="列出所有账号")
     parser.add_argument("--access", action="store_true", help="列出谁看过谁的对话")
+    parser.add_argument("--login", metavar="USERNAME", help="用具名账号登录；初次登录会引导改密")
+    parser.add_argument("--chats", action="store_true", help="列出最近的会话（只有元数据，没有正文）")
+    parser.add_argument("--chat", metavar="CONVERSATION_ID", help="查看某次对话的正文。这一步会留痕")
+    parser.add_argument("--days", type=int, default=7, help="--chats 看最近几天，默认 7")
     args = parser.parse_args()
 
     base = args.server.rstrip("/")
@@ -81,6 +129,94 @@ def main() -> int:
             print(f"\n服务端拒绝了 {method} {path}（HTTP {r.status_code}）：{str(detail)[:300]}")
             sys.exit(1)
         return r.json() if r.content else None
+
+    def as_user(method: str, path: str, **kwargs):
+        """用具名账号的身份调接口，而不是共享的 admin_token。"""
+        token = load_token(base)
+        if not token:
+            print("请先登录：python -m scripts.setup_admin --login 你的用户名")
+            sys.exit(1)
+        r = httpx.request(method, api + path, headers={"Authorization": f"Bearer {token}"}, timeout=30, **kwargs)
+        if r.status_code == 401:
+            print("登录已过期，请重新登录：python -m scripts.setup_admin --login 你的用户名")
+            sys.exit(1)
+        if r.status_code >= 400:
+            try:
+                detail = r.json().get("detail") or r.text
+            except ValueError:
+                detail = r.text
+            print(f"\n服务端拒绝了：{str(detail)[:300]}")
+            sys.exit(1)
+        return r.json() if r.content else None
+
+    if args.login:
+        password = ask(f"{args.login} 的密码：")
+        r = client.post(api + "/login", json={"username": args.login, "password": password},
+                        headers={"Authorization": ""})
+        if r.status_code != 200:
+            print("用户名或密码不正确" if r.status_code == 401 else f"登录失败：{r.text[:200]}")
+            return 1
+        info = r.json()
+        save_token(base, args.login, info["token"])
+        print(f"\n已登录：{info['display_name']}")
+
+        if info["must_change_password"]:
+            print("这是初始密码，必须先改掉才能查看聊天内容。")
+            while True:
+                new = ask("设置新密码（至少 8 位）：")
+                if len(new) < 8:
+                    print("太短了，至少 8 位。")
+                    continue
+                if new == password:
+                    print("不能和初始密码一样。")
+                    continue
+                if new != ask("再输一遍确认："):
+                    print("两次输入不一致。")
+                    continue
+                break
+            headers = {"Authorization": f"Bearer {info['token']}"}
+            r = httpx.post(api + "/password", headers=headers,
+                           json={"old_password": password, "new_password": new}, timeout=30)
+            if r.status_code != 204:
+                print(f"改密失败：{r.text[:200]}")
+                return 1
+            print("密码已修改。改密会让其他地方的登录状态失效，这里自动重新登录。")
+            # 改密后旧令牌作废，重新换一个
+            r = client.post(api + "/login", json={"username": args.login, "password": new},
+                            headers={"Authorization": ""})
+            save_token(base, args.login, r.json()["token"])
+
+        print(f"看聊天内容：{'允许' if info['can_read_chats'] else '不允许（只能管配置）'}")
+        print("\n接下来可以：")
+        print("  python -m scripts.setup_admin --chats           # 看最近的会话")
+        print("  python -m scripts.setup_admin --chat <会话 id>   # 看某次对话的正文")
+        return 0
+
+    if args.chats:
+        rows = as_user("GET", f"/chats?days={args.days}")
+        if not rows:
+            print(f"最近 {args.days} 天没有聊天记录。")
+            print("（客户端要更新到带 conversation_id 的版本，归档才会按会话归到一起）")
+            return 0
+        print(f"{'会话 id':<26}{'机器':<16}{'用户':<16}{'轮数':<6}{'最后一次'}")
+        for r in rows:
+            print(f"{r['conversation_id']:<26}{r['machine_name']:<16}{r['user_name']:<16}"
+                  f"{r['turns']:<6}{r['last_at']}")
+        print(f"\n共 {len(rows)} 次会话。看正文：--chat <会话 id>（会留痕）")
+        return 0
+
+    if args.chat:
+        rows = as_user("GET", f"/chats/{args.chat}")
+        print(f"会话 {args.chat}：{rows[0]['machine_name']} / {rows[0]['user_name']}，共 {len(rows)} 轮\n")
+        for i, r in enumerate(rows, 1):
+            print(f"── 第 {i} 轮 · {r['created_at']} · {r['model']}")
+            print(f"  用户：{r['user_content']}")
+            print(f"  回答：{r['assistant_content']}")
+            if r["attachments"]:
+                print(f"  （带了 {r['attachments']} 个附件，内容未存档）")
+            print()
+        print("这次查看已记入访问日志，用 --access 可以看到。")
+        return 0
 
     if args.list:
         users = call("GET", "/users")
