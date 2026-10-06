@@ -50,7 +50,8 @@ flyknit/
 │   ├── src/Flyknit.Client/ WPF 外壳（悬浮球、托盘、系统通知、WebView2 主窗口）
 │   ├── tests/              核心库单元测试
 │   ├── web/                聊天界面（Vue 3 + TypeScript，中 / 越 / 英三语）
-│   └── run.bat             一键编译并启动（开发调试用）
+│   ├── run.bat             一键编译并启动（开发调试用），纯英文，只负责调起 run.ps1
+│   └── run.ps1             实际的编译步骤；任何一步失败都会停住并打印日志，日志写在 client\build.log
 └── docs/                   架构与开发文档
 ```
 
@@ -414,6 +415,10 @@ cd client/web && npm install && npm run dev
 # Windows 客户端：一键编译并启动
 client\run.bat
 ```
+
+`run.bat` 每一步的输出都写进 `client\build.log`。任何一步失败窗口都会停住、把报错行挑出来显示，
+失败时把 `build.log` 发出来即可，不用截图。它开头还会检查源码是否完整——
+**源码必须解压到空文件夹**，覆盖旧目录会留下已删除或改名的文件，照样编译不过。
 
 `npm run dev` 用的是 `src/mockHost.ts` 模拟宿主，可以在浏览器里调整界面，不用每次都编译 WPF。
 
