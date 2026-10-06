@@ -13,6 +13,9 @@
     # 同步提供方的全部对话模型，供客户端输入框选择（可与 --model 一起用，--model 作为默认模型）：
     python -m scripts.setup_model --provider-name 阿里云百炼 --base-url "https://...compatible-mode/v1" --api-key "sk-xxx" --sync --model qwen3.8-max
 
+    # 只把某个提供方的地址改回来（不动模型和路由）：
+    python -m scripts.setup_model --provider-name 阿里云百炼 --base-url "https://xxx/compatible-mode/v1" --only-provider
+
     # 查看当前配置：
     python -m scripts.setup_model --list
 """
@@ -42,6 +45,8 @@ def main() -> int:
     parser.add_argument("--fallback", action="store_true", help="作为备用模型，不替换主模型")
     parser.add_argument("--sync", action="store_true", help="从提供方 /models 接口同步全部对话模型，供客户端选择")
     parser.add_argument("--include", default="", help="同步时只保留名称匹配该正则的模型，例如 qwen")
+    parser.add_argument("--only-provider", action="store_true",
+                        help="只改提供方的地址/密钥，不碰模型和路由（地址填错时用它修回来）")
     parser.add_argument("--list", action="store_true", help="只显示当前配置")
     args = parser.parse_args()
 
@@ -75,6 +80,29 @@ def main() -> int:
             main_m = models.get(r["model_id"], {}).get("name", "未配置")
             fb = models.get(r["fallback_model_id"], {}).get("name", "无")
             print(f"  {r['scene']:<10} 主模型：{main_m}  备用：{fb}")
+        return 0
+
+    if args.only_provider:
+        # 只改提供方的地址和密钥，不碰模型和场景路由。地址写错时用它修回来。
+        if not args.base_url:
+            parser.error("--only-provider 需要 --base-url")
+        provider = next((p for p in call("GET", "/providers") if p["name"] == args.provider_name), None)
+        if not provider:
+            print(f"没有名为「{args.provider_name}」的提供方。现有的有：")
+            for p in call("GET", "/providers"):
+                print(f"  {p['name']}  →  {p['base_url']}")
+            return 1
+        body = {"base_url": args.base_url}
+        if args.api_key:
+            body["api_key"] = args.api_key
+        before = provider["base_url"]
+        provider = call("PATCH", f"/providers/{provider['id']}", json=body)
+        used_by = [m["name"] for m in call("GET", "/models") if m["provider_id"] == provider["id"]]
+        print(f"已更新提供方：{provider['name']}")
+        print(f"  地址：{before}  →  {provider['base_url']}")
+        if not args.api_key:
+            print("  密钥：未改动（没有传 --api-key）")
+        print(f"  影响的模型：{'、'.join(used_by) if used_by else '（暂无）'}")
         return 0
 
     if not args.base_url or not (args.model or args.sync):

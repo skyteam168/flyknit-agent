@@ -214,7 +214,24 @@ def main() -> int:  # noqa: C901
     if args.vocabulary_id:
         extra["asr_vocabulary_id"] = args.vocabulary_id
 
+    # 语音的地址格式和对话不一样（/api/v1 对 /compatible-mode/v1），所以绝不能去改
+    # 别人在用的提供方——改了会把挂在它下面的对话模型一起带沟里。
     provider = next((p for p in call("GET", "/providers") if p["name"] == args.provider_name), None)
+    if provider:
+        others = [m for m in call("GET", "/models") if m["provider_id"] == provider["id"] and m["model"] != args.model]
+        if others and provider["base_url"] != args.base_url:
+            print(f"\n提供方「{provider['name']}」下面还挂着别的模型："
+                  f"{'、'.join(m['name'] for m in others)}")
+            print(f"  它现在的地址是 {provider['base_url']}，和语音要用的 {args.base_url} 不一样。")
+            print("  改了会把那些模型也指到错的地址上，所以这里不动它。")
+            if args.provider_name == parser.get_default("provider_name"):
+                args.provider_name = f"{args.provider_name}（语音）"
+                provider = next((p for p in call("GET", "/providers") if p["name"] == args.provider_name), None)
+                print(f"  改用单独的提供方：{args.provider_name}")
+            else:
+                print("  请用 --provider-name 另起一个名字，例如 --provider-name \"百炼语音\"。")
+                return 1
+
     if provider:
         provider = call("PATCH", f"/providers/{provider['id']}",
                         json={"base_url": args.base_url, "api_key": args.api_key})
