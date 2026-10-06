@@ -8,8 +8,8 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..crypto import hash_token, hash_password, new_token, verify_password
@@ -21,6 +21,7 @@ from ..schemas import (
     AdminLoginOut,
     AdminUserIn,
     AdminUserOut,
+    AdminUserPatch,
     ChangePasswordIn,
     ChatConversationOut,
     ChatRecordOut,
@@ -44,6 +45,7 @@ async def create_user(data: AdminUserIn, session: AsyncSession = Depends(get_ses
         display_name=data.display_name or data.username,
         password_hash=hash_password(data.password),
         can_read_chats=data.can_read_chats,
+        can_dispatch=data.can_dispatch,
         must_change_password=True,
     )
     session.add(user)
@@ -86,6 +88,52 @@ async def login(data: AdminLoginIn, session: AsyncSession = Depends(get_session)
     )
 
 
+@router.get("/me", response_model=AdminUserOut)
+async def me(user: AdminUser = Depends(require_admin_user)):
+    """管理后台网页刷新后用它确认登录还有效、拿显示名和权限。"""
+    return user
+
+
+@router.post("/logout", status_code=204)
+async def logout(
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    """退出登录：把这一个会话令牌作废。令牌本来就无效时也返回成功。"""
+    if authorization and authorization.lower().startswith("bearer "):
+        token_hash = hash_token(authorization[7:].strip())
+        for row in await session.scalars(select(AdminSession).where(AdminSession.token_hash == token_hash)):
+            await session.delete(row)
+        await session.commit()
+
+
+@router.patch("/users/{user_id}", response_model=AdminUserOut, dependencies=[Depends(require_admin)])
+async def update_user(user_id: int, data: AdminUserPatch, session: AsyncSession = Depends(get_session)):
+    user = await session.get(AdminUser, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "账号不存在")
+    if data.display_name is not None:
+        user.display_name = data.display_name
+    if data.can_read_chats is not None:
+        user.can_read_chats = data.can_read_chats
+    if data.can_dispatch is not None:
+        user.can_dispatch = data.can_dispatch
+    if data.disabled is not None:
+        user.disabled = data.disabled
+        if data.disabled:
+            # 停用立刻生效，不等会话自然过期
+            for row in await session.scalars(select(AdminSession).where(AdminSession.user_id == user.id)):
+                await session.delete(row)
+    if data.password:
+        user.password_hash = hash_password(data.password)
+        user.must_change_password = True
+        for row in await session.scalars(select(AdminSession).where(AdminSession.user_id == user.id)):
+            await session.delete(row)
+    await session.commit()
+    log.info("管理员账号 %s 已更新", user.username)
+    return user
+
+
 @router.post("/password", status_code=204)
 async def change_password(
     data: ChangePasswordIn,
@@ -109,8 +157,11 @@ async def change_password(
 @router.get("/chats", response_model=list[ChatConversationOut])
 async def list_conversations(
     device_id: int | None = None,
+    scene: str | None = None,
+    keyword: str = Query(default="", max_length=100, description="按计算机名或 Windows 用户名筛选，不搜正文"),
     days: int = Query(default=7, ge=1, le=365),
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     user: AdminUser = Depends(require_admin_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -122,10 +173,13 @@ async def list_conversations(
     q = (
         select(
             ChatRecord.conversation_id,
+            func.max(ChatRecord.device_id).label("device_id"),
             func.max(ChatRecord.machine_name).label("machine_name"),
             func.max(ChatRecord.user_name).label("user_name"),
             func.max(ChatRecord.scene).label("scene"),
-            func.count(ChatRecord.id).label("turns"),
+            func.max(ChatRecord.model).label("model"),
+            func.count(case((ChatRecord.user_content != "", 1))).label("turns"),
+            func.sum(ChatRecord.prompt_tokens + ChatRecord.completion_tokens).label("tokens"),
             func.min(ChatRecord.created_at).label("started_at"),
             func.max(ChatRecord.created_at).label("last_at"),
         )
@@ -133,9 +187,15 @@ async def list_conversations(
         .group_by(ChatRecord.conversation_id)
         .order_by(func.max(ChatRecord.created_at).desc())
         .limit(limit)
+        .offset(offset)
     )
     if device_id is not None:
         q = q.where(ChatRecord.device_id == device_id)
+    if scene:
+        q = q.where(ChatRecord.scene == scene)
+    if keyword.strip():
+        like = f"%{keyword.strip()}%"
+        q = q.where(or_(ChatRecord.machine_name.ilike(like), ChatRecord.user_name.ilike(like)))
     return [ChatConversationOut.model_validate(row, from_attributes=True) for row in await session.execute(q)]
 
 

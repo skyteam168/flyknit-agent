@@ -32,6 +32,10 @@ public sealed class ClientConfig
     /// <summary>安全中心每一项的值和锁状态。锁住的由 IT 统一配置，本机改不了。</summary>
     [JsonPropertyName("security")]
     public Dictionary<string, Flyknit.Core.Security.SecurityItem> Security { get; set; } = new();
+
+    [JsonPropertyName("revision")] public int Revision { get; set; }
+    [JsonPropertyName("owner")] public string Owner { get; set; } = "";
+    [JsonPropertyName("department")] public string Department { get; set; } = "";
 }
 
 public sealed class ClientModel
@@ -114,6 +118,27 @@ public sealed class AuditEntry
     [JsonPropertyName("occurred_at")] public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.Now;
 }
 
+/// <summary>后台下发给本机、要由 AI agent 执行的一条指令。</summary>
+public sealed class ClientInstruction
+{
+    [JsonPropertyName("run_id")] public int RunId { get; set; }
+    [JsonPropertyName("instruction_id")] public int InstructionId { get; set; }
+    [JsonPropertyName("title")] public string Title { get; set; } = "";
+    [JsonPropertyName("prompt")] public string Prompt { get; set; } = "";
+}
+
+internal sealed class ClientInstructionPoll
+{
+    [JsonPropertyName("instructions")] public List<ClientInstruction> Instructions { get; set; } = new();
+    [JsonPropertyName("poll_after")] public int PollAfter { get; set; } = 60;
+}
+
+internal sealed class InstructionStartResult
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("status")] public string Status { get; set; } = "";
+}
+
 /// <summary>与 Flyknit 服务端通信：模型网关、设备注册、配置、审计。</summary>
 public sealed class FlyknitServerClient : IChatGateway
 {
@@ -171,6 +196,24 @@ public sealed class FlyknitServerClient : IChatGateway
     }
 
     /// <summary>
+    /// 长轮询等配置变更：带上手里的版本号，服务端一旦发现 IT 改了配置就立刻返回新版本号，
+    /// 否则挂起到服务端超时（约 25 秒）再返回。据此做到近乎即时地拉取新配置。
+    /// </summary>
+    public async Task<int> WaitForConfigChangeAsync(int revision, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/config/wait?rev={revision}");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        var doc = await resp.Content.ReadFromJsonAsync<WaitResult>(cancellationToken: ct);
+        return doc?.Revision ?? revision;
+    }
+
+    private sealed class WaitResult
+    {
+        [JsonPropertyName("revision")] public int Revision { get; set; }
+    }
+
+    /// <summary>
     /// 上报本机信息，供后台做资产台账。注册时采的那一份很快就过时了——IP 跟着
     /// DHCP 变，用户换人登录，客户端会升级——所以每次拉配置后都重报一次。
     /// </summary>
@@ -203,7 +246,39 @@ public sealed class FlyknitServerClient : IChatGateway
         await EnsureOk(resp, ct);
     }
 
-    /// <summary>本机今天和最近几天的 token 用量。</summary>
+    /// <summary>拉取后台下发、还没执行的指令。</summary>
+    public async Task<List<ClientInstruction>> PollInstructionsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/instructions");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        var result = await resp.Content.ReadFromJsonAsync<ClientInstructionPoll>(cancellationToken: ct);
+        return result?.Instructions ?? new();
+    }
+
+    /// <summary>开始执行前报一声。返回 false 表示已被后台取消，不要再做。</summary>
+    public async Task<bool> StartInstructionAsync(int runId, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/instructions/{runId}/start");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        var result = await resp.Content.ReadFromJsonAsync<InstructionStartResult>(cancellationToken: ct);
+        return result?.Ok ?? false;
+    }
+
+    public async Task FinishInstructionAsync(int runId, bool ok, string answer, string error, string conversationId, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/instructions/{runId}/finish");
+        req.Content = JsonContent.Create(new
+        {
+            status = ok ? "succeeded" : "failed",
+            answer,
+            error,
+            conversation_id = conversationId,
+        });
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
     public async Task<UsageStats> GetUsageAsync(CancellationToken ct, int days = 7)
     {
         using var req = Authorized(HttpMethod.Get, $"api/v1/client/usage?days={days}");

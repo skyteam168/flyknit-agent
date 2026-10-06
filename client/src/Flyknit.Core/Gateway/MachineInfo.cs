@@ -29,6 +29,12 @@ public sealed class MachineInfo
     /// <summary>主网卡的 MAC。比 IP 稳定，适合当资产台账的主键。</summary>
     [JsonPropertyName("mac_address")] public string MacAddress { get; set; } = "";
 
+    /// <summary>
+    /// 这台电脑的系统标识（HKLM MachineGuid）。运维代理用同一个值注册，后台靠它
+    /// 把员工客户端和运维代理关联到同一台电脑上。
+    /// </summary>
+    [JsonPropertyName("machine_guid")] public string MachineGuid { get; set; } = "";
+
     public static MachineInfo Collect(string clientVersion, string uiLanguage)
     {
         var info = new MachineInfo
@@ -39,6 +45,7 @@ public sealed class MachineInfo
             OsVersion = Safe(() => Environment.OSVersion.VersionString),
             ClientVersion = clientVersion ?? "",
             UiLanguage = uiLanguage ?? "",
+            MachineGuid = ReadMachineGuid(),
         };
         var (ips, mac) = Network();
         info.IpAddresses = ips;
@@ -121,5 +128,32 @@ public sealed class MachineInfo
     {
         try { return get() ?? ""; }
         catch (Exception) { return ""; }
+    }
+
+    /// <summary>
+    /// 读系统标识 HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid。它在装系统时生成、
+    /// 之后不变，和运维代理用的是同一个值，后台据此把员工端和代理对到同一台电脑。
+    /// </summary>
+    private static string ReadMachineGuid()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return "";
+        }
+        try
+        {
+            using var key = Microsoft.Win32.RegistryKey
+                .OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64)
+                .OpenSubKey(@"SOFTWARE\Microsoft\Cryptography");
+            if (key?.GetValue("MachineGuid") is string guid && guid.Length >= 8)
+            {
+                return guid.Trim().ToLowerInvariant();
+            }
+        }
+        catch (Exception)
+        {
+            // 读不到就空着，不影响其它信息上报
+        }
+        return "";
     }
 }

@@ -65,6 +65,20 @@ public sealed class SkillService
 
     public bool Exists(string name) => _catalog.FindAny(name) is not null;
 
+    /// <summary>
+    /// 按「包名」找已安装的技能：服务端的技能名是包名（slug，如 excel-xlsx），而本地 SkillInfo.Name
+    /// 取自 SKILL.md 的 name 字段（可能是 "Excel / XLSX" 这种显示名）。安装目录名是 Sanitize(显示名)，
+    /// 正好等于包名，所以同时按 原名 / 规范化名 / 目录名 匹配。
+    /// </summary>
+    public SkillInfo? FindByPackage(string packageName)
+    {
+        var key = packageName.Trim();
+        return _catalog.Skills.FirstOrDefault(s =>
+            s.Name.Equals(key, StringComparison.OrdinalIgnoreCase)
+            || SkillPackage.Sanitize(s.Name).Equals(key, StringComparison.OrdinalIgnoreCase)
+            || Path.GetFileName(s.Directory.TrimEnd('\\', '/')).Equals(key, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>从本地 zip 或文件夹安装。</summary>
     public SkillInstallResult InstallFrom(string path, string origin = "")
     {
@@ -261,7 +275,8 @@ public sealed class SkillService
         var installed = 0;
         foreach (var item in library.Where(s => s.Required))
         {
-            var current = _catalog.FindAny(item.Name);
+            // 服务端技能名是包名（slug），本地 SkillInfo.Name 取自 SKILL.md 可能是显示名，按多种键匹配
+            var current = FindByPackage(item.Name);
             if (current is not null && (item.Version.Length == 0 || current.Version == item.Version))
             {
                 continue;

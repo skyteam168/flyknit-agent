@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Flyknit.Agent</RootNamespace>
+    <AssemblyName>FlyknitAgent</AssemblyName>
+    <Version>0.1.0</Version>
+    <Product>FlyknitAgent</Product>
+    <AssemblyTitle>FlyknitBuddy 运维代理</AssemblyTitle>
+    <Company>Flyknit</Company>
+    <!-- 以 SYSTEM 身份作为 Windows 服务运行，自包含发布，员工电脑无需装 .NET 运行时 -->
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

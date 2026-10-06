@@ -1,0 +1,128 @@
+﻿FlyknitBuddy 构建日志  2026-10-07 00:05:26
+目录: F:\flyknit\client
+
+>>> [F:\flyknit\client] dotnet --version
+8.0.425
+
+
+>>> [F:\flyknit\client] node --version
+v24.0.1
+
+
+>>> [F:\flyknit\client\web] npm run build
+cmd : npm warn Unknown env config "devdir". This will stop working in the next major version of npm.
+所在位置 F:\flyknit\client\run.ps1:49 字符: 15
++     $output = cmd /c $commandLine 2>&1
++               ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn Unknow...version of npm.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+> flyknit-web@0.1.0 build
+> vue-tsc --noEmit && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 4818 modules transformed.
+rendering chunks...
+computing gzip size...
+../src/Flyknit.Client/wwwroot/index.html                                                      2.28 kB │ gzip:   1.32 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-vietnamese-400-normal-BuGn0gnm.woff       6.57 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-vietnamese-600-normal-DkpCIyan.woff       6.88 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-vietnamese-500-normal-CfdwVo8-.woff       6.88 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-ext-400-normal-DYBYyMQr.woff        8.90 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-ext-500-normal-CK0UkkKf.woff        9.20 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-ext-600-normal-BeUwKxhG.woff        9.22 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-vietnamese-400-normal-CRcqvyg1.woff2     11.53 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-vietnamese-500-normal-DREgrEoJ.woff2     12.17 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-vietnamese-600-normal-nyU-ZL2p.woff2     12.18 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-ext-400-normal-CiZNW1ec.woff2      13.06 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-ext-500-normal-h0Fp6aX0.woff2      13.55 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-ext-600-normal-BNd8euf0.woff2      13.61 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-400-normal-bXgqVju9.woff           16.43 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-500-normal-BJkVuMHw.woff           17.00 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-600-normal-5IO4e7bK.woff           17.02 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-400-normal-PpnXBOrz.woff2          21.17 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-500-normal-B6LVzGNe.woff2          21.89 kB
+../src/Flyknit.Client/wwwroot/assets/be-vietnam-pro-latin-600-normal-BZDkUTrt.woff2          22.03 kB
+../src/Flyknit.Client/wwwroot/assets/flyknitbuddy-mark-dVRo8IxY.png                         171.20 kB
+../src/Flyknit.Client/wwwroot/assets/index-BxoKcdof.css                                      99.98 kB │ gzip:  15.93 kB
+../src/Flyknit.Client/wwwroot/assets/channel-CwxfQinC.js                                      0.12 kB │ gzip:   0.13 kB
+../src/Flyknit.Client/wwwroot/assets/init-Gi6I4Gst.js                                         0.15 kB │ gzip:   0.13 kB
+../src/Flyknit.Client/wwwroot/assets/chunk-2Q5K7J3B-ERaQjJk1.js                               0.19 kB │ gzip:   0.16 kB
+../src/Flyknit.Client/wwwroot/assets/chunk-XXDRQBXY-CfnUZ64A.js                               0.23 kB │ gzip:   0.21 kB
+../src/Flyknit.Client/wwwroot/assets/chunk-JWPE2WC7-Bx4glzwB.js                               0.30 kB │ gzip:   0.21 kB
+../src/Flyknit.Client/wwwroot/assets/chunk-5VM5RSS4-C8rqmnWW.js                               0.37 kB │ gzip:   0.27 kB
+../src/Flyknit.Client/wwwroot/assets/chunk-KQW6MTUR-c-TWMllX.js                               0.53 kB │ gzip:   0.37 kB
+../src/Flyknit.Client/wwwroot/assets/swimlanesDiagram-K3J5GTZL-Di1LyjoD.js                    0.54 kB │ gzip:   0.37 kB
+../src/Flyknit.Client/wwwroot/assets/infoDiagram-5W2HQ5XZ-B9F1j12Q.js                         0.59 kB │ gzip:   0.40 kB
+../src/Flyknit.Client/wwwroot/assets/sizeCapture-INFHLROL-CTN8uIV_.js                         1.00 kB │ gzip:   0.56 kB
+../src/Flyknit.Client/wwwroot/assets/ordinal-Cboi1Yqb.js                                      1.19 kB │ gzip:   0.57 kB
+../src/Flyknit.Client/wwwroot/assets/railroadDiagram-SM67HX2B-D-zAK1Nd.js                     1.61 kB │ gzip:   0.76 kB
+../src/Flyknit.Client/wwwroot/assets/abnfDiagram-YUKMZFIV-DkAZsEcm.js                         1.81 kB │ gzip:   0.89 kB
+../src/Flyknit.Client/wwwroot/assets/chunk-7TKQ45FW-BWEIgOon.js                               1.86 kB │ gzip:   0.82 kB
+../src/Flyknit.Client/wwwroot/assets/pegDiagram-BGZESJAR-goEtP4Ht.js                          1.96 kB │ gzip:   0.93 kB
+../src/Flyknit.Client/wwwroot/assets/ebnfDiagram-VR2GEFS7-DMglGlQF.js                         2.01 kB │ gzip:   0.88 kB
+../src/Flyknit.Client/wwwroot/assets/arc-DY3U5bT5.js                                          3.44 kB │ gzip:   1.48 kB
+../src/Flyknit.Client/wwwroot/assets/diagram-UMYRVEAY-D2vXMC1b.js                             4.31 kB │ gzip:   1.91 kB
+../src/Flyknit.Client/wwwroot/assets/defaultLocale-DX6XiGOO.js                                4.69 kB │ gzip:   2.18 kB
+../src/Flyknit.Client/wwwroot/assets/chunk-HTAEGDNF-faAUxCM8.js                               5.62 kB │ gzip:   2.60 kB
+../src/Flyknit.Client/wwwroot/assets/linear-D_EvlHjO.js                                       5.66 kB │ gzip:   2.31 kB
+../src/Flyknit.Client/wwwroot/assets/diagram-YEKJPTXX-C-dY18sr.js                             6.23 kB │ gzip:   2.68 kB
+../src/Flyknit.Client/wwwroot/assets/pieDiagram-CAPJLFHJ-C1oOrVr0.js                          6.35 kB │ gzip:   2.65 kB
+../src/Flyknit.Client/wwwroot/assets/diagram-PFPMY2P6-BiAih7Ua.js                             8.30 kB │ gzip:   3.72 kB
+../src/Flyknit.Client/wwwroot/assets/cynefinDiagram-3GCD6N5R-CRF_vLWW.js                     10.08 kB │ gzip:   3.63 kB
+../src/Flyknit.Client/wwwroot/assets/chunk-FVRAUYC3-CgPQw6d8.js                              10.71 kB │ gzip:   4.42 kB
+../src/Flyknit.Client/wwwroot/assets/diagram-ZIFT7M5P-BJpltQ_5.js                            11.12 kB │ gzip:   4.32 kB
+../src/Flyknit.Client/wwwroot/assets/chunk-AW2ZBBNX-C5Z4y_56.js                              15.75 kB │ gzip:   4.42 kB
+../src/Flyknit.Client/wwwroot/assets/diagram-OVF4WLC6-DqnoTp9N.js                            16.07 kB │ gzip:   5.73 kB
+../src/Flyknit.Client/wwwroot/assets/ishikawaDiagram-K3B6WC7H-jT3rWEX5.js                    17.56 kB │ gzip:   6.68 kB
+../src/Flyknit.Client/wwwroot/assets/kanban-definition-P3RFRI5V-DC01Vaod.js                  20.70 kB │ gzip:   7.29 kB
+../src/Flyknit.Client/wwwroot/assets/mindmap-definition-LZFPQGKD-DEvhX4S_.js                 23.36 kB │ gzip:   7.89 kB
+../src/Flyknit.Client/wwwroot/assets/sankeyDiagram-UM26HJRW-CER1c4cf.js                      23.39 kB │ gzip:   8.58 kB
+../src/Flyknit.Client/wwwroot/assets/journeyDiagram-COXZFDF6-DYrfsiJ_.js                     23.59 kB │ gzip:   8.36 kB
+../src/Flyknit.Client/wwwroot/assets/graph-DGbsTEsI.js                                       23.91 kB │ gzip:   8.30 kB
+../src/Flyknit.Client/wwwroot/assets/wardleyDiagram-YMQ3BMBF-DaXzlodN.js                     26.10 kB │ gzip:   6.94 kB
+../src/Flyknit.Client/wwwroot/assets/gitGraphDiagram-XJZIOB7I-C2l5-fiD.js                    29.94 kB │ gzip:   8.87 kB
+../src/Flyknit.Client/wwwroot/assets/erDiagram-O2IAPWRE-DNmL6zP2.js                          30.83 kB │ gzip:  10.62 kB
+../src/Flyknit.Client/wwwroot/assets/requirementDiagram-X7JNWC4A-CZl_BIPD.js                 31.22 kB │ gzip:   9.85 kB
+../src/Flyknit.Client/wwwroot/assets/timeline-definition-YOQAKGHF-C_ffpSf-.js                31.40 kB │ gzip:  10.47 kB
+../src/Flyknit.Client/wwwroot/assets/quadrantDiagram-GDMTTRAM-l7kLsZPe.js                    34.49 kB │ gzip:  10.13 kB
+../src/Flyknit.Client/wwwroot/assets/stateDiagram-v2-TBUQTH76-Bxu34HJg.js                    42.32 kB │ gzip:  14.15 kB
+../src/Flyknit.Client/wwwroot/assets/vennDiagram-BLWOH2XV-B6PmMBCs.js                        42.39 kB │ gzip:  15.81 kB
+../src/Flyknit.Client/wwwroot/assets/blockDiagram-E7TT5TSB-DzzqNFIN.js                       44.15 kB │ gzip:  14.41 kB
+../src/Flyknit.Client/wwwroot/assets/xychartDiagram-TAQBALBS-CWoIfjQR.js                     44.96 kB │ gzip:  12.77 kB
+../src/Flyknit.Client/wwwroot/assets/dagre-W4DXFKR2-Dq_iit3l.js                              46.58 kB │ gzip:  16.61 kB
+../src/Flyknit.Client/wwwroot/assets/classDiagram-v2-K4WV4PDN-C7_uFQVP.js                    49.99 kB │ gzip:  16.07 kB
+../src/Flyknit.Client/wwwroot/assets/flowDiagram-OXPTDLAJ-kXWZAE2h.js                        64.25 kB │ gzip:  20.63 kB
+../src/Flyknit.Client/wwwroot/assets/c4Diagram-CRA5TL53-BE3zdfR1.js                          65.97 kB │ gzip:  18.94 kB
+../src/Flyknit.Client/wwwroot/assets/ganttDiagram-R7TSEDQI-C8sJMXDm.js                       70.14 kB │ gzip:  23.73 kB
+../src/Flyknit.Client/wwwroot/assets/cose-bilkent-JH36ORCC-NAWZNC4U.js                       81.55 kB │ gzip:  22.44 kB
+../src/Flyknit.Client/wwwroot/assets/diagram-2UJZ2QOL-DN4JG4mr.js                            82.15 kB │ gzip:  25.40 kB
+../src/Flyknit.Client/wwwroot/assets/swimlanes-N4OXWK64-OCLALBUL.js                         112.16 kB │ gzip:  40.80 kB
+../src/Flyknit.Client/wwwroot/assets/sequenceDiagram-ZO4K6R2Y-Zr5ZmlCz.js                   119.39 kB │ gzip:  32.13 kB
+../src/Flyknit.Client/wwwroot/assets/architectureDiagram-47P4ROYG-D1Wh5XD6.js               151.81 kB │ gzip:  43.18 kB
+../src/Flyknit.Client/wwwroot/assets/usecaseDiagram-VIAY4XPW-t3Gx_ly1.js                    190.59 kB │ gzip:  50.98 kB
+../src/Flyknit.Client/wwwroot/assets/katex-C5jXJg4s.js                                      258.49 kB │ gzip:  77.57 kB
+../src/Flyknit.Client/wwwroot/assets/cytoscape.esm-C5JX3QLV.js                              443.80 kB │ gzip: 142.40 kB
+../src/Flyknit.Client/wwwroot/assets/index-qqlUuJG3.js                                      593.84 kB │ gzip: 218.03 kB
+../src/Flyknit.Client/wwwroot/assets/mermaid.core-onaXPUx9.js                               654.65 kB │ gzip: 156.59 kB
+../src/Flyknit.Client/wwwroot/assets/cynefin-EF2NZ3EQ-D1iKqqb1.js                           657.54 kB │ gzip: 139.86 kB
+../src/Flyknit.Client/wwwroot/assets/index-DgQRkS4v.js                                    1,134.10 kB │ gzip: 382.08 kB
+../src/Flyknit.Client/wwwroot/assets/viz-kWG4gpPs.js                                      1,267.20 kB │ gzip: 485.93 kB
+../src/Flyknit.Client/wwwroot/assets/elk-IJKZMXRS-BAsiG-2g.js                             1,475.11 kB │ gzip: 453.87 kB
+✓ built in 29.01s
+
+
+>>> [F:\flyknit\client] dotnet build src\Flyknit.Client -c Debug -v minimal
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+  Flyknit.Core -> F:\flyknit\client\src\Flyknit.Core\bin\Debug\net8.0\Flyknit.Core.dll
+  Flyknit.Client -> F:\flyknit\client\src\Flyknit.Client\bin\Debug\net8.0-windows10.0.19041.0\FlyknitBuddy.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:01.15
+

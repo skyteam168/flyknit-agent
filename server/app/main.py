@@ -6,10 +6,11 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from . import __version__, db
 from .config import get_settings
-from .routers import admin, chats, client, gateway, speech
+from .routers import admin, agents, chats, client, console, gateway, instructions, speech
 from .services import housekeeping
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -62,8 +63,17 @@ app.include_router(client.router)
 app.include_router(admin.router)
 app.include_router(speech.router)
 app.include_router(chats.router)
+app.include_router(console.router)
+app.include_router(agents.router)
+app.include_router(instructions.router)
 
 
 @app.get("/healthz", tags=["system"])
 async def healthz():
     return {"status": "ok", "version": __version__}
+
+
+# 管理后台网页（admin/ 目录 npm run build 的产物）。没构建过就不挂，接口照常可用
+_admin_dist = Path(__file__).resolve().parent / "static" / "admin"
+if _admin_dist.is_dir():
+    app.mount("/admin", StaticFiles(directory=_admin_dist, html=True), name="admin")

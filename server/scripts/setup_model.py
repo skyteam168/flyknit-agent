@@ -121,7 +121,7 @@ def main() -> int:
         print("正在同步模型列表…")
         params = {"include": args.include} if args.include else {}
         result = call("POST", f"/providers/{provider['id']}/sync-models", params=params)
-        print(f"提供方共有 {result['total']} 个模型，新增 {len(result['added'])} 个，跳过非对话模型 {result['skipped']} 个")
+        print(f"提供方共有 {result['total']} 个模型，新增 {len(result['added'])} 个，跳过带日期的快照版本 {result['skipped']} 个")
         for name in result["added"][:30]:
             print(f"  + {name}")
         if len(result["added"]) > 30:

@@ -42,6 +42,30 @@ public sealed class NotificationService
         }
     }
 
+    /// <summary>
+    /// IT 运维提示（右下角）：运维代理以 SYSTEM 执行任务时弹不出桌面通知，改为写文件，
+    /// 由员工客户端（<see cref="NoticeWatcher"/>）读到后用这个方法弹给当前登录的员工。
+    /// </summary>
+    public void ShowNotice(string title, string body)
+    {
+        if (!Available)
+        {
+            return;
+        }
+        try
+        {
+            Base()
+                .AddText(Clip(title, 60))
+                .AddText(Clip(body, 180))
+                .AddAttributionText(NativeStrings.T("toast.appName"))
+                .Show();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("显示运维提示失败", ex);
+        }
+    }
+
     public void ShowConfirm(PendingConfirm p)
     {
         if (!Available)
@@ -171,19 +195,53 @@ public sealed class NotificationService
         {
             b.AddAppLogoOverride(new Uri(_logo), ToastGenericAppLogoCrop.Default);
         }
-        switch (SoundSetting?.Invoke())
+        if (SoundEvent(SoundSetting?.Invoke()) is { } sound)
         {
-            case "soft":
-                b.AddAudio(new Uri("ms-winsoundevent:Notification.Default"));
-                break;
-            case "alert":
-                b.AddAudio(new Uri("ms-winsoundevent:Notification.Looping.Alarm2"), loop: false);
-                break;
-            default:
-                b.AddAudio(new ToastAudio { Silent = true });
-                break;
+            b.AddAudio(new Uri($"ms-winsoundevent:{sound}"));
+        }
+        else
+        {
+            b.AddAudio(new ToastAudio { Silent = true });
         }
         return b;
+    }
+
+    /// <summary>
+    /// 音色对应的 Windows 系统声音。Looping.* 那类铃声只在闹钟 / 来电类通知里循环播放才生效，
+    /// 普通通知里会被换成默认声音，所以「提示」用的是日历提醒音，和「标准」能听出区别。
+    /// </summary>
+    private static string? SoundEvent(string? sound) => sound switch
+    {
+        "soft" => "Notification.Default",
+        "alert" => "Notification.Reminder",
+        _ => null,
+    };
+
+    /// <summary>设置里点「试听」：直接播放通知会用的那个系统声音文件，不用等任务跑完。</summary>
+    public static void Preview(string sound)
+    {
+        if (SoundEvent(sound) is not { } name)
+        {
+            return;
+        }
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey($@"AppEvents\Schemes\Apps\.Default\{name}\.Current");
+            var file = Environment.ExpandEnvironmentVariables(key?.GetValue("") as string ?? "");
+            if (!File.Exists(file))
+            {
+                var media = Environment.ExpandEnvironmentVariables(@"%WINDIR%\Media");
+                file = Path.Combine(media, name == "Notification.Reminder" ? "Windows Notify Calendar.wav" : "Windows Notify System Generic.wav");
+            }
+            if (File.Exists(file))
+            {
+                new System.Media.SoundPlayer(file).Play();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("试听提示音失败", ex);
+        }
     }
 
     private static ToastButton Button(string text, string action, PendingConfirm p, string choice)

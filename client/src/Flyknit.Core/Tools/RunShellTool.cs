@@ -34,7 +34,11 @@ public sealed class RunShellTool : ITool
             return PolicyDecision.Blocked("工作目录无效");
         }
         var shell = args.Str("shell", "powershell").Equals("cmd", StringComparison.OrdinalIgnoreCase) ? "cmd" : "powershell";
-        return PermissionRules.ForCommand(ctx.Policy, ctx.Permission, ctx.Workspace, args.Str("command"), dir, shell);
+        var command = args.Str("command");
+        var decision = PermissionRules.ForCommand(ctx.Policy, ctx.Permission, ctx.Workspace, command, dir, shell);
+        return ctx.NetworkAllowlist
+            ? PermissionRules.ForNetwork(decision, ctx.Policy.Network.EvaluateCommand(command))
+            : decision;
     }
 
     public string Describe(JsonElement args) => $"执行命令：{args.Str("command")}";

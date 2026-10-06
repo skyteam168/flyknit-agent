@@ -72,3 +72,65 @@ async def test_audit_roundtrip(client, device_headers):
     rows = (await client.get("/api/v1/admin/audit?decision=blocked", headers=ADMIN)).json()
     assert len(rows) == 1
     assert rows[0]["machine_name"] == "PC-001"
+
+
+async def test_audit_export_csv(client, device_headers):
+    import csv
+    import io
+
+    await client.post("/api/v1/audit", headers=device_headers, json={"items": [
+        {"tool_name": "run_shell", "arguments": "rm -rf C:\\", "risk": "blocked", "decision": "blocked",
+         "summary": "命中安全规则"},
+        {"tool_name": "run_shell", "arguments": "=HYPERLINK(\"http://x\")", "risk": "confirm",
+         "decision": "approved", "status": "ok"},
+    ]})
+
+    assert (await client.get("/api/v1/admin/audit/export")).status_code == 401
+
+    r = await client.get("/api/v1/admin/audit/export", headers=ADMIN)
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "attachment" in r.headers["content-disposition"]
+    assert r.content.startswith("\ufeff".encode())  # Excel 打开中文不乱码靠这个
+    table = list(csv.reader(io.StringIO(r.content.decode("utf-8-sig"))))
+    assert table[0][0] == "编号" and "计算机名" in table[0]
+    assert len(table) == 3
+    args = table[0].index("参数")
+    # 以 = 开头的内容加了单引号，Excel 不会当公式执行
+    assert any(row[args] == "'=HYPERLINK(\"http://x\")" for row in table[1:])
+    assert any(row[args] == "rm -rf C:\\" for row in table[1:])
+
+    r = await client.get("/api/v1/admin/audit/export?decision=blocked", headers=ADMIN)
+    assert len(list(csv.reader(io.StringIO(r.content.decode("utf-8-sig"))))) == 2
+
+    r = await client.get("/api/v1/admin/audit/export?since=2000-01-01&until=2000-01-02", headers=ADMIN)
+    assert len(list(csv.reader(io.StringIO(r.content.decode("utf-8-sig"))))) == 1
+
+    r = await client.get("/api/v1/admin/audit/export?since=2026-02-01&until=2026-01-01", headers=ADMIN)
+    assert r.status_code == 400
+
+
+async def test_policy_allowed_domains_are_normalized(client):
+    policy = (await client.get("/api/v1/admin/policy", headers=ADMIN)).json()
+    assert "localhost" in policy["allowed_domains"] and policy["allow_private_network"] is True
+
+    policy["allowed_domains"] = ["https://ERP.Example.com/login", "*.github.com", "erp.example.com"]
+    r = await client.put("/api/v1/admin/policy", headers=ADMIN, json=policy)
+    assert r.status_code == 200
+    assert r.json()["allowed_domains"] == ["erp.example.com", "*.github.com"]
+
+    policy["allowed_domains"] = ["bad domain!"]
+    r = await client.put("/api/v1/admin/policy", headers=ADMIN, json=policy)
+    assert r.status_code == 400
+
+
+async def test_old_stored_policy_gets_new_fields(client, device_headers):
+    # 模拟老版本存下的策略：没有 allowed_domains
+    from app.db import get_sessionmaker
+    from app.services import settings_store
+
+    async with get_sessionmaker()() as session:
+        await settings_store.set_value(session, settings_store.POLICY_KEY, {"version": 3, "blocked_patterns": []})
+    data = (await client.get("/api/v1/client/config", headers=device_headers)).json()
+    assert data["policy"]["version"] == 3
+    assert "localhost" in data["policy"]["allowed_domains"]

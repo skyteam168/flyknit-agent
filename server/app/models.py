@@ -74,6 +74,16 @@ class Device(Base):
     #: 服务端从连接上看到的地址。客户端伪造不了，跨 NAT 时和上面那列不一样
     observed_ip: Mapped[str] = mapped_column(String(64), default="")
     mac_address: Mapped[str] = mapped_column(String(64), default="")
+    #: Windows 的 MachineGuid。员工端和运维代理各自注册，靠它对上是同一台电脑
+    machine_guid: Mapped[str] = mapped_column(String(64), default="", index=True)
+
+    # 管理员手工填写的台账信息。客户端心跳不会覆盖这几项（user_name 是 Windows 账号，自动上报）
+    #: 使用者实名（和 Windows 账号区分开）
+    owner: Mapped[str] = mapped_column(String(200), default="")
+    #: 所属部门
+    department: Mapped[str] = mapped_column(String(200), default="")
+    #: 备注
+    note: Mapped[str] = mapped_column(String(500), default="")
 
 
 class Setting(Base):
@@ -184,6 +194,8 @@ class AdminUser(Base):
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
     #: 能不能查看聊天正文。默认不能——看内容是额外授予的，不是当管理员就自带的
     can_read_chats: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: 能不能给员工电脑下发运维任务（装软件、系统修复、重启……）。同样默认不能
+    can_dispatch: Mapped[bool] = mapped_column(Boolean, default=False)
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -240,3 +252,130 @@ class DevicePolicy(Base):
     locks: Mapped[dict] = mapped_column(JSON, default=dict)
     note: Mapped[str] = mapped_column(String(300), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class MachineAgent(Base):
+    """
+    装在员工电脑上的运维代理（Windows 服务，SYSTEM 权限）。
+
+    和员工端分开注册：员工端跟着 Windows 账号走、只在有人登录时运行；代理跟着
+    电脑走、开机就在。两边靠 machine_guid 对上是同一台电脑。
+    """
+
+    __tablename__ = "machine_agents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    machine_guid: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    machine_name: Mapped[str] = mapped_column(String(200), default="")
+    os_version: Mapped[str] = mapped_column(String(200), default="")
+    agent_version: Mapped[str] = mapped_column(String(50), default="")
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 最近一次「采集电脑信息」的结果：硬件、系统、软件清单……
+    inventory: Mapped[dict] = mapped_column(JSON, default=dict)
+    inventory_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SoftwarePackage(Base):
+    """后台上传的安装包。文件按 sha256 存在磁盘上，代理下载后先校验再安装。"""
+
+    __tablename__ = "software_packages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    version: Mapped[str] = mapped_column(String(50), default="")
+    filename: Mapped[str] = mapped_column(String(255))
+    kind: Mapped[str] = mapped_column(String(10))  # msi / exe
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    #: exe 的静默安装参数（上传时定好，下发时不能改）。msi 固定用 /qn /norestart
+    silent_args: Mapped[str] = mapped_column(String(300), default="")
+    uploaded_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AgentJob(Base):
+    """一次下发：同一个任务发给一批电脑。每台电脑的执行情况在 AgentRun 里。"""
+
+    __tablename__ = "agent_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    cancelled_by: Mapped[str] = mapped_column(String(64), default="")
+
+
+class AgentRun(Base):
+    """某个任务在某台电脑上的执行。"""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("agent_jobs.id", ondelete="CASCADE"), index=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("machine_agents.id", ondelete="CASCADE"), index=True)
+    #: pending → running → succeeded / failed；还有 cancelled（后台取消）、expired（太久没被领走）
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: 执行过程的摘要（命令输出截断后存这里）
+    output: Mapped[str] = mapped_column(Text, default="")
+    #: 结构化结果，例如清理释放了多少空间、是否需要重启
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class InstructionTemplate(Base):
+    """常用指令模板：把一段自然语言指令存起来，下发时直接选。"""
+
+    __tablename__ = "instruction_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RemoteInstruction(Base):
+    """
+    一次自然语言指令下发：把一段意图发给一批员工电脑，由电脑里的 AI agent 自行理解执行。
+
+    和 AgentJob 分开：AgentJob 走运维代理（SYSTEM 服务）按固定目录执行；这里走员工端里的
+    对话式 agent，内容是自由文本，执行结果是一段回答，不是退出码。
+    """
+
+    __tablename__ = "remote_instructions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prompt: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    cancelled_by: Mapped[str] = mapped_column(String(64), default="")
+
+
+class InstructionRun(Base):
+    """某条指令在某台员工电脑上的执行。"""
+
+    __tablename__ = "instruction_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    instruction_id: Mapped[int] = mapped_column(ForeignKey("remote_instructions.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    #: pending → running → succeeded / failed；还有 cancelled（后台取消）、expired（太久没被领走）
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: agent 跑完后给出的最终回答（做了什么、结论）
+    answer: Mapped[str] = mapped_column(Text, default="")
+    #: 失败原因
+    error: Mapped[str] = mapped_column(Text, default="")
+    #: 对应员工端本地的会话 ID，便于在那台电脑上回溯完整对话
+    conversation_id: Mapped[str] = mapped_column(String(64), default="")

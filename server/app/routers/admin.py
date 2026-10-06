@@ -1,18 +1,23 @@
 import logging
 """管理后台接口。所有请求需带 Authorization: Bearer <FLYKNIT_ADMIN_TOKEN>。"""
 
+import csv
+import io
+import re
 import time
+from datetime import date, datetime, time as dtime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from ..config import get_settings
 from ..crypto import decrypt, encrypt, mask
-from ..db import get_session
+from ..db import get_session, get_sessionmaker
 from ..deps import require_admin
 from ..models import AuditLog, Device, DevicePolicy, ModelConfig, Provider, RouteRule, SkillPackage
 from ..schemas import (
@@ -41,8 +46,8 @@ from ..schemas import (
     SmbOut,
     SyncResult,
 )
-from ..services import security_settings, settings_store, skill_library, usage_store
-from ..services.model_router import Target, build_body, headers_for
+from ..services import config_events, security_settings, settings_store, skill_library, usage_store
+from ..services.model_router import NON_CHAT_MODEL, Target, build_body, headers_for
 
 log = logging.getLogger("flyknit.admin")
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -108,13 +113,8 @@ async def delete_provider(provider_id: int, session: AsyncSession = Depends(get_
     await session.commit()
 
 
-# 同步模型时默认排除的非对话模型（向量、语音、图像生成等）
-# 以及带日期的快照版本（如 qwen3.8-max-0902、qwen-plus-2025-12-01），只保留主版本
-DEFAULT_SYNC_EXCLUDE = (
-    r"embed|rerank|tts|asr|whisper|audio|speech|paraformer|sensevoice|cosyvoice|sambert|wanx|wan2|image|flux"
-    r"|stable-diffusion|video|realtime|ocr|moderation|livetranslate|captioner|character"
-    r"|-\d{4}-\d{2}-\d{2}$|-\d{4}$"
-)
+# 同步模型时默认只排除带日期的快照版本（如 qwen3.8-max-0902、qwen-plus-2025-12-01），只保留主版本
+DEFAULT_SYNC_EXCLUDE = r"-\d{4}-\d{2}-\d{2}$|-\d{4}$"
 
 
 @router.post("/providers/{provider_id}/sync-models", response_model=SyncResult)
@@ -126,8 +126,6 @@ async def sync_models(
     session: AsyncSession = Depends(get_session),
 ):
     """从提供方的 /models 接口拉取模型列表，新增的模型默认启用，已存在的保持不变。"""
-    import re
-
     p = await _get_or_404(session, Provider, provider_id)
     key = decrypt(p.api_key_enc)
     headers = {"Authorization": f"Bearer {key}"} if key else {}
@@ -156,7 +154,7 @@ async def sync_models(
                 provider_id=p.id,
                 name=model_id,
                 model=model_id,
-                supports_tools=True,
+                supports_tools=not NON_CHAT_MODEL.search(model_id),
                 supports_vision="vl" in lowered or "omni" in lowered or "qvq" in lowered,
             )
         )
@@ -264,15 +262,38 @@ async def get_policy(session: AsyncSession = Depends(get_session)):
     return await settings_store.get_policy(session)
 
 
+_DOMAIN = re.compile(r"^(\*|(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)$")
+
+
+def _normalize_domain(raw: str) -> str:
+    """管理员多半会直接粘网址进来，把协议、路径、端口剥掉只留主机名。"""
+    text = str(raw).strip().lower()
+    text = re.sub(r"^[a-z][a-z0-9+.-]*://", "", text)
+    text = re.split(r"[/?#]", text, maxsplit=1)[0]
+    text = text.rsplit("@", 1)[-1].split(":", 1)[0]
+    return text.rstrip(".")
+
+
 @router.put("/policy")
 async def put_policy(policy: dict, session: AsyncSession = Depends(get_session)):
-    import re
-
     for pattern in policy.get("blocked_patterns", []):
         try:
             re.compile(pattern)
         except re.error as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"正则无效：{pattern}（{exc}）") from exc
+    if "allowed_domains" in policy:
+        if not isinstance(policy["allowed_domains"], list):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "allowed_domains 必须是域名列表")
+        domains: list[str] = []
+        for raw in policy["allowed_domains"]:
+            domain = _normalize_domain(raw)
+            if not _DOMAIN.match(domain):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"域名无效：{raw}")
+            if domain not in domains:
+                domains.append(domain)
+        policy["allowed_domains"] = domains
+    if "allow_private_network" in policy:
+        policy["allow_private_network"] = bool(policy["allow_private_network"])
     policy["version"] = int(policy.get("version", 0)) + 1
     await settings_store.set_value(session, settings_store.POLICY_KEY, policy)
     return policy
@@ -425,7 +446,14 @@ async def list_devices(session: AsyncSession = Depends(get_session)):
 @router.patch("/devices/{device_id}", response_model=DeviceOut)
 async def update_device(device_id: int, data: DevicePatch, session: AsyncSession = Depends(get_session)):
     d = await _get_or_404(session, Device, device_id)
-    d.disabled = data.disabled
+    if data.disabled is not None:
+        d.disabled = data.disabled
+    if data.owner is not None:
+        d.owner = data.owner.strip()[:200]
+    if data.department is not None:
+        d.department = data.department.strip()[:200]
+    if data.note is not None:
+        d.note = data.note.strip()[:500]
     await session.commit()
     return d
 
@@ -435,6 +463,7 @@ async def update_device(device_id: int, data: DevicePatch, session: AsyncSession
 async def list_audit(
     decision: str | None = None,
     device_id: int | None = None,
+    conversation_id: str | None = None,
     limit: int = Query(100, le=1000),
     offset: int = 0,
     session: AsyncSession = Depends(get_session),
@@ -444,7 +473,104 @@ async def list_audit(
         q = q.where(AuditLog.decision == decision)
     if device_id:
         q = q.where(AuditLog.device_id == device_id)
+    if conversation_id:
+        q = q.where(AuditLog.conversation_id == conversation_id)
     return (await session.scalars(q)).all()
+
+
+_AUDIT_COLUMNS = (
+    ("id", "编号"),
+    ("occurred_at", "发生时间(UTC)"),
+    ("device_id", "设备编号"),
+    ("machine_name", "计算机名"),
+    ("user_name", "Windows 用户"),
+    ("scene", "模式"),
+    ("tool_name", "工具"),
+    ("risk", "风险级别"),
+    ("decision", "判定"),
+    ("status", "执行结果"),
+    ("arguments", "参数"),
+    ("summary", "摘要"),
+    ("conversation_id", "会话"),
+)
+_EXPORT_MAX_ROWS = 200_000
+_EXPORT_BATCH = 1000
+
+
+def _csv_cell(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        # SQLite 读回来不带时区，存进去的时候就是 UTC
+        utc = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        return utc.strftime("%Y-%m-%d %H:%M:%S")
+    text = str(value)
+    # 以 = + - @ 开头的单元格 Excel 会当公式执行，命令原文里正好可能出现
+    if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text
+    return text
+
+
+@router.get("/audit/export")
+async def export_audit(
+    decision: str | None = None,
+    device_id: int | None = None,
+    since: date | None = Query(None, description="起始日期（含），按 UTC"),
+    until: date | None = Query(None, description="结束日期（含），按 UTC"),
+):
+    """
+    把审计记录导出成 CSV，给合规检查和 Excel 用。
+
+    带 BOM 的 UTF-8，Excel 双击打开中文不乱码。数据按批次边查边写，
+    几十万条也不会一次性压进内存；单次最多导出 20 万条，再多请按日期分段。
+    """
+    if since and until and since > until:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "起始日期不能晚于结束日期")
+
+    def filtered(q):
+        if decision:
+            q = q.where(AuditLog.decision == decision)
+        if device_id:
+            q = q.where(AuditLog.device_id == device_id)
+        if since:
+            q = q.where(AuditLog.occurred_at >= datetime.combine(since, dtime.min, tzinfo=timezone.utc))
+        if until:
+            q = q.where(AuditLog.occurred_at < datetime.combine(until + timedelta(days=1), dtime.min, tzinfo=timezone.utc))
+        return q
+
+    async def rows():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        buffer.write("\ufeff")
+        writer.writerow([title for _, title in _AUDIT_COLUMNS])
+        yield buffer.getvalue()
+
+        # 请求的会话在开始流式响应后就可能被关掉，这里自己开一个
+        sent = 0
+        last_id: int | None = None
+        async with get_sessionmaker()() as session:
+            while sent < _EXPORT_MAX_ROWS:
+                q = filtered(select(AuditLog)).order_by(desc(AuditLog.id)).limit(_EXPORT_BATCH)
+                if last_id is not None:
+                    q = q.where(AuditLog.id < last_id)
+                batch = (await session.scalars(q)).all()
+                if not batch:
+                    break
+                buffer.seek(0)
+                buffer.truncate()
+                for row in batch[: _EXPORT_MAX_ROWS - sent]:
+                    writer.writerow([_csv_cell(getattr(row, field)) for field, _ in _AUDIT_COLUMNS])
+                sent += len(batch)
+                last_id = batch[-1].id
+                yield buffer.getvalue()
+        log.info("导出审计记录 %d 条（decision=%s device=%s %s~%s）", min(sent, _EXPORT_MAX_ROWS), decision, device_id, since, until)
+
+    name = f"audit-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.csv"
+    return StreamingResponse(
+        rows(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 # ---------- 安全中心 ----------
@@ -513,6 +639,7 @@ async def set_device_policy(
     row.locks = security_settings.sanitize_locks(data.locks)
     row.note = data.note[:300]
     await session.commit()
+    config_events.bump()
     log.info("设备 %s(%s) 的安全设置已更新：%s", device.id, device.machine_name, row.locks)
     return await get_device_policy(device_id, session)
 
@@ -524,3 +651,4 @@ async def clear_device_policy(device_id: int, session: AsyncSession = Depends(ge
     if row is not None:
         await session.delete(row)
         await session.commit()
+        config_events.bump()

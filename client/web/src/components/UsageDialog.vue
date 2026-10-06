@@ -6,11 +6,14 @@ import {
   ChartColumn,
   Check,
   CircleAlert,
+  Download,
+  Globe,
   Languages,
   Mail,
   MessageSquare,
   Phone,
   RefreshCw,
+  Settings2,
   ShieldAlert,
   ShieldCheck,
   Trash2,
@@ -20,6 +23,7 @@ import {
 import { bridge } from '../bridge'
 import { state, toast } from '../store'
 import type { SecurityDecision, SecurityEvent, UsageStats } from '../types'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const { t, te } = useI18n()
 type Tab = 'usage' | 'security'
@@ -37,6 +41,8 @@ const decisionIcons: Record<SecurityDecision, unknown> = {
   approved: ShieldCheck,
   remembered: Check,
   rejected: Ban,
+  allowed: Globe,
+  changed: Settings2,
 }
 
 async function load() {
@@ -57,9 +63,23 @@ async function setFilter(f: '' | SecurityDecision) {
   events.value = await bridge.securityEvents(f).catch(() => [])
 }
 
+const confirmClear = ref(false)
 async function clearEvents() {
+  confirmClear.value = false
   events.value = []
   await bridge.clearSecurityEvents().catch(() => {})
+}
+
+const exporting = ref(false)
+async function exportEvents() {
+  exporting.value = true
+  try {
+    const r = await bridge.exportSecurityEvents().catch((e) => ({ ok: false, cancelled: false, message: String(e), path: '', count: 0 }))
+    if (r.cancelled) return
+    toast(r.ok ? t('ui.security.exported', { n: r.count, path: r.path }) : t('ui.security.exportFailed', { msg: r.message }))
+  } finally {
+    exporting.value = false
+  }
 }
 
 /** 柱状图：最近 7 天的用量，按最大值归一 */
@@ -168,7 +188,10 @@ const close = () => (state.usageOpen = false)
         <template v-else>
           <div class="bar-row">
             <p class="tab-hint">{{ t('ui.usagePanel.securityHint') }}</p>
-            <button v-if="events.length" type="button" class="link" @click="clearEvents">{{ t('settings.clearAll') }}</button>
+            <button v-if="events.length" type="button" class="link" :disabled="exporting" @click="exportEvents">
+              <Download :size="13" /> {{ t('ui.security.export') }}
+            </button>
+            <button v-if="events.length" type="button" class="link" @click="confirmClear = true">{{ t('settings.clearAll') }}</button>
           </div>
           <div class="filters">
             <button type="button" :class="{ on: filter === '' }" @click="setFilter('')">{{ t('ui.filter.all') }}</button>
@@ -203,6 +226,15 @@ const close = () => (state.usageOpen = false)
         <button type="button" class="btn primary" @click="close">{{ t('settings.close') }}</button>
       </footer>
     </div>
+    <ConfirmDialog
+      v-if="confirmClear"
+      :title="t('ui.usagePanel.clearTitle')"
+      :body="t('ui.usagePanel.clearBody')"
+      :ok="t('settings.clearAll')"
+      danger
+      @ok="clearEvents"
+      @cancel="confirmClear = false"
+    />
   </div>
 </template>
 
@@ -381,9 +413,13 @@ h3 {
   color: var(--indigo);
 }
 .link {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
   color: var(--indigo);
   font-size: var(--t-xs);
   font-weight: 500;
+  white-space: nowrap;
 }
 .scenes {
   margin: 0;

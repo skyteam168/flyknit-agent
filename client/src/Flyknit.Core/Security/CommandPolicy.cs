@@ -56,6 +56,12 @@ public sealed class PolicyConfig
     [JsonPropertyName("no_delete_roots")] public List<string> NoDeleteRoots { get; set; } = new();
     [JsonPropertyName("batch_confirm_threshold")] public int BatchConfirmThreshold { get; set; } = 20;
 
+    /// <summary>网络白名单。写 example.com 同时放行它的子域名，写 * 等于不限制。</summary>
+    [JsonPropertyName("allowed_domains")] public List<string> AllowedDomains { get; set; } = new();
+
+    /// <summary>内网地址和不带点的内网主机名是否一律放行。</summary>
+    [JsonPropertyName("allow_private_network")] public bool AllowPrivateNetwork { get; set; } = true;
+
     /// <summary>客户端内置的默认策略（离线或尚未从服务端拉取时使用）。</summary>
     public static PolicyConfig LoadDefault()
     {
@@ -87,9 +93,13 @@ public sealed class CommandPolicy
 
     public PolicyConfig Config { get; }
 
+    /// <summary>网络白名单。是否生效由安全中心的开关决定，见 <see cref="PermissionRules.ForNetwork"/>。</summary>
+    public NetworkPolicy Network { get; }
+
     public CommandPolicy(PolicyConfig config)
     {
         Config = config;
+        Network = new NetworkPolicy(config.AllowedDomains, config.AllowPrivateNetwork);
         _blocked = Compile(config.BlockedPatterns);
         _recursiveDelete = Compile(config.RecursiveDeletePatterns);
         _readonly = new HashSet<string>(config.ReadonlyCommands, StringComparer.OrdinalIgnoreCase);

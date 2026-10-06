@@ -226,7 +226,7 @@ export interface UsageStats {
   contactPhone: string
 }
 
-export type SecurityDecision = 'blocked' | 'approved' | 'remembered' | 'rejected'
+export type SecurityDecision = 'blocked' | 'approved' | 'remembered' | 'rejected' | 'allowed' | 'changed'
 
 export interface SecurityEvent {
   id: number
@@ -239,6 +239,21 @@ export interface SecurityEvent {
   decision: SecurityDecision
   reason: string
   createdAt: string
+}
+
+/** 网络白名单的当前内容，由服务端下发 */
+export interface NetworkAllowlist {
+  enabled: boolean
+  domains: string[]
+  allowPrivate: boolean
+}
+
+export interface ExportResult {
+  ok: boolean
+  cancelled: boolean
+  message: string
+  path: string
+  count: number
 }
 
 export type SkillSourceKind = 'personal' | 'organization' | 'learned'
@@ -352,6 +367,8 @@ export interface AppInfo {
   theme: Theme
   userName: string
   machineName: string
+  department?: string
+  owner?: string
   connected: boolean
   serverMessage: string
   modelName: string
@@ -362,6 +379,9 @@ export interface AppInfo {
   learning: boolean
   notifications: boolean
   notificationSound: string
+  /** IT 锁住了完成通知 / 提示音，本机改不了 */
+  notificationsLocked?: boolean
+  soundLocked?: boolean
   fontScale: number
   autoStart: boolean
   proxyMode: string
@@ -474,5 +494,5 @@ export type HostEvent =
   | { type: 'chat.error'; conversationId: string; message: string }
   | { type: 'conversation.updated'; conversation: Conversation }
   | { type: 'files.added'; attachments: AttachmentRef[] }
-  | { type: 'app.status'; connected: boolean; serverMessage: string; modelName: string }
+  | { type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string }
   | { type: 'app.focusInput' }

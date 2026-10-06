@@ -84,5 +84,10 @@
     "C:\\Program Files (x86)",
     "C:\\ProgramData"
   ],
-  "batch_confirm_threshold": 20
+  "batch_confirm_threshold": 20,
+  "allowed_domains": [
+    "localhost",
+    "shenzhougroup.com"
+  ],
+  "allow_private_network": true
 }

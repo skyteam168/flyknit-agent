@@ -18,6 +18,8 @@ import type {
   SkillInstallOutcome,
   ScheduledTask,
   SecurityEvent,
+  ExportResult,
+  NetworkAllowlist,
   OutputFile,
   PreviewDoc,
   ShortcutInfo,
@@ -134,7 +136,8 @@ class Bridge {
   /** 从窗口边缘开始调整大小（无边框窗口自己实现） */
   startResize = (direction: string) => this.call<void>('window.startResize', { direction })
   setLearning = (enabled: boolean) => this.call<void>('settings.setLearning', { enabled })
-  setNotifications = (enabled: boolean) => this.call<void>('settings.setNotifications', { enabled })
+  setNotifications = (enabled: boolean) =>
+    this.call<{ ok: boolean; message: string; enabled: boolean }>('settings.setNotifications', { enabled })
 
   // ---------- 记忆 ----------
   memoryOverview = () => this.call<MemoryOverview>('memory.list')
@@ -194,7 +197,9 @@ class Bridge {
   usageStats = () => this.call<UsageStats>('usage.stats')
 
   setFontScale = (scale: number) => this.call<number>('settings.setFontScale', { scale })
-  setNotificationSound = (sound: string) => this.call<void>('settings.setNotificationSound', { sound })
+  setNotificationSound = (sound: string) =>
+    this.call<{ ok: boolean; message: string; sound: string }>('settings.setNotificationSound', { sound })
+  previewSound = (sound: string) => this.call<void>('settings.previewSound', { sound })
   setAutoStart = (enabled: boolean) => this.call<{ ok: boolean; message: string; enabled: boolean }>('settings.setAutoStart', { enabled })
   setProxy = (mode: string, url: string, user: string, password: string) =>
     this.call<{ ok: boolean; message: string }>('settings.setProxy', { mode, url, user, password })
@@ -225,8 +230,11 @@ class Bridge {
   previewFile = (path: string) => this.call<PreviewDoc>('files.preview', { path })
   /** 告诉宿主当前打开的是哪个任务（决定要不要弹系统通知） */
   setActiveConversation = (id: string | null) => this.call<void>('ui.activeConversation', { id })
-  securityEvents = (decision = '') => this.call<SecurityEvent[]>('security.list', { decision })
+  securityEvents = (decision = '', limit?: number) => this.call<SecurityEvent[]>('security.list', { decision, limit })
   clearSecurityEvents = () => this.call<void>('security.clear')
+  /** 把本机安全记录导出成 CSV（宿主弹另存为对话框） */
+  exportSecurityEvents = (ids?: number[]) => this.call<ExportResult>('security.export', ids ? { ids } : {})
+  networkAllowlist = () => this.call<NetworkAllowlist>('security.network')
   listApprovals = () => this.call<ApprovalInfo[]>('approvals.list')
   revokeApproval = (id: string) => this.call<void>('approvals.revoke', { id })
   clearApprovals = () => this.call<void>('approvals.clear')

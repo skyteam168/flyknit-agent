@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RotateCcw, Search, X } from '@lucide/vue'
+import { RotateCcw, Search } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { state, toast } from '../store'
 import { describeEvent, setBindings, setCapturing } from '../shortcuts'
@@ -96,131 +96,92 @@ onBeforeUnmount(stop)
 </script>
 
 <template>
-  <div class="scrim" @mousedown.self="state.shortcutsOpen = false">
-    <div class="dialog" role="dialog" aria-modal="true" :aria-label="t('ui.shortcuts.title')">
-      <header>
-        <h2>{{ t('ui.shortcuts.title') }}</h2>
-        <span class="count">{{ t('ui.shortcuts.count', { n: state.shortcuts.length }) }}</span>
-        <button type="button" class="ico" :aria-label="t('settings.close')" @click="state.shortcutsOpen = false">
-          <X :size="16" />
-        </button>
-      </header>
+  <div class="panel">
+    <header>
+      <h2>{{ t('ui.shortcuts.title') }}</h2>
+      <span class="count">{{ t('ui.shortcuts.count', { n: state.shortcuts.length }) }}</span>
+    </header>
 
-      <div class="tools">
-        <label class="search">
-          <Search :size="15" />
-          <input v-model="query" type="search" :placeholder="t('ui.shortcuts.search')" />
-        </label>
-        <button type="button" class="btn" @click="resetAll">
-          <RotateCcw :size="14" /> {{ t('ui.shortcuts.resetAll') }}
-        </button>
-      </div>
-
-      <div class="table">
-        <div class="head">
-          <span>{{ t('ui.shortcuts.command') }}</span>
-          <span>{{ t('ui.shortcuts.binding') }}</span>
-          <span>{{ t('ui.shortcuts.action') }}</span>
-        </div>
-        <div v-for="c in list" :key="c.id" class="row" :class="{ recording: recording === c.id }">
-          <span class="cmd">
-            {{ label(c) }}
-            <em v-if="c.global" class="badge">{{ t('ui.shortcuts.global') }}</em>
-            <em v-if="c.fixed" class="badge muted">{{ t('ui.shortcuts.fixed') }}</em>
-          </span>
-
-          <button
-            type="button"
-            class="binding"
-            :disabled="c.fixed"
-            :title="c.fixed ? t('ui.shortcuts.fixedHint') : t('ui.shortcuts.clickToRecord')"
-            @click="recording === c.id ? stop() : start(c)"
-          >
-            <template v-if="recording === c.id">
-              <span class="hint">{{ pending || t('ui.shortcuts.pressKeys') }}</span>
-            </template>
-            <template v-else-if="c.binding">
-              <kbd v-for="k in keys(c.binding)" :key="k">{{ k }}</kbd>
-            </template>
-            <span v-else class="hint">{{ t('ui.shortcuts.disabled') }}</span>
-          </button>
-
-          <span class="act">
-            <button
-              v-if="c.customized"
-              type="button"
-              class="mini"
-              :title="t('ui.shortcuts.reset')"
-              @click="resetOne(c)"
-            >
-              <RotateCcw :size="14" />
-            </button>
-            <span v-else class="dash">—</span>
-          </span>
-        </div>
-        <p v-if="list.length === 0" class="empty">{{ t('ui.shortcuts.noMatch') }}</p>
-      </div>
-
-      <footer>
-        <span class="hint">{{ t('ui.shortcuts.footer') }}</span>
-        <button type="button" class="btn primary" @click="state.shortcutsOpen = false">{{ t('settings.close') }}</button>
-      </footer>
+    <div class="tools">
+      <label class="search">
+        <Search :size="15" />
+        <input v-model="query" type="search" :placeholder="t('ui.shortcuts.search')" />
+      </label>
+      <button type="button" class="btn" @click="resetAll">
+        <RotateCcw :size="14" /> {{ t('ui.shortcuts.resetAll') }}
+      </button>
     </div>
+
+    <div class="table">
+      <div class="head">
+        <span>{{ t('ui.shortcuts.command') }}</span>
+        <span>{{ t('ui.shortcuts.binding') }}</span>
+        <span>{{ t('ui.shortcuts.action') }}</span>
+      </div>
+      <div v-for="c in list" :key="c.id" class="row" :class="{ recording: recording === c.id }">
+        <span class="cmd">
+          {{ label(c) }}
+          <em v-if="c.global" class="badge">{{ t('ui.shortcuts.global') }}</em>
+          <em v-if="c.fixed" class="badge muted">{{ t('ui.shortcuts.fixed') }}</em>
+        </span>
+
+        <button
+          type="button"
+          class="binding"
+          :disabled="c.fixed"
+          :title="c.fixed ? t('ui.shortcuts.fixedHint') : t('ui.shortcuts.clickToRecord')"
+          @click="recording === c.id ? stop() : start(c)"
+        >
+          <template v-if="recording === c.id">
+            <span class="hint">{{ pending || t('ui.shortcuts.pressKeys') }}</span>
+          </template>
+          <template v-else-if="c.binding">
+            <kbd v-for="k in keys(c.binding)" :key="k">{{ k }}</kbd>
+          </template>
+          <span v-else class="hint">{{ t('ui.shortcuts.disabled') }}</span>
+        </button>
+
+        <span class="act">
+          <button
+            v-if="c.customized"
+            type="button"
+            class="mini"
+            :title="t('ui.shortcuts.reset')"
+            @click="resetOne(c)"
+          >
+            <RotateCcw :size="14" />
+          </button>
+          <span v-else class="dash">—</span>
+        </span>
+      </div>
+      <p v-if="list.length === 0" class="empty">{{ t('ui.shortcuts.noMatch') }}</p>
+    </div>
+
+    <p class="hint foot">{{ t('ui.shortcuts.footer') }}</p>
   </div>
 </template>
 
 <style scoped>
-.scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: color-mix(in srgb, var(--ink) 28%, transparent);
-}
-.dialog {
-  display: flex;
-  flex-direction: column;
-  width: min(820px, 100%);
-  max-height: calc(100vh - 32px);
-  border-radius: var(--r-lg);
-  background: var(--cloth);
-  box-shadow: var(--shadow-pop);
-}
 header {
   display: flex;
   gap: 10px;
-  align-items: center;
-  padding: 18px 22px 12px;
+  align-items: baseline;
+  margin-bottom: 12px;
 }
 header h2 {
   margin: 0;
-  font-size: calc(16px * var(--font-scale));
+  font-size: var(--t-lg, calc(16px * var(--font-scale)));
+  font-weight: 600;
 }
 .count {
   flex: 1;
   color: var(--ink-faint);
   font-size: var(--t-xs);
 }
-.ico {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--ink-soft);
-  cursor: pointer;
-}
-.ico:hover {
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
-}
 .tools {
   display: flex;
   gap: 10px;
-  padding: 0 22px 12px;
+  margin-bottom: 12px;
 }
 .search {
   display: flex;
@@ -242,9 +203,9 @@ header h2 {
   outline: none;
 }
 .table {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
 }
 .head,
 .row {
@@ -252,19 +213,19 @@ header h2 {
   grid-template-columns: 1fr 230px 60px;
   gap: 10px;
   align-items: center;
-  padding: 9px 10px;
+  padding: 9px 12px;
 }
 .head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--cloth);
+  background: var(--cloth-sunk, var(--cloth));
   border-bottom: 1px solid var(--line);
   color: var(--ink-faint);
   font-size: var(--t-xs);
 }
 .row {
   border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.row:last-of-type {
+  border-bottom: 0;
 }
 .row:hover {
   background: color-mix(in srgb, var(--ink) 4%, transparent);
@@ -319,6 +280,9 @@ kbd {
   color: var(--ink-faint);
   font-size: var(--t-xs);
 }
+.foot {
+  margin: 12px 0 0;
+}
 .act {
   text-align: center;
 }
@@ -345,15 +309,5 @@ kbd {
   color: var(--ink-faint);
   font-size: var(--t-sm);
   text-align: center;
-}
-footer {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 22px 18px;
-  border-top: 1px solid var(--line);
-}
-footer .hint {
-  flex: 1;
 }
 </style>

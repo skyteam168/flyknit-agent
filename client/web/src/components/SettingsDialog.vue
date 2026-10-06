@@ -1,14 +1,72 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FolderOpen, Keyboard, Loader, ShieldCheck, TerminalSquare, X } from '@lucide/vue'
+import {
+  Bell,
+  Database,
+  FolderOpen,
+  Globe,
+  Info,
+  Keyboard,
+  Lightbulb,
+  Loader,
+  Lock,
+  ShieldCheck,
+  SlidersHorizontal,
+  TerminalSquare,
+  Volume2,
+  X,
+} from '@lucide/vue'
 import { bridge } from '../bridge'
 import { uiLanguages } from '../i18n'
-import { setFontScale, setLanguage, setLearning, setNotifications, setTheme, state, toast } from '../store'
+import { setFontScale, setLanguage, setLearning, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
 import type { ApprovalInfo, StorageInfo, Theme } from '../types'
+import AuditLog from './AuditLog.vue'
+import SecurityPanel from './SecurityPanel.vue'
+import ShortcutsPanel from './ShortcutsPanel.vue'
 
 const { t } = useI18n()
 const themes: Theme[] = ['system', 'light', 'dark']
+
+// ---------- 左侧菜单 ----------
+type Page = 'general' | 'notify' | 'shortcuts' | 'network' | 'memory' | 'data' | 'security' | 'about'
+const nav: { group: string; pages: { id: Page; icon: Component; label: string }[] }[] = [
+  {
+    group: 'settings.nav.groupSettings',
+    pages: [
+      { id: 'general', icon: SlidersHorizontal, label: 'settings.nav.general' },
+      { id: 'notify', icon: Bell, label: 'settings.nav.notify' },
+      { id: 'shortcuts', icon: Keyboard, label: 'settings.shortcuts' },
+      { id: 'network', icon: Globe, label: 'settings.nav.network' },
+    ],
+  },
+  {
+    group: 'settings.nav.groupFeatures',
+    pages: [{ id: 'memory', icon: Lightbulb, label: 'settings.nav.memory' }],
+  },
+  {
+    group: 'settings.nav.groupData',
+    pages: [
+      { id: 'data', icon: Database, label: 'settings.nav.data' },
+      { id: 'security', icon: ShieldCheck, label: 'ui.security.title' },
+    ],
+  },
+]
+const page = ref<Page>('general')
+/** 安全中心里点了「查看全部」，右侧换成审计明细；切到别的页再回来时回到安全中心首页 */
+const auditOpen = ref(false)
+const content = ref<HTMLElement>()
+watch(page, () => (auditOpen.value = false))
+function openAudit() {
+  auditOpen.value = true
+  content.value?.scrollTo({ top: 0 })
+}
+
+function close() {
+  state.settingsOpen = false
+}
+
+// ---------- 自动执行规则 ----------
 const approvals = ref<ApprovalInfo[]>([])
 
 async function loadApprovals() {
@@ -22,6 +80,7 @@ async function clearAll() {
   approvals.value = []
   await bridge.clearApprovals().catch(() => {})
 }
+
 // ---------- 字号 ----------
 const FontSteps = [0.85, 0.925, 1, 1.1, 1.25]
 const fontIndex = computed({
@@ -112,197 +171,281 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="scrim" @mousedown.self="state.settingsOpen = false" @keydown.esc="state.settingsOpen = false">
+  <div class="scrim" @mousedown.self="close" @keydown.esc="close">
     <div class="dialog" role="dialog" aria-modal="true" :aria-label="t('settings.title')">
-      <h2>{{ t('settings.title') }}</h2>
-
-      <div class="cols">
-      <section>
-        <h3>{{ t('settings.language') }}</h3>
-        <div class="choices">
+      <nav class="menu">
+        <template v-for="g in nav" :key="g.group">
+          <h4>{{ t(g.group) }}</h4>
           <button
-            v-for="l in uiLanguages"
-            :key="l.code"
+            v-for="p in g.pages"
+            :key="p.id"
             type="button"
-            :class="{ on: state.app?.uiLanguage === l.code }"
-            :aria-pressed="state.app?.uiLanguage === l.code"
-            @click="setLanguage(l.code)"
+            :class="{ on: page === p.id }"
+            :aria-current="page === p.id ? 'page' : undefined"
+            @click="page = p.id"
           >
-            {{ l.label }}
+            <component :is="p.icon" :size="16" />
+            <span>{{ t(p.label) }}</span>
+          </button>
+        </template>
+        <div class="menu-foot">
+          <button type="button" :class="{ on: page === 'about' }" @click="page = 'about'">
+            <Info :size="16" />
+            <span>{{ t('settings.about') }}</span>
           </button>
         </div>
-      </section>
+      </nav>
 
-      <section>
-        <h3>{{ t('settings.theme') }}</h3>
-        <div class="choices">
-          <button
-            v-for="th in themes"
-            :key="th"
-            type="button"
-            :class="{ on: state.app?.theme === th }"
-            :aria-pressed="state.app?.theme === th"
-            @click="setTheme(th)"
-          >
-            {{ t(`settings.themes.${th}`) }}
-          </button>
-        </div>
-      </section>
-
-      <section class="toggles">
-        <label class="toggle">
-          <span>
-            <strong>{{ t('settings.notifications') }}</strong>
-            <small>{{ t('settings.notificationsHint') }}</small>
-          </span>
-          <input type="checkbox" :checked="state.app?.notifications ?? true" @change="setNotifications(($event.target as HTMLInputElement).checked)" />
-        </label>
-        <label class="toggle">
-          <span>
-            <strong>{{ t('ui.memory.learning') }}</strong>
-            <small>{{ t('ui.memory.learningHint') }}</small>
-          </span>
-          <input type="checkbox" :checked="state.app?.learning ?? true" @change="setLearning(($event.target as HTMLInputElement).checked)" />
-        </label>
-        <label class="row-select">
-          <span>
-            <strong>{{ t('settings.sound') }}</strong>
-            <small>{{ t('settings.soundHint') }}</small>
-          </span>
-          <select
-            :value="state.app?.notificationSound ?? 'none'"
-            @change="bridge.setNotificationSound(($event.target as HTMLSelectElement).value); state.app && (state.app.notificationSound = ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="none">{{ t('settings.soundNone') }}</option>
-            <option value="soft">{{ t('settings.soundSoft') }}</option>
-            <option value="alert">{{ t('settings.soundAlert') }}</option>
-          </select>
-        </label>
-      </section>
-
-      <section>
-        <h3>{{ t('settings.memory') }}</h3>
-        <p class="hint">{{ t('settings.memoryHint') }}</p>
-        <button type="button" class="btn" @click="bridge.openMemoryFolder()">
-          <FolderOpen :size="15" /> {{ t('settings.openMemory') }}
+      <div class="main">
+      <div class="bar">
+        <button type="button" class="close" :aria-label="t('settings.close')" :title="t('settings.close')" @click="close">
+          <X :size="18" />
         </button>
-      </section>
-
-      <section>
-        <h3>{{ t('settings.fontSize') }}</h3>
-        <div class="font-row">
-          <span class="tick">{{ t('settings.fontSmall') }}</span>
-          <input v-model.number="fontIndex" type="range" min="0" max="4" step="1" :aria-label="t('settings.fontSize')" />
-          <span class="tick">{{ t('settings.fontLarge') }}</span>
-        </div>
-        <p class="hint">{{ t('settings.fontHint') }}</p>
-      </section>
-
-      <section>
-        <h3>{{ t('settings.shortcuts') }}</h3>
-        <p class="hint">{{ t('settings.shortcutsHint') }}</p>
-        <button type="button" class="btn" @click="state.shortcutsOpen = true">
-          <Keyboard :size="15" /> {{ t('settings.openShortcuts') }}
-        </button>
-      </section>
-
-      <section>
-        <h3>{{ t('ui.security.title') }}</h3>
-        <p class="hint">{{ t('ui.security.subtitle') }}</p>
-        <button type="button" class="btn" @click="state.securityOpen = true">
-          <ShieldCheck :size="15" /> {{ t('ui.security.open') }}
-        </button>
-      </section>
       </div>
 
-      <section class="wide">
-        <h3>{{ t('settings.startup') }}</h3>
-        <label class="toggle">
-          <span>
-            <strong>{{ t('settings.autoStart') }}</strong>
-            <small>{{ t('settings.autoStartHint') }}</small>
-          </span>
-          <input type="checkbox" :checked="autoStart" @change="toggleAutoStart(($event.target as HTMLInputElement).checked)" />
-        </label>
-      </section>
-
-      <section class="wide">
-        <h3>{{ t('settings.proxy') }}</h3>
-        <p class="hint">{{ t('settings.proxyHint') }}</p>
-        <div class="proxy">
-          <select v-model="proxyMode" :aria-label="t('settings.proxyMode')" @change="saveProxy">
-            <option value="direct">{{ t('settings.proxyDirect') }}</option>
-            <option value="system">{{ t('settings.proxySystem') }}</option>
-            <option value="manual">{{ t('settings.proxyManual') }}</option>
-          </select>
-          <template v-if="proxyMode === 'manual'">
-            <input v-model="proxyUrl" type="text" placeholder="http://10.0.0.8:8080" @blur="saveProxy" />
-            <input v-model="proxyUser" type="text" :placeholder="t('settings.proxyUser')" @blur="saveProxy" />
-            <input v-model="proxyPassword" type="password" :placeholder="t('settings.proxyPassword')" @blur="saveProxy" />
-          </template>
-          <button type="button" class="btn" :disabled="proxyTesting" @click="testProxy">
-            <Loader v-if="proxyTesting" :size="14" class="spin" />
-            {{ proxyTesting ? t('settings.proxyTesting') : t('settings.proxyTest') }}
-          </button>
-        </div>
-      </section>
-
-      <section class="wide">
-        <h3>{{ t('settings.storage') }}</h3>
-        <p v-if="storageLoading" class="hint">{{ t('settings.storageLoading') }}</p>
-        <template v-else-if="storage">
-          <div class="store-card">
-            <div class="store-head">
-              <strong>{{ t('settings.dataDir') }}</strong>
-              <span>{{ t('settings.storageUsed', { size: gb(storage.bytes), p: ((storage.bytes / (storage.diskTotal || 1)) * 100).toFixed(2) }) }}</span>
+      <div ref="content" class="content">
+        <!-- 通用 -->
+        <template v-if="page === 'general'">
+          <h2>{{ t('settings.nav.general') }}</h2>
+          <section class="card">
+            <div class="row">
+              <span class="label"><strong>{{ t('settings.language') }}</strong></span>
+              <div class="choices">
+                <button
+                  v-for="l in uiLanguages"
+                  :key="l.code"
+                  type="button"
+                  :class="{ on: state.app?.uiLanguage === l.code }"
+                  :aria-pressed="state.app?.uiLanguage === l.code"
+                  @click="setLanguage(l.code)"
+                >
+                  {{ l.label }}
+                </button>
+              </div>
             </div>
-            <div class="track"><i :style="{ width: diskPercent + '%' }" /></div>
-            <div class="store-legend">
-              <span class="dot app" />{{ t('settings.appUses', { size: gb(storage.bytes) }) }}
-              <span class="dot used" />{{ t('settings.diskUsed', { size: gb(storage.diskUsed) }) }}
-              <span class="dot free" />{{ t('settings.diskFree', { size: gb(storage.diskFree) }) }}
-              <button type="button" class="link" @click="bridge.openDataFolder()">
-                <FolderOpen :size="14" /> {{ t('settings.openFolder') }}
+            <div class="row">
+              <span class="label"><strong>{{ t('settings.theme') }}</strong></span>
+              <div class="choices">
+                <button
+                  v-for="th in themes"
+                  :key="th"
+                  type="button"
+                  :class="{ on: state.app?.theme === th }"
+                  :aria-pressed="state.app?.theme === th"
+                  @click="setTheme(th)"
+                >
+                  {{ t(`settings.themes.${th}`) }}
+                </button>
+              </div>
+            </div>
+            <div class="row col">
+              <span class="label">
+                <strong>{{ t('settings.fontSize') }}</strong>
+                <small>{{ t('settings.fontHint') }}</small>
+              </span>
+              <div class="font-row">
+                <span class="tick">{{ t('settings.fontSmall') }}</span>
+                <input v-model.number="fontIndex" type="range" min="0" max="4" step="1" :aria-label="t('settings.fontSize')" />
+                <span class="tick">{{ t('settings.fontLarge') }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <h3>{{ t('settings.startup') }}</h3>
+            <label class="row">
+              <span class="label">
+                <strong>{{ t('settings.autoStart') }}</strong>
+                <small>{{ t('settings.autoStartHint') }}</small>
+              </span>
+              <input type="checkbox" class="switch" :checked="autoStart" @change="toggleAutoStart(($event.target as HTMLInputElement).checked)" />
+            </label>
+          </section>
+        </template>
+
+        <!-- 通知 -->
+        <template v-else-if="page === 'notify'">
+          <h2>{{ t('settings.nav.notify') }}</h2>
+          <section class="card">
+            <label class="row">
+              <span class="label">
+                <strong>
+                  {{ t('settings.notifications') }}
+                  <Lock v-if="state.app?.notificationsLocked" :size="12" class="locked" />
+                </strong>
+                <small>{{ state.app?.notificationsLocked ? t('ui.security.managedBy') : t('settings.notificationsHint') }}</small>
+              </span>
+              <input
+                type="checkbox"
+                class="switch"
+                :checked="state.app?.notifications ?? true"
+                :disabled="state.app?.notificationsLocked"
+                @change="setNotifications(($event.target as HTMLInputElement).checked)"
+              />
+            </label>
+            <div class="row">
+              <span class="label">
+                <strong>
+                  {{ t('settings.sound') }}
+                  <Lock v-if="state.app?.soundLocked" :size="12" class="locked" />
+                </strong>
+                <small>{{ state.app?.soundLocked ? t('ui.security.managedBy') : t('settings.soundHint') }}</small>
+              </span>
+              <button
+                type="button"
+                class="btn preview"
+                :disabled="(state.app?.notificationSound ?? 'none') === 'none'"
+                :title="t('settings.soundPreview')"
+                @click="bridge.previewSound(state.app?.notificationSound ?? 'none')"
+              >
+                <Volume2 :size="14" /> {{ t('settings.soundPreview') }}
+              </button>
+              <select
+                :value="state.app?.notificationSound ?? 'none'"
+                :disabled="state.app?.soundLocked"
+                @change="setNotificationSound(($event.target as HTMLSelectElement).value)"
+              >
+                <option value="none">{{ t('settings.soundNone') }}</option>
+                <option value="soft">{{ t('settings.soundSoft') }}</option>
+                <option value="alert">{{ t('settings.soundAlert') }}</option>
+              </select>
+            </div>
+          </section>
+        </template>
+
+        <!-- 快捷键 -->
+        <ShortcutsPanel v-else-if="page === 'shortcuts'" />
+
+        <!-- 网络 -->
+        <template v-else-if="page === 'network'">
+          <h2>{{ t('settings.nav.network') }}</h2>
+          <section class="card">
+            <h3>{{ t('settings.proxy') }}</h3>
+            <p class="hint">{{ t('settings.proxyHint') }}</p>
+            <div class="proxy">
+              <select v-model="proxyMode" :aria-label="t('settings.proxyMode')" @change="saveProxy">
+                <option value="direct">{{ t('settings.proxyDirect') }}</option>
+                <option value="system">{{ t('settings.proxySystem') }}</option>
+                <option value="manual">{{ t('settings.proxyManual') }}</option>
+              </select>
+              <template v-if="proxyMode === 'manual'">
+                <input v-model="proxyUrl" type="text" placeholder="http://10.0.0.8:8080" @blur="saveProxy" />
+                <input v-model="proxyUser" type="text" :placeholder="t('settings.proxyUser')" @blur="saveProxy" />
+                <input v-model="proxyPassword" type="password" :placeholder="t('settings.proxyPassword')" @blur="saveProxy" />
+              </template>
+              <button type="button" class="btn" :disabled="proxyTesting" @click="testProxy">
+                <Loader v-if="proxyTesting" :size="14" class="spin" />
+                {{ proxyTesting ? t('settings.proxyTesting') : t('settings.proxyTest') }}
               </button>
             </div>
-          </div>
-
-          <h4 class="sub">{{ t('settings.workspaceTitle') }}</h4>
-          <p class="hint">{{ t('settings.workspaceHint') }}</p>
-          <div class="path-row">
-            <code>{{ state.app?.defaultWorkspace ?? storage.workspace }}</code>
-            <button type="button" class="btn" @click="changeWorkspace">{{ t('settings.change') }}</button>
-          </div>
+          </section>
         </template>
-      </section>
 
-      <section class="wide">
-        <h3 class="row-head">
-          <span>{{ t('settings.approvals') }}</span>
-          <button v-if="approvals.length" type="button" class="link" @click="clearAll">{{ t('settings.clearAll') }}</button>
-        </h3>
-        <p class="hint">{{ t('settings.approvalsHint') }}</p>
-        <p v-if="approvals.length === 0" class="empty">{{ t('settings.approvalsEmpty') }}</p>
-        <ul v-else class="approvals">
-          <li v-for="a in approvals" :key="a.id">
-            <TerminalSquare :size="15" class="ico" />
-            <span class="cmd">
-              <code :title="a.display">{{ a.prefix }} *</code>
-              <small>
-                <template v-if="a.scope && a.scope !== '*'">{{ t('settings.ruleScope', { path: a.scope }) }}</template>
-                <template v-else>{{ t('settings.ruleAnyWorkspace') }}</template>
-                <template v-if="a.uses"> · {{ t('settings.uses', { n: a.uses }) }}</template>
-              </small>
-            </span>
-            <button type="button" class="mini" :title="t('settings.revoke')" @click="revoke(a)"><X :size="14" /></button>
-          </li>
-        </ul>
-      </section>
+        <!-- 记忆与进化 -->
+        <template v-else-if="page === 'memory'">
+          <h2>{{ t('settings.nav.memory') }}</h2>
+          <section class="card">
+            <label class="row">
+              <span class="label">
+                <strong>{{ t('ui.memory.learning') }}</strong>
+                <small>{{ t('ui.memory.learningHint') }}</small>
+              </span>
+              <input
+                type="checkbox"
+                class="switch"
+                :checked="state.app?.learning ?? true"
+                @change="setLearning(($event.target as HTMLInputElement).checked)"
+              />
+            </label>
+            <div class="row">
+              <span class="label">
+                <strong>{{ t('settings.memory') }}</strong>
+                <small>{{ t('settings.memoryHint') }}</small>
+              </span>
+              <button type="button" class="btn" @click="bridge.openMemoryFolder()">
+                <FolderOpen :size="15" /> {{ t('settings.openMemory') }}
+              </button>
+            </div>
+          </section>
+        </template>
 
-      <footer>
-        <span class="about">{{ t('app.name') }} {{ t('settings.version', { v: state.app?.version ?? '' }) }}<br />{{ state.app?.userName }}, {{ state.app?.machineName }}</span>
-        <button type="button" class="btn primary" @click="state.settingsOpen = false">{{ t('settings.close') }}</button>
-      </footer>
+        <!-- 数据管理 -->
+        <template v-else-if="page === 'data'">
+          <h2>{{ t('settings.nav.data') }}</h2>
+          <section class="card">
+            <h3>{{ t('settings.storage') }}</h3>
+            <p v-if="storageLoading" class="hint">{{ t('settings.storageLoading') }}</p>
+            <template v-else-if="storage">
+              <div class="store-head">
+                <strong>{{ t('settings.dataDir') }}</strong>
+                <span>{{ t('settings.storageUsed', { size: gb(storage.bytes), p: ((storage.bytes / (storage.diskTotal || 1)) * 100).toFixed(2) }) }}</span>
+              </div>
+              <div class="track"><i :style="{ width: diskPercent + '%' }" /></div>
+              <div class="store-legend">
+                <span class="dot app" />{{ t('settings.appUses', { size: gb(storage.bytes) }) }}
+                <span class="dot used" />{{ t('settings.diskUsed', { size: gb(storage.diskUsed) }) }}
+                <span class="dot free" />{{ t('settings.diskFree', { size: gb(storage.diskFree) }) }}
+                <button type="button" class="link" @click="bridge.openDataFolder()">
+                  <FolderOpen :size="14" /> {{ t('settings.openFolder') }}
+                </button>
+              </div>
+            </template>
+          </section>
+
+          <section v-if="storage" class="card">
+            <h3>{{ t('settings.workspaceTitle') }}</h3>
+            <p class="hint">{{ t('settings.workspaceHint') }}</p>
+            <div class="path-row">
+              <code>{{ state.app?.defaultWorkspace ?? storage.workspace }}</code>
+              <button type="button" class="btn" @click="changeWorkspace">{{ t('settings.change') }}</button>
+            </div>
+          </section>
+        </template>
+
+        <!-- 安全中心 -->
+        <AuditLog v-else-if="page === 'security' && auditOpen" @back="auditOpen = false" />
+        <template v-else-if="page === 'security'">
+          <SecurityPanel @open-audit="openAudit" />
+          <section class="card">
+            <h3 class="row-head">
+              <span>{{ t('settings.approvals') }}</span>
+              <button v-if="approvals.length" type="button" class="link" @click="clearAll">{{ t('settings.clearAll') }}</button>
+            </h3>
+            <p class="hint">{{ t('settings.approvalsHint') }}</p>
+            <p v-if="approvals.length === 0" class="empty">{{ t('settings.approvalsEmpty') }}</p>
+            <ul v-else class="approvals">
+              <li v-for="a in approvals" :key="a.id">
+                <TerminalSquare :size="15" class="ico" />
+                <span class="cmd">
+                  <code :title="a.display">{{ a.prefix }} *</code>
+                  <small>
+                    <template v-if="a.scope && a.scope !== '*'">{{ t('settings.ruleScope', { path: a.scope }) }}</template>
+                    <template v-else>{{ t('settings.ruleAnyWorkspace') }}</template>
+                    <template v-if="a.uses"> · {{ t('settings.uses', { n: a.uses }) }}</template>
+                  </small>
+                </span>
+                <button type="button" class="mini" :title="t('settings.revoke')" @click="revoke(a)"><X :size="14" /></button>
+              </li>
+            </ul>
+          </section>
+        </template>
+
+        <!-- 关于 -->
+        <template v-else-if="page === 'about'">
+          <h2>{{ t('settings.about') }}</h2>
+          <section class="card">
+            <div class="row">
+              <span class="label"><strong>{{ t('app.name') }}</strong></span>
+              <span class="value">{{ t('settings.version', { v: state.app?.version ?? '' }) }}</span>
+            </div>
+            <div class="row">
+              <span class="label"><strong>{{ t('settings.nav.device') }}</strong></span>
+              <span class="value">{{ state.app?.userName }}, {{ state.app?.machineName }}</span>
+            </div>
+          </section>
+        </template>
+      </div>
+      </div>
     </div>
   </div>
 </template>
@@ -317,6 +460,188 @@ onMounted(async () => {
   padding: 16px;
   background: color-mix(in srgb, var(--ink) 28%, transparent);
 }
+.dialog {
+  position: relative;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  width: min(940px, 100%);
+  height: min(680px, calc(100vh - 32px));
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--cloth);
+  box-shadow: var(--shadow-pop);
+}
+
+/* ---------- 左侧菜单 ---------- */
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 18px 12px 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  background: var(--cloth-sunk);
+}
+.menu h4 {
+  margin: 14px 10px 6px;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+  font-weight: 500;
+}
+.menu h4:first-child {
+  margin-top: 0;
+}
+.menu button {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+  text-align: left;
+}
+.menu button:hover {
+  background: var(--chip);
+  color: var(--ink);
+}
+.menu button.on {
+  background: var(--chip);
+  color: var(--ink);
+  font-weight: 600;
+}
+.menu-foot {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- 右侧：固定顶栏 + 独立滚动区 ---------- */
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.bar {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 14px 4px;
+}
+.close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  color: var(--ink-soft);
+}
+.close:hover {
+  background: var(--chip);
+  color: var(--ink);
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 28px 28px;
+}
+h2 {
+  margin: 0 0 14px;
+  font-size: var(--t-lg);
+  font-weight: 600;
+}
+.card {
+  margin-bottom: 14px;
+  padding: 6px 16px;
+  border-radius: var(--r-lg);
+  background: var(--chip);
+}
+.card > h3 {
+  margin: 0;
+  padding: 10px 0 6px;
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+.card > .hint {
+  margin: 0 0 10px;
+}
+.card > :last-child:not(.row) {
+  margin-bottom: 12px;
+}
+.row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.card > .row:first-child {
+  border-top: 0;
+}
+.row.col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+label.row {
+  cursor: pointer;
+}
+.label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.label strong {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: var(--t-sm);
+  font-weight: 500;
+}
+.label .locked {
+  color: var(--ink-faint);
+}
+.btn.preview {
+  height: 30px;
+}
+.label small {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.value {
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+}
+.hint {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.choices button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--cloth);
+  font-size: var(--t-sm);
+}
+.choices button.on {
+  border-color: var(--indigo);
+  background: var(--indigo-wash);
+  color: var(--indigo);
+  font-weight: 500;
+}
 .font-row {
   display: flex;
   gap: 12px;
@@ -330,13 +655,7 @@ onMounted(async () => {
   color: var(--ink-faint);
   font-size: var(--t-xs);
 }
-.proxy {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.proxy select,
+select,
 .proxy input {
   padding: 7px 10px;
   border: 1px solid var(--line);
@@ -345,6 +664,12 @@ onMounted(async () => {
   color: inherit;
   font: inherit;
   font-size: var(--t-sm);
+}
+.proxy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 .proxy input {
   min-width: 190px;
@@ -356,12 +681,6 @@ onMounted(async () => {
   to {
     transform: rotate(360deg);
   }
-}
-.store-card {
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--cloth-sunk, var(--cloth));
 }
 .store-head {
   display: flex;
@@ -408,20 +727,16 @@ onMounted(async () => {
 .dot.free {
   background: color-mix(in srgb, var(--ink) 15%, transparent);
 }
-.store-legend .link {
+.link {
   display: inline-flex;
   gap: 4px;
   align-items: center;
-  margin-left: auto;
-  border: 0;
-  background: transparent;
   color: var(--indigo);
   font-size: var(--t-xs);
-  cursor: pointer;
+  font-weight: 500;
 }
-.sub {
-  margin: 16px 0 4px;
-  font-size: var(--t-sm);
+.store-legend .link {
+  margin-left: auto;
 }
 .path-row {
   display: flex;
@@ -434,299 +749,30 @@ onMounted(async () => {
   padding: 8px 11px;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: var(--cloth);
   font-size: var(--t-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.row-select {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--cloth-sunk, transparent);
-}
-.row-select span {
-  display: flex;
-  flex-direction: column;
-}
-.row-select small {
-  color: var(--ink-soft);
-  font-size: var(--t-xs);
-}
-.row-select select {
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--cloth);
-  color: inherit;
-  font: inherit;
-  font-size: var(--t-sm);
-}
-.cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 32px;
-  align-items: start;
-}
-.wide {
-  grid-column: 1 / -1;
-}
-@media (max-width: 720px) {
-  .font-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-.font-row input[type='range'] {
-  flex: 1;
-  accent-color: var(--accent, var(--indigo));
-}
-.tick {
-  color: var(--ink-faint);
-  font-size: var(--t-xs);
-}
-.proxy {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.proxy select,
-.proxy input {
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--cloth);
-  color: inherit;
-  font: inherit;
-  font-size: var(--t-sm);
-}
-.proxy input {
-  min-width: 190px;
-}
-.spin {
-  animation: spin 1s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.store-card {
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--cloth-sunk, var(--cloth));
-}
-.store-head {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--t-sm);
-}
-.store-head span {
-  color: var(--ink-soft);
-}
-.track {
-  margin: 10px 0 8px;
-  height: 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ink) 10%, transparent);
-  overflow: hidden;
-}
-.track i {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--thread, var(--indigo));
-}
-.store-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  align-items: center;
-  color: var(--ink-soft);
-  font-size: var(--t-xs);
-}
-.dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 4px;
-  border-radius: 50%;
-}
-.dot.app {
-  background: var(--thread, var(--indigo));
-}
-.dot.used {
-  background: color-mix(in srgb, var(--ink) 35%, transparent);
-}
-.dot.free {
-  background: color-mix(in srgb, var(--ink) 15%, transparent);
-}
-.store-legend .link {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  margin-left: auto;
-  border: 0;
-  background: transparent;
-  color: var(--indigo);
-  font-size: var(--t-xs);
-  cursor: pointer;
-}
-.sub {
-  margin: 16px 0 4px;
-  font-size: var(--t-sm);
-}
-.path-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.path-row code {
-  flex: 1;
-  overflow: hidden;
-  padding: 8px 11px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: var(--t-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.row-select {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--cloth-sunk, transparent);
-}
-.row-select span {
-  display: flex;
-  flex-direction: column;
-}
-.row-select small {
-  color: var(--ink-soft);
-  font-size: var(--t-xs);
-}
-.row-select select {
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--cloth);
-  color: inherit;
-  font: inherit;
-  font-size: var(--t-sm);
-}
-.cols {
-    grid-template-columns: 1fr;
-  }
-}
-.dialog {
-  width: min(840px, 100%);
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
-  padding: 24px;
-  border-radius: var(--r-lg);
-  background: var(--cloth);
-  box-shadow: var(--shadow-pop);
-}
-h2 {
-  margin: 0 0 18px;
-  font-size: var(--t-xl);
-  font-weight: 600;
-}
-section {
-  margin-bottom: 20px;
-}
-h3 {
-  margin: 0 0 8px;
-  font-size: var(--t-sm);
-  font-weight: 600;
-  color: var(--ink-soft);
-}
-.choices {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.choices button {
-  height: 34px;
-  padding: 0 14px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-strong);
-  font-size: var(--t-sm);
-}
-.choices button.on {
-  border-color: var(--indigo);
-  background: var(--indigo-wash);
-  color: var(--indigo);
-  font-weight: 500;
-}
-.hint {
-  margin: 0 0 10px;
-  font-size: var(--t-sm);
-  color: var(--ink-faint);
-}
-.toggles {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--r-md);
-  background: var(--cloth-sunk);
-  cursor: pointer;
-}
-.toggle span {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.toggle strong {
-  font-size: var(--t-sm);
-  font-weight: 500;
-}
-.toggle small {
-  font-size: var(--t-xs);
-  color: var(--ink-faint);
-}
-.toggle input {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--indigo);
 }
 .row-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.link {
-  font-size: var(--t-xs);
-  font-weight: 500;
-  color: var(--indigo);
-}
 .empty {
-  margin: 0;
+  margin: 0 0 12px;
   font-size: var(--t-sm);
   color: var(--ink-faint);
 }
 .approvals {
-  margin: 0;
+  margin: 0 0 12px;
   padding: 4px;
   list-style: none;
-  max-height: 180px;
+  max-height: 220px;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
+  background: var(--cloth);
 }
 .approvals li {
   display: flex;
@@ -771,16 +817,31 @@ h3 {
   background: var(--line);
   color: var(--ink);
 }
-footer {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-.about {
-  font-size: var(--t-xs);
-  color: var(--ink-faint);
+
+/* 窄窗口：菜单改成顶部横向滚动 */
+@media (max-width: 680px) {
+  .dialog {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .menu {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .menu h4 {
+    display: none;
+  }
+  .menu button {
+    width: auto;
+    white-space: nowrap;
+  }
+  .menu-foot {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
 }
 </style>

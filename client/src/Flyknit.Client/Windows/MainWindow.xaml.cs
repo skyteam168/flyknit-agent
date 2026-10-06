@@ -464,6 +464,12 @@ public partial class MainWindow : Window, IWindowActions
         return dialog.ShowDialog(this) == true ? dialog.FolderName : null;
     }
 
+    public string? PickSaveFile(string defaultName, string filter)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog { FileName = defaultName, Filter = filter, AddExtension = true };
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+    }
+
     [DllImport("user32.dll")]
     private static extern bool FlashWindow(IntPtr hwnd, bool invert);
 }

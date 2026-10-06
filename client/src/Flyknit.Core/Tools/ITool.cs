@@ -88,6 +88,10 @@ public sealed class ToolContext
     /// <summary>安全中心的设置。为空时按策略里的默认值走。</summary>
     public Flyknit.Core.Security.SecuritySettings? Security { get; init; }
 
+    /// <summary>网络白名单是否生效。服务端还没下发这一项时按生效算。</summary>
+    public bool NetworkAllowlist =>
+        Security?.On(Flyknit.Core.Security.SecuritySettings.NetworkAllowlist) ?? true;
+
     /// <summary>一次删除多少个文件就要强制确认。安全中心改了这里要跟着变。</summary>
     public int BatchDeleteThreshold =>
         Security?.Number(Flyknit.Core.Security.SecuritySettings.BatchDeleteThreshold,

@@ -268,7 +268,7 @@ onBeforeUnmount(() => {
       <span class="avatar">{{ initial }}</span>
       <span class="who">
         <strong>{{ state.app?.userName }}</strong>
-        <small>{{ state.app?.machineName }}</small>
+        <small>{{ state.app?.department || state.app?.machineName }}</small>
       </span>
       <ChevronRight :size="16" class="go" />
     </button>

@@ -74,8 +74,6 @@ export const state = reactive({
   autoPreview: true,
   /** 正在查看的执行链路 */
   trace: null as TraceInfo | null,
-  securityOpen: false,
-  shortcutsOpen: false,
   shortcuts: [] as ShortcutInfo[],
   fontScale: 1,
   /** 语音输入。idle 时不显示录音条 */
@@ -680,7 +678,18 @@ export async function setLearning(enabled: boolean) {
 
 export async function setNotifications(enabled: boolean) {
   if (state.app) state.app.notifications = enabled
-  await bridge.setNotifications(enabled).catch(fail)
+  const r = await bridge.setNotifications(enabled).catch(fail)
+  if (!r) return
+  if (state.app) state.app.notifications = r.enabled
+  if (!r.ok) toast(r.message)
+}
+
+export async function setNotificationSound(sound: string) {
+  if (state.app) state.app.notificationSound = sound
+  const r = await bridge.setNotificationSound(sound).catch(fail)
+  if (!r) return
+  if (state.app) state.app.notificationSound = r.sound
+  if (!r.ok) toast(r.message)
 }
 
 export async function stop() {
@@ -837,6 +846,8 @@ function onHostEvent(e: HostEvent) {
         state.app.connected = e.connected
         state.app.serverMessage = e.serverMessage
         if (e.modelName) state.app.modelName = e.modelName
+        if (e.department !== undefined) state.app.department = e.department
+        if (e.owner !== undefined) state.app.owner = e.owner
       }
       break
     case 'tool.confirmResolved': {

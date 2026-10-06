@@ -101,6 +101,7 @@ class MachineInfoIn(BaseModel):
     ui_language: str = ""
     ip_addresses: list[str] = Field(default_factory=list, max_length=16)
     mac_address: str = ""
+    machine_guid: str = ""
 
 
 class DeviceRegisterOut(BaseModel):
@@ -124,10 +125,17 @@ class DeviceOut(BaseModel):
     ip_addresses: str = ""
     observed_ip: str = ""
     mac_address: str = ""
+    machine_guid: str = ""
+    owner: str = ""
+    department: str = ""
+    note: str = ""
 
 
 class DevicePatch(BaseModel):
-    disabled: bool
+    disabled: bool | None = None
+    owner: str | None = None
+    department: str | None = None
+    note: str | None = None
 
 
 # ---------- SMB ----------
@@ -197,6 +205,11 @@ class ClientConfigOut(BaseModel):
     policy: dict
     #: 安全中心每一项的最终值和锁状态（全厂默认叠加这台机器的单独设置）
     security: dict = Field(default_factory=dict)
+    #: 配置版本号，客户端用它做长轮询，一变就立刻拉新配置
+    revision: int = 0
+    #: 管理员在后台填的台账：使用者实名、部门。客户端界面上显示
+    owner: str = ""
+    department: str = ""
 
 
 class DevicePolicyIn(BaseModel):
@@ -317,6 +330,7 @@ class AdminUserIn(BaseModel):
     display_name: str = ""
     #: 看聊天正文是额外授予的权限，默认不给
     can_read_chats: bool = False
+    can_dispatch: bool = False
 
 
 class AdminUserOut(BaseModel):
@@ -326,10 +340,20 @@ class AdminUserOut(BaseModel):
     username: str
     display_name: str
     can_read_chats: bool
+    can_dispatch: bool = False
     must_change_password: bool
     disabled: bool
     created_at: datetime
     last_login: datetime | None
+
+
+class AdminUserPatch(BaseModel):
+    display_name: str | None = None
+    can_read_chats: bool | None = None
+    can_dispatch: bool | None = None
+    disabled: bool | None = None
+    #: 重置成新的初始密码，对方下次登录必须再改
+    password: str | None = Field(default=None, min_length=8, max_length=200)
 
 
 class AdminLoginIn(BaseModel):
@@ -355,10 +379,14 @@ class ChatConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     conversation_id: str
+    device_id: int | None = None
     machine_name: str
     user_name: str
     scene: str
+    #: 用户发言次数（任务模式里调工具产生的中间回答不算）
     turns: int
+    tokens: int = 0
+    model: str = ""
     started_at: datetime
     last_at: datetime
 

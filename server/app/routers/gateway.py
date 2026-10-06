@@ -100,7 +100,7 @@ async def chat_completions(
     machine_name, user_name = device.machine_name, device.user_name
     conversation_id = str(body.get("conversation_id") or "")[:64]
     # 请求体带的是整段历史，每轮重发一遍；只取这一轮新增的那条用户消息
-    user_text, attachments = chat_archive.last_user_message(body["messages"])
+    user_text, attachments = chat_archive.new_user_message(body["messages"])
 
     async def save_chat(answer: str, prompt: int, completion: int) -> None:
         """把这一轮存档。失败绝不能影响对话本身。"""

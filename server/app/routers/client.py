@@ -29,7 +29,7 @@ from ..schemas import (
     MachineInfoIn,
     SceneInfo,
 )
-from ..services import model_router, security_settings, settings_store, skill_library, usage_store
+from ..services import config_events, model_router, security_settings, settings_store, skill_library, usage_store
 from ..services.settings_store import get_policy
 
 log = logging.getLogger("flyknit.audit")
@@ -79,6 +79,8 @@ async def heartbeat(
         device.ip_addresses = ",".join(data.ip_addresses)[:300]
     if data.mac_address:
         device.mac_address = data.mac_address[:64]
+    if data.machine_guid:
+        device.machine_guid = data.machine_guid[:64].lower()
     # 这个不听客户端的，以服务端看到的为准
     device.observed_ip = _client_ip(request)
     await session.commit()
@@ -115,8 +117,23 @@ async def client_config(
         device_locks=mine.locks if mine else None,
     )
     return ClientConfigOut(
-        server_version=__version__, scenes=scenes, policy=await get_policy(session), security=security
+        server_version=__version__, scenes=scenes, policy=await get_policy(session), security=security,
+        revision=config_events.current(), owner=device.owner, department=device.department,
     )
+
+
+@router.get("/client/config/wait")
+async def client_config_wait(
+    rev: int = 0, _: Device = Depends(require_device)
+):
+    """
+    长轮询：挂起到配置发生变化、或 ~25 秒超时为止，返回最新版本号。
+
+    客户端拿着上次的版本号来问，一旦 IT 在后台改了安全中心/命令策略/设备设置就立刻放行，
+    员工端随即去拉新配置，做到近乎即时生效。
+    """
+    new_rev = await config_events.wait_for_change(rev, timeout=25.0)
+    return {"revision": new_rev}
 
 
 @router.post("/audit", status_code=204)
@@ -175,7 +192,7 @@ async def client_models(
             supports_vision=m.supports_vision,
         )
         for m in rows
-        if m.enabled and m.provider.enabled
+        if m.enabled and m.provider.enabled and not model_router.NON_CHAT_MODEL.search(m.model)
     ]
 
 

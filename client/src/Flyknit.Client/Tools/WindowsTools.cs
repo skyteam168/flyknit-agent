@@ -61,6 +61,21 @@ public sealed class OpenAppTool : ITool
     {
         // 打开软件、文件不修改系统，自动执行；可执行脚本仍走命令检查
         var name = args.Str("name");
+        if (ctx.NetworkAllowlist)
+        {
+            // 网址本身，以及塞在启动参数里的网址或域名（chrome https://...、msedge evil.com）都要过白名单
+            var network = IsUrl(name)
+                ? ctx.Policy.Network.EvaluateUrl(name)
+                : ctx.Policy.Network.EvaluateTargetsIn($"{name} {args.Str("arguments")}");
+            if (network is { Level: RiskLevel.Blocked })
+            {
+                return network;
+            }
+        }
+        if (IsUrl(name))
+        {
+            return PolicyDecision.Auto();
+        }
         var ext = Path.GetExtension(name).ToLowerInvariant();
         if (ext is ".ps1" or ".bat" or ".cmd" or ".vbs" or ".js" or ".py")
         {
@@ -77,7 +92,7 @@ public sealed class OpenAppTool : ITool
         var arguments = args.Str("arguments");
 
         // 网址
-        if (name.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || name.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        if (IsUrl(name))
         {
             Launch(name, "");
             return Task.FromResult(ToolResult.Success($"已在浏览器中打开 {name}"));
@@ -124,6 +139,11 @@ public sealed class OpenAppTool : ITool
         return Task.FromResult(ToolResult.Fail(
             $"没有找到名为“{name}”的软件。" + (suggestions.Count > 0 ? $"相近的有：{string.Join("、", suggestions)}" : "请确认软件已安装，或提供完整路径。")));
     }
+
+    private static bool IsUrl(string name) =>
+        name.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("ftp://", StringComparison.OrdinalIgnoreCase);
 
     private static void Launch(string target, string arguments)
     {

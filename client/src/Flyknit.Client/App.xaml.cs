@@ -28,6 +28,8 @@ public partial class App : Application
     private FloatingBall? _ball;
     private System.Windows.Forms.NotifyIcon? _tray;
     private NotificationService? _notifications;
+    private NoticeWatcher? _noticeWatcher;
+    private InstructionPoller? _instructionPoller;
     private HwndSource? _hotkeySource;
     private CancellationTokenSource _pipeCts = new();
     private int _activeRuns;
@@ -103,7 +105,7 @@ public partial class App : Application
         });
 
         // Windows 系统通知：确认按钮直接生效，点通知回到对应任务
-        _notifications = new NotificationService { SoundSetting = () => _settings.NotificationSound };
+        _notifications = new NotificationService { SoundSetting = () => _host.NotificationSoundChoice() };
         _notifications.ConfirmAnswered += (requestId, choice) => Dispatcher.BeginInvoke(() =>
         {
             if (_main?.Bridge?.ResolveConfirm(requestId, choice) != true)
@@ -112,6 +114,10 @@ public partial class App : Application
             }
         });
         _notifications.OpenRequested += conversationId => Dispatcher.BeginInvoke(() => OpenConversation(conversationId));
+
+        // 监听运维代理投递的通知，弹给当前登录的员工（“IT 正在为你的电脑执行：xxx”）
+        _noticeWatcher = new NoticeWatcher(_notifications, action => Dispatcher.BeginInvoke(action));
+        _noticeWatcher.Start();
         _host.RunFinished += info => Dispatcher.BeginInvoke(() =>
         {
             // 用户正看着这个任务时不打扰；被用户停止的任务不通知
@@ -132,6 +138,16 @@ public partial class App : Application
         _main.Prewarm();
 
         await _host.InitializeAsync();
+
+        // 后台下发给本机 AI agent 的指令：拉取、执行、回报，开始时给员工弹提示
+        _instructionPoller = new InstructionPoller(_host, (title, body) =>
+        {
+            if (_settings.EnableNotifications)
+            {
+                Dispatcher.BeginInvoke(() => _notifications?.ShowNotice(title, body));
+            }
+        });
+        _instructionPoller.Start();
 
         // --silent 是开机自启用的：只放悬浮球，不弹主窗口打断用户登录
         if (e.Args.Contains("--show") && !e.Args.Contains("--silent"))
@@ -287,6 +303,8 @@ public partial class App : Application
         }
         _settings.Save();
         _notifications?.ClearAll();
+        _noticeWatcher?.Dispose();
+        _instructionPoller?.Dispose();
         _host?.Dispose();
         _main?.ExitForReal();
         _ball?.Close();

@@ -196,8 +196,9 @@ public sealed class SkillCatalog : IDisposable
                 {
                     continue;
                 }
-                skill.Required = skill.IsOrganization && _required.Contains(skill.Name);
-                skill.Enabled = skill.Required || !_disabled.Contains(skill.Name);
+                skill.Required = skill.IsOrganization
+                    && (_required.Contains(skill.Name) || _required.Contains(SkillPackage.Sanitize(skill.Name)));
+                skill.Enabled = skill.Required || !(_disabled.Contains(skill.Name) || _disabled.Contains(SkillPackage.Sanitize(skill.Name)));
                 // 企业技能优先，同名的个人技能被忽略
                 if (!found.TryGetValue(skill.Name, out var existing) || (!existing.IsOrganization && skill.IsOrganization))
                 {

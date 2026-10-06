@@ -536,6 +536,37 @@ public sealed class ConversationStore
         return list;
     }
 
+    /// <summary>
+    /// 把安全记录写成 CSV。带 BOM 的 UTF-8，Excel 双击打开中文不乱码；
+    /// 以 = + - @ 开头的单元格前面加单引号，免得 Excel 把命令原文当公式执行。
+    /// </summary>
+    public static void WriteSecurityEventsCsv(IEnumerable<SecurityEvent> events, TextWriter writer)
+    {
+        static string Cell(string value)
+        {
+            if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+            {
+                value = "'" + value;
+            }
+            return value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0
+                ? "\"" + value.Replace("\"", "\"\"") + "\""
+                : value;
+        }
+
+        writer.Write('\uFEFF');
+        writer.Write("时间,判定,模式,工具,命令或操作对象,原因,所属任务\r\n");
+        foreach (var e in events)
+        {
+            var row = new[]
+            {
+                e.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                e.Decision, e.Scene, e.Tool, e.Detail, e.Reason, e.ConversationTitle,
+            };
+            writer.Write(string.Join(",", row.Select(Cell)));
+            writer.Write("\r\n");
+        }
+    }
+
     public void ClearSecurityEvents()
     {
         using var c = Open();

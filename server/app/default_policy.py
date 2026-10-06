@@ -106,4 +106,14 @@ DEFAULT_POLICY: dict = {
         "C:\\ProgramData",
     ],
     "batch_confirm_threshold": 20,
+    # 网络白名单：AI 通过命令或 open_app 访问网址时，只放行这里的域名。
+    # 写 example.com 同时放行它的全部子域名；写 * 等于不限制。
+    # 安全中心的「网络访问白名单」被关掉时整份名单不生效。
+    "allowed_domains": [
+        "localhost",
+        "shenzhougroup.com",
+    ],
+    # 内网地址（10.x、172.16-31.x、192.168.x、127.x）和不带点的内网主机名一律放行：
+    # 厂内的 ERP、MES 大多直接用 IP 或机器名访问，逐个登记不现实
+    "allow_private_network": True,
 }

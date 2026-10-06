@@ -46,6 +46,18 @@ export function createMockHost(): HostTransport {
   ]
   let defaultWorkspace = workspaces[1].path
   let maximized = false
+  const ago = (min: number) => new Date(Date.now() - min * 60000).toISOString()
+  const securityEvents = [
+    { id: 9, conversationId: '', title: '', scene: '', tool: 'security_settings', detail: '「操作完成通知」：开启 → 关闭', decision: 'changed', reason: '', createdAt: ago(1) },
+    { id: 8, conversationId: '', title: '下载供应商报价', scene: 'agent', tool: 'run_shell', detail: 'Invoke-WebRequest https://pastebin.com/raw/abc -OutFile D:\\a.ps1', decision: 'blocked', reason: '要访问的 pastebin.com 不在网络白名单内，已阻止', createdAt: ago(2) },
+    { id: 6, conversationId: '', title: '整理 D 盘的日报文件', scene: 'agent', tool: 'run_shell', detail: 'Get-ChildItem D:\\日报\\*.xlsx | ForEach-Object { … Move-Item … }', decision: 'approved', reason: '', createdAt: ago(3) },
+    { id: 5, conversationId: '', title: '清理临时文件', scene: 'agent', tool: 'run_shell', detail: 'Remove-Item -Recurse -Force C:\\Windows\\Temp', decision: 'blocked', reason: '命中安全规则（Remove-Item -Recurse -Force），此类命令可能损害系统，已阻止', createdAt: ago(26) },
+    { id: 4, conversationId: '', title: '质检数据周报', scene: 'agent', tool: 'write_file', detail: 'E:\\备份\\质检周报.xlsx', decision: 'rejected', reason: '', createdAt: ago(95) },
+    { id: 7, conversationId: '', title: '打开 ERP 网页', scene: 'agent', tool: 'open_app', detail: 'msedge https://erp.shenzhougroup.com/report', decision: 'allowed', reason: '', createdAt: ago(150) },
+    { id: 3, conversationId: '', title: '安装 ERP 客户端', scene: 'agent', tool: 'run_shell', detail: 'msiexec /i \\\\fileserver\\soft\\erp.msi /qn', decision: 'remembered', reason: '', createdAt: ago(180) },
+    { id: 2, conversationId: '', title: 'Email gửi nhà cung cấp', scene: 'chat', tool: 'write_file', detail: 'D:\\草稿\\供应商邮件.txt', decision: 'approved', reason: '', createdAt: ago(3 * 1440) },
+    { id: 1, conversationId: '', title: '车间排班表翻译成越南语', scene: 'translate', tool: 'delete_path', detail: 'D:\\排班\\旧排班表.docx', decision: 'approved', reason: '', createdAt: ago(12 * 1440) },
+  ]
   const memory = {
     items: [
       { id: 'm1', kind: 'preference', text: '报表默认保存到 D:\\报表，文件名带日期', date: '2026-09-28' },
@@ -522,6 +534,8 @@ export function createMockHost(): HostTransport {
         const item = mockSecurity.find((i) => i.key === p.key)
         if (!item) return { ok: false, message: '没有这一项设置', items: mockSecurity }
         if (item.locked) return { ok: false, message: '这一项由 IT 统一配置，本机不能修改', items: mockSecurity }
+        const text = (v: unknown) => (typeof v === 'number' ? String(v) : v ? '开启' : '关闭')
+        securityEvents.unshift({ id: Date.now(), conversationId: '', title: '', scene: '', tool: 'security_settings', detail: `「${item.title}」：${text(item.value)} → ${text(p.value)}`, decision: 'changed', reason: '', createdAt: ago(0) })
         item.value = p.value
         return { ok: true, message: '', items: mockSecurity }
       }
@@ -557,7 +571,11 @@ export function createMockHost(): HostTransport {
       case 'settings.setFontScale':
         return p.scale
       case 'settings.setNotificationSound':
-        return null
+        return { ok: true, message: '', sound: p.sound }
+      case 'settings.previewSound':
+        return
+      case 'settings.setNotifications':
+        return { ok: true, message: '', enabled: !!p.enabled }
       case 'settings.setAutoStart':
         return { ok: true, message: '', enabled: !!p.enabled }
       case 'settings.setProxy':
@@ -599,18 +617,16 @@ export function createMockHost(): HostTransport {
           contactPhone: '7815',
         }
       case 'security.list': {
-        const all = [
-          { id: 6, conversationId: '', title: '整理 D 盘的日报文件', scene: 'agent', tool: 'run_shell', detail: 'Get-ChildItem D:\\日报\\*.xlsx | ForEach-Object { … Move-Item … }', decision: 'approved', reason: '', createdAt: new Date(Date.now() - 3 * 60000).toISOString() },
-          { id: 5, conversationId: '', title: '清理临时文件', scene: 'agent', tool: 'run_shell', detail: 'Remove-Item -Recurse -Force C:\\Windows\\Temp', decision: 'blocked', reason: '命中安全规则（Remove-Item -Recurse -Force），此类命令可能损害系统，已阻止', createdAt: new Date(Date.now() - 26 * 60000).toISOString() },
-          { id: 4, conversationId: '', title: '质检数据周报', scene: 'agent', tool: 'write_file', detail: 'E:\\备份\\质检周报.xlsx', decision: 'rejected', reason: '', createdAt: new Date(Date.now() - 95 * 60000).toISOString() },
-          { id: 3, conversationId: '', title: '安装 ERP 客户端', scene: 'agent', tool: 'run_shell', detail: 'msiexec /i \\\\fileserver\\soft\\erp.msi /qn', decision: 'remembered', reason: '', createdAt: new Date(Date.now() - 180 * 60000).toISOString() },
-          { id: 2, conversationId: '', title: 'Email gửi nhà cung cấp', scene: 'chat', tool: 'write_file', detail: 'D:\\草稿\\供应商邮件.txt', decision: 'approved', reason: '', createdAt: new Date(Date.now() - 300 * 60000).toISOString() },
-          { id: 1, conversationId: '', title: '车间排班表翻译成越南语', scene: 'translate', tool: 'write_file', detail: 'D:\\排班\\排班表_vi.docx', decision: 'approved', reason: '', createdAt: new Date(Date.now() - 460 * 60000).toISOString() },
-        ]
+        const all = securityEvents
         return p.decision ? all.filter((x) => x.decision === p.decision) : all
       }
       case 'security.clear':
+        securityEvents.length = 0
         return
+      case 'security.export':
+        return { ok: true, cancelled: false, message: '', path: 'C:\\Users\\nguyen\\Documents\\flyknit-security-20261006-2200.csv', count: p.ids?.length ?? securityEvents.length }
+      case 'security.network':
+        return { enabled: true, domains: ['localhost', 'shenzhougroup.com', 'github.com'], allowPrivate: true }
       case 'window.startResize':
         return
       case 'window.toggleMaximize':

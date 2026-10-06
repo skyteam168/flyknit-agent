@@ -78,6 +78,19 @@ def last_user_message(messages: list[Any]) -> tuple[str, int]:
     return "", 0
 
 
+def new_user_message(messages: list[Any]) -> tuple[str, int]:
+    """
+    这次请求新带来的用户消息。
+
+    任务模式一轮里会多次请求：第一次以用户消息结尾，之后每次以工具结果结尾、
+    带的还是同一条用户消息。只有第一次算数，否则一轮调几次工具就重复存几遍。
+    """
+    last = next((m for m in reversed(messages or []) if isinstance(m, dict)), None)
+    if last is None or last.get("role") != "user":
+        return "", 0
+    return text_of(last.get("content"))
+
+
 def assistant_reply(payload: dict[str, Any]) -> str:
     """从非流式响应里取回答正文。"""
     choices = payload.get("choices")

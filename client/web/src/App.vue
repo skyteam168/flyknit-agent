@@ -14,9 +14,7 @@ import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
 import PlanPanel from './components/PlanPanel.vue'
 import PreviewPane from './components/PreviewPane.vue'
-import SecurityDialog from './components/SecurityDialog.vue'
 import TraceDialog from './components/TraceDialog.vue'
-import ShortcutsDialog from './components/ShortcutsDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import {
   addFiles,
@@ -61,8 +59,8 @@ function wireShortcuts() {
   registerShortcut('conversation.prev', () => moveConversation(-1))
   registerShortcut('conversation.next', () => moveConversation(1))
   registerShortcut('chat.stop', () => {
-    if (state.securityOpen) state.securityOpen = false
-    if (state.trace) state.trace = null
+    if (state.settingsOpen) state.settingsOpen = false
+    else if (state.trace) state.trace = null
     else if (state.preview) closePreview()
     else if (currentState.value?.busy) void stop()
   })
@@ -206,8 +204,6 @@ onBeforeUnmount(() => {
     </div>
 
     <TraceDialog v-if="state.trace" />
-    <ShortcutsDialog v-if="state.shortcutsOpen" />
-    <SecurityDialog v-if="state.securityOpen" />
     <SettingsDialog v-if="state.settingsOpen" />
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />
     <MemoryDialog v-if="state.memoryOpen" />

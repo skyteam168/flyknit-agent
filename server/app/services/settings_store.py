@@ -21,10 +21,19 @@ async def set_value(session: AsyncSession, key: str, value: dict) -> None:
     else:
         row.value = value
     await session.commit()
+    # 通知在线的员工端立刻来拉新配置（安全中心、命令策略等即时生效）
+    from . import config_events
+
+    config_events.bump()
 
 
 async def get_policy(session: AsyncSession) -> dict:
-    return await get_value(session, POLICY_KEY, DEFAULT_POLICY)
+    policy = await get_value(session, POLICY_KEY, DEFAULT_POLICY)
+    # 管理员以前存过的策略里没有后来新增的字段（比如 allowed_domains），
+    # 原样下发的话客户端会拿到一份空白名单，把所有外网都拦掉。缺的字段用默认值补上。
+    for key, value in DEFAULT_POLICY.items():
+        policy.setdefault(key, copy.deepcopy(value))
+    return policy
 
 
 SECURITY_KEY = "security"

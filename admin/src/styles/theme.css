@@ -1,0 +1,250 @@
+@import '@fontsource/be-vietnam-pro/400.css';
+@import '@fontsource/be-vietnam-pro/500.css';
+@import '@fontsource/be-vietnam-pro/600.css';
+
+/* 配色与员工端一致：中性白底 + 靛蓝品牌色（针织染料）+ 青色纱线作完成色 */
+:root {
+  --loom: #ffffff;
+  --cloth: #ffffff;
+  --cloth-sunk: #f6f6f7;
+  --chip: #f2f2f4;
+  --ink: #18181b;
+  --ink-soft: #52525b;
+  --ink-faint: #a1a1aa;
+  --line: #e9e9ec;
+  --line-strong: #d6d6db;
+  --indigo: #3446c9;
+  --indigo-hover: #2a3aad;
+  --indigo-wash: #eef0fc;
+  --thread: #0e9a8e;
+  --thread-wash: #e2f4f2;
+  --amber: #b86e00;
+  --amber-wash: #fff4e0;
+  --red: #c4362d;
+  --red-wash: #fdeceb;
+  --violet: #7c4dce;
+  --violet-wash: #f2ecfc;
+  --shadow-card: 0 1px 2px rgba(24, 24, 27, 0.04), 0 4px 16px -4px rgba(24, 24, 27, 0.08);
+  --shadow-pop: 0 12px 32px -8px rgba(24, 24, 27, 0.22), 0 2px 6px rgba(24, 24, 27, 0.08);
+  --font: 'Be Vietnam Pro', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif;
+  --font-code: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Microsoft YaHei UI', monospace;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --aside-w: 232px;
+  --aside-w-collapsed: 68px;
+  --header-h: 56px;
+
+  /* Element Plus 跟着品牌色走 */
+  --el-color-primary: #3446c9;
+  --el-color-primary-light-3: #717dd9;
+  --el-color-primary-light-5: #9aa3e4;
+  --el-color-primary-light-7: #c2c8ef;
+  --el-color-primary-light-8: #d6daf4;
+  --el-color-primary-light-9: #ebedfa;
+  --el-color-primary-dark-2: #2a38a1;
+  --el-color-success: #0e9a8e;
+  --el-color-success-light-3: #56b8b0;
+  --el-color-success-light-5: #87cdc7;
+  --el-color-success-light-7: #b7e1dd;
+  --el-color-success-light-8: #cfebe8;
+  --el-color-success-light-9: #e7f5f4;
+  --el-color-success-dark-2: #0b7b72;
+  --el-color-warning: #b86e00;
+  --el-color-warning-light-3: #cd9a4d;
+  --el-color-warning-light-5: #dcb780;
+  --el-color-warning-light-7: #ead4b3;
+  --el-color-warning-light-8: #f1e2cc;
+  --el-color-warning-light-9: #f8f1e6;
+  --el-color-warning-dark-2: #935800;
+  --el-color-danger: #c4362d;
+  --el-color-danger-light-3: #d6726c;
+  --el-color-danger-light-5: #e29b96;
+  --el-color-danger-light-7: #edc3c0;
+  --el-color-danger-light-8: #f3d7d5;
+  --el-color-danger-light-9: #f9ebea;
+  --el-color-danger-dark-2: #9d2b24;
+  --el-color-error: var(--el-color-danger);
+  --el-font-family: var(--font);
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-text-color-primary: var(--ink);
+  --el-text-color-regular: var(--ink-soft);
+  --el-text-color-secondary: var(--ink-faint);
+  --el-border-color: var(--line-strong);
+  --el-border-color-light: var(--line);
+  --el-border-color-lighter: var(--line);
+  --el-bg-color: var(--cloth);
+  --el-bg-color-page: var(--cloth-sunk);
+  --el-fill-color-light: var(--cloth-sunk);
+  --el-fill-color-lighter: var(--cloth-sunk);
+  color-scheme: light;
+}
+
+html.dark {
+  --loom: #141418;
+  --cloth: #1c1c21;
+  --cloth-sunk: #18181c;
+  --chip: #26262c;
+  --ink: #ececef;
+  --ink-soft: #a9a9b2;
+  --ink-faint: #6d6d77;
+  --line: #2a2a31;
+  --line-strong: #3a3a43;
+  --indigo: #8d9af5;
+  --indigo-hover: #a3aef7;
+  --indigo-wash: #23264a;
+  --thread: #3cc4b6;
+  --thread-wash: #173430;
+  --amber: #f0a43a;
+  --amber-wash: #3a2a12;
+  --red: #f0766d;
+  --red-wash: #3d1c1a;
+  --violet: #b394f0;
+  --violet-wash: #2c2142;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 20px -6px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
+
+  --el-color-primary: #8d9af5;
+  --el-color-primary-light-3: #6972b3;
+  --el-color-primary-light-5: #515787;
+  --el-color-primary-light-7: #383c5a;
+  --el-color-primary-light-8: #2c2f44;
+  --el-color-primary-light-9: #20212e;
+  --el-color-primary-dark-2: #a4aef7;
+  --el-color-success: #3cc4b6;
+  --el-color-success-light-9: #173430;
+  --el-color-warning: #f0a43a;
+  --el-color-warning-light-9: #3a2a12;
+  --el-color-danger: #f0766d;
+  --el-color-danger-light-9: #3d1c1a;
+  --el-bg-color: var(--cloth);
+  --el-bg-color-overlay: var(--cloth);
+  --el-bg-color-page: var(--loom);
+  --el-fill-color-blank: var(--cloth);
+  --el-fill-color-light: var(--chip);
+  --el-fill-color-lighter: var(--cloth-sunk);
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--cloth-sunk);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--indigo-wash);
+}
+
+code,
+.mono {
+  font-family: var(--font-code);
+  font-size: 12.5px;
+}
+
+/* 内容区通用块 */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.page-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.page-head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.page-head p {
+  margin: 2px 0 0;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+.panel {
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--cloth);
+  box-shadow: var(--shadow-card);
+}
+.panel-title {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 14px;
+}
+.panel-title h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.panel-title small {
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 400;
+}
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.muted {
+  color: var(--ink-faint);
+}
+.hint {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+/* Element Plus 细节对齐员工端的质感 */
+.el-button {
+  font-weight: 500;
+}
+.el-card {
+  border-radius: var(--r-lg);
+}
+.el-table {
+  --el-table-header-bg-color: var(--cloth-sunk);
+  --el-table-row-hover-bg-color: var(--cloth-sunk);
+  --el-table-border-color: var(--line);
+  --el-table-bg-color: var(--cloth);
+  --el-table-tr-bg-color: var(--cloth);
+  --el-table-expanded-cell-bg-color: var(--cloth);
+  border-radius: var(--r-md);
+}
+.el-table th.el-table__cell {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.el-dialog {
+  border-radius: var(--r-lg);
+}
+.el-tag {
+  font-weight: 500;
+}

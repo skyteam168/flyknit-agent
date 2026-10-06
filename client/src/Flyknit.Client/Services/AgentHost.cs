@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Flyknit.Client.Bridge;
@@ -38,7 +39,11 @@ public sealed class AgentHost : IDisposable
     private readonly AppSettings _settings;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _runs = new();
     private readonly Timer _configTimer;
+    private readonly CancellationTokenSource _watchCts = new();
     private CommandPolicy _policy = CommandPolicy.Default();
+
+    /// <summary>当前生效的命令与网络策略（每 10 分钟随配置刷新）。</summary>
+    public CommandPolicy Policy => _policy;
 
     public FlyknitServerClient Server { get; }
     public ConversationStore Store { get; }
@@ -68,8 +73,25 @@ public sealed class AgentHost : IDisposable
     {
         var quota = Security.Number(Flyknit.Core.Security.SecuritySettings.BackupQuotaMb, 512);
         _backup = new Flyknit.Core.Tools.FileBackup(AppPaths.Backups, quota * 1024L * 1024L, m => Log.Warn(m));
-        _settings.EnableNotifications = Security.On(Flyknit.Core.Security.SecuritySettings.Notifications);
+        if (Security.Get(Flyknit.Core.Security.SecuritySettings.Notifications) is { } notify)
+        {
+            _settings.EnableNotifications = notify.AsBool();
+        }
         _settings.Save();
+    }
+
+    /// <summary>
+    /// 实际要放的提示音：none / soft / alert。安全项「通知提示音」管开关（IT 可以统一静音），
+    /// 本机设置记住选的是哪种音色；服务端没下发这一项时只看本机设置。
+    /// </summary>
+    public string NotificationSoundChoice()
+    {
+        var chosen = _settings.NotificationSound is "soft" or "alert" ? _settings.NotificationSound : "none";
+        if (Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound) is not { } item)
+        {
+            return chosen;
+        }
+        return !item.AsBool(false) ? "none" : chosen == "none" ? "soft" : chosen;
     }
     public EpisodeStore Episodes { get; }
     public ScheduleRunner Scheduler { get; }
@@ -130,6 +152,13 @@ public sealed class AgentHost : IDisposable
     public string ServerMessage { get; private set; } = "";
     public string ModelName { get; private set; } = "";
 
+    /// <summary>后台填的台账：这台电脑的使用者实名与所属部门。界面上显示。</summary>
+    public string Owner { get; private set; } = "";
+    public string Department { get; private set; } = "";
+
+    /// <summary>服务端配置版本号，长轮询用它判断配置有没有变。</summary>
+    private int _configRevision;
+
     public event Action? StatusChanged;
 
     /// <summary>
@@ -184,6 +213,43 @@ public sealed class AgentHost : IDisposable
         await Task.Run(() => Store.PurgeExpired());
         await RefreshConfigAsync();
         Scheduler.Start();
+        // 长轮询监听配置变更，IT 一改安全中心/策略就近乎即时拉取生效
+        _ = Task.Run(ConfigWatchLoopAsync);
+    }
+
+    /// <summary>长轮询监听服务端配置版本号，一变就立刻重新拉取配置（安全策略即时生效）。</summary>
+    private async Task ConfigWatchLoopAsync()
+    {
+        var token = _watchCts.Token;
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                if (!Connected)
+                {
+                    // 还没连上（未注册/被停用/网络不通）就先歇会儿，等定时刷新去重建连接
+                    await Task.Delay(TimeSpan.FromSeconds(5), token);
+                    continue;
+                }
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                cts.CancelAfter(TimeSpan.FromSeconds(35));
+                var rev = await Server.WaitForConfigChangeAsync(_configRevision, cts.Token);
+                if (rev != _configRevision)
+                {
+                    await RefreshConfigAsync();
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"监听配置变更失败：{ex.Message}");
+                try { await Task.Delay(TimeSpan.FromSeconds(10), token); }
+                catch (OperationCanceledException) { return; }
+            }
+        }
     }
 
     /// <summary>从服务端拉取策略与模型信息，失败时 1 分钟后重试，成功后每 10 分钟刷新。</summary>
@@ -212,6 +278,9 @@ public sealed class AgentHost : IDisposable
             Connected = true;
             ServerMessage = agent is { Available: true } ? "" : "服务端尚未配置模型";
             ModelName = agent?.ModelName ?? "";
+            _configRevision = config.Revision;
+            Owner = config.Owner;
+            Department = config.Department;
             _configTimer.Change(TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
             // 顺带把本机信息报上去。配置拉得到就说明在线，两件事本来就是同一个信号。
             // 失败不影响对话，所以吞掉异常，不改 Connected。
@@ -655,8 +724,164 @@ public sealed class AgentHost : IDisposable
         return messages.Skip(start);
     }
 
+    /// <summary>
+    /// 执行一条后台下发的指令：新建一个会话，把指令当成用户消息，走和员工自己点「发送」
+    /// 完全相同的那套通道——会话进侧栏、自动打开、逐字回答与逐个工具调用在界面上实时呈现，
+    /// 办完把最终结果回报给调用方（指令轮询器据此上报服务端）。
+    ///
+    /// 和员工自己发消息的区别只有一处：确认环节自动放行（IT 下发即授权）。但这只对「需要确认」
+    /// 的那一档生效——被安全策略判为「阻止」的危险命令照样执行不了，每一步工具调用也照常写进审计。
+    /// </summary>
+    public async Task<InstructionOutcome> RunInstructionAsync(string prompt, string title, CancellationToken ct)
+    {
+        var displayTitle = string.IsNullOrWhiteSpace(title) ? "IT 指令" : $"IT 指令 · {title}";
+        var conv = Store.Create(ConversationMode.Agent, displayTitle);
+        Store.Rename(conv.Id, conv.Title); // 固定标题，不让 AI 自动总结覆盖
+        var confirm = new AutoApprove();
+
+        // 界面还没就绪（窗口没加载过 webview）时静默执行，照样受策略约束、写审计
+        if (Events is not { } events)
+        {
+            return await RunInstructionHeadlessAsync(conv, prompt, confirm, ct);
+        }
+
+        // 捕获本轮运行结果：RunAsync 收尾时（成功或失败）都会触发 RunFinished
+        var tcs = new TaskCompletionSource<RunFinishedInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnFinished(RunFinishedInfo info)
+        {
+            if (info.ConversationId == conv.Id)
+            {
+                tcs.TrySetResult(info);
+            }
+        }
+        RunFinished += OnFinished;
+        using var reg = ct.Register(() => Stop(conv.Id));
+        try
+        {
+            // 让会话出现在侧栏并自动打开，接着像正常发消息一样跑，过程实时可见
+            events.Post(new { type = "conversation.updated", conversation = ConversationDto.From(conv) });
+            events.Post(new { type = "app.openConversation", conversationId = conv.Id });
+            Send(conv.Id, prompt, Array.Empty<Attachment>(), null, UiLanguage, confirm, events);
+            var info = await tcs.Task;
+            Log.Info($"指令会话 {conv.Id} 结束：{info.StopReason}");
+            return ToOutcome(conv.Id, info.StopReason, info.Answer);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"执行下发指令失败（会话 {conv.Id}）", ex);
+            return new InstructionOutcome(false, "", ex.Message, conv.Id);
+        }
+        finally
+        {
+            RunFinished -= OnFinished;
+        }
+    }
+
+    /// <summary>把运行结果翻成给服务端回报用的结构。</summary>
+    private static InstructionOutcome ToOutcome(string conversationId, AgentStopReason? stopReason, string answer)
+    {
+        var ok = stopReason == AgentStopReason.Completed;
+        var error = ok ? "" : stopReason switch
+        {
+            AgentStopReason.Cancelled => "执行被取消",
+            AgentStopReason.MaxSteps => "超过最大步数仍未完成",
+            AgentStopReason.TooManyFailures => "连续多次失败后停止",
+            _ => answer.Length > 0 ? answer : "执行失败",
+        };
+        return new InstructionOutcome(ok, answer, error, conversationId);
+    }
+
+    /// <summary>界面没就绪时的兜底：不推界面事件，静默跑同一套 Agent 循环。</summary>
+    private async Task<InstructionOutcome> RunInstructionHeadlessAsync(Conversation conv, string prompt, IConfirmationHandler confirm, CancellationToken ct)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (!_runs.TryAdd(conv.Id, cts))
+        {
+            cts.Dispose();
+            return new InstructionOutcome(false, "", "会话正忙", conv.Id);
+        }
+        ActiveRunsChanged?.Invoke(_runs.Count);
+        try
+        {
+            var uiLanguage = _settings.ResolveUiLanguage();
+            var user = NewUserMessage(null, prompt, Array.Empty<Attachment>());
+            Store.AddMessages(conv.Id, new[] { user });
+
+            var workspace = _settings.ResolveWorkspace(conv.Workspace);
+            var systemPrompt = new PromptBuilder(Memory, Skills, Episodes).Build(new PromptContext
+            {
+                Mode = ConversationMode.Agent,
+                UiLanguage = uiLanguage,
+                Workspace = workspace,
+                Permission = conv.Permission,
+                Query = prompt,
+            });
+
+            var context = new ContextManager(Server, systemPrompt, null, _contextLength) { Scene = Scenes.Agent, ModelId = conv.ModelId };
+            context.Compacted += info => Store.SetSummary(conv.Id, info.Summary, info.UptoMessageId);
+            var history = new List<ChatMessage> { ChatMessage.System(context.SystemPrompt), user };
+
+            var ctx = new ToolContext
+            {
+                Policy = _policy,
+                ConversationId = conv.Id,
+                Workspace = workspace,
+                Permission = conv.Permission,
+                Memory = Memory,
+                Episodes = Episodes,
+                Skills = Skills,
+                Deleter = Security.On(Flyknit.Core.Security.SecuritySettings.DeleteProtection)
+                    ? new RecycleBinDeleter()
+                    : new PermanentDeleter(),
+                Backup = Security.On(Flyknit.Core.Security.SecuritySettings.AutoBackup) ? _backup : null,
+                Security = Security,
+            };
+
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, approvals: Approvals);
+            var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
+            Store.AddMessages(conv.Id, result.NewMessages);
+            if (context.ContextLength > 0)
+            {
+                _contextLength = context.ContextLength;
+            }
+            Log.Info($"指令会话 {conv.Id} 结束（静默）：{result.StopReason}");
+            return ToOutcome(conv.Id, result.StopReason, LastAnswer(result.NewMessages));
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"执行下发指令失败（会话 {conv.Id}）", ex);
+            return new InstructionOutcome(false, "", ex.Message, conv.Id);
+        }
+        finally
+        {
+            _runs.TryRemove(conv.Id, out _);
+            cts.Dispose();
+            ActiveRunsChanged?.Invoke(_runs.Count);
+        }
+    }
+
+    /// <summary>后台下发的指令：IT 已授权，确认环节一律自动放行（安全策略仍会拦阻止级操作）。</summary>
+    private sealed class AutoApprove : IConfirmationHandler
+    {
+        public Task<ConfirmChoice> ConfirmAsync(ConfirmRequest request, CancellationToken ct) =>
+            Task.FromResult(ConfirmChoice.AllowOnce);
+    }
+
+    /// <summary>无界面运行，事件都丢弃（执行结果通过返回值拿）。</summary>
+    private sealed class HeadlessObserver : IAgentObserver
+    {
+        public void OnContent(string delta) { }
+        public void OnReasoning(string delta) { }
+        public void OnAssistantMessage(ChatMessage message) { }
+        public void OnToolStarted(ToolCall call, string summary, PolicyDecision decision) { }
+        public void OnToolFinished(ToolCall call, ToolResult result, string decision) { }
+        public void OnToolMessage(ChatMessage message) { }
+        public void OnPlanUpdated(IReadOnlyList<PlanItem> plan) { }
+    }
+
     public void Dispose()
     {
+        _watchCts.Cancel();
         foreach (var cts in _runs.Values)
         {
             cts.Cancel();
@@ -666,6 +891,38 @@ public sealed class AgentHost : IDisposable
         Skills.Dispose();
         Audit.FlushAsync().Wait(TimeSpan.FromSeconds(3));
         Audit.Dispose();
+    }
+
+    /// <summary>
+    /// 安全中心里的一项被用户改了。本机记一条「配置变更」，同时上报服务端——
+    /// 出了事能查到是谁、什么时候关掉的。
+    /// </summary>
+    public void RecordSettingChange(string key, string title, string before, string after)
+    {
+        var detail = $"「{title}」：{before} → {after}";
+        // 服务端只认这几种 decision，用 auto + status 区分，老版本服务端也收得下
+        Audit.Record(new AuditEntry
+        {
+            ToolName = "security_settings",
+            Arguments = JsonSerializer.Serialize(new { key, from = before, to = after }),
+            Risk = "auto",
+            Decision = "auto",
+            Status = "changed",
+            Summary = detail,
+        });
+        try
+        {
+            Store.AddSecurityEvent(new SecurityEvent
+            {
+                Tool = "security_settings",
+                Detail = detail,
+                Decision = "changed",
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("保存配置变更记录失败", ex);
+        }
     }
 
     /// <summary>
@@ -686,7 +943,13 @@ public sealed class AgentHost : IDisposable
         public void Record(AuditEntry entry)
         {
             _inner.Record(entry);
-            if (entry.Decision is not ("blocked" or "approved" or "remembered" or "rejected"))
+            var decision = entry.Decision;
+            if (decision == "auto" && IsNetworkAccess(entry))
+            {
+                // 白名单内自动放行的联网操作也记一笔：员工和 IT 都该能看到 AI 访问过哪些网站
+                decision = "allowed";
+            }
+            if (decision is not ("blocked" or "approved" or "remembered" or "rejected" or "allowed"))
             {
                 return;
             }
@@ -697,8 +960,8 @@ public sealed class AgentHost : IDisposable
                     ConversationId = entry.ConversationId,
                     Scene = entry.Scene,
                     Tool = entry.ToolName,
-                    Detail = ToolDetail.From(entry.Arguments),
-                    Decision = entry.Decision,
+                    Detail = Detail(entry),
+                    Decision = decision,
                     Reason = entry.Decision == "blocked" ? entry.Summary : "",
                     CreatedAt = entry.OccurredAt,
                 });
@@ -706,6 +969,36 @@ public sealed class AgentHost : IDisposable
             catch (Exception ex)
             {
                 Log.Warn("保存安全记录失败", ex);
+            }
+        }
+
+        private static bool IsNetworkAccess(AuditEntry entry)
+        {
+            var text = ArgumentText(entry);
+            return entry.ToolName switch
+            {
+                "open_app" => NetworkPolicy.UrlsIn(text).Count > 0 || NetworkPolicy.BareHostsIn(text).Count > 0,
+                "run_shell" => NetworkPolicy.IsNetworkCommand(text) || NetworkPolicy.UrlsIn(text).Count > 0,
+                _ => false,
+            };
+        }
+
+        /// <summary>open_app 的网址常在启动参数里（msedge https://...），只记软件名看不出访问了哪里。</summary>
+        private static string Detail(AuditEntry entry) =>
+            entry.ToolName == "open_app" ? ArgumentText(entry) : ToolDetail.From(entry.Arguments);
+
+        private static string ArgumentText(AuditEntry entry)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(entry.Arguments);
+                var root = doc.RootElement;
+                string Get(string key) => root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+                return entry.ToolName == "open_app" ? $"{Get("name")} {Get("arguments")}".Trim() : Get("command");
+            }
+            catch (JsonException)
+            {
+                return "";
             }
         }
     }
@@ -789,3 +1082,6 @@ public sealed class AgentHost : IDisposable
 }
 
 public sealed record RunFinishedInfo(string ConversationId, string Title, string Answer, AgentStopReason? StopReason);
+
+/// <summary>一条下发指令在本机执行后的结果。</summary>
+public sealed record InstructionOutcome(bool Ok, string Answer, string Error, string ConversationId);

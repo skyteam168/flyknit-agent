@@ -181,6 +181,30 @@ public static class PermissionRules
             scope == "*" ? $"{prefix} *" : $"{prefix} *（在 {scope} 内）");
     }
 
+    /// <summary>
+    /// 在已有判定上叠加网络白名单的结论。只会更严，不会更松：
+    /// 白名单外的网址直接阻止；看不出访问哪里的联网命令至少要人确认，而且不给「以后自动执行」——
+    /// 同一个命令前缀下次访问的可能是另一个网站。
+    /// </summary>
+    public static PolicyDecision ForNetwork(PolicyDecision decision, PolicyDecision? network)
+    {
+        if (network is null || decision.Level == RiskLevel.Blocked)
+        {
+            return decision;
+        }
+        if (network.Level == RiskLevel.Blocked)
+        {
+            return network with { Effect = decision.Effect };
+        }
+        if (network.Level == RiskLevel.Confirm)
+        {
+            return decision.Level == RiskLevel.Confirm
+                ? decision with { Reason = $"{decision.Reason}；{network.Reason}", Rule = null }
+                : network with { Effect = decision.Effect };
+        }
+        return decision;
+    }
+
     /// <summary>运行脚本或可执行文件（open_app 打开脚本时）。</summary>
     public static PolicyDecision ForScript(CommandPolicy policy, PermissionMode mode, string fullPath)
     {

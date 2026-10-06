@@ -1,5 +1,6 @@
 """根据场景选择模型，并把请求转发到上游 OpenAI 兼容接口。"""
 
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -13,6 +14,13 @@ from ..schemas import SCENES
 
 # 这些状态码视为“上游不可用”，会切换到备用模型
 RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
+
+# 向量、语音、图像生成等非对话模型（按上游模型名判断）：可以配到场景路由，但不出现在员工端的对话模型列表里
+NON_CHAT_MODEL = re.compile(
+    r"embed|rerank|tts|asr|whisper|audio|speech|paraformer|sensevoice|cosyvoice|sambert|wanx|wan2|image|flux"
+    r"|stable-diffusion|video|realtime|ocr|moderation|livetranslate|captioner|character",
+    re.I,
+)
 
 
 @dataclass(frozen=True)

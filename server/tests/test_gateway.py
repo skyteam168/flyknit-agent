@@ -157,19 +157,34 @@ async def test_client_models_lists_enabled_models(client, device_headers):
     assert r.json()[0]["provider"] == "内部"
 
 
+async def test_client_models_hide_non_chat_models(client, device_headers):
+    p = (await client.post("/api/v1/admin/providers", headers=ADMIN,
+                           json={"name": "百炼", "base_url": "http://bailian.local/v1", "api_key": "sk-x"})).json()
+    for model in ("qwen-plus", "text-embedding-v4", "paraformer-v2"):
+        await client.post("/api/v1/admin/models", headers=ADMIN,
+                          json={"provider_id": p["id"], "name": model, "model": model})
+    r = await client.get("/api/v1/client/models", headers=device_headers)
+    assert [m["model"] for m in r.json()] == ["qwen-plus"]
+
+
 @respx.mock
 async def test_sync_models_from_provider(client):
     p = (await client.post("/api/v1/admin/providers", headers=ADMIN,
                            json={"name": "百炼", "base_url": "http://bailian.local/v1", "api_key": "sk-abcdefgh"})).json()
     route = respx.get("http://bailian.local/v1/models").mock(return_value=httpx.Response(200, json={"data": [
         {"id": "qwen3.8-max"}, {"id": "qwen-plus"}, {"id": "text-embedding-v4"}, {"id": "qwen-vl-max"}, {"id": "cosyvoice-v2"},
+        {"id": "qwen-plus-2025-12-01"},
     ]}))
     r = await client.post(f"/api/v1/admin/providers/{p['id']}/sync-models", headers=ADMIN)
     assert r.status_code == 200, r.text
-    assert sorted(r.json()["added"]) == ["qwen-plus", "qwen-vl-max", "qwen3.8-max"]
+    assert sorted(r.json()["added"]) == ["cosyvoice-v2", "qwen-plus", "qwen-vl-max", "qwen3.8-max", "text-embedding-v4"]
+    assert r.json()["skipped"] == 1
     assert route.calls.last.request.headers["authorization"] == "Bearer sk-abcdefgh"
-    models = (await client.get("/api/v1/admin/models", headers=ADMIN)).json()
-    assert next(m for m in models if m["model"] == "qwen-vl-max")["supports_vision"] is True
+    models = {m["model"]: m for m in (await client.get("/api/v1/admin/models", headers=ADMIN)).json()}
+    assert models["qwen-vl-max"]["supports_vision"] is True
+    assert models["qwen-plus"]["supports_tools"] is True
+    assert models["text-embedding-v4"]["supports_tools"] is False
+    assert models["cosyvoice-v2"]["supports_tools"] is False
     # 再次同步不重复添加
     r = await client.post(f"/api/v1/admin/providers/{p['id']}/sync-models", headers=ADMIN)
     assert r.json()["added"] == []

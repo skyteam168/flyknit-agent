@@ -106,6 +106,47 @@ async def test_each_turn_is_one_row_not_the_whole_history(client, device_headers
 
 
 @respx.mock
+async def test_tool_rounds_do_not_repeat_the_user_message(client, device_headers):
+    """任务模式一轮调三次工具会请求四次网关，用户那句话只该存一次。"""
+    await setup_models(client)
+    replies = iter(["", "", "", "日报已整理到 D:\\日报"])
+    respx.post("http://primary.local/v1/chat/completions").mock(
+        side_effect=lambda _req: httpx.Response(200, json={
+            "choices": [{"message": {"content": next(replies)}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 10},
+        })
+    )
+    messages = [{"role": "user", "content": "整理日报"}]
+    for i in range(4):
+        await client.post("/api/v1/chat/completions", headers=device_headers,
+                          json={"model": "agent", "conversation_id": "conv-t", "messages": list(messages)})
+        messages += [{"role": "assistant", "content": "", "tool_calls": [{"id": f"t{i}"}]},
+                     {"role": "tool", "tool_call_id": f"t{i}", "content": "ok"}]
+
+    detail = (await client.get("/api/v1/admin/chats/conv-t", headers=await reader(client))).json()
+    assert [d["user_content"] for d in detail] == ["整理日报", ""]
+    assert detail[-1]["assistant_content"] == "日报已整理到 D:\\日报"
+
+    rows = (await client.get("/api/v1/admin/chats", headers=await reader(client))).json()
+    assert rows[0]["turns"] == 1
+    assert rows[0]["tokens"] == 220
+    assert rows[0]["device_id"] is not None
+
+
+@respx.mock
+async def test_list_filters_by_machine_or_user_name(client, device_headers):
+    await setup_models(client)
+    respx.post("http://primary.local/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "好"}}]})
+    )
+    await send(client, device_headers)
+    headers = await reader(client)
+    assert len((await client.get("/api/v1/admin/chats", headers=headers, params={"keyword": "nobody"})).json()) == 0
+    machine = (await client.get("/api/v1/admin/chats", headers=headers)).json()[0]["machine_name"]
+    assert len((await client.get("/api/v1/admin/chats", headers=headers, params={"keyword": machine[:3]})).json()) == 1
+
+
+@respx.mock
 async def test_upstream_failure_is_not_archived(client, device_headers):
     await setup_models(client)
     respx.post("http://primary.local/v1/chat/completions").mock(

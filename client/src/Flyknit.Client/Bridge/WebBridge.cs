@@ -74,6 +74,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             connected = _host.Connected,
             serverMessage = _host.ServerMessage,
             modelName = _host.ModelName,
+            department = _host.Department,
+            owner = _host.Owner,
         });
     }
 
@@ -91,6 +93,27 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             max = kv.Value.Max,
         })
         .ToList();
+
+    /// <summary>改一项安全设置：锁住的拒绝，改成功了立即生效并写一条配置变更。返回 null 表示成功，否则是原因。</summary>
+    private string? SetSecurityValue(string key, object value)
+    {
+        var before = _host.Security.Get(key) is { } old ? SecurityValueText(old) : "";
+        if (!_host.Security.TrySet(key, value, out var why))
+        {
+            return why;
+        }
+        _settings.SecurityChoices = _host.Security.LocalChanges();
+        _settings.Save();
+        _host.RefreshSecurity();
+        if (_host.Security.Get(key) is { } changed && SecurityValueText(changed) != before)
+        {
+            _host.RecordSettingChange(key, changed.Title, before, SecurityValueText(changed));
+        }
+        return null;
+    }
+
+    private static string SecurityValueText(Flyknit.Core.Security.SecurityItem item) =>
+        item.Kind == "int" ? item.AsInt(0).ToString() : item.AsBool() ? "开启" : "关闭";
 
     // ---------- 宿主 → 页面 ----------
 
@@ -243,6 +266,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     theme = _settings.Theme,
                     userName = Environment.UserName,
                     machineName = Environment.MachineName,
+                    department = _host.Department,
+                    owner = _host.Owner,
                     connected = _host.Connected,
                     serverMessage = _host.ServerMessage,
                     modelName = _host.ModelName,
@@ -252,7 +277,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     workspaces = WorkspaceList(),
                     learning = _settings.EnableLearning,
                     notifications = _settings.EnableNotifications,
-                    notificationSound = _settings.NotificationSound,
+                    notificationSound = _host.NotificationSoundChoice(),
+                    notificationsLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.Notifications)?.Locked ?? false,
+                    soundLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound)?.Locked ?? false,
                     fontScale = _settings.FontScale,
                     autoStart = AutoStart.IsEnabled(),   // 以注册表为准，用户可能在任务管理器里关过
                     proxyMode = _settings.ProxyMode,
@@ -274,14 +301,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 object value = p.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
                     ? v.GetInt32()
                     : Bool("value");
-                if (!_host.Security.TrySet(key, value, out var why))
-                {
-                    return new { ok = false, message = why, items = SecurityList() };
-                }
-                _settings.SecurityChoices = _host.Security.LocalChanges();
-                _settings.Save();
-                _host.RefreshSecurity();
-                return new { ok = true, message = "", items = SecurityList() };
+                var why = SetSecurityValue(key, value);
+                return new { ok = why is null, message = why ?? "", items = SecurityList() };
             }
 
             case "security.openBackups":
@@ -322,18 +343,50 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 _settings.Save();
                 return null;
 
+            // 完成通知和提示音只有一份设置：服务端下发了对应的安全项就改那一项（IT 锁了就改不了、改了进审计），
+            // 没下发（连不上服务端的新机器）才退回本机设置
             case "settings.setNotifications":
-                _settings.EnableNotifications = Bool("enabled");
-                _settings.Save();
-                return null;
+            {
+                var enabled = Bool("enabled");
+                string? why = null;
+                if (_host.Security.Get(Flyknit.Core.Security.SecuritySettings.Notifications) is not null)
+                {
+                    why = SetSecurityValue(Flyknit.Core.Security.SecuritySettings.Notifications, enabled);
+                }
+                else
+                {
+                    _settings.EnableNotifications = enabled;
+                    _settings.Save();
+                }
+                return new { ok = why is null, message = why ?? "", enabled = _settings.EnableNotifications };
+            }
 
             case "settings.setNotificationSound":
             {
-                var sound = Str("sound");
-                _settings.NotificationSound = sound is "soft" or "alert" ? sound : "none";
+                var sound = Str("sound") is "soft" or "alert" ? Str("sound") : "none";
+                if (_host.Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound) is not null)
+                {
+                    var why = SetSecurityValue(Flyknit.Core.Security.SecuritySettings.NotificationSound, sound != "none");
+                    if (why is not null)
+                    {
+                        return new { ok = false, message = why, sound = _host.NotificationSoundChoice() };
+                    }
+                    if (sound != "none")
+                    {
+                        _settings.NotificationSound = sound; // 关掉时保留上次选的音色，再打开还是它
+                    }
+                }
+                else
+                {
+                    _settings.NotificationSound = sound;
+                }
                 _settings.Save();
-                return null;
+                return new { ok = true, message = "", sound = _host.NotificationSoundChoice() };
             }
+
+            case "settings.previewSound":
+                NotificationService.Preview(Str("sound"));
+                return null;
 
             case "settings.setFontScale":
             {
@@ -631,7 +684,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             case "security.list":
             {
                 var filter = Str("decision");
-                var events = await Task.Run(() => _host.Store.ListSecurityEvents(filter.Length > 0 ? filter : null));
+                var limit = Math.Clamp(Int("limit") ?? 200, 1, ConversationStore.SecurityEventLimit);
+                var events = await Task.Run(() => _host.Store.ListSecurityEvents(filter.Length > 0 ? filter : null, limit));
                 return events.Select(e => new
                 {
                     id = e.Id,
@@ -649,6 +703,47 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             case "security.clear":
                 await Task.Run(() => _host.Store.ClearSecurityEvents());
                 return null;
+
+            case "security.export":
+            {
+                var path = _window.PickSaveFile($"flyknit-security-{DateTime.Now:yyyyMMdd-HHmm}.csv", "CSV 文件 (*.csv)|*.csv");
+                if (path is null)
+                {
+                    return new { ok = false, cancelled = true, message = "", path = "", count = 0 };
+                }
+                // 界面按条件筛过时只导出筛出来的那些
+                HashSet<long>? only = null;
+                if (p.ValueKind == JsonValueKind.Object && p.TryGetProperty("ids", out var idList) && idList.ValueKind == JsonValueKind.Array)
+                {
+                    only = idList.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number).Select(x => x.GetInt64()).ToHashSet();
+                }
+                try
+                {
+                    var events = await Task.Run(() => _host.Store.ListSecurityEvents(null, ConversationStore.SecurityEventLimit)
+                        .Where(e => only is null || only.Contains(e.Id)).ToList());
+                    await Task.Run(() =>
+                    {
+                        using var writer = new StreamWriter(path, false, new System.Text.UTF8Encoding(false));
+                        ConversationStore.WriteSecurityEventsCsv(events, writer);
+                    });
+                    return new { ok = true, cancelled = false, message = "", path, count = events.Count };
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return new { ok = false, cancelled = false, message = ex.Message, path, count = 0 };
+                }
+            }
+
+            case "security.network":
+            {
+                var network = _host.Policy.Network;
+                return new
+                {
+                    enabled = _host.Security.On(Flyknit.Core.Security.SecuritySettings.NetworkAllowlist),
+                    domains = network.Domains,
+                    allowPrivate = network.AllowPrivateNetwork,
+                };
+            }
 
             case "approvals.list":
                 return _host.Approvals.List().Select(a => new
@@ -755,7 +850,25 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
                 var library = await _host.Server.GetSkillsAsync(cts.Token);
-                var installed = _host.Skills.Skills.ToDictionary(s => s.Name, s => s.Version, StringComparer.OrdinalIgnoreCase);
+                // 服务端的技能名是包名（slug，如 excel-xlsx），而本地 SkillInfo.Name 取自 SKILL.md 的
+                // name 字段（可能是 "Excel / XLSX" 这种显示名）。安装时目录名用的是 Sanitize(SKILL.md 名)，
+                // 正好等于包名，所以这里同时按 原名 / 规范化名 / 目录名 建索引，避免已装却仍显示“安装”。
+                var installed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var sk in _host.Skills.Skills)
+                {
+                    foreach (var key in new[]
+                    {
+                        sk.Name,
+                        Flyknit.Core.Skills.SkillPackage.Sanitize(sk.Name),
+                        Path.GetFileName(sk.Directory.TrimEnd('\\', '/')),
+                    })
+                    {
+                        if (!string.IsNullOrEmpty(key))
+                        {
+                            installed[key] = sk.Version;
+                        }
+                    }
+                }
                 return library.Select(s => new
                 {
                     name = s.Name,
@@ -1136,6 +1249,7 @@ public interface IWindowActions
     void LanguageChanged(string language);
     IReadOnlyList<string> PickFiles();
     string? PickFolder();
+    string? PickSaveFile(string defaultName, string filter);
     bool IsMaximized { get; }
     bool ToggleMaximize();
     void StartResize(string direction);
