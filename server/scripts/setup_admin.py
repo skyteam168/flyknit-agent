@@ -58,6 +58,16 @@ def main() -> int:
               f"请先启动：python -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
         return 1
 
+    # 管理账号这组接口是新加的。服务端如果还跑着旧代码就没有这些路由，
+    # 直接 404。先探一下，免得让人对着一句 Not Found 猜半天。
+    probe = client.get(api + "/users")
+    if probe.status_code == 404:
+        print("服务端还在跑旧代码——它没有管理账号这组接口。")
+        print("请到服务端那个窗口按 Ctrl+C 停掉，然后重新启动：")
+        print("  python -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
+        print("（代码已经拉下来了，但正在运行的进程还是启动时加载的那份，必须重启才生效。）")
+        return 1
+
     def call(method: str, path: str, **kwargs):
         r = client.request(method, api + path, **kwargs)
         if r.status_code == 403 and "令牌" in r.text:
