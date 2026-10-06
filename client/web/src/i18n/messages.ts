@@ -354,7 +354,7 @@ const zh = {
     },
     trace: {
       title: '执行链路',
-      chip: '{s} 秒',
+      chip: '链路 · {s} 秒',
       open: '查看这一轮每一步做了什么',
       total: '总耗时',
       steps: '步',
@@ -858,7 +858,7 @@ const vi: Messages = {
     },
     trace: {
       title: 'Chuỗi thực thi',
-      chip: '{s} giây',
+      chip: 'Chuỗi · {s} giây',
       open: 'Xem từng bước của lượt này',
       total: 'Tổng thời gian',
       steps: 'bước',
@@ -1360,7 +1360,7 @@ const en: Messages = {
     },
     trace: {
       title: 'Execution trace',
-      chip: '{s}s',
+      chip: 'Trace · {s}s',
       open: 'See what each step of this turn did',
       total: 'total',
       steps: 'steps',

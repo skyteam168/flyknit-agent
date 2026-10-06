@@ -791,6 +791,15 @@ function onHostEvent(e: HostEvent) {
       if (!s.notices.includes(e.text)) s.notices.push(e.text)
       break
     }
+    case 'chat.trace': {
+      // 链路要整轮跑完才齐，而回答是边生成边推上来的，所以这里补挂到对应那条回答上
+      const s = convState(e.conversationId)
+      const target =
+        s.messages.find((m) => m.id === e.messageId) ??
+        [...s.messages].reverse().find((m) => m.role === 'assistant')
+      if (target) target.trace = e.trace
+      break
+    }
     case 'files.produced': {
       // 产出文件挂到当前这条回答上；第一个能预览的自动在右侧打开
       const s = convState(e.conversationId)

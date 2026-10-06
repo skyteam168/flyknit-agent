@@ -419,6 +419,7 @@ export type HostEvent =
   | { type: 'tool.finished'; conversationId: string; callId: string; ok: boolean; output: string; decision: string }
   | { type: 'plan.updated'; conversationId: string; plan: PlanItem[] }
   | { type: 'files.produced'; conversationId: string; files: OutputFile[] }
+  | { type: 'chat.trace'; conversationId: string; messageId: string; trace: string }
   | { type: 'chat.notice'; conversationId: string; text: string }
   | {
       type: 'context.compacting'

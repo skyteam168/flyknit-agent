@@ -620,16 +620,21 @@ const isImage = (mime: string) => mime.startsWith('image/')
   font-family: var(--font-code);
   font-size: 0.88em;
 }
-/* mermaid / dot / chart 渲染出来的块 */
+/* 耗时芯片：和模型用量那颗长得一样，但它是可以点开看每一步的 */
 .trace-chip {
-  border: 0;
-  background: transparent;
-  color: inherit;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: var(--t-xs);
   cursor: pointer;
 }
-.trace-chip:hover {
+.trace-chip:hover,
+.trace-chip:focus-visible {
+  border-color: var(--accent);
   color: var(--accent);
+  outline: none;
 }
+
+/* mermaid / dot / chart 渲染出来的块 */
 .md :deep(pre.rich-block) {
   display: grid;
   place-items: center;

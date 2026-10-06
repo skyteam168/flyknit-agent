@@ -385,6 +385,15 @@ public sealed class AgentHost : IDisposable
             if (answer is not null && result.Trace is { } trace)
             {
                 answer.TraceJson = Bridge.TraceDto.Serialize(trace, result.StopReason.ToString());
+                // 回答是边生成边推给界面的，那时候链路还没走完，所以这里补发一次，
+                // 不然耗时芯片只有切走再切回来（从库里重读）才看得到。
+                events.Post(new
+                {
+                    type = "chat.trace",
+                    conversationId = id,
+                    messageId = answer.Id,
+                    trace = answer.TraceJson,
+                });
             }
             Store.AddMessages(id, result.NewMessages);
             if (context is { ContextLength: > 0 })
