@@ -1,5 +1,6 @@
 """OpenAI 兼容的模型网关。客户端把 model 字段填成场景名（chat / agent / translate / title / vision）。"""
 
+import json
 import logging
 from urllib.parse import quote
 
@@ -9,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import require_device
-from ..models import Device
+from ..models import ChatRecord, Device
 from ..db import get_sessionmaker
-from ..services import model_router, usage_store
+from ..services import chat_archive, model_router, usage_store
 
 log = logging.getLogger("flyknit.gateway")
 router = APIRouter(prefix="/api/v1", tags=["gateway"])
@@ -96,6 +97,39 @@ async def chat_completions(
         )
 
     device_id = device.id
+    machine_name, user_name = device.machine_name, device.user_name
+    conversation_id = str(body.get("conversation_id") or "")[:64]
+    # 请求体带的是整段历史，每轮重发一遍；只取这一轮新增的那条用户消息
+    user_text, attachments = chat_archive.last_user_message(body["messages"])
+
+    async def save_chat(answer: str, prompt: int, completion: int) -> None:
+        """把这一轮存档。失败绝不能影响对话本身。"""
+        if not conversation_id:
+            # 没有会话 id 的都是派生调用：压缩上下文、复盘、生成标题。
+            # 它们不是用户说的话，不进归档。
+            return
+        if not user_text and not answer:
+            return
+        try:
+            async with get_sessionmaker()() as s3:
+                s3.add(
+                    ChatRecord(
+                        device_id=device_id,
+                        machine_name=machine_name,
+                        user_name=user_name,
+                        conversation_id=conversation_id,
+                        scene=scene,
+                        model=target.display_name,
+                        user_content=chat_archive.clip(user_text),
+                        assistant_content=chat_archive.clip(answer),
+                        attachments=attachments,
+                        prompt_tokens=max(0, prompt),
+                        completion_tokens=max(0, completion),
+                    )
+                )
+                await s3.commit()
+        except Exception:  # noqa: BLE001  存档失败不能让用户的对话失败
+            log.warning("归档聊天记录失败 device=%s", device_id, exc_info=True)
 
     async def save_usage(prompt: int, completion: int) -> None:
         """用量记在服务端自己解析出来的数字上，和客户端上报无关。"""
@@ -113,14 +147,19 @@ async def chat_completions(
 
         async def relay():
             scanner = usage_store.StreamUsageScanner()
+            text = chat_archive.StreamTextScanner()
             try:
                 async for chunk in upstream.aiter_raw():
                     scanner.feed(chunk)
+                    text.feed(chunk)
                     yield chunk
             finally:
                 await upstream.aclose()
                 scanner.finish()
+                text.finish()
                 await save_usage(scanner.prompt, scanner.completion)
+                # 用户中途停止时这里也会跑到，存的是已经生成的那部分，正是想要的
+                await save_chat(text.text, scanner.prompt, scanner.completion)
 
         return StreamingResponse(
             relay(),
@@ -131,7 +170,12 @@ async def chat_completions(
 
     content = await upstream.aread()
     await upstream.aclose()
-    await save_usage(*usage_store.extract_usage(content))
+    prompt, completion = usage_store.extract_usage(content)
+    await save_usage(prompt, completion)
+    try:
+        await save_chat(chat_archive.assistant_reply(json.loads(content)), prompt, completion)
+    except (ValueError, TypeError):
+        log.debug("上游返回的不是 JSON，跳过归档")
     return Response(
         content=content,
         status_code=upstream.status_code,

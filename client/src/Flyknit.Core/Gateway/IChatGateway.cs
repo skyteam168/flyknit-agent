@@ -25,6 +25,9 @@ public sealed class ChatRequest
     /// <summary>用户在输入框选择的模型（服务端模型 ID），为空时按场景路由。</summary>
     public int? ModelId { get; init; }
 
+    /// <summary>会话 id。服务端据此把一轮一轮归到一次对话下，否则归档是散的。</summary>
+    public string? ConversationId { get; init; }
+
     /// <summary>透传给模型的额外参数，例如 enable_thinking。</summary>
     public IReadOnlyDictionary<string, JsonNode?>? ExtraBody { get; init; }
 }

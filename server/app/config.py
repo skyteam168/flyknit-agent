@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     # 技能包等文件的存放目录（相对路径相对于 server 目录）
     data_dir: str = str(Path(__file__).resolve().parents[1] / "data")
     cors_origins: list[str] = ["*"]
+    #: 后台的定期清理与备份。测试里关掉，免得每个用例都起一个任务
+    housekeeping: bool = True
 
 
 @lru_cache

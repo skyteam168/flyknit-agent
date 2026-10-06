@@ -4,6 +4,7 @@ os.environ["FLYKNIT_ADMIN_TOKEN"] = "test-admin"
 os.environ["FLYKNIT_SECRET_KEY"] = "test-secret"
 os.environ["FLYKNIT_ENROLLMENT_KEY"] = "test-enroll"
 os.environ["FLYKNIT_DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["FLYKNIT_HOUSEKEEPING"] = "false"
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402

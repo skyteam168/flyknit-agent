@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import hmac
 import secrets
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -41,3 +42,34 @@ def new_token() -> str:
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# ---------- 管理端账号密码 ----------
+# 用标准库的 scrypt，不引 passlib / argon2-cffi：工厂环境离线，依赖越少越好。
+# scrypt 是内存困难的，比 PBKDF2 更抗 GPU 暴力破解。
+
+_SCRYPT_N = 2**14  # 约 16MB 内存、几十毫秒一次，登录够快，爆破够慢
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+
+
+def hash_password(password: str) -> str:
+    """返回 scrypt$N$r$p$salt$hash，参数存在串里，以后调强度也能验老密码。"""
+    salt = secrets.token_bytes(16)
+    derived = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=32)
+    return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt.hex()}${derived.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """比较用 compare_digest，避免按耗时逐字节试出密码。"""
+    try:
+        scheme, n, r, p, salt_hex, want = stored.split("$")
+        if scheme != "scrypt":
+            return False
+        derived = hashlib.scrypt(
+            password.encode("utf-8"), salt=bytes.fromhex(salt_hex),
+            n=int(n), r=int(r), p=int(p), dklen=len(want) // 2,
+        )
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(derived.hex(), want)

@@ -137,3 +137,84 @@ class AuditLog(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ChatRecord(Base):
+    """
+    聊天记录。内容本来就从网关过，所以在那里落库，客户端不用再传一份。
+
+    只存用户说的话和 AI 的回答——系统提示词、记忆注入、工具输出每轮都在重复，
+    存了只会把库撑大，后台要查工具调用有 audit_logs。
+    """
+
+    __tablename__ = "chat_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    machine_name: Mapped[str] = mapped_column(String(200), default="")
+    user_name: Mapped[str] = mapped_column(String(200), default="")
+    #: 客户端的会话 id，用来把一轮一轮归到一次对话下
+    conversation_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    scene: Mapped[str] = mapped_column(String(20), default="")
+    model: Mapped[str] = mapped_column(String(100), default="")
+    user_content: Mapped[str] = mapped_column(Text, default="")
+    assistant_content: Mapped[str] = mapped_column(Text, default="")
+    #: 附件只记数量，不存内容——base64 图片动辄几百 KB，存了也没法看
+    attachments: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class AdminUser(Base):
+    """
+    管理端的账号。
+
+    员工端不需要登录（Windows 账号就是身份边界），但管理端需要：聊天内容进了
+    后台之后，「谁看了谁的对话」必须答得上来，一个全组共用的 token 答不了。
+    """
+
+    __tablename__ = "admin_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(100), default="")
+    password_hash: Mapped[str] = mapped_column(String(255), default="")
+    #: 首次登录强制改密，否则建号的人一直知道所有人的密码，审计就失去意义
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: 能不能查看聊天正文。默认不能——看内容是额外授予的，不是当管理员就自带的
+    can_read_chats: Mapped[bool] = mapped_column(Boolean, default=False)
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AdminSession(Base):
+    """管理端登录后的会话令牌。"""
+
+    __tablename__ = "admin_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("admin_users.id", ondelete="CASCADE"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class AdminAccess(Base):
+    """
+    管理员查看聊天正文的记录。
+
+    列表页只给元数据不记这里；点开某台机器的某段对话才记。没有这张表，
+    「谁看了谁的对话」就查无对证，那样的后台不该拿到聊天内容。
+    """
+
+    __tablename__ = "admin_access"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("admin_users.id", ondelete="SET NULL"), nullable=True)
+    username: Mapped[str] = mapped_column(String(64), default="")
+    action: Mapped[str] = mapped_column(String(40), default="")  # read_chat / export_chat
+    target: Mapped[str] = mapped_column(String(200), default="")  # 会话 id 或设备
+    detail: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

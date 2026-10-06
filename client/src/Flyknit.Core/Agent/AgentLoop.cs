@@ -86,7 +86,15 @@ public sealed class AgentLoop
                         }
                     }
                     turn = await _gateway.CompleteAsync(
-                        new ChatRequest { Scene = scene, Messages = history, Tools = tools, Stream = true, ModelId = modelId },
+                        new ChatRequest
+                        {
+                            Scene = scene,
+                            Messages = history,
+                            Tools = tools,
+                            Stream = true,
+                            ModelId = modelId,
+                            ConversationId = ctx.ConversationId,
+                        },
                         observer,
                         ct);
                 }

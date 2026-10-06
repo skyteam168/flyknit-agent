@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import get_settings
 from .crypto import hash_token
 from .db import get_session
-from .models import Device
+from .models import AdminSession, AdminUser, Device
 
 
 def _bearer(authorization: str | None) -> str:
@@ -36,3 +36,34 @@ async def require_device(
     device.last_seen = datetime.now(timezone.utc)
     await session.commit()
     return device
+
+
+async def require_admin_user(
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> AdminUser:
+    """
+    具名管理员。配置类接口继续收共享的 admin_token（脚本要用），
+    但看聊天正文必须是某个人——「谁看了谁的对话」要答得上来。
+    """
+    token = _bearer(authorization)
+    row = await session.scalar(
+        select(AdminSession).where(AdminSession.token_hash == hash_token(token))
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "请先登录管理端")
+    if row.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录已过期，请重新登录")
+    user = await session.get(AdminUser, row.user_id)
+    if user is None or user.disabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "该管理员账号已被停用")
+    return user
+
+
+async def require_chat_reader(user: AdminUser = Depends(require_admin_user)) -> AdminUser:
+    """看聊天正文要单独授权，不是当了管理员就自带。"""
+    if not user.can_read_chats:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "该账号没有查看聊天内容的权限")
+    if user.must_change_password:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "请先修改初始密码")
+    return user

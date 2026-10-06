@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import httpx
@@ -8,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__, db
 from .config import get_settings
-from .routers import admin, client, gateway, speech
+from .routers import admin, chats, client, gateway, speech
+from .services import housekeeping
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -25,7 +27,25 @@ async def lifespan(app: FastAPI):
     db.init_engine(settings.database_url)
     await db.create_all()
     app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(settings.upstream_timeout, connect=10))
+
+    # 清理过期记录和备份数据库。做成后台任务而不是写进文档让人记得跑——
+    # 留存期靠人记得清理等于没有留存期，备份靠人记得做等于没有备份。
+    chore = None
+    if settings.housekeeping:
+        chore = asyncio.create_task(
+            housekeeping.run_forever(
+                db.get_sessionmaker(),
+                settings.database_url,
+                Path(settings.data_dir) / "backups",
+            )
+        )
+
     yield
+
+    if chore is not None:
+        chore.cancel()
+        with suppress(asyncio.CancelledError):
+            await chore
     await app.state.http.aclose()
     await db.dispose()
 
@@ -41,6 +61,7 @@ app.include_router(gateway.router)
 app.include_router(client.router)
 app.include_router(admin.router)
 app.include_router(speech.router)
+app.include_router(chats.router)
 
 
 @app.get("/healthz", tags=["system"])

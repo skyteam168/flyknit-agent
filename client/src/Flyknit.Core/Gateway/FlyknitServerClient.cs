@@ -253,6 +253,10 @@ public sealed class FlyknitServerClient : IChatGateway
             ["messages"] = OpenAiSerializer.ToMessages(request.Messages),
             ["stream"] = request.Stream,
         };
+        if (!string.IsNullOrEmpty(request.ConversationId))
+        {
+            body["conversation_id"] = request.ConversationId;
+        }
         if (request.Stream)
         {
             // 让模型在流的最后返回 token 用量（OpenAI 兼容接口通用参数，百炼、vLLM 均支持）

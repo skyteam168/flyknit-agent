@@ -291,3 +291,73 @@ class SyncResult(BaseModel):
     total: int
     added: list[str]
     skipped: int
+
+
+# ---------- 管理端账号与聊天记录 ----------
+class AdminUserIn(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=8, max_length=200)
+    display_name: str = ""
+    #: 看聊天正文是额外授予的权限，默认不给
+    can_read_chats: bool = False
+
+
+class AdminUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    display_name: str
+    can_read_chats: bool
+    must_change_password: bool
+    disabled: bool
+    created_at: datetime
+    last_login: datetime | None
+
+
+class AdminLoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class AdminLoginOut(BaseModel):
+    token: str
+    display_name: str
+    can_read_chats: bool
+    must_change_password: bool
+
+
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str = Field(min_length=8, max_length=200)
+
+
+class ChatConversationOut(BaseModel):
+    """会话列表项：只有元数据，没有正文。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    conversation_id: str
+    machine_name: str
+    user_name: str
+    scene: str
+    turns: int
+    started_at: datetime
+    last_at: datetime
+
+
+class ChatRecordOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    conversation_id: str
+    machine_name: str
+    user_name: str
+    scene: str
+    model: str
+    user_content: str
+    assistant_content: str
+    attachments: int
+    prompt_tokens: int
+    completion_tokens: int
+    created_at: datetime
