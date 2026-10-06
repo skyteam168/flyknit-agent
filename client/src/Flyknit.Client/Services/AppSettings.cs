@@ -25,6 +25,9 @@ public static class AppPaths
     public static string MachineSkills { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "FlyknitBuddy", "skills");
     public static string Logs => Path.Combine(Root, "logs");
+
+    /// <summary>覆盖写之前留的原文件副本。</summary>
+    public static string Backups => Path.Combine(Root, "backups");
     /// <summary>旧版「记住一模一样的命令」的文件，已不再使用。</summary>
     public static string Approvals => Path.Combine(Root, "approvals.json");
 

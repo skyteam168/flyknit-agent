@@ -51,6 +51,9 @@ public sealed class AgentHost : IDisposable
     /// <summary>上报服务端的同时，把拦截与放行记录存一份在本机（用量与安全面板用）。</summary>
     private readonly RecordingAuditSink _auditSink;
     public ApprovalStore Approvals { get; }
+
+    /// <summary>覆盖写之前留一份原文件。删除有回收站，覆盖写在这之前什么都没有。</summary>
+    private readonly Flyknit.Core.Tools.FileBackup _backup = new(AppPaths.Backups, warn: m => Log.Warn(m));
     public EpisodeStore Episodes { get; }
     public ScheduleRunner Scheduler { get; }
 
@@ -143,6 +146,8 @@ public sealed class AgentHost : IDisposable
         Audit = new AuditQueue(Server);
         _auditSink = new RecordingAuditSink(Audit, Store);
         Approvals = new ApprovalStore(AppPaths.ApprovalRules);
+        // 启动时清一次，免得上次退出前超了上限一直留着
+        _ = Task.Run(() => _backup.Trim());
         Episodes = new EpisodeStore(AppPaths.Memory);
         Scheduler = new ScheduleRunner(this);
         RunFinished += Scheduler.OnRunFinished;
@@ -413,6 +418,7 @@ public sealed class AgentHost : IDisposable
                 Episodes = Episodes,
                 Skills = Skills,
                 Deleter = new RecycleBinDeleter(),
+            Backup = _backup,
             };
 
             var loop = new AgentLoop(Server, Tools, confirm, _auditSink, approvals: Approvals);

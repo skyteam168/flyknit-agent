@@ -82,6 +82,9 @@ public sealed class ToolContext
     public SkillCatalog? Skills { get; init; }
     public IFileDeleter Deleter { get; init; } = new PermanentDeleter();
 
+    /// <summary>覆盖写之前留一份原文件。为空表示不备份（单测里就是这样）。</summary>
+    public FileBackup? Backup { get; init; }
+
     /// <summary>update_plan 工具写入的计划，Agent 循环会把变化通知界面。</summary>
     public List<PlanItem> Plan { get; } = new();
 

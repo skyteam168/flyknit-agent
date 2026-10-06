@@ -182,7 +182,13 @@ public sealed class WriteFileTool : ITool
         var path = ctx.ResolvePath(args.Required("path"));
         var content = args.Str("content");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        if (args.Bool("append", false))
+
+        var append = args.Bool("append", false);
+        // 覆盖写是唯一不可逆的操作（删除有回收站），先留一份原文件。
+        // 追加不会毁掉已有内容，不用备份。
+        var saved = append ? null : ctx.Backup?.Capture(path);
+
+        if (append)
         {
             await File.AppendAllTextAsync(path, content, new UTF8Encoding(false), ct);
         }
@@ -190,7 +196,8 @@ public sealed class WriteFileTool : ITool
         {
             await File.WriteAllTextAsync(path, content, new UTF8Encoding(false), ct);
         }
-        return ToolResult.Success($"已写入 {path}").WithOutputs(path);
+        var note = saved is null ? "" : "（原文件已备份）";
+        return ToolResult.Success($"已写入 {path}{note}").WithOutputs(path);
     }
 }
 

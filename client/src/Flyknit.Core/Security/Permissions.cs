@@ -109,7 +109,7 @@ public static class PermissionRules
         }
 
         var effect = baseline.Effect;
-        var outside = OutsidePaths(command, workspace);
+        var outside = OutsidePaths(command, workspace, workingDirectory);
 
         if (mode == PermissionMode.ReadOnly)
         {
@@ -199,34 +199,31 @@ public static class PermissionRules
 
     public static bool IsInWorkspace(string fullPath, string? workspace)
     {
-        if (string.IsNullOrWhiteSpace(workspace))
-        {
-            return false;
-        }
-        try
-        {
-            return CommandPolicy.IsUnder(Path.GetFullPath(fullPath), Path.GetFullPath(workspace));
-        }
-        catch (Exception)
-        {
-            return false;
-        }
+        // 走 PathResolver 而不是字符串前缀比较：工作区里放一个指向 C:\ 的
+        // junction，前缀比较会认为它还在工作区内
+        return !string.IsNullOrWhiteSpace(workspace) && PathResolver.IsUnder(fullPath, workspace);
     }
 
-    /// <summary>命令里出现的、不在工作区内的绝对路径。</summary>
-    public static List<string> OutsidePaths(string command, string? workspace)
+    /// <summary>
+    /// 命令里出现的、不在工作区内的路径。
+    ///
+    /// 相对路径也要算——<c>..\..\secret</c> 和 <c>D:\secret</c> 指的是同一个地方，
+    /// 原来只扫绝对路径等于把前者放过去了。
+    /// </summary>
+    public static List<string> OutsidePaths(string command, string? workspace, string? workingDirectory = null)
     {
         var list = new List<string>();
-        foreach (Match m in AbsolutePath.Matches(Environment.ExpandEnvironmentVariables(command)))
+        foreach (var path in PathResolver.FromCommand(command, workingDirectory ?? workspace))
         {
-            var p = m.Value.TrimEnd('.', '\\', '/');
-            if (p.Length < 3)
+            // 解析不出来的（变量、通配符）当作「可能在外面」：证不了它安全就不能放行
+            var display = path.Known ? path.Full! : path.Raw;
+            if (path.Known && IsInWorkspace(path.Full!, workspace))
             {
                 continue;
             }
-            if (!IsInWorkspace(p, workspace) && !list.Contains(p, StringComparer.OrdinalIgnoreCase))
+            if (!list.Contains(display, StringComparer.OrdinalIgnoreCase))
             {
-                list.Add(p);
+                list.Add(display);
             }
         }
         return list;
