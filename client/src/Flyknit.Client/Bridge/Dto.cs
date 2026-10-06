@@ -84,7 +84,8 @@ public sealed record MessageDto(
     int? Feedback,
     string? ModelName,
     int? PromptTokens,
-    int? CompletionTokens)
+    int? CompletionTokens,
+    List<OutputFileDto>? Outputs)
 {
     public static MessageDto From(ChatMessage m) => new(
         m.Id,
@@ -99,7 +100,36 @@ public sealed record MessageDto(
         m.Feedback,
         m.ModelName,
         m.PromptTokens,
-        m.CompletionTokens);
+        m.CompletionTokens,
+        m.Outputs.Count > 0 ? OutputFileDto.From(m.Outputs) : null);
+}
+
+/// <summary>任务产出的一个文件，界面用它渲染「打开 / 在资源管理器中显示 / 预览」卡片。</summary>
+public sealed record OutputFileDto(string Path, string Name, string Extension, long Size, string ModifiedAt, bool Previewable, bool Exists)
+{
+    private static readonly Flyknit.Core.Preview.PreviewRegistry Registry = Flyknit.Core.Preview.PreviewRegistry.CreateDefault();
+
+    public static List<OutputFileDto> From(IEnumerable<string> paths) => paths.Select(From).ToList();
+
+    public static OutputFileDto From(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return new OutputFileDto(
+                info.FullName,
+                info.Name,
+                info.Extension.TrimStart('.').ToLowerInvariant(),
+                info.Exists ? info.Length : 0,
+                info.Exists ? new DateTimeOffset(info.LastWriteTime).ToString("O") : "",
+                Registry.CanPreview(path),
+                info.Exists);
+        }
+        catch (Exception)
+        {
+            return new OutputFileDto(path, System.IO.Path.GetFileName(path), "", 0, "", false, false);
+        }
+    }
 }
 
 public static class MimeTypes

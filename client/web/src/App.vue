@@ -13,6 +13,7 @@ import SchedulesDialog from './components/SchedulesDialog.vue'
 import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
 import PlanPanel from './components/PlanPanel.vue'
+import PreviewPane from './components/PreviewPane.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import { addFiles, current, currentState, init, newConversation, state } from './store'
 
@@ -121,7 +122,8 @@ onBeforeUnmount(() => {
           <Composer ref="composer" />
         </div>
         <Home v-else ref="home" />
-        <PlanPanel v-if="showPlan" :plan="currentState!.plan" />
+        <PlanPanel v-if="showPlan && !state.preview" :plan="currentState!.plan" />
+        <PreviewPane v-if="state.preview && !narrow" />
       </div>
     </main>
 

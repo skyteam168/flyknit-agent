@@ -60,6 +60,11 @@ public interface IAgentObserver : IStreamSink
     void OnContextCompacted(Context.CompactionInfo info)
     {
     }
+
+    /// <summary>任务产出了文件（新增或改动）。界面据此给出打开 / 预览的卡片。</summary>
+    void OnOutputsProduced(IReadOnlyList<OutputFile> files)
+    {
+    }
 }
 
 public sealed class AgentOptions

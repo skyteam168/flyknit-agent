@@ -10,6 +10,15 @@ public sealed record ToolResult(bool Ok, string Output)
 {
     public const int DefaultMaxChars = 12000;
 
+    /// <summary>
+    /// 这次执行产出或改动的文件（绝对路径）。工具自己最清楚写了什么，就由工具直接声明；
+    /// run_shell 这种跑任意程序的，由 OutputTracker 比对工作目录得出。
+    /// 界面据此给出「打开 / 在资源管理器中显示 / 预览」的卡片。
+    /// </summary>
+    public IReadOnlyList<string> Outputs { get; init; } = Array.Empty<string>();
+
+    public ToolResult WithOutputs(params string[] paths) => this with { Outputs = paths };
+
     public static ToolResult Success(string output) => new(true, output);
     public static ToolResult Fail(string error) => new(false, error);
 

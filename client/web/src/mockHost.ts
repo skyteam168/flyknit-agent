@@ -103,6 +103,35 @@ export function createMockHost(): HostTransport {
       nextRunAt: null, lastRunAt: null, lastStatus: '', lastSummary: '', lastConversationId: null, runCount: 0,
     },
   ]
+  // 开发预览用的假产出文件
+  const mockOutputs = [
+    { path: 'D:\\工作区\\日报\\营业部Q3需求沟通会.pptx', name: '营业部Q3需求沟通会.pptx', extension: 'pptx', size: 2_418_000, modifiedAt: now(), previewable: true, exists: true },
+    { path: 'D:\\工作区\\日报\\九月产量汇总.xlsx', name: '九月产量汇总.xlsx', extension: 'xlsx', size: 184_000, modifiedAt: now(), previewable: true, exists: true },
+    { path: 'D:\\工作区\\日报\\说明.md', name: '说明.md', extension: 'md', size: 2_400, modifiedAt: now(), previewable: true, exists: true },
+  ]
+
+  const mockPreviews: Record<string, unknown> = {
+    'D:\\工作区\\日报\\营业部Q3需求沟通会.pptx': {
+      kind: 'sections',
+      sections: [
+        { title: '第 1 页 · 营业部 Q3 需求沟通会', text: '时间：9 月 30 日 15:25\n地点：三楼会议室\n参会：营业部、IT、生产计划' },
+        { title: '第 2 页 · 本季度待解决的三件事', text: '1. 排班表翻译成越南语的时效\n2. 质检数据周报自动化\n3. 共享盘权限梳理' },
+        { title: '第 3 页 · 下一步', text: '10 月 8 日前出方案，10 月 20 日试点一条产线。' },
+      ],
+    },
+    'D:\\工作区\\日报\\九月产量汇总.xlsx': {
+      kind: 'table',
+      sections: [
+        { title: '九月产量', rows: [['车间', '计划', '实际', '达成率'], ['一车间', '12000', '12480', '104%'], ['二车间', '9500', '9120', '96%'], ['三车间', '7800', '8010', '103%']] },
+        { title: '异常明细', rows: [['日期', '车间', '原因'], ['09-12', '二车间', '设备检修半天']] },
+      ],
+    },
+    'D:\\工作区\\日报\\说明.md': {
+      kind: 'markdown',
+      text: '# 九月产量汇总说明\n\n数据来自共享盘 `\\\\fs01\\报表\\九月`，按车间汇总。\n\n- 达成率 = 实际 / 计划\n- 二车间 09-12 设备检修，已在异常明细里标注\n',
+    },
+  }
+
   async function fakeCompaction(conversationId: string) {
     emit({ type: 'context.compacting', conversationId, phase: 'scanning', percent: 5, messages: 34 })
     for (let pct = 12; pct <= 95; pct += 7) {
@@ -363,6 +392,16 @@ export function createMockHost(): HostTransport {
         }
         return { ok: true, message: '', conversationId: null }
       }
+      case 'files.preview': {
+        await sleep(250)
+        const base = { path: p.path, name: String(p.path).split('\\').pop(), sections: [], text: null, language: null, dataUrl: null, notice: null, error: null }
+        return { ...base, ...(mockPreviews[p.path] ?? { kind: 'none', error: '这种格式不能在这里预览' }) }
+      }
+      case 'files.launch':
+      case 'files.reveal':
+        return { ok: true, message: '' }
+      case 'ui.activeConversation':
+        return null
       case 'usage.stats':
         await sleep(300)
         return {
@@ -559,6 +598,9 @@ export function createMockHost(): HostTransport {
       case 'chat.send':
         // 开发预览：输入里带「压缩」就演示一次上下文压缩的进度条
         if (/压缩|compact/i.test(p.text ?? '')) void fakeCompaction(p.conversationId)
+        if (/产出|交付|文件|ppt|报表/i.test(p.text ?? '')) {
+          setTimeout(() => emit({ type: 'files.produced', conversationId: p.conversationId, files: mockOutputs }), 2600)
+        }
         void reply(conversations.get(p.conversationId)!, p.text, p.attachments, p.messageId)
         return
       case 'chat.stop':

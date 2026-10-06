@@ -107,8 +107,10 @@ public partial class App : Application
         _notifications.OpenRequested += conversationId => Dispatcher.BeginInvoke(() => OpenConversation(conversationId));
         _host.RunFinished += info => Dispatcher.BeginInvoke(() =>
         {
-            // 用户正在看着窗口时不打扰；被用户停止的任务不通知
-            if (_settings.EnableNotifications && _main is { IsInForeground: false } && info.StopReason != Flyknit.Core.Agent.AgentStopReason.Cancelled)
+            // 用户正看着这个任务时不打扰；被用户停止的任务不通知
+            if (_settings.EnableNotifications
+                && info.StopReason != Flyknit.Core.Agent.AgentStopReason.Cancelled
+                && !UserIsWatching(info.ConversationId))
             {
                 _notifications.ShowFinished(info);
             }
@@ -145,9 +147,9 @@ public partial class App : Application
                 });
                 bridge.ConfirmRequested += pending => Dispatcher.BeginInvoke(() =>
                 {
-                    if (_main is null || _main.IsInForeground)
+                    if (UserIsWatching(pending.ConversationId))
                     {
-                        return; // 界面上已经显示确认条
+                        return; // 用户就看着这个任务，界面上的确认条已经够了
                     }
                     if (_settings.EnableNotifications && _notifications is { Available: true })
                     {
@@ -178,6 +180,27 @@ public partial class App : Application
         _main.ShowAndFocus();
         _main.Bridge?.Post(new { type = "app.openConversation", conversationId });
         _notifications?.RemoveFinished(conversationId);
+    }
+
+    /// <summary>
+    /// 用户此刻是不是正看着这个任务？是的话界面上的卡片就够了，不要再弹系统通知。
+    ///
+    /// 两个条件都要满足：窗口看得见（没最小化、没被别的程序盖住大半、人没离开座位），
+    /// 并且当前打开的就是这个任务——在看别的任务时同样是“看不到”，该通知还是要通知。
+    /// </summary>
+    private bool UserIsWatching(string conversationId)
+    {
+        if (_main is null)
+        {
+            return false;
+        }
+        var hwnd = new WindowInteropHelper(_main).Handle;
+        if (!UserPresence.CanSeeWindow(hwnd, _main.IsVisible, _main.WindowState == WindowState.Minimized))
+        {
+            return false;
+        }
+        var active = _main.Bridge?.ActiveConversationId;
+        return string.IsNullOrEmpty(active) || active == conversationId;
     }
 
     private void UpdateBall() => _ball?.SetState(_activeRuns > 0, _pendingConfirms > 0);

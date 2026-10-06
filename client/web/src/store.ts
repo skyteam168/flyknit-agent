@@ -1,4 +1,4 @@
-import { computed, reactive } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { bridge } from './bridge'
 import { applyLanguage, i18n } from './i18n'
 import type {
@@ -17,6 +17,8 @@ import type {
   ToolActivity,
   UiLanguage,
   UiMessage,
+  OutputFile,
+  PreviewDoc,
   UsageStats,
   WorkspaceInfo,
 } from './types'
@@ -60,7 +62,64 @@ export const state = reactive({
   usage: null as UsageStats | null,
   /** 用户关掉提醒条后，这一档不再提醒 */
   usageDismissedAt: 0,
+  /** 右侧分屏预览 */
+  preview: null as { file: OutputFile; doc: PreviewDoc | null; loading: boolean; error: string } | null,
+  /** 分屏宽度（像素），拖拽后记住 */
+  previewWidth: readPreviewWidth(),
+  /** 产出文件后自动打开分屏 */
+  autoPreview: true,
 })
+
+const PreviewWidthKey = 'flyknit.previewWidth'
+export const MinPreviewWidth = 320
+export const MaxPreviewRatio = 0.72
+
+function readPreviewWidth(): number {
+  try {
+    const saved = Number(localStorage.getItem(PreviewWidthKey))
+    if (Number.isFinite(saved) && saved >= MinPreviewWidth) return saved
+  } catch {
+    // 隐私模式下读不到，用默认值就好
+  }
+  return 520
+}
+
+export function setPreviewWidth(px: number) {
+  const max = Math.max(MinPreviewWidth, window.innerWidth * MaxPreviewRatio)
+  state.previewWidth = Math.round(Math.min(Math.max(px, MinPreviewWidth), max))
+  try {
+    localStorage.setItem(PreviewWidthKey, String(state.previewWidth))
+  } catch {
+    // 存不住就算了，只是下次要重新拖
+  }
+}
+
+/** 在右侧分屏里打开一个文件 */
+export async function openPreview(file: OutputFile) {
+  state.preview = { file, doc: null, loading: true, error: '' }
+  try {
+    const doc = await bridge.previewFile(file.path)
+    if (state.preview?.file.path !== file.path) return // 用户已经点了别的文件
+    state.preview = { file, doc, loading: false, error: doc.error ?? '' }
+  } catch (e) {
+    if (state.preview?.file.path !== file.path) return
+    state.preview = { file, doc: null, loading: false, error: String(e) }
+  }
+}
+
+export function closePreview() {
+  state.preview = null
+}
+
+export async function launchFile(file: OutputFile) {
+  const r = await bridge.launchFile(file.path).catch(() => ({ ok: false, message: '打开失败' }))
+  if (!r.ok && r.message) toast(r.message)
+}
+
+export async function revealFile(file: OutputFile) {
+  const r = await bridge.revealFile(file.path).catch(() => ({ ok: false, message: '打开失败' }))
+  if (!r.ok && r.message) toast(r.message)
+}
 
 /** 今日额度用掉的百分比；管理员没设上限时返回 0 */
 export const usagePercent = computed(() => {
@@ -122,6 +181,14 @@ media.addEventListener('change', () => state.app && applyTheme(state.app.theme))
 // ---------- 初始化 ----------
 export async function init() {
   bridge.on(onHostEvent)
+  // 宿主要知道界面当前打开的是哪个任务，才能判断系统通知该不该弹
+  watch(
+    () => state.currentId,
+    (id) => {
+      void bridge.setActiveConversation(id).catch(() => {})
+      state.preview = null // 换任务时收起分屏，免得看着上一个任务的产出
+    },
+  )
   const app = await bridge.init()
   state.app = app
   applyLanguage(app.uiLanguage)
@@ -674,6 +741,17 @@ function onHostEvent(e: HostEvent) {
       if (t) {
         t.confirm = undefined
         t.state = e.choice === 'reject' ? 'rejected' : 'running'
+      }
+      break
+    }
+    case 'files.produced': {
+      // 产出文件挂到当前这条回答上；第一个能预览的自动在右侧打开
+      const s = convState(e.conversationId)
+      const last = [...s.messages].reverse().find((m) => m.role === 'assistant')
+      if (last) last.outputs = [...(last.outputs ?? []), ...e.files]
+      if (state.autoPreview && e.conversationId === state.currentId && !state.preview) {
+        const first = e.files.find((f) => f.previewable && f.exists)
+        if (first) void openPreview(first)
       }
       break
     }

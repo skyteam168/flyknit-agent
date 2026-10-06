@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -50,6 +51,9 @@ public sealed class RunShellTool : ITool
         }
         var timeout = TimeSpan.FromSeconds(Math.Clamp(args.Int("timeout_seconds", 60), 1, 600));
 
+        // 命令跑的可能是任意程序，产出什么事先不知道，所以前后各扫一次工作目录比对出来
+        var tracker = OutputTracker.Snapshot(workingDirectory);
+
         var psi = BuildStartInfo(shell, command);
         psi.WorkingDirectory = workingDirectory;
         psi.RedirectStandardOutput = true;
@@ -89,7 +93,11 @@ public sealed class RunShellTool : ITool
         output.AppendLine($"退出码：{process.ExitCode}");
         if (stdout.Length > 0) output.AppendLine(stdout.ToString().TrimEnd());
         if (stderr.Length > 0) output.AppendLine("[错误输出]").AppendLine(stderr.ToString().TrimEnd());
-        return new ToolResult(process.ExitCode == 0, output.ToString().TrimEnd());
+        var produced = tracker?.Changed() ?? Array.Empty<OutputFile>();
+        return new ToolResult(process.ExitCode == 0, output.ToString().TrimEnd())
+        {
+            Outputs = produced.Select(f => f.Path).ToList(),
+        };
     }
 
     private static ProcessStartInfo BuildStartInfo(string shell, string command)

@@ -82,6 +82,38 @@ export interface ApprovalInfo {
   uses: number
 }
 
+/** 任务产出的一个文件 */
+export interface OutputFile {
+  path: string
+  name: string
+  extension: string
+  size: number
+  modifiedAt: string
+  /** 能不能在右侧分屏里预览 */
+  previewable: boolean
+  exists: boolean
+}
+
+export type PreviewKind = 'text' | 'markdown' | 'table' | 'sections' | 'image' | 'pdf' | 'diagram' | 'listing' | 'none'
+
+export interface PreviewSection {
+  title: string
+  text?: string | null
+  rows?: string[][] | null
+}
+
+export interface PreviewDoc {
+  path: string
+  name: string
+  kind: PreviewKind
+  text?: string | null
+  language?: string | null
+  dataUrl?: string | null
+  notice?: string | null
+  error?: string | null
+  sections: PreviewSection[]
+}
+
 export interface ModelInfo {
   id: number
   name: string
@@ -251,6 +283,8 @@ export interface UiMessage {
   modelName?: string | null
   promptTokens?: number | null
   completionTokens?: number | null
+  /** 这条回答产出的文件 */
+  outputs?: OutputFile[] | null
 }
 
 export interface PlanItem {
@@ -322,6 +356,7 @@ export type HostEvent =
     }
   | { type: 'tool.finished'; conversationId: string; callId: string; ok: boolean; output: string; decision: string }
   | { type: 'plan.updated'; conversationId: string; plan: PlanItem[] }
+  | { type: 'files.produced'; conversationId: string; files: OutputFile[] }
   | {
       type: 'context.compacting'
       conversationId: string

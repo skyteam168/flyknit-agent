@@ -135,6 +135,7 @@ public sealed class ConversationStore
         AddColumn(c, "messages", "model", "TEXT NULL");
         AddColumn(c, "messages", "prompt_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
+        AddColumn(c, "messages", "outputs", "TEXT NULL");
 
         // v0.5：安全记录（危险命令拦截与放行）
         using var sec = c.CreateCommand();
@@ -270,6 +271,17 @@ public sealed class ConversationStore
     public void SetPermission(string id, Security.PermissionMode mode) => Update(id, "permission = $v", Security.PermissionModes.ToText(mode));
 
     /// <summary>给回答点赞（1）、踩（-1）或取消（null）。</summary>
+    /// <summary>把本轮产出的文件记到某条回答上，重新打开会话时卡片还在。</summary>
+    public void SetOutputs(string messageId, IReadOnlyList<string> paths)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE messages SET outputs = $outputs WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", messageId);
+        cmd.Parameters.AddWithValue("$outputs", paths.Count > 0 ? JsonSerializer.Serialize(paths, Json) : (object)DBNull.Value);
+        cmd.ExecuteNonQuery();
+    }
+
     public void SetFeedback(string messageId, int? value)
     {
         using var c = Open();
@@ -384,8 +396,8 @@ public sealed class ConversationStore
             using var cmd = c.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO messages (id, conversation_id, seq, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, model, prompt_tokens, completion_tokens)
-                VALUES ($id, $conv, $seq, $role, $content, $reasoning, $calls, $callId, $toolName, $attachments, $created, $model, $pt, $ct)
+                INSERT INTO messages (id, conversation_id, seq, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, model, prompt_tokens, completion_tokens, outputs)
+                VALUES ($id, $conv, $seq, $role, $content, $reasoning, $calls, $callId, $toolName, $attachments, $created, $model, $pt, $ct, $outputs)
                 """;
             cmd.Parameters.AddWithValue("$id", m.Id);
             cmd.Parameters.AddWithValue("$conv", conversationId);
@@ -398,6 +410,7 @@ public sealed class ConversationStore
             cmd.Parameters.AddWithValue("$toolName", (object?)m.ToolName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$attachments", m.Attachments.Count > 0 ? JsonSerializer.Serialize(m.Attachments, Json) : DBNull.Value);
             cmd.Parameters.AddWithValue("$created", m.CreatedAt.ToString("O"));
+            cmd.Parameters.AddWithValue("$outputs", m.Outputs.Count > 0 ? JsonSerializer.Serialize(m.Outputs, Json) : DBNull.Value);
             cmd.Parameters.AddWithValue("$model", (object?)m.ModelName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$pt", (object?)m.PromptTokens ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$ct", (object?)m.CompletionTokens ?? DBNull.Value);
@@ -420,7 +433,7 @@ public sealed class ConversationStore
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
             SELECT id, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, feedback,
-                   model, prompt_tokens, completion_tokens
+                   model, prompt_tokens, completion_tokens, outputs
             FROM messages WHERE conversation_id = $id ORDER BY seq
             """;
         cmd.Parameters.AddWithValue("$id", conversationId);
@@ -443,6 +456,7 @@ public sealed class ConversationStore
                 ModelName = r.IsDBNull(10) ? null : r.GetString(10),
                 PromptTokens = r.IsDBNull(11) ? null : (int)r.GetInt64(11),
                 CompletionTokens = r.IsDBNull(12) ? null : (int)r.GetInt64(12),
+                Outputs = r.IsDBNull(13) ? new() : JsonSerializer.Deserialize<List<string>>(r.GetString(13), Json) ?? new(),
             });
         }
         return list;

@@ -215,6 +215,58 @@ skill-name/
 
 存储在 `history.db` 的 `scheduled_tasks` 表（`Flyknit.Core/Scheduling/ScheduledTaskStore.cs`）。
 
+## 系统通知的弹出时机
+
+原则是**只在用户看不到这个任务时才打扰**。只看 WPF 的 `IsActive` 不够：用户点一下别的窗口、
+或者焦点短暂跑到通知上，`IsActive` 就变 false，但窗口还好好摆在眼前，这时弹通知纯属打扰。
+
+`Flyknit.Client/Services/UserPresence.cs` 按「看得见」而不是「有焦点」判断，四个条件全满足才算看得见：
+
+- 窗口可见且没最小化
+- 没有被 DWM 隐藏（`DWMWA_CLOAKED`——切到别的虚拟桌面就是这个状态）
+- 没有被前台窗口盖住 60% 以上（取两个窗口矩形求交集面积比，不认程序名）
+- 距上次键鼠输入不到 2 分钟（`GetLastInputInfo`）——人离开座位了，哪怕窗口在最前面也要通知
+
+再加一条：界面当前打开的必须就是这个任务（`ui.activeConversation` 由前端在切换任务时上报）。
+在看别的任务时同样算「看不到」，该通知还是通知。
+
+## 任务产出文件
+
+界面上的文件卡片（打开 / 在资源管理器中显示 / 预览）来自 `ToolResult.Outputs`。
+
+- 写文件的工具自己最清楚写了什么，直接声明，不用猜（`write_file` → 它写的那个路径）。
+- `run_shell` 跑的是任意程序（Python 生成 Excel、构建脚本产出安装包…），事先无从知道，
+  所以由 `OutputTracker` 在命令前后各扫一次工作目录，比对出新增和被改动的文件。
+  扫描有硬上限（深度 4、2 万个文件、最多报 20 个），并跳过 `node_modules`、`.git`、`bin`、`obj`、
+  `__pycache__` 这类噪声目录和 `.tmp`、`~$` 开头的临时文件。
+
+产出随本轮的回答存进 `messages.outputs`，重新打开会话时卡片还在。
+新工具要报产出，只需在返回的 `ToolResult` 上带 `Outputs`，不用改界面也不用改 AgentLoop。
+
+## 文件预览（右侧分屏）
+
+`Flyknit.Core/Preview` 下是一组 `IPreviewProvider`，按注册顺序认领文件：
+
+| Provider | 格式 | 产出 |
+| --- | --- | --- |
+| Image | png/jpg/gif/bmp/webp/svg/ico/avif | data URL |
+| Pdf | pdf | data URL，交给 WebView2 自带阅读器 |
+| Office | docx/xlsx/pptx | 解 OOXML：Word → Markdown（标题样式转 `#`），Excel → 每张表一个表格，PPT → 每页一节 |
+| Archive | zip | 条目列表，不解压 |
+| Table | csv/tsv | 表格，支持 `""` 转义的引号字段 |
+| Text | 40+ 种文本与代码 | 文本 + 语言提示；md 标为 Markdown，mmd/dot/puml 标为流程图 |
+| FileInfo | 其余所有 | 只给文件信息，界面显示「用默认应用打开」 |
+
+Office 三件套本质是 zip 里的 XML，所以直接用 `System.IO.Compression` + `XDocument` 解析，**不引第三方库**——
+工厂电脑上不该为了预览去装东西。只取文字和表格，样式一律不管；要排版还是用 Office 打开。
+Excel 的空单元格在 XML 里会被省略，按 `A1`/`B1` 的列号补齐，否则列会错位。
+
+界面只认宿主返回的 `kind`（text/markdown/table/sections/image/pdf/diagram/listing/none），
+不自己再判断一次扩展名。**加一种格式 = 加一个 Provider 并注册**，界面和调度逻辑都不用动。
+
+分屏宽度可拖拽（也支持键盘左右键），存在 localStorage 里，下次打开保持；最小 320px，最宽占窗口 72%。
+产出文件里第一个能预览的会自动打开分屏。
+
 ## 客户端与 Web 界面的通信
 
 WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消息，宿主通过 `PostWebMessageAsJson` 推送事件。消息格式：
@@ -223,7 +275,7 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 { "type": "chat.send", "id": "req-1", "payload": { "conversationId": "...", "text": "..." } }
 ```
 
-宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`、`context.compacting`、`context.compacted`。
+宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`、`context.compacting`、`context.compacted`、`files.produced`。
 
 完整列表见 `client/web/src/bridge.ts` 与 `client/src/Flyknit.Client/Bridge/WebBridge.cs`，两边需保持一致。
 
@@ -242,7 +294,7 @@ v0.4 给 `audit_logs` 加 `scene` 时踩过这个坑，老库升级上来后审�
 %APPDATA%\Flyknit\
 ├─ settings.json      服务器地址、设备 Token、界面语言、工作区、权限默认值
 ├─ approval-rules.json  自动执行规则（命令前缀 + 工作区）授权
-├─ data\history.db    会话与消息（含摘要、模型与 token 用量）、本机安全记录、定时任务
+├─ data\history.db    会话与消息（含摘要、模型与 token 用量、产出文件）、本机安全记录、定时任务
 ├─ memory\
 │  ├─ agent.md / soul.md / role.md   行为准则、语气、用户身份
 │  ├─ memory.md       偏好与习惯、常用信息

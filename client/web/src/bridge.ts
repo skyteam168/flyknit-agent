@@ -18,6 +18,8 @@ import type {
   SkillInstallOutcome,
   ScheduledTask,
   SecurityEvent,
+  OutputFile,
+  PreviewDoc,
   UsageStats,
   Permission,
   WorkspaceInfo,
@@ -186,6 +188,15 @@ class Bridge {
   runSchedule = (id: string) => this.call<{ ok: boolean; message: string; conversationId: string | null }>('schedules.run', { id })
 
   usageStats = () => this.call<UsageStats>('usage.stats')
+
+  /** 用系统默认应用打开 */
+  launchFile = (path: string) => this.call<{ ok: boolean; message: string }>('files.launch', { path })
+  /** 在资源管理器中定位 */
+  revealFile = (path: string) => this.call<{ ok: boolean; message: string }>('files.reveal', { path })
+  /** 读取预览内容 */
+  previewFile = (path: string) => this.call<PreviewDoc>('files.preview', { path })
+  /** 告诉宿主当前打开的是哪个任务（决定要不要弹系统通知） */
+  setActiveConversation = (id: string | null) => this.call<void>('ui.activeConversation', { id })
   securityEvents = (decision = '') => this.call<SecurityEvent[]>('security.list', { decision })
   clearSecurityEvents = () => this.call<void>('security.clear')
   listApprovals = () => this.call<ApprovalInfo[]>('approvals.list')

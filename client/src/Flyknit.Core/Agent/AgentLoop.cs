@@ -21,6 +21,9 @@ public sealed class AgentLoop
     /// <summary>用户授权过的操作（同样的命令确认一次后不再询问）。由宿主提供并持久化，跨对话、跨重启有效。</summary>
     private readonly ApprovalStore _approvals;
 
+    /// <summary>本轮已经报过的产出文件，避免同一个文件反复出现在界面上。</summary>
+    private readonly HashSet<string> _outputs = new(StringComparer.OrdinalIgnoreCase);
+
     public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
@@ -272,6 +275,15 @@ public sealed class AgentLoop
             _audit.Record(audit);
 
             obs.OnToolFinished(call, result, decisionText);
+            if (result.Outputs.Count > 0)
+            {
+                // 同一个文件被改好几次只报一次，按最后一次的状态
+                var files = OutputTracker.Describe(result.Outputs).Where(f => _outputs.Add(f.Path)).ToList();
+                if (files.Count > 0)
+                {
+                    obs.OnOutputsProduced(files);
+                }
+            }
             AppendTool(call, result.Output);
             return result.Ok;
         }

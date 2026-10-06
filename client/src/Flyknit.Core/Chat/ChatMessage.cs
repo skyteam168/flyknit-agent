@@ -41,6 +41,9 @@ public sealed class ChatMessage
     public int? PromptTokens { get; set; }
     public int? CompletionTokens { get; set; }
 
+    /// <summary>这条回答产出的文件（绝对路径）。界面据此给出打开 / 预览的卡片。</summary>
+    public List<string> Outputs { get; set; } = new();
+
     public static ChatMessage System(string content) => new() { Role = ChatRole.System, Content = content };
 
     public static ChatMessage User(string content, IEnumerable<Attachment>? attachments = null) => new()

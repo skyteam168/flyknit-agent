@@ -30,6 +30,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     private readonly IWindowActions _window;
     private readonly ConcurrentDictionary<string, PendingConfirm> _confirms = new();
 
+    /// <summary>界面当前打开的任务。用户在看别的任务时，这个任务的通知照常弹。</summary>
+    public string? ActiveConversationId { get; private set; }
+
+    /// <summary>按文件类型分派的预览实现。加一种格式只要注册一个 Provider。</summary>
+    private readonly Flyknit.Core.Preview.PreviewRegistry _preview = Flyknit.Core.Preview.PreviewRegistry.CreateDefault();
+
     /// <summary>等待用户确认的数量变化（悬浮球提示用）。</summary>
     public event Action<int>? PendingConfirmsChanged;
 
@@ -341,6 +347,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 // 完全权限只对单个任务生效，不保存为默认值
                 _settings.DefaultPermission = Str("permission") == "readonly" ? "readonly" : "workspace";
                 _settings.Save();
+                return null;
+
+            case "ui.activeConversation":
+                ActiveConversationId = OptStr("id");
                 return null;
 
             case "schedules.list":
@@ -729,7 +739,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             }
 
             case "files.open":
+            case "files.reveal":
             {
+                // 在资源管理器里定位到这个文件（选中它），或者直接打开这个文件夹
                 var path = Str("path");
                 if (File.Exists(path))
                 {
@@ -739,7 +751,50 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 {
                     Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
                 }
-                return null;
+                else
+                {
+                    return new { ok = false, message = "文件不存在，可能已被移动或删除" };
+                }
+                return new { ok = true, message = "" };
+            }
+
+            case "files.launch":
+            {
+                // 用系统默认应用打开（.pptx → PowerPoint，.xlsx → Excel…）
+                var path = Str("path");
+                if (!File.Exists(path))
+                {
+                    return new { ok = false, message = "文件不存在，可能已被移动或删除" };
+                }
+                try
+                {
+                    Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                    return new { ok = true, message = "" };
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"打开文件失败：{path}", ex);
+                    return new { ok = false, message = $"打开失败：{ex.Message}" };
+                }
+            }
+
+            case "files.preview":
+            {
+                var path = Str("path");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var doc = await _preview.LoadAsync(path, cts.Token);
+                return new
+                {
+                    path,
+                    name = Path.GetFileName(path),
+                    kind = doc.Kind.ToString().ToLowerInvariant(),
+                    text = doc.Text,
+                    language = doc.Language,
+                    dataUrl = doc.DataUrl,
+                    notice = doc.Notice,
+                    error = doc.Error,
+                    sections = doc.Sections.Select(x => new { title = x.Title, text = x.Text, rows = x.Rows }).ToList(),
+                };
             }
 
             default:

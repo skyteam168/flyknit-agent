@@ -7,6 +7,7 @@ import { renderMarkdown } from '../markdown'
 import { current, currentState, editAndResend, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
+import OutputFiles from './OutputFiles.vue'
 
 const { t } = useI18n()
 const scroller = ref<HTMLElement>()
@@ -228,6 +229,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
             :tool="s.tools[c.id] ?? { callId: c.id, name: c.name, summary: '', risk: 'auto', state: 'done' }"
             :conversation-id="current!.id"
           />
+          <OutputFiles v-if="m.outputs?.length" :files="m.outputs" />
           <div v-if="isAnswer(m) && !(busy && m.id === lastAnswerId)" class="actions" :class="{ pinned: m.id === lastAnswerId }">
             <button type="button" class="icon-btn" :title="t('message.copy')" @click.stop="copy(m)">
               <component :is="copiedId === m.id ? Check : Copy" :size="15" />

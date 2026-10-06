@@ -343,6 +343,12 @@ public sealed class AgentHost : IDisposable
 
             var loop = new AgentLoop(Server, Tools, confirm, _auditSink, approvals: Approvals);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId, context);
+            // 把本轮产出的文件挂到最后一条回答上，重开会话时卡片还在
+            if (observer.Outputs.Count > 0)
+            {
+                var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
+                answer?.Outputs.AddRange(observer.Outputs);
+            }
             Store.AddMessages(id, result.NewMessages);
             if (context is { ContextLength: > 0 })
             {
@@ -629,6 +635,26 @@ public sealed class AgentHost : IDisposable
         public void OnContextCompacted(CompactionInfo info)
         {
             // 由 ContextManager.Compacted 事件统一处理（保存摘要并通知界面）
+        }
+
+        /// <summary>本轮产出的文件，按出现顺序去重。</summary>
+        public List<string> Outputs { get; } = new();
+
+        public void OnOutputsProduced(IReadOnlyList<OutputFile> files)
+        {
+            foreach (var f in files)
+            {
+                if (!Outputs.Contains(f.Path, StringComparer.OrdinalIgnoreCase))
+                {
+                    Outputs.Add(f.Path);
+                }
+            }
+            _events.Post(new
+            {
+                type = "files.produced",
+                conversationId = _id,
+                files = files.Select(f => Bridge.OutputFileDto.From(f.Path)).ToList(),
+            });
         }
 
         public void OnPlanUpdated(IReadOnlyList<PlanItem> plan) => _events.Post(new

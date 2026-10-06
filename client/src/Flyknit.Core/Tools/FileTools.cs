@@ -190,7 +190,7 @@ public sealed class WriteFileTool : ITool
         {
             await File.WriteAllTextAsync(path, content, new UTF8Encoding(false), ct);
         }
-        return ToolResult.Success($"已写入 {path}");
+        return ToolResult.Success($"已写入 {path}").WithOutputs(path);
     }
 }
 
