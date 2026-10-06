@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
@@ -75,6 +76,7 @@ public partial class App : Application
         }
 
         _host = new AgentHost(_settings);
+        _host.ReregistrationRequired += OnReregistrationRequired;
         _main = new MainWindow(_host, _settings);
         _main.UiLanguageChanged += lang =>
         {
@@ -376,6 +378,68 @@ public partial class App : Application
 
     [DllImport("user32.dll")]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    // ---------- 重新注册 ----------
+
+    private bool _reregistering;
+
+    /// <summary>
+    /// 服务端查无此设备（401）。常见于换了服务器，或者服务端的数据库被重建过。
+    /// 以前用户只能自己去删 settings.json，这里直接把注册窗口弹出来。
+    /// </summary>
+    private void OnReregistrationRequired()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_reregistering || _settings is null)
+            {
+                return;
+            }
+            _reregistering = true;
+            try
+            {
+                // 清掉服务端已经不认的令牌，注册窗口才会以「未注册」的姿态出现
+                _settings.DeviceToken = "";
+                _settings.Save();
+
+                if (new SetupWindow(_settings).ShowDialog() == true)
+                {
+                    // 重启而不是热切换：换服务器时连接的基地址是构造时定的，
+                    // 就地改要动一串状态，重启是确定正确的那条路。
+                    Restart();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"重新注册流程出错：{ex.Message}");
+            }
+            finally
+            {
+                _reregistering = false;
+            }
+        });
+    }
+
+    private void Restart()
+    {
+        var exe = Environment.ProcessPath;
+        try
+        {
+            // 先放掉单实例锁，否则新进程会以为已经有一个在跑然后直接退出
+            _mutex?.ReleaseMutex();
+            _mutex?.Dispose();
+            _mutex = null;
+            if (exe is not null)
+            {
+                Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"自动重启失败，请手动重新打开：{ex.Message}");
+        }
+        Shutdown();
+    }
 
     // ---------- 本地数据保护 ----------
 

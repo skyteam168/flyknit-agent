@@ -112,6 +112,14 @@ public sealed class AgentHost : IDisposable
 
     public event Action? StatusChanged;
 
+    /// <summary>
+    /// 本机的注册信息服务端不认了，需要重新注册。
+    ///
+    /// 只在 401 时触发，403 不触发——403 是管理员停用了这台机器，
+    /// 要是停用后重启一下就能自己重新注册，那这个开关等于没有。
+    /// </summary>
+    public event Action? ReregistrationRequired;
+
     /// <summary>有运行中的任务或等待确认时变化，悬浮球据此显示状态。</summary>
     public event Action<int>? ActiveRunsChanged;
 
@@ -193,15 +201,24 @@ public sealed class AgentHost : IDisposable
         }
         catch (GatewayException ex) when (ex.StatusCode is 401 or 403)
         {
-            // 管理端把这台机器停用了，或者令牌被吊销。以前这里只会显示「连接失败」，
-            // 用户和 IT 都看不出发生了什么，所以单独说清楚。
+            // 管理端把这台机器停用了，或者服务端不认这个令牌了。
+            // 以前这里只会显示「连接失败」，用户和 IT 都看不出发生了什么。
             Connected = false;
-            ServerMessage = ex.StatusCode == 403
-                ? $"本机已被管理员停用。{ex.Message}"
-                : "本机的注册信息已失效，请联系 IT 重新注册这台电脑。";
             Log.Warn($"设备认证被拒（HTTP {ex.StatusCode}）：{ex.Message}");
             // 这种状态重试再快也没用，退到十分钟一次
             _configTimer.Change(TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
+
+            if (ex.StatusCode == 403)
+            {
+                ServerMessage = $"本机已被管理员停用。{ex.Message}";
+            }
+            else
+            {
+                // 401 = 服务端查无此设备。常见于换了服务器、或者服务端的库被重建过。
+                // 引导重新注册，而不是让用户自己去删 settings.json。
+                ServerMessage = "本机需要重新注册到服务器";
+                ReregistrationRequired?.Invoke();
+            }
         }
         catch (Exception ex)
         {
