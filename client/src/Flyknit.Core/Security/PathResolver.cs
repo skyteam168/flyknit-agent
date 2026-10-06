@@ -193,6 +193,73 @@ public static class PathResolver
     }
 
     /// <summary>
+    /// 把一条命令切成词，再去掉命令名和开关，剩下的就是它作用的目标。
+    ///
+    /// 删除命令必须这样取目标，不能靠「长得像路径」去扫——node_modules、dist、obj
+    /// 这些既没有分隔符也没有扩展名，但它们正是最常见的删除目标。
+    /// </summary>
+    public static List<string> TargetsOf(string command)
+    {
+        var tokens = Tokenize(command);
+        var targets = new List<string>();
+        // 第一个词是命令名本身
+        foreach (var token in tokens.Skip(1))
+        {
+            if (IsSwitch(token))
+            {
+                continue;
+            }
+            targets.Add(token);
+        }
+        return targets;
+    }
+
+    /// <summary>开关：-rf、--force、/s、/q。注意 /home/x 是路径不是开关。</summary>
+    private static bool IsSwitch(string token)
+    {
+        if (token.StartsWith("-", StringComparison.Ordinal))
+        {
+            return true;
+        }
+        if (!token.StartsWith("/", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        // cmd 的开关是 /s /q /f 这种：一两个字母，后面没有更多层级
+        var rest = token[1..];
+        return rest.Length is >= 1 and <= 2 && rest.All(char.IsLetter);
+    }
+
+    /// <summary>按空白切词，引号内的空格不切。</summary>
+    public static List<string> Tokenize(string command)
+    {
+        var tokens = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var quote = '\0';
+        foreach (var c in command ?? "")
+        {
+            if (quote != '\0')
+            {
+                if (c == quote) { quote = '\0'; } else { current.Append(c); }
+                continue;
+            }
+            if (c is '"' or '\'')
+            {
+                quote = c;
+                continue;
+            }
+            if (char.IsWhiteSpace(c))
+            {
+                if (current.Length > 0) { tokens.Add(current.ToString()); current.Clear(); }
+                continue;
+            }
+            current.Append(c);
+        }
+        if (current.Length > 0) { tokens.Add(current.ToString()); }
+        return tokens;
+    }
+
+    /// <summary>
     /// 一条路径是否在某个根目录下。两边都解析过链接，所以 junction 绕不过去。
     /// </summary>
     public static bool IsUnder(string fullPath, string root)

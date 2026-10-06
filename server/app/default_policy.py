@@ -7,14 +7,30 @@ blocked_patterns 为正则，客户端以忽略大小写方式匹配完整命令
 DEFAULT_POLICY: dict = {
     "version": 1,
     "auto_run_readonly": True,
-    "blocked_patterns": [
-        # 递归强制删除
+    # 递归强制删除：删 node_modules 和删 C:\ 是两回事，所以不按动词一刀切，
+    # 而是解析出目标再判。命中这里只是「要看目标」，不等于拦截。
+    # 目标在系统目录、盘符根、或者根本解析不出来（变量、通配符）才拦。
+    # 这些目录不许被整个删掉，哪怕权限给到最大。和 protected_roots 不同：
+    # protected_roots 连写都不让（所以不能包含 C:\\Users，否则用户连自己的文档都写不了），
+    # 这里只管「整个删掉」。
+    "no_delete_roots": [
+        "C:\\",
+        "D:\\",
+        "C:\\Users",
+        "C:\\Windows",
+        "C:\\Program Files",
+        "C:\\Program Files (x86)",
+        "C:\\ProgramData",
+    ],
+    "recursive_delete_patterns": [
         r"\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)\b",
         r"\brm\s+-(-recursive|-force)",
         r"\bremove-item\b(?=.*-r(ecurse)?\b)(?=.*-fo(rce)?\b)",
         r"\b(rd|rmdir)\s+/s\b",
         r"\bdel\s+(/[a-z]\s+)*/s\b",
         r"\berase\s+(/[a-z]\s+)*/s\b",
+    ],
+    "blocked_patterns": [
         # 磁盘与引导
         r"\bformat(\.com)?\s+[a-z]:",
         r"\bformat-volume\b",

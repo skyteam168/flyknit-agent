@@ -1,13 +1,24 @@
 {
   "version": 1,
   "auto_run_readonly": true,
-  "blocked_patterns": [
+  "no_delete_roots": [
+    "C:\\",
+    "D:\\",
+    "C:\\Users",
+    "C:\\Windows",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)",
+    "C:\\ProgramData"
+  ],
+  "recursive_delete_patterns": [
     "\\brm\\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)\\b",
     "\\brm\\s+-(-recursive|-force)",
     "\\bremove-item\\b(?=.*-r(ecurse)?\\b)(?=.*-fo(rce)?\\b)",
     "\\b(rd|rmdir)\\s+/s\\b",
     "\\bdel\\s+(/[a-z]\\s+)*/s\\b",
-    "\\berase\\s+(/[a-z]\\s+)*/s\\b",
+    "\\berase\\s+(/[a-z]\\s+)*/s\\b"
+  ],
+  "blocked_patterns": [
     "\\bformat(\\.com)?\\s+[a-z]:",
     "\\bformat-volume\\b",
     "\\bclear-disk\\b",

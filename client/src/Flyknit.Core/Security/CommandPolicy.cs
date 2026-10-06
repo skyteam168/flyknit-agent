@@ -42,9 +42,18 @@ public sealed class PolicyConfig
     [JsonPropertyName("version")] public int Version { get; set; }
     [JsonPropertyName("auto_run_readonly")] public bool AutoRunReadonly { get; set; } = true;
     [JsonPropertyName("blocked_patterns")] public List<string> BlockedPatterns { get; set; } = new();
+
+    /// <summary>
+    /// 递归强制删除类命令。命中只表示「要看目标」，不等于拦截——
+    /// 删 node_modules 和删 C:\ 是两回事，拿动词一刀切太粗。
+    /// </summary>
+    [JsonPropertyName("recursive_delete_patterns")] public List<string> RecursiveDeletePatterns { get; set; } = new();
     [JsonPropertyName("readonly_commands")] public List<string> ReadonlyCommands { get; set; } = new();
     [JsonPropertyName("writable_roots")] public List<string> WritableRoots { get; set; } = new();
     [JsonPropertyName("protected_roots")] public List<string> ProtectedRoots { get; set; } = new();
+
+    /// <summary>不许被整个删掉的目录。比 protected_roots 宽：这里的目录可以写，只是不能整个删。</summary>
+    [JsonPropertyName("no_delete_roots")] public List<string> NoDeleteRoots { get; set; } = new();
     [JsonPropertyName("batch_confirm_threshold")] public int BatchConfirmThreshold { get; set; } = 20;
 
     /// <summary>客户端内置的默认策略（离线或尚未从服务端拉取时使用）。</summary>
@@ -72,6 +81,7 @@ public sealed class CommandPolicy
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private readonly List<Regex> _blocked;
+    private readonly List<Regex> _recursiveDelete;
     private readonly HashSet<string> _readonly;
     private readonly List<string> _protectedRoots;
 
@@ -80,18 +90,8 @@ public sealed class CommandPolicy
     public CommandPolicy(PolicyConfig config)
     {
         Config = config;
-        _blocked = new List<Regex>();
-        foreach (var pattern in config.BlockedPatterns)
-        {
-            try
-            {
-                _blocked.Add(new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200)));
-            }
-            catch (ArgumentException)
-            {
-                // 无效正则：忽略该条，其余规则照常生效
-            }
-        }
+        _blocked = Compile(config.BlockedPatterns);
+        _recursiveDelete = Compile(config.RecursiveDeletePatterns);
         _readonly = new HashSet<string>(config.ReadonlyCommands, StringComparer.OrdinalIgnoreCase);
         _protectedRoots = config.ProtectedRoots.Select(NormalizeRoot).Where(r => r.Length > 0).ToList();
     }
@@ -111,6 +111,13 @@ public sealed class CommandPolicy
         if (hit is not null)
         {
             return PolicyDecision.Blocked($"命中安全规则（{hit}），此类命令可能损害系统，已阻止");
+        }
+
+        // 递归删除：看目标，不看动词
+        var sweep = CheckRecursiveDelete(normalized, workingDirectory);
+        if (sweep is not null)
+        {
+            return sweep;
         }
 
         // 调用脚本文件时，扫描脚本内容
@@ -144,6 +151,130 @@ public sealed class CommandPolicy
                 : PolicyDecision.Confirm("管理员关闭了只读命令自动执行") with { Effect = CommandEffect.Read };
         }
         return PolicyDecision.Confirm(analysis.Reason) with { Effect = analysis.Effect };
+    }
+
+    /// <summary>
+    /// 递归强制删除的目标够不够安全。
+    ///
+    /// 返回 null 表示「这条不是递归删除，或者目标没问题」，交给后面的分级继续判
+    /// （最终会落到 Destructive → 需要确认）。返回 Blocked 表示目标不能碰。
+    /// </summary>
+    private PolicyDecision? CheckRecursiveDelete(string command, string? workingDirectory)
+    {
+        if (!_recursiveDelete.Any(re => SafeMatch(re, command)))
+        {
+            return null;
+        }
+
+        // 命令文本里直接出现了不许删的目录名：先拦掉。
+        // 这一条是为「没加引号的带空格路径」兜底——C:\Program Files 会被空格切开，
+        // 切开之后反而看不出它是什么。只会让判断更严，不会放松。
+        foreach (var root in Config.NoDeleteRoots)
+        {
+            if (root.Length > 3 && MentionsWholePath(command, root))
+            {
+                return PolicyDecision.Blocked($"不能递归删除 {root}：这是系统关键目录，不能整个删除");
+            }
+        }
+
+        var raw = PathResolver.TargetsOf(command);
+        if (raw.Count == 0)
+        {
+            // 认得出是递归删除，却没给目标：证不了它安全
+            return PolicyDecision.Blocked("这是一条递归强制删除命令，但看不出要删什么，已阻止。请写明确的路径");
+        }
+
+        foreach (var target in raw.Select(t => PathResolver.Resolve(t, workingDirectory)))
+        {
+            if (!target.Known)
+            {
+                return PolicyDecision.Blocked(
+                    $"递归强制删除的目标要到运行时才知道（{target.Raw}），无法事先判断影响范围，已阻止。" +
+                    "请把路径写成确定的值");
+            }
+            var why = DangerousTarget(target.Full!);
+            if (why is not null)
+            {
+                return PolicyDecision.Blocked($"不能递归删除 {target.Full}：{why}");
+            }
+        }
+        return null; // 目标都正常，后面按高危命令走确认
+    }
+
+    /// <summary>这个路径能不能被整个删掉。能删返回 null，不能删返回原因。</summary>
+    public string? DangerousTarget(string fullPath)
+    {
+        try
+        {
+            var path = PathResolver.RealPath(fullPath).TrimEnd('\\', '/');
+
+            // 盘符根或文件系统根
+            if (path.Length <= 3 && (path.EndsWith(":", StringComparison.Ordinal) || path is "/" or ""))
+            {
+                return "这是整个磁盘";
+            }
+            foreach (var root in Config.ProtectedRoots)
+            {
+                if (PathResolver.IsUnder(path, root))
+                {
+                    return $"位于受保护的系统目录 {root} 之下";
+                }
+            }
+            // 这些目录本身不许整个删，但它们下面的子目录可以——
+            // 不能删 C:\Users，但可以删 C:\Users\nguyen\project\build
+            foreach (var root in Config.NoDeleteRoots)
+            {
+                if (SamePath(path, root))
+                {
+                    return $"{root} 是系统关键目录，不能整个删除";
+                }
+            }
+            // 当前用户的主目录，删了等于毁掉这个人的全部数据
+            var home = SafeFolder(Environment.SpecialFolder.UserProfile);
+            if (home.Length > 0 && SamePath(path, home))
+            {
+                return "这是用户主目录";
+            }
+            return null;
+        }
+        catch (Exception)
+        {
+            return "无法判断这个路径的位置";
+        }
+    }
+
+    /// <summary>
+    /// 命令里把 <paramref name="path"/> 当成完整目标提到了吗。
+    ///
+    /// 后面还跟着分隔符或字母的不算——C:\Users\nguyen\project 删的是人家的项目目录，
+    /// 不是 C:\Users 本身，不该因为前缀撞上就拦掉。
+    /// </summary>
+    private static bool MentionsWholePath(string command, string path)
+    {
+        var at = 0;
+        while (true)
+        {
+            at = command.IndexOf(path, at, StringComparison.OrdinalIgnoreCase);
+            if (at < 0)
+            {
+                return false;
+            }
+            var after = at + path.Length;
+            if (after >= command.Length || !(command[after] is '\\' or '/' || char.IsLetterOrDigit(command[after])))
+            {
+                return true;
+            }
+            at = after;
+        }
+    }
+
+    private static bool SamePath(string a, string b) =>
+        a.TrimEnd('\\', '/').Equals(b.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+
+    private static string SafeFolder(Environment.SpecialFolder folder)
+    {
+        try { return Environment.GetFolderPath(folder); }
+        catch (Exception) { return ""; }
     }
 
     /// <summary>这条命令是否只读（配置里显式列出的命令名，用于兼容管理员下发的 readonly_commands）。</summary>
@@ -186,6 +317,12 @@ public sealed class CommandPolicy
             {
                 return PolicyDecision.Blocked($"脚本 {Path.GetFileName(path)} 第 {lineNo} 行包含被禁止的操作（{hit}）");
             }
+            // 脚本里的递归删除同样按目标判，否则把命令塞进 .ps1 就绕过去了
+            var sweep = CheckRecursiveDelete(line, Path.GetDirectoryName(path));
+            if (sweep is not null && sweep.Level == RiskLevel.Blocked)
+            {
+                return PolicyDecision.Blocked($"脚本 {Path.GetFileName(path)} 第 {lineNo} 行：{sweep.Reason}");
+            }
         }
         return PolicyDecision.Confirm("执行脚本需要用户确认");
     }
@@ -215,6 +352,31 @@ public sealed class CommandPolicy
             }
         }
         return PolicyDecision.Confirm("修改文件需要用户确认");
+    }
+
+    private static List<Regex> Compile(IEnumerable<string> patterns)
+    {
+        var list = new List<Regex>();
+        foreach (var pattern in patterns)
+        {
+            try
+            {
+                list.Add(new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                    TimeSpan.FromMilliseconds(200)));
+            }
+            catch (ArgumentException)
+            {
+                // 无效正则：忽略该条，其余规则照常生效
+            }
+        }
+        return list;
+    }
+
+    /// <summary>匹配时超时按「命中」处理——判断不了就不要放行。</summary>
+    private static bool SafeMatch(Regex re, string text)
+    {
+        try { return re.IsMatch(text); }
+        catch (RegexMatchTimeoutException) { return true; }
     }
 
     private string? MatchBlocked(string text)

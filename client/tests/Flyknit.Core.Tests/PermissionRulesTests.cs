@@ -55,7 +55,7 @@ public class PermissionRulesTests : IDisposable
     [InlineData(PermissionMode.Full)]
     public void DangerousCommandsAreBlockedInEveryMode(PermissionMode mode)
     {
-        Assert.Equal(RiskLevel.Blocked, PermissionRules.ForCommand(Policy, mode, _ws, "Remove-Item -Recurse -Force C:\\data", _ws).Level);
+        Assert.Equal(RiskLevel.Blocked, PermissionRules.ForCommand(Policy, mode, _ws, "Remove-Item -Recurse -Force C:\\Windows", _ws).Level);
         Assert.Equal(RiskLevel.Blocked, PermissionRules.ForCommand(Policy, mode, _ws, "format C: /q", _ws).Level);
     }
 
