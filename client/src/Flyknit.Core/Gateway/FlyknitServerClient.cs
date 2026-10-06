@@ -28,6 +28,10 @@ public sealed class ClientConfig
     [JsonPropertyName("server_version")] public string ServerVersion { get; set; } = "";
     [JsonPropertyName("scenes")] public List<SceneInfo> Scenes { get; set; } = new();
     [JsonPropertyName("policy")] public PolicyConfig? Policy { get; set; }
+
+    /// <summary>安全中心每一项的值和锁状态。锁住的由 IT 统一配置，本机改不了。</summary>
+    [JsonPropertyName("security")]
+    public Dictionary<string, Flyknit.Core.Security.SecurityItem> Security { get; set; } = new();
 }
 
 public sealed class ClientModel

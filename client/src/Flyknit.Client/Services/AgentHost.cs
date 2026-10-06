@@ -53,7 +53,21 @@ public sealed class AgentHost : IDisposable
     public ApprovalStore Approvals { get; }
 
     /// <summary>覆盖写之前留一份原文件。删除有回收站，覆盖写在这之前什么都没有。</summary>
-    private readonly Flyknit.Core.Tools.FileBackup _backup = new(AppPaths.Backups, warn: m => Log.Warn(m));
+    private Flyknit.Core.Tools.FileBackup _backup = new(AppPaths.Backups, warn: m => Log.Warn(m));
+
+    /// <summary>安全中心每一项的值和锁状态，由服务端下发。</summary>
+    public Flyknit.Core.Security.SecuritySettings Security { get; } = new();
+
+    /// <summary>
+    /// 把安全设置落到实处。界面上置灰只是提示，真正的管控要在这里生效。
+    /// </summary>
+    private void ApplySecurity()
+    {
+        var quota = Security.Number(Flyknit.Core.Security.SecuritySettings.BackupQuotaMb, 512);
+        _backup = new Flyknit.Core.Tools.FileBackup(AppPaths.Backups, quota * 1024L * 1024L, m => Log.Warn(m));
+        _settings.EnableNotifications = Security.On(Flyknit.Core.Security.SecuritySettings.Notifications);
+        _settings.Save();
+    }
     public EpisodeStore Episodes { get; }
     public ScheduleRunner Scheduler { get; }
 
@@ -179,6 +193,13 @@ public sealed class AgentHost : IDisposable
             if (config.Policy is not null)
             {
                 _policy = new CommandPolicy(config.Policy);
+            }
+            if (config.Security.Count > 0)
+            {
+                // 锁住的以服务端为准，没锁的保留用户改过的值
+                Security.MergeFromServer(config.Security);
+                Security.ApplyLocal(_settings.SecurityChoices);
+                ApplySecurity();
             }
             var agent = config.Scenes.FirstOrDefault(s => s.Scene == Scenes.Agent);
             if (agent is { ContextLength: > 0 } && _contextLength == 0)
@@ -417,8 +438,11 @@ public sealed class AgentHost : IDisposable
                 Memory = Memory,
                 Episodes = Episodes,
                 Skills = Skills,
-                Deleter = new RecycleBinDeleter(),
-            Backup = _backup,
+                Deleter = Security.On(Flyknit.Core.Security.SecuritySettings.DeleteProtection)
+                    ? new RecycleBinDeleter()
+                    : new PermanentDeleter(),
+            Backup = Security.On(Flyknit.Core.Security.SecuritySettings.AutoBackup) ? _backup : null,
+            Security = Security,
             };
 
             var loop = new AgentLoop(Server, Tools, confirm, _auditSink, approvals: Approvals);

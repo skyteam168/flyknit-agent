@@ -132,6 +132,9 @@ public sealed class AppSettings
     /// <summary>通知提示音：none / soft / alert。</summary>
     public string NotificationSound { get; set; } = "none";
 
+    /// <summary>安全中心里用户自己改过的项。只存没被 IT 锁住的那几项。</summary>
+    public System.Collections.Generic.Dictionary<string, object?> SecurityChoices { get; set; } = new();
+
     /// <summary>快捷键改动：命令 id → 按键。只存和默认不一样的，默认值变了也能跟上。</summary>
     public System.Collections.Generic.Dictionary<string, string> Shortcuts { get; set; } = new();
 

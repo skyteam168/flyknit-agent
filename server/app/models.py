@@ -218,3 +218,25 @@ class AdminAccess(Base):
     target: Mapped[str] = mapped_column(String(200), default="")  # 会话 id 或设备
     detail: Mapped[str] = mapped_column(String(300), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class DevicePolicy(Base):
+    """
+    某台机器单独的安全设置。
+
+    「后台统一配置 + 可以给某台机器单独设置」——全厂的默认值存在 settings 表里，
+    这张表只存某台机器和全厂不一样的那几项，所以改全厂默认值时，没被单独设过的
+    机器会自动跟着变。
+    """
+
+    __tablename__ = "device_policies"
+
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: 只存和全厂不一样的项
+    overrides: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: 只存锁状态和全厂不一样的项。给某台机器放开某一项，就写在这里
+    locks: Mapped[dict] = mapped_column(JSON, default=dict)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

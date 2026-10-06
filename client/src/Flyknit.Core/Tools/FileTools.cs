@@ -220,11 +220,11 @@ public sealed class DeletePathTool : ITool
             if (Directory.Exists(path))
             {
                 var count = Directory.EnumerateFileSystemEntries(path, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true })
-                    .Take(ctx.Policy.Config.BatchConfirmThreshold + 1).Count();
-                if (count > ctx.Policy.Config.BatchConfirmThreshold)
+                    .Take(ctx.BatchDeleteThreshold + 1).Count();
+                if (count > ctx.BatchDeleteThreshold)
                 {
                     // 大批量删除在任何权限下都要逐次确认
-                    return PolicyDecision.Confirm($"该目录包含超过 {ctx.Policy.Config.BatchConfirmThreshold} 个文件，请仔细确认");
+                    return PolicyDecision.Confirm($"该目录包含超过 {ctx.BatchDeleteThreshold} 个文件，请仔细确认");
                 }
             }
         }

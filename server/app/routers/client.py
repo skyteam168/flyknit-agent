@@ -16,7 +16,7 @@ from ..deps import require_device
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from ..models import AuditLog, Device, ModelConfig, SkillPackage
+from ..models import AuditLog, Device, DevicePolicy, ModelConfig, SkillPackage
 from ..schemas import (
     SCENES,
     SkillOut,
@@ -29,7 +29,7 @@ from ..schemas import (
     MachineInfoIn,
     SceneInfo,
 )
-from ..services import model_router, skill_library, usage_store
+from ..services import model_router, security_settings, settings_store, skill_library, usage_store
 from ..services.settings_store import get_policy
 
 log = logging.getLogger("flyknit.audit")
@@ -105,7 +105,18 @@ async def client_config(
             )
         except model_router.NoRouteError:
             scenes.append(SceneInfo(scene=scene, available=False))
-    return ClientConfigOut(server_version=__version__, scenes=scenes, policy=await get_policy(session))
+    # 安全中心：全厂默认叠加这台机器的单独设置
+    shared = await settings_store.get_security(session)
+    mine = await session.get(DevicePolicy, device.id)
+    security = security_settings.effective(
+        global_values=shared.get("values"),
+        device_values=mine.overrides if mine else None,
+        global_locks=shared.get("locks"),
+        device_locks=mine.locks if mine else None,
+    )
+    return ClientConfigOut(
+        server_version=__version__, scenes=scenes, policy=await get_policy(session), security=security
+    )
 
 
 @router.post("/audit", status_code=204)

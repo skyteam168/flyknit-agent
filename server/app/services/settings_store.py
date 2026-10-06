@@ -25,3 +25,22 @@ async def set_value(session: AsyncSession, key: str, value: dict) -> None:
 
 async def get_policy(session: AsyncSession) -> dict:
     return await get_value(session, POLICY_KEY, DEFAULT_POLICY)
+
+
+SECURITY_KEY = "security"
+
+
+async def get_security(session: AsyncSession) -> dict:
+    """全厂的安全设置默认值与锁状态。"""
+    return await get_value(session, SECURITY_KEY, {"values": {}, "locks": {}})
+
+
+async def set_security(session: AsyncSession, values: dict, locks: dict) -> dict:
+    from . import security_settings
+
+    merged = {
+        "values": security_settings.sanitize(values),
+        "locks": security_settings.sanitize_locks(locks),
+    }
+    await set_value(session, SECURITY_KEY, merged)
+    return merged

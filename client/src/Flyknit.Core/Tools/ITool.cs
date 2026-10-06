@@ -85,6 +85,15 @@ public sealed class ToolContext
     /// <summary>覆盖写之前留一份原文件。为空表示不备份（单测里就是这样）。</summary>
     public FileBackup? Backup { get; init; }
 
+    /// <summary>安全中心的设置。为空时按策略里的默认值走。</summary>
+    public Flyknit.Core.Security.SecuritySettings? Security { get; init; }
+
+    /// <summary>一次删除多少个文件就要强制确认。安全中心改了这里要跟着变。</summary>
+    public int BatchDeleteThreshold =>
+        Security?.Number(Flyknit.Core.Security.SecuritySettings.BatchDeleteThreshold,
+            Policy?.Config.BatchConfirmThreshold ?? 20)
+        ?? Policy?.Config.BatchConfirmThreshold ?? 20;
+
     /// <summary>update_plan 工具写入的计划，Agent 循环会把变化通知界面。</summary>
     public List<PlanItem> Plan { get; } = new();
 

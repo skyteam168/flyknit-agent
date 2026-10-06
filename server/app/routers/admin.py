@@ -1,3 +1,4 @@
+import logging
 """管理后台接口。所有请求需带 Authorization: Bearer <FLYKNIT_ADMIN_TOKEN>。"""
 
 import time
@@ -13,12 +14,13 @@ from ..config import get_settings
 from ..crypto import decrypt, encrypt, mask
 from ..db import get_session
 from ..deps import require_admin
-from ..models import AuditLog, Device, ModelConfig, Provider, RouteRule, SkillPackage
+from ..models import AuditLog, Device, DevicePolicy, ModelConfig, Provider, RouteRule, SkillPackage
 from ..schemas import (
     SCENES,
     AuditOut,
     DeviceOut,
     DevicePatch,
+    DevicePolicyIn,
     ModelIn,
     ModelOut,
     ModelPatch,
@@ -26,6 +28,7 @@ from ..schemas import (
     ProviderOut,
     ProviderPatch,
     RouteIn,
+    SecurityDefaultsIn,
     RouteOut,
     DeviceUsageOut,
     QuotaIn,
@@ -38,9 +41,10 @@ from ..schemas import (
     SmbOut,
     SyncResult,
 )
-from ..services import settings_store, skill_library, usage_store
+from ..services import security_settings, settings_store, skill_library, usage_store
 from ..services.model_router import Target, build_body, headers_for
 
+log = logging.getLogger("flyknit.admin")
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
@@ -441,3 +445,82 @@ async def list_audit(
     if device_id:
         q = q.where(AuditLog.device_id == device_id)
     return (await session.scalars(q)).all()
+
+
+# ---------- 安全中心 ----------
+
+@router.get("/security/catalog")
+async def security_catalog():
+    """有哪些可配项、默认值、默认锁不锁。管理端界面照这个渲染。"""
+    return security_settings.describe()
+
+
+@router.get("/security")
+async def get_security_defaults(session: AsyncSession = Depends(get_session)):
+    """全厂默认。"""
+    shared = await settings_store.get_security(session)
+    return {
+        "values": shared.get("values", {}),
+        "locks": shared.get("locks", {}),
+        "effective": security_settings.effective(shared.get("values"), None, shared.get("locks"), None),
+    }
+
+
+@router.put("/security")
+async def set_security_defaults(data: SecurityDefaultsIn, session: AsyncSession = Depends(get_session)):
+    saved = await settings_store.set_security(session, data.values, data.locks)
+    return {
+        "values": saved["values"],
+        "locks": saved["locks"],
+        "effective": security_settings.effective(saved["values"], None, saved["locks"], None),
+    }
+
+
+@router.get("/devices/{device_id}/policy")
+async def get_device_policy(device_id: int, session: AsyncSession = Depends(get_session)):
+    device = await _get_or_404(session, Device, device_id)
+    shared = await settings_store.get_security(session)
+    mine = await session.get(DevicePolicy, device.id)
+    return {
+        "device_id": device.id,
+        "machine_name": device.machine_name,
+        "overrides": mine.overrides if mine else {},
+        "locks": mine.locks if mine else {},
+        "note": mine.note if mine else "",
+        # 这台机器最终生效的样子，省得管理端自己再算一遍
+        "effective": security_settings.effective(
+            shared.get("values"), mine.overrides if mine else None,
+            shared.get("locks"), mine.locks if mine else None,
+        ),
+    }
+
+
+@router.put("/devices/{device_id}/policy")
+async def set_device_policy(
+    device_id: int, data: DevicePolicyIn, session: AsyncSession = Depends(get_session)
+):
+    """
+    给某台机器单独放开或锁死几项。
+
+    只存和全厂不一样的那几项——改全厂默认值时，没被单独设过的机器会自动跟着变。
+    """
+    device = await _get_or_404(session, Device, device_id)
+    row = await session.get(DevicePolicy, device.id)
+    if row is None:
+        row = DevicePolicy(device_id=device.id)
+        session.add(row)
+    row.overrides = security_settings.sanitize(data.overrides)
+    row.locks = security_settings.sanitize_locks(data.locks)
+    row.note = data.note[:300]
+    await session.commit()
+    log.info("设备 %s(%s) 的安全设置已更新：%s", device.id, device.machine_name, row.locks)
+    return await get_device_policy(device_id, session)
+
+
+@router.delete("/devices/{device_id}/policy", status_code=204)
+async def clear_device_policy(device_id: int, session: AsyncSession = Depends(get_session)):
+    """取消单独设置，这台机器回到全厂默认。"""
+    row = await session.get(DevicePolicy, device_id)
+    if row is not None:
+        await session.delete(row)
+        await session.commit()

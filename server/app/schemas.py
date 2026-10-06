@@ -195,6 +195,23 @@ class ClientConfigOut(BaseModel):
     server_version: str
     scenes: list[SceneInfo]
     policy: dict
+    #: 安全中心每一项的最终值和锁状态（全厂默认叠加这台机器的单独设置）
+    security: dict = Field(default_factory=dict)
+
+
+class DevicePolicyIn(BaseModel):
+    """给某台机器单独放开或锁死某几项。只传要改的，没传的跟全厂走。"""
+
+    overrides: dict = Field(default_factory=dict)
+    locks: dict = Field(default_factory=dict)
+    note: str = ""
+
+
+class SecurityDefaultsIn(BaseModel):
+    """全厂默认。"""
+
+    values: dict = Field(default_factory=dict)
+    locks: dict = Field(default_factory=dict)
 
 
 class ClientModelOut(BaseModel):
