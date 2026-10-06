@@ -69,8 +69,13 @@ export interface WorkspaceInfo {
 }
 
 export interface ApprovalInfo {
-  key: string
+  id: string
   tool: string
+  shell: string
+  /** 命令前缀，例如 "npm run" */
+  prefix: string
+  /** 适用的工作区，"*" 表示所有工作区 */
+  scope: string
   display: string
   approvedAt: string
   lastUsedAt: string
@@ -290,6 +295,8 @@ export interface ConfirmPrompt {
   rationale: string
   /** 能否“以后同样的操作自动允许” */
   rememberable: boolean
+  ruleDisplay?: string
+  effect?: string
 }
 
 export type ConfirmChoice = 'allowOnce' | 'allowAlways' | 'reject'
@@ -308,9 +315,21 @@ export type HostEvent =
       reason: string
       rationale: string
       rememberable?: boolean
+      /** 勾选「以后自动执行」后生效的规则说明 */
+      ruleDisplay?: string
+      /** read / write / destructive / unknown */
+      effect?: string
     }
   | { type: 'tool.finished'; conversationId: string; callId: string; ok: boolean; output: string; decision: string }
   | { type: 'plan.updated'; conversationId: string; plan: PlanItem[] }
+  | {
+      type: 'context.compacting'
+      conversationId: string
+      /** scanning / summarizing / done */
+      phase: string
+      percent: number
+      messages: number
+    }
   | {
       type: 'chat.done'
       conversationId: string

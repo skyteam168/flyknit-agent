@@ -32,7 +32,8 @@ public sealed class RunShellTool : ITool
         {
             return PolicyDecision.Blocked("工作目录无效");
         }
-        return PermissionRules.ForCommand(ctx.Policy, ctx.Permission, ctx.Workspace, args.Str("command"), dir);
+        var shell = args.Str("shell", "powershell").Equals("cmd", StringComparison.OrdinalIgnoreCase) ? "cmd" : "powershell";
+        return PermissionRules.ForCommand(ctx.Policy, ctx.Permission, ctx.Workspace, args.Str("command"), dir, shell);
     }
 
     public string Describe(JsonElement args) => $"执行命令：{args.Str("command")}";

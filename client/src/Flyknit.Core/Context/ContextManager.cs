@@ -30,6 +30,10 @@ public sealed class ContextOptions
 }
 
 /// <summary>一次压缩的结果，宿主据此保存摘要，下次对话直接从摘要之后开始。</summary>
+/// <summary>压缩进度，用来在对话里显示进度条。</summary>
+/// <param name="Phase">scanning（挑要压缩的部分）/ summarizing（让模型提炼）/ done</param>
+public sealed record CompactionProgress(string Phase, int Percent, int MessagesCompacted);
+
 public sealed class CompactionInfo
 {
     public required string Summary { get; init; }
@@ -69,6 +73,9 @@ public sealed class ContextManager
     public int? ModelId { get; init; }
 
     public event Action<CompactionInfo>? Compacted;
+
+    /// <summary>压缩过程中的进度（界面上的进度条）。</summary>
+    public event Action<CompactionProgress>? Progress;
 
     public ContextManager(IChatGateway gateway, string baseSystemPrompt, string? existingSummary = null, int contextLength = 0, ContextOptions? options = null)
     {
@@ -210,9 +217,11 @@ public sealed class ContextManager
             return null;
         }
 
+        Progress?.Invoke(new CompactionProgress("scanning", 5, old.Count));
         var summary = await SummarizeAsync(old, ct);
         if (string.IsNullOrWhiteSpace(summary))
         {
+            Progress?.Invoke(new CompactionProgress("done", 100, 0));
             return null;
         }
 
@@ -241,6 +250,7 @@ public sealed class ContextManager
             TokensBefore = tokensBefore,
             TokensAfter = Measure(history),
         };
+        Progress?.Invoke(new CompactionProgress("done", 100, old.Count));
         Compacted?.Invoke(info);
         return info;
     }
@@ -264,6 +274,7 @@ public sealed class ContextManager
             text = text[..(maxChars / 2)] + "\n…（中间省略）…\n" + text[^(maxChars / 2)..];
         }
 
+        var sink = new ProgressSink(old.Count, p => Progress?.Invoke(p));
         var turn = await _gateway.CompleteAsync(new ChatRequest
         {
             Scene = Scene,
@@ -273,8 +284,44 @@ public sealed class ContextManager
             MaxTokens = 2048,
             ExtraBody = new Dictionary<string, JsonNode?> { ["enable_thinking"] = false },
             Messages = new[] { ChatMessage.System(CompactPrompt), ChatMessage.User(text) },
-        }, null, ct);
+        }, sink, ct);
         return StripThink(turn.Content);
+    }
+
+    /// <summary>
+    /// 摘要是流式返回的，按已经收到的字数折算进度（10% → 95%）。
+    /// 摘要长度事先不知道，用 ExpectedSummaryChars 作参照，所以进度是估算，但始终单调递增、不会倒退。
+    /// </summary>
+    private sealed class ProgressSink : IStreamSink
+    {
+        private const int ExpectedSummaryChars = 1600;
+
+        private readonly int _messages;
+        private readonly Action<CompactionProgress> _report;
+        private int _chars;
+        private int _lastPercent = 10;
+
+        public ProgressSink(int messages, Action<CompactionProgress> report)
+        {
+            _messages = messages;
+            _report = report;
+            report(new CompactionProgress("summarizing", 10, messages));
+        }
+
+        public void OnContent(string delta)
+        {
+            _chars += delta.Length;
+            var percent = Math.Clamp(10 + _chars * 85 / ExpectedSummaryChars, 10, 95);
+            if (percent > _lastPercent)
+            {
+                _lastPercent = percent;
+                _report(new CompactionProgress("summarizing", percent, _messages));
+            }
+        }
+
+        public void OnReasoning(string delta)
+        {
+        }
     }
 
     private static string Render(ChatMessage m)

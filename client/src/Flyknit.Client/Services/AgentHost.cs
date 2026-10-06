@@ -101,7 +101,7 @@ public sealed class AgentHost : IDisposable
         Tools = ToolRegistry.CreateDefault().Add(new OpenAppTool(() => _settings.AppAliases));
         Audit = new AuditQueue(Server);
         _auditSink = new RecordingAuditSink(Audit, Store);
-        Approvals = new ApprovalStore(AppPaths.Approvals);
+        Approvals = new ApprovalStore(AppPaths.ApprovalRules);
         Episodes = new EpisodeStore(AppPaths.Memory);
         Scheduler = new ScheduleRunner(this);
         RunFinished += Scheduler.OnRunFinished;
@@ -306,6 +306,14 @@ public sealed class AgentHost : IDisposable
             else
             {
                 context = new ContextManager(Server, prompt, summary, _contextLength) { Scene = scene, ModelId = conv.ModelId };
+                context.Progress += p => events.Post(new
+                {
+                    type = "context.compacting",
+                    conversationId = id,
+                    phase = p.Phase,
+                    percent = p.Percent,
+                    messages = p.MessagesCompacted,
+                });
                 context.Compacted += info =>
                 {
                     Store.SetSummary(id, info.Summary, info.UptoMessageId);

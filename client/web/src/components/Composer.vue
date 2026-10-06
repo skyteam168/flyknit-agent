@@ -21,6 +21,8 @@ import ModelPicker from './ModelPicker.vue'
 import WorkspacePicker from './WorkspacePicker.vue'
 import PermissionPicker from './PermissionPicker.vue'
 import ConfirmBar from './ConfirmBar.vue'
+import CompactingCard from './CompactingCard.vue'
+import UsageWarning from './UsageWarning.vue'
 import { addPastedImage, current, currentState, draftMode, pickFiles, send, setMode, setTranslate, state, stop } from '../store'
 import type { Mode } from '../types'
 
@@ -119,7 +121,9 @@ onBeforeUnmount(() => window.removeEventListener('flyknit:focus-input', focus))
 
 <template>
   <div class="composer-wrap" :class="{ home: props.home }">
+    <CompactingCard v-if="!props.home" />
     <ConfirmBar v-if="!props.home" />
+    <UsageWarning />
     <div class="card" :class="{ busy }">
       <div v-if="state.pending.length" class="pending">
         <div v-for="(a, i) in state.pending" :key="a.localPath + i" class="chip" :title="a.localPath">

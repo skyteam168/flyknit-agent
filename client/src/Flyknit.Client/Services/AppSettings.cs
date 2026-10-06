@@ -25,7 +25,11 @@ public static class AppPaths
     public static string MachineSkills { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "FlyknitBuddy", "skills");
     public static string Logs => Path.Combine(Root, "logs");
+    /// <summary>旧版「记住一模一样的命令」的文件，已不再使用。</summary>
     public static string Approvals => Path.Combine(Root, "approvals.json");
+
+    /// <summary>自动执行规则（按命令前缀 + 工作区），取代旧的 approvals.json。</summary>
+    public static string ApprovalRules => Path.Combine(Root, "approval-rules.json");
 
     /// <summary>默认工作区：我的文档\Flyknit。</summary>
     public static string DefaultWorkspace { get; } =

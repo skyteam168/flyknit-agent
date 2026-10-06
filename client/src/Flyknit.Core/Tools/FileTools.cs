@@ -217,7 +217,7 @@ public sealed class DeletePathTool : ITool
                 if (count > ctx.Policy.Config.BatchConfirmThreshold)
                 {
                     // 大批量删除在任何权限下都要逐次确认
-                    return PolicyDecision.Confirm($"该目录包含超过 {ctx.Policy.Config.BatchConfirmThreshold} 个文件，请仔细确认") with { Rememberable = false };
+                    return PolicyDecision.Confirm($"该目录包含超过 {ctx.Policy.Config.BatchConfirmThreshold} 个文件，请仔细确认");
                 }
             }
         }

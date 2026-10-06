@@ -211,8 +211,8 @@ public sealed class AgentLoop
             var decisionText = "auto";
             if (decision.Level == RiskLevel.Confirm)
             {
-                var key = ApprovalStore.KeyFor(call.Name, args);
-                if (decision.Rememberable && _approvals.IsApproved(key))
+                // 规则只能放行「安全的那一类」：高危和认不出内容的命令拿不到 Rule，永远走人工确认
+                if (_approvals.IsAllowed(decision.Rule))
                 {
                     decisionText = "remembered";
                 }
@@ -237,9 +237,9 @@ public sealed class AgentLoop
                         AppendTool(call, rejected.Output);
                         return true;
                     }
-                    if ((choice is ConfirmChoice.AllowAlways or ConfirmChoice.AllowForConversation) && decision.Rememberable)
+                    if ((choice is ConfirmChoice.AllowAlways or ConfirmChoice.AllowForConversation) && decision.Rule is not null)
                     {
-                        _approvals.Approve(key, call.Name, summary);
+                        _approvals.Add(decision.Rule);
                     }
                     decisionText = "approved";
                 }

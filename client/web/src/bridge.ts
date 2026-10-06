@@ -189,7 +189,7 @@ class Bridge {
   securityEvents = (decision = '') => this.call<SecurityEvent[]>('security.list', { decision })
   clearSecurityEvents = () => this.call<void>('security.clear')
   listApprovals = () => this.call<ApprovalInfo[]>('approvals.list')
-  revokeApproval = (key: string) => this.call<void>('approvals.revoke', { key })
+  revokeApproval = (id: string) => this.call<void>('approvals.revoke', { id })
   clearApprovals = () => this.call<void>('approvals.clear')
 
   // ---------- 对话 ----------

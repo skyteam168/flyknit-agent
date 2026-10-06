@@ -40,15 +40,42 @@
 
 主模型请求失败（连接失败、5xx、超时）且尚未开始输出时，自动切换到该场景配置的备用模型。
 
-## 命令策略
+## 命令策略与人工确认
 
-策略由服务端 `GET /api/v1/client/config` 下发，客户端 `CommandPolicy` 执行：
+设计目标是**只有真正会动数据或系统的命令才打断用户**。以前每条非只读命令都要点一次确认，
+靠「记住一模一样的命令」来减少打扰——那既挡不住换个参数就变危险的命令，又让人为无害的查询反复点头，
+久了用户就会闭着眼睛点「允许」，等于没有确认。现在换成按副作用分级。
 
-1. 命中 `blocked_patterns`（正则，忽略大小写）→ **直接阻止**，上报审计。
-2. 命中 `readonly_commands` 且 `auto_run_readonly = true` → 自动执行。
-3. 其余 → 弹出确认卡片，用户同意后执行。
+**第一步：拆开。** `CommandAnalyzer` 把命令按 `;` `&&` `||` `|` `&` 拆成若干段（引号内的分隔符不拆），逐段判断。
+整条命令按**最严重的那一段**处理，所以 `npm run build && del dist\old.js` 不会因为前半截无害就放行。
 
-脚本文件（.ps1 / .bat / .cmd / .py）执行前同样扫描内容。
+**第二步：分级**（`CommandEffect`）：
+
+| 级别 | 例子 | 判定 |
+| --- | --- | --- |
+| `Read` 只查询 | `dir`、`git status`、`Get-Content`、`ipconfig` | 任何模式都自动执行 |
+| `Write` 生成或写入 | `mkdir`、`npm install`、`dotnet build`、`git commit`、`echo > a.txt` | 工作区内自动；涉及工作区外的路径才确认 |
+| `Destructive` 删除 / 覆盖 / 改系统 | `del`、`Remove-Item`、`move`、`ren`、`reg add`、`sc config`、`net user`、`taskkill`、`shutdown`、`icacls`、`git reset --hard`、`winget install` | **永远需要人工确认**，而且不能被任何规则放行 |
+| `Unknown` 认不出 | 没见过的程序、`python x.py` 这类解释器 | 确认；认不出的程序可以变成规则，解释器不行 |
+
+另外单独识别**内容不可知**的写法并永不自动执行：`$(...)`、`` ` ``、`Invoke-Expression` / `iex`、
+`-EncodedCommand`、`DownloadString`、`curl ... | bash`、执行变量 `& $cmd`、`-Verb runas` 提权。
+
+管理员下发的 `blocked_patterns` 仍是第一道闸，任何级别都挡在前面；`readonly_commands` 可以把更多命令算成只读，
+`auto_run_readonly = false` 则连只读命令也要确认。脚本文件（.ps1 / .bat / .cmd / .py）执行前同样扫描内容。
+
+**第三步：规则化授权**（`ApprovalStore` → `approval-rules.json`）。
+用户选「以后自动执行」时记下的是**命令前缀 + 工作区**，不是某一条命令：
+
+- 允许 `mytool report --out a.csv` 之后，规则是 `mytool report`，`mytool report --out b.csv` 不再问，
+  但 `mytool upload` 还要问。前缀必须落在**词边界**上，`npm run` 不会匹配 `npm runaway`。
+- 规则绑定工作区，换个工作区不生效。
+- **规则只能放行 `Write` 和 `Unknown`**。匹配之前先过一遍分级，所以任何规则都放行不了删除和改系统的命令。
+- 复合命令不整条记住，解释器（python / node / powershell / cmd）永远不给规则——
+  同一句 `python build.py` 今天和明天跑的内容可能完全不同。
+- 确认卡片上会直接写明「选了之后什么会被放行」，不是一个含糊的勾选框。
+
+规则在设置 →「自动执行规则」里可以逐条撤销。老的 `approvals.json`（精确命令记忆）已废弃，升级后不再读取。
 
 ## 记忆体系
 
@@ -65,6 +92,10 @@
 超过 50% 先裁剪较早的工具输出（保留开头，需要时模型重新读取）；超过 75% 让模型把较早的对话压缩成结构化摘要
 （目标、已完成、关键信息、问题、下一步），摘要放进系统提示词，最近 25% 预算的消息保留原文。
 摘要保存在会话里，下次打开继续使用；编辑或重新生成删掉了摘要覆盖的消息时，摘要自动作废。
+
+压缩过程在对话里显示进度条（`context.compacting` 事件）。摘要是流式返回的，进度按已收到的字数折算
+（`ProgressSink`，参照 1600 字），所以是估算值，但保证单调递增、不会倒退；压缩完停留 1.2 秒再消失，
+顺带告诉用户压了多少条消息。压缩期间任务照常跑，不需要用户等。
 
 **停止任务**：取消令牌会连子进程一起结束正在跑的命令；已发出的工具调用补一条「用户已停止任务，未执行」的结果，保证下次请求的上下文合法；
 已产生的消息照常入库，不生成标题。对话没有锁死，用户回复「继续」即可接着做。
@@ -144,12 +175,16 @@ skill-name/
 | 在工作区内写文件 | 阻止 | 自动 | 自动 |
 | 在工作区外写文件 | 阻止 | 阻止 | 自动 |
 | 删除（移入回收站） | 阻止 | 每次确认 | 工作区内自动，工作区外每次确认 |
-| 普通命令 | 阻止 | 确认，同样的命令确认一次后自动通过 | 自动 |
+| 查询类命令 | 自动 | 自动 | 自动 |
+| 工作区内生成文件的命令（mkdir、npm install、构建…） | 阻止 | 自动 | 自动 |
+| 删除、覆盖、改注册表 / 服务 / 账号、装卸软件 | 阻止 | 每次确认 | 工作区内自动，涉及工作区外则确认 |
+| 认不出的命令 | 阻止 | 确认，可生成「前缀 + 工作区」规则 | 自动（不涉及工作区外时） |
 | 命令的工作目录在工作区外 | — | 阻止 | 允许 |
 | 危险命令（禁止规则） | 阻止 | 阻止 | 阻止 |
 
 - 完全权限需要在弹窗中勾选“我已了解风险”，只对当前任务生效，不会成为新任务的默认值。
-- 已允许的命令记录在 `%APPDATA%\Flyknit\approvals.json`，按“Shell + 规范化后的命令”（忽略多余空格和大小写）匹配，可在设置中撤销。删除和大批量删除不会被记住。
+- 自动执行规则记录在 `%APPDATA%\Flyknit\approval-rules.json`，按「命令前缀 + Shell + 工作区」匹配，可在设置中逐条撤销。
+  删除、改系统设置、大批量删除永远不会被记住，详见上面的「命令策略与人工确认」。
 
 ## 定时任务
 
@@ -188,7 +223,7 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 { "type": "chat.send", "id": "req-1", "payload": { "conversationId": "...", "text": "..." } }
 ```
 
-宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`。
+宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`、`context.compacting`、`context.compacted`。
 
 完整列表见 `client/web/src/bridge.ts` 与 `client/src/Flyknit.Client/Bridge/WebBridge.cs`，两边需保持一致。
 
@@ -206,7 +241,7 @@ v0.4 给 `audit_logs` 加 `scene` 时踩过这个坑，老库升级上来后审�
 ```
 %APPDATA%\Flyknit\
 ├─ settings.json      服务器地址、设备 Token、界面语言、工作区、权限默认值
-├─ approvals.json     已记住的命令授权
+├─ approval-rules.json  自动执行规则（命令前缀 + 工作区）授权
 ├─ data\history.db    会话与消息（含摘要、模型与 token 用量）、本机安全记录、定时任务
 ├─ memory\
 │  ├─ agent.md / soul.md / role.md   行为准则、语气、用户身份

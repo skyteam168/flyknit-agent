@@ -19,8 +19,17 @@ public enum RiskLevel
 
 public sealed record PolicyDecision(RiskLevel Level, string Reason)
 {
-    /// <summary>需要确认时，用户能否选择“以后同样的操作自动允许”。删除等操作每次都要确认。</summary>
-    public bool Rememberable { get; init; } = true;
+    /// <summary>这条命令对电脑做了什么（只读 / 写入 / 高危 / 认不出）。</summary>
+    public CommandEffect Effect { get; init; } = CommandEffect.Unknown;
+
+    /// <summary>
+    /// 能被「以后自动执行」规则放行、也能变成规则的候选。
+    /// 只有安全的命令才有；删除、改系统设置、动态执行的命令拿不到，所以每次都要人确认。
+    /// </summary>
+    public ApprovalCandidate? Rule { get; init; }
+
+    /// <summary>需要确认时，用户能否选「以后同类命令自动执行」。</summary>
+    public bool Rememberable => Rule is not null;
 
     public static PolicyDecision Auto(string reason = "") => new(RiskLevel.Auto, reason);
     public static PolicyDecision Confirm(string reason = "") => new(RiskLevel.Confirm, reason);
@@ -119,12 +128,26 @@ public sealed class CommandPolicy
             }
         }
 
-        if (Config.AutoRunReadonly && IsReadonly(normalized))
+        // 按副作用分级：只读 / 写入 / 高危 / 认不出
+        var analysis = CommandAnalyzer.Analyze(normalized);
+        if (analysis.HasIndirection)
         {
-            return PolicyDecision.Auto("只读查询命令");
+            return PolicyDecision.Confirm(analysis.IndirectionReason ?? "命令内容无法事先判断，需要确认")
+                with { Effect = CommandEffect.Unknown };
         }
-        return PolicyDecision.Confirm("需要用户确认后执行");
+        // 管理员下发的 readonly_commands 可以把更多命令算成只读
+        var readOnly = analysis.Effect == CommandEffect.Read || IsReadonly(normalized);
+        if (readOnly)
+        {
+            return Config.AutoRunReadonly
+                ? PolicyDecision.Auto(analysis.Reason) with { Effect = CommandEffect.Read }
+                : PolicyDecision.Confirm("管理员关闭了只读命令自动执行") with { Effect = CommandEffect.Read };
+        }
+        return PolicyDecision.Confirm(analysis.Reason) with { Effect = analysis.Effect };
     }
+
+    /// <summary>这条命令是否只读（配置里显式列出的命令名，用于兼容管理员下发的 readonly_commands）。</summary>
+    public bool IsReadonlyCommand(string command) => IsReadonly(Regex.Replace(command, @"[ \t]+", " ").Trim());
 
     /// <summary>扫描脚本文件内容，任一行命中禁止规则则阻止。</summary>
     public PolicyDecision EvaluateScript(string path)

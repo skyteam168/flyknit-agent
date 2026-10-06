@@ -91,6 +91,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             Detail = ToolDetail.From(request.Call.ArgumentsJson) is { Length: > 0 } d ? d : request.Summary,
             Rationale = request.Rationale,
             Rememberable = request.Decision.Rememberable,
+            RuleDisplay = request.Decision.Rule?.Display ?? "",
+            Effect = request.Decision.Effect.ToString().ToLowerInvariant(),
             Title = _host.Store.Get(request.ConversationId)?.Title ?? "",
         };
         _confirms[pending.RequestId] = pending;
@@ -104,6 +106,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             reason = request.Decision.Reason,
             rationale = request.Rationale,
             rememberable = request.Decision.Rememberable,
+            ruleDisplay = request.Decision.Rule?.Display ?? "",
+            effect = request.Decision.Effect.ToString().ToLowerInvariant(),
         });
         ConfirmRequested?.Invoke(pending);
 
@@ -433,16 +437,19 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             case "approvals.list":
                 return _host.Approvals.List().Select(a => new
                 {
-                    key = a.Key,
+                    id = a.Id,
                     tool = a.Tool,
+                    shell = a.Shell,
+                    prefix = a.Prefix,
+                    scope = a.Scope,
                     display = a.Display,
-                    approvedAt = a.ApprovedAt.ToString("O"),
+                    approvedAt = a.CreatedAt.ToString("O"),
                     lastUsedAt = a.LastUsedAt.ToString("O"),
                     uses = a.Uses,
                 }).ToList();
 
             case "approvals.revoke":
-                _host.Approvals.Revoke(Str("key"));
+                _host.Approvals.Revoke(Str("id"));
                 return null;
 
             case "approvals.clear":
@@ -867,6 +874,12 @@ public sealed class PendingConfirm
     public required string Detail { get; init; }
     public string Rationale { get; init; } = "";
     public bool Rememberable { get; init; }
+
+    /// <summary>勾选「以后自动执行」后生效的规则，例如 "npm run *（在 D:\\工作区 内）"。</summary>
+    public string RuleDisplay { get; init; } = "";
+
+    /// <summary>read / write / destructive / unknown，界面按这个给确认卡片配色。</summary>
+    public string Effect { get; init; } = "unknown";
     public string Title { get; init; } = "";
     public TaskCompletionSource<ConfirmChoice> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 }

@@ -106,7 +106,7 @@ public class AgentLoopTests : IDisposable
     public async Task CommandNeedsConfirmationAndRejectionIsRespected()
     {
         var gateway = new ScriptedGateway(
-            Call("run_shell", "{\"command\":\"echo hi > out.txt\"}", "我将创建 out.txt"),
+            Call("run_shell", "{\"command\":\"mytool export --to out.txt\"}", "我将创建 out.txt"),
             new ChatTurn { Content = "好的，未执行" });
         var confirm = new FixedConfirm(ConfirmChoice.Reject);
         var audit = new Audit();
@@ -225,67 +225,126 @@ public class AgentLoopTests : IDisposable
     }
 
     [Fact]
-    public async Task ApprovedCommandIsRememberedAcrossRuns()
+    public async Task WritingInsideTheWorkspaceNoLongerAsks()
+    {
+        var confirm = new FixedConfirm(ConfirmChoice.AllowOnce);
+
+        await new AgentLoop(new ScriptedGateway(
+                Call("run_shell", "{\"command\":\"echo hi > a.txt\"}"),
+                Call("run_shell", "{\"command\":\"mkdir out\"}"),
+                Call("run_shell", "{\"command\":\"npm run build\"}"),
+                new ChatTurn { Content = "ok" }),
+                ToolRegistry.CreateDefault(), confirm)
+            .RunAsync(new List<ChatMessage> { ChatMessage.User("go") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
+
+        Assert.Empty(confirm.Requests); // 以前这三条每条都要点一次
+    }
+
+    [Fact]
+    public async Task DestructiveCommandsAlwaysAskAndNeverBecomeRules()
+    {
+        var approvals = new ApprovalStore();
+        var confirm = new FixedConfirm(ConfirmChoice.AllowAlways);
+        File.WriteAllText(Path.Combine(_dir, "a.txt"), "1");
+
+        async Task Run(string command) =>
+            await new AgentLoop(new ScriptedGateway(
+                    Call("run_shell", "{\"command\":" + Json(command) + "}"), new ChatTurn { Content = "ok" }),
+                    ToolRegistry.CreateDefault(), confirm, approvals: approvals)
+                .RunAsync(new List<ChatMessage> { ChatMessage.User("go") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
+
+        await Run("del a.txt");
+        await Run("del a.txt");     // 上一次选了「以后自动」也没用，还是要问
+        await Run("taskkill /F /IM notepad.exe");
+
+        Assert.Equal(3, confirm.Requests.Count);
+        Assert.All(confirm.Requests, r => Assert.False(r.Decision.Rememberable));
+        Assert.Empty(approvals.List());
+    }
+
+    [Fact]
+    public async Task UnknownCommandBecomesAPrefixRule()
     {
         var approvals = new ApprovalStore();
         var confirm = new FixedConfirm(ConfirmChoice.AllowAlways);
         var observer = new Observer();
 
-        async Task Run(params ChatTurn[] turns) =>
-            await new AgentLoop(new ScriptedGateway(turns), ToolRegistry.CreateDefault(), confirm, approvals: approvals)
+        async Task Run(string command) =>
+            await new AgentLoop(new ScriptedGateway(
+                    Call("run_shell", "{\"command\":" + Json(command) + "}"), new ChatTurn { Content = "ok" }),
+                    ToolRegistry.CreateDefault(), confirm, approvals: approvals)
                 .RunAsync(new List<ChatMessage> { ChatMessage.User("go") }, Scenes.Agent, Context(), observer, true, CancellationToken.None);
 
-        await Run(Call("run_shell", "{\"command\":\"echo hi > a.txt\"}"), new ChatTurn { Content = "ok" });
-        // 新的一次运行（相当于新对话），同样的命令（多余空格、大小写不同）不再询问
-        await Run(Call("run_shell", "{\"command\":\"echo  HI > a.txt\"}"), new ChatTurn { Content = "ok" });
-        // 不同的命令仍要确认
-        await Run(Call("run_shell", "{\"command\":\"echo bye > a.txt\"}"), new ChatTurn { Content = "ok" });
+        await Run("mytool report --out x.csv");
+        Assert.Single(confirm.Requests);
+        Assert.True(confirm.Requests[0].Decision.Rememberable);
+        Assert.Single(approvals.List());
+        Assert.Equal("mytool report", approvals.List()[0].Prefix);
 
-        Assert.Equal(2, confirm.Requests.Count);
+        // 同前缀、不同参数：不再问
+        await Run("mytool report --out y.csv");
+        Assert.Single(confirm.Requests);
         Assert.Contains("finish:run_shell:remembered", observer.Events);
-        Assert.Equal(2, approvals.List().Count);
+
+        // 换了子命令就不在规则范围内
+        await Run("mytool upload --to server");
+        Assert.Equal(2, confirm.Requests.Count);
     }
 
     [Fact]
-    public async Task AllowOnceIsNotRememberedAndDeletesAlwaysAsk()
+    public async Task ScriptInterpretersNeverGetARule()
+    {
+        var approvals = new ApprovalStore();
+        var confirm = new FixedConfirm(ConfirmChoice.AllowAlways);
+
+        async Task Run(string command) =>
+            await new AgentLoop(new ScriptedGateway(
+                    Call("run_shell", "{\"command\":" + Json(command) + "}"), new ChatTurn { Content = "ok" }),
+                    ToolRegistry.CreateDefault(), confirm, approvals: approvals)
+                .RunAsync(new List<ChatMessage> { ChatMessage.User("go") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
+
+        // 同一句 python build.py，脚本内容随时可能变，所以永远不给规则
+        await Run("python build.py");
+        await Run("python build.py");
+
+        Assert.Equal(2, confirm.Requests.Count);
+        Assert.Empty(approvals.List());
+    }
+
+    [Fact]
+    public async Task DeletingAFileStillAsksEveryTime()
     {
         var approvals = new ApprovalStore();
         var confirm = new FixedConfirm(ConfirmChoice.AllowAlways);
         File.WriteAllText(Path.Combine(_dir, "1.txt"), "1");
-        File.WriteAllText(Path.Combine(_dir, "2.txt"), "2");
-        var gateway = new ScriptedGateway(
-            Call("delete_path", "{\"path\":\"1.txt\"}"),
-            Call("delete_path", "{\"path\":\"1.txt\"}"),
-            new ChatTurn { Content = "ok" });
 
-        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), confirm, approvals: approvals)
+        await new AgentLoop(new ScriptedGateway(
+                Call("delete_path", "{\"path\":\"1.txt\"}"),
+                Call("delete_path", "{\"path\":\"1.txt\"}"),
+                new ChatTurn { Content = "ok" }),
+                ToolRegistry.CreateDefault(), confirm, approvals: approvals)
             .RunAsync(new List<ChatMessage> { ChatMessage.User("go") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
 
-        Assert.Equal(2, confirm.Requests.Count); // 删除不能被记住
+        Assert.Equal(2, confirm.Requests.Count);
         Assert.False(confirm.Requests[0].Decision.Rememberable);
         Assert.Empty(approvals.List());
-
-        var once = new FixedConfirm(ConfirmChoice.AllowOnce);
-        for (var i = 0; i < 2; i++)
-        {
-            await new AgentLoop(new ScriptedGateway(Call("run_shell", "{\"command\":\"echo x > b.txt\"}"), new ChatTurn { Content = "ok" }), ToolRegistry.CreateDefault(), once, approvals: approvals)
-                .RunAsync(new List<ChatMessage> { ChatMessage.User("go") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
-        }
-        Assert.Equal(2, once.Requests.Count);
     }
 
     [Fact]
-    public void ApprovalStorePersistsToFile()
+    public void ApprovalRulesPersistToFile()
     {
-        var file = Path.Combine(_dir, "approvals.json");
-        var args = System.Text.Json.JsonDocument.Parse("{\"command\":\"npm install\"}").RootElement;
-        var key = ApprovalStore.KeyFor("run_shell", args);
-        new ApprovalStore(file).Approve(key, "run_shell", "npm install");
+        var file = Path.Combine(_dir, "approval-rules.json");
+        var candidate = new ApprovalCandidate("run_shell", "powershell", "npm run build", "npm run", _dir, "npm run *");
+        new ApprovalStore(file).Add(candidate);
 
         var reloaded = new ApprovalStore(file);
-        Assert.True(reloaded.IsApproved(key));
-        reloaded.Revoke(key);
-        Assert.False(new ApprovalStore(file).IsApproved(key));
+        Assert.True(reloaded.IsAllowed(candidate with { Command = "npm run test" }));
+        Assert.False(reloaded.IsAllowed(candidate with { Command = "npm runaway" }));      // 必须落在词边界上
+        Assert.False(reloaded.IsAllowed(candidate with { Command = "npm uninstall x" }));
+        Assert.False(reloaded.IsAllowed(candidate with { Scope = "D:\\别的工作区" }));      // 换个工作区不生效
+
+        reloaded.Revoke(reloaded.List()[0].Id);
+        Assert.False(new ApprovalStore(file).IsAllowed(candidate));
     }
 
     [Fact]

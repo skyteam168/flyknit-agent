@@ -103,7 +103,20 @@ export function createMockHost(): HostTransport {
       nextRunAt: null, lastRunAt: null, lastStatus: '', lastSummary: '', lastConversationId: null, runCount: 0,
     },
   ]
-  const approvals: { key: string; tool: string; display: string; approvedAt: string; lastUsedAt: string; uses: number }[] = []
+  async function fakeCompaction(conversationId: string) {
+    emit({ type: 'context.compacting', conversationId, phase: 'scanning', percent: 5, messages: 34 })
+    for (let pct = 12; pct <= 95; pct += 7) {
+      await sleep(260)
+      emit({ type: 'context.compacting', conversationId, phase: 'summarizing', percent: pct, messages: 34 })
+    }
+    await sleep(300)
+    emit({ type: 'context.compacting', conversationId, phase: 'done', percent: 100, messages: 34 })
+  }
+
+  const approvals: { id: string; tool: string; shell: string; prefix: string; scope: string; display: string; approvedAt: string; lastUsedAt: string; uses: number }[] = [
+    { id: 'r1', tool: 'run_shell', shell: 'powershell', prefix: 'npm run', scope: 'D:\\工作区\\日报', display: 'npm run *', approvedAt: now(), lastUsedAt: now(), uses: 6 },
+    { id: 'r2', tool: 'run_shell', shell: '*', prefix: 'git status', scope: '*', display: 'git status *', approvedAt: now(), lastUsedAt: now(), uses: 23 },
+  ]
 
   const seed = (title: string, mode: Mode, daysAgo: number, pinned = false) => {
     const c = makeConversation(mode)
@@ -229,7 +242,7 @@ export function createMockHost(): HostTransport {
       })
       const requestId = uid()
       const command = 'Get-ChildItem D:\\日报\\*.xlsx | ForEach-Object { … Move-Item … }'
-      const remembered = approvals.find((a) => a.key === command)
+      const remembered = approvals.find((a) => command.toLowerCase().startsWith(a.prefix))
       const choice = c.permission === 'full' || remembered
         ? 'allowOnce'
         : c.permission === 'readonly'
@@ -237,7 +250,7 @@ export function createMockHost(): HostTransport {
           : await new Promise<string>((resolve) => {
               confirmWaiters.set(requestId, (choice) => {
                 if (choice === 'allowAlways')
-                  approvals.push({ key: command, tool: 'run_shell', display: '执行命令：' + command, approvedAt: now(), lastUsedAt: now(), uses: 0 })
+                  approvals.push({ id: uid(), tool: 'run_shell', shell: 'powershell', prefix: 'get-childitem', scope: c.workspace ?? '*', display: 'Get-ChildItem *', approvedAt: now(), lastUsedAt: now(), uses: 0 })
                 resolve(choice)
               })
               emit({
@@ -245,9 +258,11 @@ export function createMockHost(): HostTransport {
                 conversationId: id,
                 requestId,
                 callId: call2,
-                reason: '执行命令需要确认，确认后同样的命令不再询问',
+                reason: 'Move-Item 会改动或丢失已有内容',
                 rationale: lead2,
-                rememberable: true,
+                rememberable: false,
+                effect: 'destructive',
+                ruleDisplay: '',
               })
             })
       if (remembered) remembered.uses++
@@ -352,9 +367,9 @@ export function createMockHost(): HostTransport {
         await sleep(300)
         return {
           day: now().slice(0, 10),
-          todayTokens: 86420,
+          todayTokens: 184300,
           dailyLimit: 200000,
-          remaining: 113580,
+          remaining: 15700,
           exceeded: false,
           byScene: [
             { scene: 'agent', prompt: 52100, completion: 6800, total: 58900, requests: 14 },
@@ -425,7 +440,7 @@ export function createMockHost(): HostTransport {
       case 'approvals.list':
         return approvals
       case 'approvals.revoke':
-        approvals.splice(approvals.findIndex((a) => a.key === p.key) >>> 0, 1)
+        approvals.splice(approvals.findIndex((a) => a.id === p.id) >>> 0, 1)
         return
       case 'approvals.clear':
         approvals.length = 0
@@ -542,6 +557,8 @@ export function createMockHost(): HostTransport {
       case 'messages.load':
         return messages.get(p.id) ?? []
       case 'chat.send':
+        // 开发预览：输入里带「压缩」就演示一次上下文压缩的进度条
+        if (/压缩|compact/i.test(p.text ?? '')) void fakeCompaction(p.conversationId)
         void reply(conversations.get(p.conversationId)!, p.text, p.attachments, p.messageId)
         return
       case 'chat.stop':

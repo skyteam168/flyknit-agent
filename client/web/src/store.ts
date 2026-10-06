@@ -17,6 +17,7 @@ import type {
   ToolActivity,
   UiLanguage,
   UiMessage,
+  UsageStats,
   WorkspaceInfo,
 } from './types'
 
@@ -53,7 +54,34 @@ export const state = reactive({
   schedulesOpen: false,
   schedules: [] as ScheduledTask[],
   maximized: false,
+  /** 正在压缩上下文的会话（界面上显示进度条） */
+  compacting: null as { conversationId: string; percent: number; phase: string; messages: number } | null,
+  /** 今日用量，用于输入框上方的提醒条 */
+  usage: null as UsageStats | null,
+  /** 用户关掉提醒条后，这一档不再提醒 */
+  usageDismissedAt: 0,
 })
+
+/** 今日额度用掉的百分比；管理员没设上限时返回 0 */
+export const usagePercent = computed(() => {
+  const u = state.usage
+  if (!u || !u.dailyLimit) return 0
+  return Math.min(100, Math.round((u.todayTokens / u.dailyLimit) * 100))
+})
+
+/** 用掉 90% 以上才提醒，且同一档只提醒一次 */
+export const showUsageWarning = computed(
+  () => usagePercent.value >= 90 && usagePercent.value > state.usageDismissedAt,
+)
+
+export function dismissUsageWarning() {
+  state.usageDismissedAt = usagePercent.value
+}
+
+/** 每次任务结束后刷新一次，别为了这个提醒条反复打服务端 */
+export async function refreshUsage() {
+  state.usage = await bridge.usageStats().catch(() => null)
+}
 
 /** 消息 ID 由界面生成，与宿主数据库保持一致（编辑、重新生成时需要） */
 export function newMessageId(): string {
@@ -106,6 +134,7 @@ export async function init() {
   await refreshList()
   void loadModels()
   void loadSkills()
+  void refreshUsage()
 }
 
 export async function loadModels(refresh = false) {
@@ -577,7 +606,14 @@ function onHostEvent(e: HostEvent) {
       const t = convState(e.conversationId).tools[e.callId]
       if (t) {
         t.state = 'waiting'
-        t.confirm = { requestId: e.requestId, reason: e.reason, rationale: e.rationale, rememberable: e.rememberable ?? true }
+        t.confirm = {
+          requestId: e.requestId,
+          reason: e.reason,
+          rationale: e.rationale,
+          rememberable: e.rememberable ?? false,
+          ruleDisplay: e.ruleDisplay,
+          effect: e.effect ?? 'unknown',
+        }
       }
       break
     }
@@ -604,7 +640,9 @@ function onHostEvent(e: HostEvent) {
       else if (e.stopReason === 'TooManyFailures') s.notice = { kind: 'tooManyFailures' }
       for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
       if (e.modelName && state.app) state.app.modelName = e.modelName
+      if (state.compacting?.conversationId === e.conversationId) state.compacting = null
       void refreshList()
+      void refreshUsage()
       break
     }
     case 'chat.error': {
@@ -636,6 +674,18 @@ function onHostEvent(e: HostEvent) {
       if (t) {
         t.confirm = undefined
         t.state = e.choice === 'reject' ? 'rejected' : 'running'
+      }
+      break
+    }
+    case 'context.compacting': {
+      if (e.phase === 'done') {
+        // 进度条跑到 100% 停一下再消失，不然一闪而过看不清
+        state.compacting = { conversationId: e.conversationId, percent: 100, phase: e.phase, messages: e.messages }
+        setTimeout(() => {
+          if (state.compacting?.phase === 'done') state.compacting = null
+        }, 1200)
+      } else {
+        state.compacting = { conversationId: e.conversationId, percent: e.percent, phase: e.phase, messages: e.messages }
       }
       break
     }

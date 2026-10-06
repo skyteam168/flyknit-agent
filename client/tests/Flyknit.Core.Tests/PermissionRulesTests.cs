@@ -21,11 +21,32 @@ public class PermissionRulesTests : IDisposable
 
     [Theory]
     [InlineData(PermissionMode.ReadOnly, RiskLevel.Blocked)]
-    [InlineData(PermissionMode.Workspace, RiskLevel.Confirm)]
+    [InlineData(PermissionMode.Workspace, RiskLevel.Auto)]
     [InlineData(PermissionMode.Full, RiskLevel.Auto)]
-    public void OrdinaryCommandsFollowTheMode(PermissionMode mode, RiskLevel expected)
+    public void BuildCommandsRunWithoutAskingInsideTheWorkspace(PermissionMode mode, RiskLevel expected)
     {
+        // npm install 只会在工作区里生成文件，不该每次打断用户
         Assert.Equal(expected, PermissionRules.ForCommand(Policy, mode, _ws, "npm install", _ws).Level);
+    }
+
+    [Theory]
+    [InlineData(PermissionMode.ReadOnly, RiskLevel.Blocked)]
+    [InlineData(PermissionMode.Workspace, RiskLevel.Confirm)]
+    [InlineData(PermissionMode.Full, RiskLevel.Confirm)]
+    public void DeletingCommandsAlwaysAsk(PermissionMode mode, RiskLevel expected)
+    {
+        // del 会毁掉已有数据，哪种权限都要人点一次
+        Assert.Equal(expected, PermissionRules.ForCommand(Policy, mode, _ws, "del C:\\data\\old.csv", _ws).Level);
+    }
+
+    [Fact]
+    public void OnlySafeCommandsCanBecomeAutoRunRules()
+    {
+        Assert.NotNull(PermissionRules.ForCommand(Policy, PermissionMode.Workspace, _ws, "mytool report", _ws).Rule);
+        Assert.Null(PermissionRules.ForCommand(Policy, PermissionMode.Workspace, _ws, "del old.csv", _ws).Rule);
+        Assert.Null(PermissionRules.ForCommand(Policy, PermissionMode.Workspace, _ws, "python build.py", _ws).Rule);
+        // 复合命令不整条记住，免得后半截危险操作被一起放行
+        Assert.Null(PermissionRules.ForCommand(Policy, PermissionMode.Workspace, _ws, "mytool report && del old.csv", _ws).Rule);
     }
 
     [Theory]

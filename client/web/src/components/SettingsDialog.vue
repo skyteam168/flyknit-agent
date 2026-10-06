@@ -15,8 +15,8 @@ async function loadApprovals() {
   approvals.value = await bridge.listApprovals().catch(() => [])
 }
 async function revoke(a: ApprovalInfo) {
-  approvals.value = approvals.value.filter((x) => x.key !== a.key)
-  await bridge.revokeApproval(a.key).catch(() => {})
+  approvals.value = approvals.value.filter((x) => x.id !== a.id)
+  await bridge.revokeApproval(a.id).catch(() => {})
 }
 async function clearAll() {
   approvals.value = []
@@ -30,6 +30,7 @@ onMounted(loadApprovals)
     <div class="dialog" role="dialog" aria-modal="true" :aria-label="t('settings.title')">
       <h2>{{ t('settings.title') }}</h2>
 
+      <div class="cols">
       <section>
         <h3>{{ t('settings.language') }}</h3>
         <div class="choices">
@@ -86,8 +87,9 @@ onMounted(loadApprovals)
           <FolderOpen :size="15" /> {{ t('settings.openMemory') }}
         </button>
       </section>
+      </div>
 
-      <section>
+      <section class="wide">
         <h3 class="row-head">
           <span>{{ t('settings.approvals') }}</span>
           <button v-if="approvals.length" type="button" class="link" @click="clearAll">{{ t('settings.clearAll') }}</button>
@@ -95,11 +97,15 @@ onMounted(loadApprovals)
         <p class="hint">{{ t('settings.approvalsHint') }}</p>
         <p v-if="approvals.length === 0" class="empty">{{ t('settings.approvalsEmpty') }}</p>
         <ul v-else class="approvals">
-          <li v-for="a in approvals" :key="a.key">
+          <li v-for="a in approvals" :key="a.id">
             <TerminalSquare :size="15" class="ico" />
             <span class="cmd">
-              <code :title="a.display">{{ a.display }}</code>
-              <small v-if="a.uses">{{ t('settings.uses', { n: a.uses }) }}</small>
+              <code :title="a.display">{{ a.prefix }} *</code>
+              <small>
+                <template v-if="a.scope && a.scope !== '*'">{{ t('settings.ruleScope', { path: a.scope }) }}</template>
+                <template v-else>{{ t('settings.ruleAnyWorkspace') }}</template>
+                <template v-if="a.uses"> · {{ t('settings.uses', { n: a.uses }) }}</template>
+              </small>
             </span>
             <button type="button" class="mini" :title="t('settings.revoke')" @click="revoke(a)"><X :size="14" /></button>
           </li>
@@ -124,8 +130,22 @@ onMounted(loadApprovals)
   padding: 16px;
   background: color-mix(in srgb, var(--ink) 28%, transparent);
 }
+.cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 32px;
+  align-items: start;
+}
+.wide {
+  grid-column: 1 / -1;
+}
+@media (max-width: 720px) {
+  .cols {
+    grid-template-columns: 1fr;
+  }
+}
 .dialog {
-  width: min(500px, 100%);
+  width: min(840px, 100%);
   max-height: calc(100vh - 32px);
   overflow-y: auto;
   padding: 24px;
