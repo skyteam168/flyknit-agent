@@ -61,6 +61,30 @@ public sealed class PromptBuilder
 
     private const int MaxWorkspaceInstructionChars = 8000;
 
+    /// <summary>
+    /// 界面能把这几种代码块直接画出来（实现见 client/web/src/render/blocks.ts）。
+    /// 这段说明要和那边注册的语言保持一致。
+    /// </summary>
+    public const string ChartAndDiagramGuide = """
+        <图表与流程图>
+        回答里可以直接画图，界面会把下面这几种代码块渲染成图形，不用让用户另外打开文件：
+
+        1. 数据图表，用 ```chart 代码块，内容是 JSON：
+           {"type":"bar","title":"九月各车间产量","categories":["一车间","二车间","三车间"],
+            "series":[{"name":"计划","data":[12000,9500,7800]},{"name":"实际","data":[12480,9120,8010]}]}
+           type 可选 bar（柱状）、hbar（条形）、line（折线）、area（面积）、pie（饼图）、donut（环形）、scatter（散点）。
+           可选字段：xLabel、yLabel、stacked（堆叠）。
+           饼图和环形图必须有 categories；每组 data 的个数必须和 categories 个数一致，否则画不出来。
+
+        2. 流程图、时序图、甘特图，用 ```mermaid 代码块，写 Mermaid 语法。
+        3. 关系图、拓扑图，用 ```dot 代码块，写 Graphviz DOT 语法。
+
+        什么时候画：用户要对比、看趋势、看占比，或者你在解释一个有步骤、有分支的流程时。
+        一两个数字说清楚就行的，直接写在文字里，不要为了画图而画图。
+        图表数据必须来自你真实读到的内容，不能编。
+        </图表与流程图>
+        """;
+
     private readonly MemoryStore? _memory;
     private readonly SkillCatalog? _skills;
     private readonly EpisodeStore? _episodes;
@@ -106,6 +130,9 @@ public sealed class PromptBuilder
             sb.AppendLine("当前权限：" + Security.PermissionModes.Describe(ctx.Permission, ctx.Workspace));
             sb.AppendLine();
         }
+
+        sb.AppendLine(ChartAndDiagramGuide);
+        sb.AppendLine();
 
         if (_memory is not null)
         {

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Archive, Brain, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { renderMarkdown } from '../markdown'
+import { useRichBlocks } from '../render/useRichBlocks'
 import { current, currentState, editAndResend, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
@@ -36,6 +37,9 @@ const waiting = computed(() => Object.values(s.value?.tools ?? {}).some((t) => t
 const busy = computed(() => s.value?.busy ?? false)
 
 /** 一轮回答的最终消息（有内容、没有工具调用）才显示复制、评价按钮 */
+// 把回答里的 mermaid / dot / chart 代码块画出来；内容变了就重画
+useRichBlocks(scroller, () => [visible.value.map((m) => m.id + m.content.length).join(), s.value?.draft?.content?.length ?? 0])
+
 const isAnswer = (m: UiMessage) => m.role === 'assistant' && !!m.content.trim() && !(m.toolCalls?.length)
 /** 最后一条回答：显示“重新生成”，并且按钮常驻显示 */
 const lastAnswerId = computed(() => {
@@ -590,6 +594,41 @@ const isImage = (mime: string) => mime.startsWith('image/')
   background: var(--cloth-sunk);
   font-family: var(--font-code);
   font-size: 0.88em;
+}
+/* mermaid / dot / chart 渲染出来的块 */
+.md :deep(pre.rich-block) {
+  display: grid;
+  place-items: center;
+  margin: 12px 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--cloth);
+}
+.md :deep(pre.rich-block.rendering)::after {
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  content: '正在绘制…';
+}
+.md :deep(pre.rich-block svg) {
+  max-width: 100%;
+  height: auto;
+}
+.md :deep(pre.rich-block.failed) {
+  display: block;
+  place-items: initial;
+}
+.md :deep(pre.rich-block .rich-error) {
+  margin-bottom: 8px;
+  color: var(--amber-ink, #9a6b00);
+  font-size: 12.5px;
+}
+.md :deep(pre.rich-block code) {
+  display: block;
+  overflow-x: auto;
+  font-size: 12.5px;
+  white-space: pre;
 }
 .md :deep(pre.code) {
   margin: 10px 0;

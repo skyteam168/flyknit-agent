@@ -251,23 +251,82 @@ public sealed class OfficePreviewProvider : ExtensionPreviewProvider
             return PreviewDocument.Unavailable("这个 Word 文件里没有正文（可能是加密的）");
         }
         var xml = XDocument.Load(entry.Open());
-        var sb = new StringBuilder();
-        foreach (var p in xml.Descendants(W + "p"))
+        var body = xml.Descendants(W + "body").FirstOrDefault();
+        if (body is null)
         {
-            var text = string.Concat(p.Descendants(W + "t").Select(t => t.Value));
-            // 标题样式转成 Markdown 的 #，这样界面按 Markdown 渲染就有层级
-            var style = p.Descendants(W + "pStyle").FirstOrDefault()?.Attribute(W + "val")?.Value ?? "";
-            if (style.StartsWith("Heading", StringComparison.OrdinalIgnoreCase) && text.Length > 0)
+            return PreviewDocument.Unavailable("这个 Word 文件里没有正文（可能是加密的）");
+        }
+        var sb = new StringBuilder();
+        // 只遍历 body 的直接子节点：段落和表格是并列的，表格里的段落不能再当正文走一遍
+        foreach (var node in body.Elements())
+        {
+            if (node.Name == W + "p")
             {
-                var level = int.TryParse(style[7..], out var n) ? Math.Clamp(n, 1, 6) : 1;
-                sb.AppendLine().AppendLine(new string('#', level) + " " + text).AppendLine();
+                sb.AppendLine(Paragraph(node));
             }
-            else
+            else if (node.Name == W + "tbl")
             {
-                sb.AppendLine(text);
+                sb.AppendLine().Append(Table(node)).AppendLine();
             }
         }
         return new PreviewDocument(PreviewKind.Markdown) { Text = sb.ToString().Trim() };
+    }
+
+    /// <summary>一个段落。标题样式转成 Markdown 的 #，列表转成 - ，这样界面按 Markdown 渲染就有层级。</summary>
+    private static string Paragraph(XElement p)
+    {
+        var text = string.Concat(p.Descendants(W + "t").Select(t => t.Value));
+        if (text.Length == 0)
+        {
+            return "";
+        }
+        var style = p.Descendants(W + "pStyle").FirstOrDefault()?.Attribute(W + "val")?.Value ?? "";
+        if (style.StartsWith("Heading", StringComparison.OrdinalIgnoreCase))
+        {
+            var level = int.TryParse(style.AsSpan(7), out var n) ? Math.Clamp(n, 1, 6) : 1;
+            return Environment.NewLine + new string('#', level) + " " + text + Environment.NewLine;
+        }
+        // 项目符号 / 编号列表：按缩进级别加前缀
+        var numbering = p.Descendants(W + "numPr").FirstOrDefault();
+        if (numbering is not null)
+        {
+            var level = int.TryParse(numbering.Descendants(W + "ilvl").FirstOrDefault()?.Attribute(W + "val")?.Value, out var l) ? Math.Clamp(l, 0, 5) : 0;
+            return new string(' ', level * 2) + "- " + text;
+        }
+        return text;
+    }
+
+    /// <summary>表格转成 Markdown 表格，界面渲染出来就还是一张表，不会糊成一行字。</summary>
+    private static string Table(XElement tbl)
+    {
+        var rows = tbl.Elements(W + "tr")
+            .Select(tr => tr.Elements(W + "tc")
+                .Select(tc => string.Concat(tc.Descendants(W + "t").Select(t => t.Value)).Replace("|", "\\|").Trim())
+                .ToList())
+            .Where(cells => cells.Count > 0)
+            .ToList();
+        if (rows.Count == 0)
+        {
+            return "";
+        }
+        var columns = rows.Max(r => r.Count);
+        var sb = new StringBuilder();
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var cells = rows[i];
+            sb.Append("| ");
+            for (var c = 0; c < columns; c++)
+            {
+                sb.Append(c < cells.Count ? cells[c] : "").Append(" | ");
+            }
+            sb.AppendLine();
+            if (i == 0)
+            {
+                // Markdown 表格必须有分隔行，否则不会被当成表格
+                sb.Append('|').Append(string.Concat(Enumerable.Repeat(" --- |", columns))).AppendLine();
+            }
+        }
+        return sb.ToString();
     }
 
     // ---------- PowerPoint ----------
@@ -296,9 +355,37 @@ public sealed class OfficePreviewProvider : ExtensionPreviewProvider
             var number = SlideNumber(entry.Name);
             var title = lines.Count > 0 ? lines[0] : "（无标题）";
             var body = lines.Count > 1 ? string.Join("\n", lines.Skip(1)) : "";
+            var notes = SpeakerNotes(zip, number);
+            if (notes.Length > 0)
+            {
+                body = body.Length > 0 ? $"{body}\n\n【备注】{notes}" : $"【备注】{notes}";
+            }
             sections.Add(new PreviewSection($"第 {number} 页 · {title}", body));
         }
         return new PreviewDocument(PreviewKind.Sections) { Sections = sections };
+    }
+
+    /// <summary>演讲者备注，和幻灯片按编号对应。</summary>
+    private static string SpeakerNotes(ZipArchive zip, int slideNumber)
+    {
+        var entry = zip.GetEntry($"ppt/notesSlides/notesSlide{slideNumber}.xml");
+        if (entry is null)
+        {
+            return "";
+        }
+        try
+        {
+            var xml = XDocument.Load(entry.Open());
+            var lines = xml.Descendants(A + "p")
+                .Select(p => string.Concat(p.Descendants(A + "t").Select(t => t.Value)).Trim())
+                .Where(l => l.Length > 0 && !int.TryParse(l, out _)) // 页码占位符不算备注
+                .ToList();
+            return string.Join("\n", lines);
+        }
+        catch (Exception)
+        {
+            return "";
+        }
     }
 
     private static int SlideNumber(string name)

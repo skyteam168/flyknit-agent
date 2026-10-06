@@ -10,6 +10,7 @@ import xml from 'highlight.js/lib/languages/xml'
 import csharp from 'highlight.js/lib/languages/csharp'
 import javascript from 'highlight.js/lib/languages/javascript'
 import { i18n } from './i18n'
+import { encodeBlockCode, hasBlockRenderer } from './render/blocks'
 
 hljs.registerLanguage('powershell', powershell)
 hljs.registerLanguage('python', python)
@@ -25,6 +26,11 @@ const md: MarkdownIt = new MarkdownIt({
   linkify: true,
   breaks: true,
   highlight(code, lang) {
+    // 有渲染器的语言（mermaid / dot / chart）留个占位符，挂载后由 RichBlocks 画出来；
+    // 这里只放数据，不放任何可执行内容，渲染仍然要过 DOMPurify
+    if (lang && hasBlockRenderer(lang)) {
+      return `<pre class="rich-block" data-lang="${md.utils.escapeHtml(lang.toLowerCase())}" data-code="${encodeBlockCode(code)}"></pre>`
+    }
     const language = lang && hljs.getLanguage(lang) ? lang : null
     const body = language ? hljs.highlight(code, { language }).value : md.utils.escapeHtml(code)
     const label = md.utils.escapeHtml(lang || 'text')
@@ -41,5 +47,5 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 }
 
 export function renderMarkdown(text: string): string {
-  return DOMPurify.sanitize(md.render(text), { ADD_ATTR: ['target', 'data-copy'] })
+  return DOMPurify.sanitize(md.render(text), { ADD_ATTR: ['target', 'data-copy', 'data-lang', 'data-code'] })
 }

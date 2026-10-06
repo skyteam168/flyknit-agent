@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import MarkdownIt from 'markdown-it'
 import { ExternalLink, FolderOpen, X } from '@lucide/vue'
+import { renderMarkdown } from '../markdown'
 import { closePreview, launchFile, revealFile, setPreviewWidth, state } from '../store'
+import { useRichBlocks } from '../render/useRichBlocks'
+import { encodeBlockCode, hasBlockRenderer } from '../render/blocks'
 
 // 右侧分屏：按宿主给的 kind 渲染，不在这里二次判断扩展名
 const { t } = useI18n()
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
 const preview = computed(() => state.preview)
 const doc = computed(() => state.preview?.doc ?? null)
@@ -22,6 +23,19 @@ watch(
 
 const sections = computed(() => doc.value?.sections ?? [])
 const current = computed(() => sections.value[activeSection.value] ?? null)
+
+// 流程图源码（.mmd / .dot）直接渲染成图，渲染不了再退回源码
+const body = ref<HTMLElement>()
+const diagramLang = computed(() => doc.value?.language ?? '')
+const canDrawDiagram = computed(() => doc.value?.kind === 'diagram' && hasBlockRenderer(diagramLang.value))
+const diagramHtml = computed(() =>
+  canDrawDiagram.value
+    ? `<pre class="rich-block" data-lang="${diagramLang.value}" data-code="${encodeBlockCode(doc.value?.text ?? '')}"></pre>`
+    : '',
+)
+
+// markdown 里也可能有图表和流程图（比如 Word 转出来的，或者 .md 产出文件）
+useRichBlocks(body, () => [state.preview?.file.path, doc.value?.kind, doc.value?.text?.length])
 
 // ---------- 拖拽调整宽度 ----------
 const dragging = ref(false)
@@ -91,7 +105,7 @@ function onKeyResize(e: KeyboardEvent) {
       </button>
     </nav>
 
-    <div class="body">
+    <div ref="body" class="body">
       <p v-if="preview.loading" class="hint">{{ t('ui.preview.loading') }}</p>
 
       <template v-else-if="doc">
@@ -101,9 +115,11 @@ function onKeyResize(e: KeyboardEvent) {
 
         <iframe v-else-if="doc.kind === 'pdf'" :src="doc.dataUrl ?? ''" class="pdf" :title="preview.file.name" />
 
-        <div v-else-if="doc.kind === 'markdown'" class="prose" v-html="md.render(doc.text ?? '')" />
+        <div v-else-if="doc.kind === 'markdown'" class="prose" v-html="renderMarkdown(doc.text ?? '')" />
 
         <pre v-else-if="doc.kind === 'text'" class="code"><code>{{ doc.text }}</code></pre>
+
+        <div v-else-if="canDrawDiagram" class="diagram" v-html="diagramHtml" />
 
         <pre v-else-if="doc.kind === 'diagram'" class="code"><code>{{ doc.text }}</code></pre>
 
@@ -285,6 +301,31 @@ header {
 .sections h3 {
   margin: 0 0 10px;
   font-size: 15px;
+}
+.prose :deep(pre.rich-block),
+.diagram :deep(pre.rich-block) {
+  display: grid;
+  place-items: center;
+  margin: 10px 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--cloth);
+}
+.prose :deep(pre.rich-block svg),
+.diagram :deep(pre.rich-block svg) {
+  max-width: 100%;
+  height: auto;
+}
+.diagram {
+  display: grid;
+  place-items: center;
+  overflow: auto;
+}
+.diagram :deep(svg) {
+  max-width: 100%;
+  height: auto;
 }
 .tableWrap {
   overflow: auto;

@@ -200,6 +200,76 @@ export function createMockHost(): HostTransport {
     if (addUser) list.push({ id: messageId ?? uid(), role: 'user', content: text, attachments, createdAt: now() })
 
     let finalText: string
+    if (/图表|chart|趋势|占比/i.test(text)) {
+      await sleep(400)
+      finalText = [
+        '九月三个车间的产量对比如下：',
+        '',
+        '```chart',
+        JSON.stringify({
+          type: 'bar',
+          title: '九月各车间产量（件）',
+          categories: ['一车间', '二车间', '三车间'],
+          series: [
+            { name: '计划', data: [12000, 9500, 7800] },
+            { name: '实际', data: [12480, 9120, 8010] },
+          ],
+        }),
+        '```',
+        '',
+        '三个车间的产量占比：',
+        '',
+        '```chart',
+        JSON.stringify({
+          type: 'donut',
+          title: '产量占比',
+          categories: ['一车间', '二车间', '三车间'],
+          series: [{ data: [12480, 9120, 8010] }],
+        }),
+        '```',
+        '',
+        '近七天的趋势：',
+        '',
+        '```chart',
+        JSON.stringify({
+          type: 'line',
+          categories: ['9-24', '9-25', '9-26', '9-27', '9-28', '9-29', '9-30'],
+          series: [{ name: '日产量', data: [980, 1020, 960, 1110, 1075, 1130, 1180] }],
+          yLabel: '件',
+        }),
+        '```',
+        '',
+        '整个汇总流程是这样走的：',
+        '',
+        '```mermaid',
+        'flowchart TD',
+        '  A[共享盘日报] --> B{格式对吗}',
+        '  B -- 对 --> C[提取产量]',
+        '  B -- 不对 --> D[标记异常]',
+        '  C --> E[按车间汇总]',
+        '  D --> E',
+        '  E --> F[(生成 Excel)]',
+        '```',
+        '',
+        '涉及的几台机器：',
+        '',
+        '```dot',
+        'digraph G { rankdir=LR; node [shape=box, style=rounded];',
+        '  "本机" -> "fs01 共享盘" [label="读日报"];',
+        '  "本机" -> "Flyknit 服务端" [label="模型调用"];',
+        '  "Flyknit 服务端" -> "Qwen3.5-397B"; }',
+        '```',
+      ].join('\n')
+      await stream(id, finalText)
+      const msg: UiMessage = {
+        id: uid(), role: 'assistant', content: finalText, createdAt: now(),
+        modelName: 'Qwen3.5-397B', promptTokens: 1840, completionTokens: 620,
+      }
+      list.push(msg)
+      emit({ type: 'chat.message', conversationId: id, message: msg })
+      emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed', modelName: 'Qwen3.5-397B' })
+      return
+    }
     if (c.mode === 'translate') {
       await sleep(300)
       finalText =

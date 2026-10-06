@@ -120,6 +120,42 @@ public class PreviewTests : IDisposable
     }
 
     [Fact]
+    public async Task WordTablesStayTablesInsteadOfCollapsingIntoOneLine()
+    {
+        var path = Path.Combine(_dir, "table.docx");
+        BuildDocxWithTable(path);
+
+        var doc = await _registry.LoadAsync(path);
+        // Markdown 表格要有分隔行，界面才会渲染成表
+        Assert.Contains("| 车间 | 产量 |", doc.Text);
+        Assert.Contains("| --- | --- |", doc.Text);
+        Assert.Contains("| 一车间 | 12480 |", doc.Text);
+        // 表格里的文字不能又被当成正文重复输出一遍
+        Assert.Equal(1, doc.Text!.Split("一车间").Length - 1);
+    }
+
+    [Fact]
+    public async Task WordListsBecomeMarkdownBullets()
+    {
+        var path = Path.Combine(_dir, "list.docx");
+        BuildDocxWithList(path);
+
+        var doc = await _registry.LoadAsync(path);
+        Assert.Contains("- 第一条", doc.Text);
+        Assert.Contains("  - 子项", doc.Text);  // 第二级缩进
+    }
+
+    [Fact]
+    public async Task SpeakerNotesComeAlongWithTheSlide()
+    {
+        var path = Path.Combine(_dir, "notes.pptx");
+        BuildPptxWithNotes(path);
+
+        var doc = await _registry.LoadAsync(path);
+        Assert.Contains("【备注】记得强调交期", doc.Sections[0].Text);
+    }
+
+    [Fact]
     public async Task ZipShowsItsEntriesWithoutExtracting()
     {
         var path = Path.Combine(_dir, "a.zip");
@@ -193,6 +229,41 @@ public class PreviewTests : IDisposable
             $"""<?xml version="1.0"?><sld xmlns:a="{ns}"><a:p><a:r><a:t>最后一页</a:t></a:r></a:p></sld>""");
         Add(zip, "ppt/slides/slide2.xml",
             $"""<?xml version="1.0"?><sld xmlns:a="{ns}"><a:p><a:r><a:t>营业部</a:t></a:r><a:r><a:t> Q3</a:t></a:r></a:p><a:p><a:r><a:t>第二行</a:t></a:r></a:p></sld>""");
+    }
+
+    private static void BuildDocxWithTable(string path)
+    {
+        using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
+        const string ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        Add(zip, "word/document.xml",
+            $"""<?xml version="1.0"?><document xmlns:w="{ns}"><w:body>""" +
+            """<w:p><w:r><w:t>下面是产量表：</w:t></w:r></w:p>""" +
+            """<w:tbl>""" +
+            """<w:tr><w:tc><w:p><w:r><w:t>车间</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>产量</w:t></w:r></w:p></w:tc></w:tr>""" +
+            """<w:tr><w:tc><w:p><w:r><w:t>一车间</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>12480</w:t></w:r></w:p></w:tc></w:tr>""" +
+            """</w:tbl>""" +
+            """</w:body></document>""");
+    }
+
+    private static void BuildDocxWithList(string path)
+    {
+        using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
+        const string ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        Add(zip, "word/document.xml",
+            $"""<?xml version="1.0"?><document xmlns:w="{ns}"><w:body>""" +
+            """<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>第一条</w:t></w:r></w:p>""" +
+            """<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>子项</w:t></w:r></w:p>""" +
+            """</w:body></document>""");
+    }
+
+    private static void BuildPptxWithNotes(string path)
+    {
+        using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
+        const string ns = "http://schemas.openxmlformats.org/drawingml/2006/main";
+        Add(zip, "ppt/slides/slide1.xml",
+            $"""<?xml version="1.0"?><sld xmlns:a="{ns}"><a:p><a:r><a:t>报价方案</a:t></a:r></a:p></sld>""");
+        Add(zip, "ppt/notesSlides/notesSlide1.xml",
+            $"""<?xml version="1.0"?><notes xmlns:a="{ns}"><a:p><a:r><a:t>记得强调交期</a:t></a:r></a:p><a:p><a:r><a:t>1</a:t></a:r></a:p></notes>""");
     }
 
     private static void BuildDocx(string path)
