@@ -104,11 +104,24 @@ public sealed class AuditEntry
 /// <summary>与 Flyknit 服务端通信：模型网关、设备注册、配置、审计。</summary>
 public sealed class FlyknitServerClient : IChatGateway
 {
-    private readonly HttpClient _http;
+    private HttpClient _http;
     private string? _token;
+
+    private readonly string _serverUrl;
+
+    /// <summary>换掉底层的 HttpClient（改代理时用）。地址和 Token 保持不变，上层无感。</summary>
+    public void ReplaceHttpClient(HttpClient http)
+    {
+        var old = _http;
+        http.BaseAddress = new Uri(_serverUrl.TrimEnd('/') + "/");
+        http.Timeout = Timeout.InfiniteTimeSpan;
+        _http = http;
+        try { old.Dispose(); } catch (Exception) { /* 旧连接可能还在用，释放失败不影响新的 */ }
+    }
 
     public FlyknitServerClient(HttpClient http, string serverUrl, string? deviceToken)
     {
+        _serverUrl = serverUrl;
         _http = http;
         _http.BaseAddress = new Uri(serverUrl.TrimEnd('/') + "/");
         _http.Timeout = Timeout.InfiniteTimeSpan; // 流式请求由 CancellationToken 控制

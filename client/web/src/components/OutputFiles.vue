@@ -128,14 +128,14 @@ function act(fn: (f: OutputFile) => unknown, f: OutputFile) {
 .meta strong {
   display: block;
   overflow: hidden;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--font-scale));
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .meta small {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
 }
 .btn {
   flex: none;
@@ -147,7 +147,7 @@ function act(fn: (f: OutputFile) => unknown, f: OutputFile) {
   border-radius: 999px;
   background: var(--cloth);
   color: inherit;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   cursor: pointer;
 }
 .btn:hover,
@@ -196,7 +196,7 @@ function act(fn: (f: OutputFile) => unknown, f: OutputFile) {
   border-radius: 7px;
   background: transparent;
   color: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   text-align: left;
   cursor: pointer;
 }

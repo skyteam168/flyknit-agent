@@ -161,12 +161,27 @@ public sealed class NotificationService
         }
     }
 
+    /// <summary>设置里选的提示音，默认静音——工厂里一屋子电脑同时响会很吵。</summary>
+    public Func<string>? SoundSetting { get; set; }
+
     private ToastContentBuilder Base()
     {
         var b = new ToastContentBuilder();
         if (_logo is not null)
         {
             b.AddAppLogoOverride(new Uri(_logo), ToastGenericAppLogoCrop.Default);
+        }
+        switch (SoundSetting?.Invoke())
+        {
+            case "soft":
+                b.AddAudio(new Uri("ms-winsoundevent:Notification.Default"));
+                break;
+            case "alert":
+                b.AddAudio(new Uri("ms-winsoundevent:Notification.Looping.Alarm2"), loop: false);
+                break;
+            default:
+                b.AddAudio(new ToastAudio { Silent = true });
+                break;
         }
         return b;
     }

@@ -289,7 +289,7 @@ h3 {
   background: var(--red-wash);
   color: var(--red);
   font-style: normal;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .body {
   flex: 1;
@@ -467,7 +467,7 @@ h3 {
   opacity: 0.85;
 }
 .day small {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -558,7 +558,7 @@ h3 {
   border-radius: 9px;
   background: var(--chip);
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .tool {
   color: var(--ink-soft);

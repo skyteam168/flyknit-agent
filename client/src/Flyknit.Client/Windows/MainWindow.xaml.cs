@@ -325,6 +325,11 @@ public partial class MainWindow : Window, IWindowActions
     /// 无边框窗口里 WebView2 盖住了整个客户区，鼠标消息都被子窗口吃掉，WPF 的 ResizeBorderThickness 不起作用；
     /// 所以由网页在四边放透明热区，按下时调这里，走系统自己的调整大小流程（和拖标准窗口边框一样）。
     /// </summary>
+    /// <summary>快捷键改了之后让 App 重新注册全局热键。</summary>
+    public event Action? HotkeyChanged;
+
+    public void RefreshHotkey() => HotkeyChanged?.Invoke();
+
     public void StartResize(string direction)
     {
         if (WindowState != WindowState.Normal)

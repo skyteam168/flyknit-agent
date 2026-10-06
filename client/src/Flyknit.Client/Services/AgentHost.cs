@@ -54,6 +54,39 @@ public sealed class AgentHost : IDisposable
     public EpisodeStore Episodes { get; }
     public ScheduleRunner Scheduler { get; }
 
+    /// <summary>
+    /// 代理设置改了之后换一个 HttpClient。
+    /// HttpClientHandler 的代理在创建后不能改，所以只能重建；
+    /// 换的是 FlyknitServerClient 内部那个客户端，上层拿到的还是同一个实例，不用重启。
+    /// </summary>
+    public void ApplyProxy()
+    {
+        try
+        {
+            Server.ReplaceHttpClient(ProxyFactory.CreateHttpClient(_settings));
+            Log.Info($"网络代理已切换为 {_settings.ProxyMode}");
+            _ = RefreshConfigAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("切换网络代理失败", ex);
+        }
+    }
+
+    /// <summary>测试能不能连上服务端，用来验证代理设置。</summary>
+    public async Task<(bool Ok, string Message)> TestConnectionAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Server.GetConfigAsync(ct);
+            return (true, "");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
     /// <summary>界面就绪后由 WebBridge 挂上，定时任务用它推送事件和请求确认。</summary>
     public IHostEvents? Events { get; private set; }
     public IConfirmationHandler? Confirm { get; private set; }
@@ -88,7 +121,7 @@ public sealed class AgentHost : IDisposable
     public AgentHost(AppSettings settings)
     {
         _settings = settings;
-        Server = new FlyknitServerClient(new HttpClient(), settings.ServerUrl, settings.DeviceToken);
+        Server = new FlyknitServerClient(ProxyFactory.CreateHttpClient(settings), settings.ServerUrl, settings.DeviceToken);
         Store = new ConversationStore(AppPaths.Database);
         Memory = new MemoryStore(AppPaths.Memory);
         Skills = new SkillCatalog()

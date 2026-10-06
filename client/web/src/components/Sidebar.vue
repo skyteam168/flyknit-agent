@@ -329,7 +329,7 @@ onBeforeUnmount(() => {
   letter-spacing: -0.01em;
 }
 .ver {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--ink-faint);
 }
 .conn {
@@ -426,7 +426,7 @@ onBeforeUnmount(() => {
 .new-task kbd {
   margin-left: auto;
   font-family: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--ink-faint);
 }
 .nav {
@@ -513,7 +513,7 @@ onBeforeUnmount(() => {
 }
 .time {
   flex: none;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   color: var(--ink-faint);
 }
 .more {

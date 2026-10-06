@@ -12,6 +12,7 @@ import type {
   Permission,
   PlanItem,
   ScheduledTask,
+  ShortcutInfo,
   SkillInfo,
   Theme,
   ToolActivity,
@@ -73,7 +74,29 @@ export const state = reactive({
   autoPreview: true,
   /** 正在查看的执行链路 */
   trace: null as TraceInfo | null,
+  shortcutsOpen: false,
+  shortcuts: [] as ShortcutInfo[],
+  fontScale: 1,
 })
+
+/** 字号靠一个 CSS 变量统一放大缩小，各处的 rem 自动跟着变 */
+export function applyFontScale(scale: number) {
+  state.fontScale = scale
+  document.documentElement.style.setProperty('--font-scale', String(scale))
+}
+
+export async function setFontScale(scale: number) {
+  const applied = await bridge.setFontScale(scale).catch(() => scale)
+  applyFontScale(applied)
+}
+
+/** Ctrl+= / Ctrl+- / Ctrl+0 */
+const FontSteps = [0.85, 0.925, 1, 1.1, 1.25]
+
+export function stepFontScale(direction: number) {
+  const i = FontSteps.indexOf(FontSteps.reduce((a, b) => (Math.abs(b - state.fontScale) < Math.abs(a - state.fontScale) ? b : a)))
+  void setFontScale(FontSteps[Math.min(Math.max(i + direction, 0), FontSteps.length - 1)])
+}
 
 /** 打开某条回答的执行链路。解析失败就当没有，不要因为一条坏数据让界面报错。 */
 export function openTrace(json: string | null | undefined) {
@@ -213,6 +236,8 @@ export async function init() {
   draftMode.permission = app.defaultPermission
   state.workspaces = app.workspaces ?? []
   state.maximized = app.maximized ?? false
+  state.shortcuts = app.shortcuts ?? []
+  applyFontScale(app.fontScale ?? 1)
   await refreshList()
   void loadModels()
   void loadSkills()

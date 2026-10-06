@@ -307,6 +307,39 @@ Excel 的空单元格在 XML 里会被省略，按 `A1`/`B1` 的列号补齐，�
 其他网关错误（401 / 429 / 5xx）走同一条路径：不再让整轮报废，而是以 `AgentStopReason.Failed`
 收尾，产出的消息、产出的文件、链路全部保留，用户可以直接接着聊。
 
+## 设置项
+
+| 设置 | 实现 | 说明 |
+| --- | --- | --- |
+| 字体大小 | CSS 变量 `--font-scale` | 五档（0.85 ~ 1.25）。全部 199 处字号都乘这个变量，布局跟着一起缩放，不用 zoom |
+| 开机自启 | `HKCU\...\CurrentVersion\Run` | 只写当前用户，不碰 HKLM（员工没有管理员权限）。启动参数带 `--silent`，只放悬浮球不弹窗 |
+| 网络代理 | `ProxyFactory` | 直连 / 跟随系统 / 手动。改完重建 HttpClient 并换进 `FlyknitServerClient`，立即生效不用重启 |
+| 存储 | `StorageUsage` | 数据目录大小 + 磁盘余量；扫描上限 20 万个文件，避免设置界面卡住 |
+| 通知提示音 | Toast 的 `AddAudio` | 默认静音——一屋子电脑同时响很吵 |
+| 快捷键 | `Flyknit.Core/Settings/Shortcuts.cs` | 见下 |
+
+**开机自启的状态以注册表为准**，不以设置文件为准：用户可能在任务管理器的启动项里关掉过，
+只信设置文件会显示成开着但实际没生效。
+
+## 快捷键
+
+命令表在 `Flyknit.Core/Settings/Shortcuts.cs`：id、分组、默认按键、是否全局、是否固定。
+界面按表渲染，按键处理也按表分派（`client/web/src/shortcuts.ts`）。
+**加一条快捷键 = 表里加一行 + 注册一个 handler + 三种语言各加一个名字**，
+设置面板不用动，冲突检测和改键界面都是现成的。
+
+几个关键点：
+
+- **只存改过的那些**（`AppSettings.Shortcuts`）。以后调整默认值，没自定义过的用户会自动跟上。
+- **按键写法统一**：`shift+ctrl+b`、`Ctrl+Shift+B`、`CTRL + SHIFT + b` 都规范化成 `Ctrl+Shift+B`，
+  比较和存储才不会出现「看着一样其实不等」。宿主和界面用同一套规则。
+- **拒绝不能用的绑定**：单个字母不带修饰键会把正常打字吃掉；`Ctrl+C`/`Ctrl+V`/`Alt+F4` 这些让给系统。
+- **冲突时指出是谁占了**，而不是只说一句"冲突"。
+- `Enter` 发送、`Shift+Enter` 换行是固定的，改了也不生效——否则用户可能把自己锁在外面。
+- 全局热键只有「唤起 / 隐藏主窗口」一条。全局热键会抢占整个系统的按键，多了会和别的软件打架。
+  改完由 `MainWindow.RefreshHotkey()` 通知 App 重新注册，不用重启。
+- 录制新按键期间所有快捷键暂停，否则按下的键会被当成命令执行。
+
 ## 客户端与 Web 界面的通信
 
 WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消息，宿主通过 `PostWebMessageAsJson` 推送事件。消息格式：

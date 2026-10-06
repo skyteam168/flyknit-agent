@@ -42,7 +42,7 @@ const contact = computed(() => {
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: var(--cloth-soft, var(--cloth));
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--ink-soft);
 }
 .usage-warning.exceeded {
@@ -65,7 +65,7 @@ const contact = computed(() => {
   border-radius: 999px;
   background: var(--cloth);
   color: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   cursor: pointer;
 }
 .more:hover {

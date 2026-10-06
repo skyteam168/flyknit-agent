@@ -144,6 +144,28 @@ export interface TraceInfo {
   items: TraceStep[]
 }
 
+/** 一条快捷键命令（表来自宿主） */
+export interface ShortcutInfo {
+  id: string
+  /** task / chat / view / panel / window */
+  group: string
+  binding: string
+  default: string
+  global: boolean
+  fixed: boolean
+  customized: boolean
+}
+
+export interface StorageInfo {
+  dataDir: string
+  bytes: number
+  files: number
+  diskTotal: number
+  diskUsed: number
+  diskFree: number
+  workspace: string
+}
+
 export interface ModelInfo {
   id: number
   name: string
@@ -339,6 +361,14 @@ export interface AppInfo {
   workspaces: WorkspaceInfo[]
   learning: boolean
   notifications: boolean
+  notificationSound: string
+  fontScale: number
+  autoStart: boolean
+  proxyMode: string
+  proxyUrl: string
+  proxyUser: string
+  dataDir: string
+  shortcuts: ShortcutInfo[]
   maximized: boolean
 }
 

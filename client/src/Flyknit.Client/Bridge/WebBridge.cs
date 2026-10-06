@@ -224,6 +224,14 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     workspaces = WorkspaceList(),
                     learning = _settings.EnableLearning,
                     notifications = _settings.EnableNotifications,
+                    notificationSound = _settings.NotificationSound,
+                    fontScale = _settings.FontScale,
+                    autoStart = AutoStart.IsEnabled(),   // 以注册表为准，用户可能在任务管理器里关过
+                    proxyMode = _settings.ProxyMode,
+                    proxyUrl = _settings.ProxyUrl,
+                    proxyUser = _settings.ProxyUser,
+                    dataDir = AppPaths.Root,
+                    shortcuts = ShortcutList(),
                     maximized = _window.IsMaximized,
                 };
 
@@ -243,6 +251,129 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 _settings.EnableNotifications = Bool("enabled");
                 _settings.Save();
                 return null;
+
+            case "settings.setNotificationSound":
+            {
+                var sound = Str("sound");
+                _settings.NotificationSound = sound is "soft" or "alert" ? sound : "none";
+                _settings.Save();
+                return null;
+            }
+
+            case "settings.setFontScale":
+            {
+                // 只接受预设的几档，避免存进一个让界面没法看的数
+                var scale = p.TryGetProperty("scale", out var sv) && sv.ValueKind == JsonValueKind.Number ? sv.GetDouble() : 1.0;
+                _settings.FontScale = Flyknit.Core.Settings.FontScales.Nearest(scale);
+                _settings.Save();
+                return _settings.FontScale;
+            }
+
+            case "settings.setAutoStart":
+            {
+                var (ok, message) = AutoStart.Set(Bool("enabled"));
+                if (ok)
+                {
+                    _settings.AutoStart = Bool("enabled");
+                    _settings.Save();
+                }
+                return new { ok, message, enabled = AutoStart.IsEnabled() };
+            }
+
+            case "settings.setProxy":
+            {
+                var mode = Str("mode");
+                var url = Str("url");
+                var (valid, why) = ProxyFactory.Validate(mode, url);
+                if (!valid)
+                {
+                    return new { ok = false, message = why };
+                }
+                _settings.ProxyMode = mode is "direct" or "manual" ? mode : "system";
+                _settings.ProxyUrl = url;
+                _settings.ProxyUser = Str("user");
+                if (p.TryGetProperty("password", out var pw) && pw.ValueKind == JsonValueKind.String)
+                {
+                    _settings.ProxyPassword = pw.GetString() ?? "";
+                }
+                _settings.Save();
+                _host.ApplyProxy();   // 立即生效，不用重启
+                return new { ok = true, message = "" };
+            }
+
+            case "settings.testProxy":
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var (ok, message) = await _host.TestConnectionAsync(cts.Token);
+                return new { ok, message };
+            }
+
+            case "storage.info":
+            {
+                var data = await Task.Run(() => StorageUsage.Measure(AppPaths.Root));
+                var workspace = _settings.ResolveWorkspace(_settings.DefaultWorkspace);
+                return new
+                {
+                    dataDir = data.Path,
+                    bytes = data.Bytes,
+                    files = data.Files,
+                    diskTotal = data.DiskTotal,
+                    diskUsed = data.DiskUsed,
+                    diskFree = data.DiskFree,
+                    workspace,
+                };
+            }
+
+            case "storage.openDataFolder":
+                StorageUsage.Open(AppPaths.Root);
+                return null;
+
+            case "shortcuts.list":
+                return ShortcutList();
+
+            case "shortcuts.set":
+            {
+                var id = Str("id");
+                var binding = Str("binding");
+                var command = Flyknit.Core.Settings.Shortcuts.Find(id);
+                if (command is null || command.Fixed)
+                {
+                    return new { ok = false, reason = "fixed" };
+                }
+                if (binding.Length > 0)
+                {
+                    var (valid, reason) = Flyknit.Core.Settings.Shortcuts.Validate(binding);
+                    if (!valid)
+                    {
+                        return new { ok = false, reason };
+                    }
+                    var resolved = Flyknit.Core.Settings.Shortcuts.Resolve(_settings.Shortcuts);
+                    if (Flyknit.Core.Settings.Shortcuts.Conflict(id, binding, resolved) is { } clash)
+                    {
+                        return new { ok = false, reason = "conflict", conflictsWith = clash };
+                    }
+                }
+                _settings.Shortcuts[id] = Flyknit.Core.Settings.Shortcuts.Normalize(binding);
+                _settings.Save();
+                _window.RefreshHotkey();
+                return new { ok = true, reason = "", shortcuts = ShortcutList() };
+            }
+
+            case "shortcuts.reset":
+            {
+                var id = OptStr("id");
+                if (id is { Length: > 0 })
+                {
+                    _settings.Shortcuts.Remove(id);
+                }
+                else
+                {
+                    _settings.Shortcuts.Clear();
+                }
+                _settings.Save();
+                _window.RefreshHotkey();
+                return ShortcutList();
+            }
 
             case "memory.list":
             {
@@ -802,6 +933,22 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
         }
     }
 
+    /// <summary>默认值叠加用户改动后的最终快捷键表，界面直接按它渲染和分派。</summary>
+    private object ShortcutList()
+    {
+        var resolved = Flyknit.Core.Settings.Shortcuts.Resolve(_settings.Shortcuts);
+        return Flyknit.Core.Settings.Shortcuts.All.Select(c => new
+        {
+            id = c.Id,
+            group = c.Group,
+            binding = resolved[c.Id],
+            @default = Flyknit.Core.Settings.Shortcuts.Normalize(c.Default),
+            global = c.Global,
+            @fixed = c.Fixed,
+            customized = _settings.Shortcuts.ContainsKey(c.Id),
+        }).ToList();
+    }
+
     private static object ScheduleDto(Flyknit.Core.Scheduling.ScheduledTask t) => new
     {
         id = t.Id,
@@ -917,6 +1064,9 @@ public interface IWindowActions
     bool IsMaximized { get; }
     bool ToggleMaximize();
     void StartResize(string direction);
+
+    /// <summary>全局热键改了之后重新注册。</summary>
+    void RefreshHotkey();
 }
 
 /// <summary>一个等待用户回答的确认请求。</summary>

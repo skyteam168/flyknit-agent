@@ -321,7 +321,7 @@ h2 {
   background: var(--chip);
   color: var(--ink-faint);
   font-style: normal;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .tab-hint {
   margin: 10px 2px;
@@ -388,7 +388,7 @@ h2 {
 .date,
 .uses {
   flex: none;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -397,7 +397,7 @@ h2 {
   flex: none;
   padding: 1px 7px;
   border-radius: 9px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .kind.success,
 .outcome.success {

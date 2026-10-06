@@ -463,7 +463,7 @@ h3 {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--ink-soft);
 }
 .status {
@@ -472,7 +472,7 @@ h3 {
   border-radius: 9px;
   background: var(--cloth-sunk);
   color: var(--ink-faint);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .status.ok {
   background: var(--thread-wash);
@@ -524,7 +524,7 @@ h3 {
   font-size: var(--t-xs);
 }
 .count {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--ink-faint);
 }
 .mini {

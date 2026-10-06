@@ -30,10 +30,12 @@
   --font: 'Be Vietnam Pro', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif;
   --font-code: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Microsoft YaHei UI', monospace;
 
-  --t-xs: 12px;
-  --t-sm: 13px;
-  --t-md: 14.5px;
-  --t-lg: 17px;
+  /* 界面字号倍率：设置里调，0.85 ~ 1.25。所有字号都乘它，布局跟着一起缩放 */
+  --font-scale: 1;
+  --t-xs: calc(12px * var(--font-scale));
+  --t-sm: calc(13px * var(--font-scale));
+  --t-md: calc(14.5px * var(--font-scale));
+  --t-lg: calc(17px * var(--font-scale));
   --t-xl: 21px;
   --t-2xl: 30px;
 

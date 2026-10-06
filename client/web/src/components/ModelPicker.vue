@@ -201,7 +201,7 @@ async function pick(id: number | null, close: () => void) {
   border-radius: 10px;
   background: var(--thread-wash);
   color: var(--thread);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .tick {
   flex: none;

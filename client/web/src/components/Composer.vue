@@ -109,7 +109,11 @@ function fill(value: string) {
     box.value?.setSelectionRange(value.length, value.length)
   })
 }
-defineExpose({ fill, useSkill })
+function focusInput() {
+  box.value?.focus()
+}
+
+defineExpose({ fill, useSkill, focusInput })
 
 const focus = () => box.value?.focus()
 onMounted(() => {

@@ -88,6 +88,27 @@ public sealed class AppSettings
     /// <summary>上次关闭时窗口是否最大化。</summary>
     public bool WindowMaximized { get; set; }
 
+    /// <summary>界面字号倍率：0.85 / 0.925 / 1.0（默认）/ 1.1 / 1.25。</summary>
+    public double FontScale { get; set; } = 1.0;
+
+    /// <summary>登录 Windows 后自动启动。实际开关写在注册表的 Run 项里，这里只记用户的选择。</summary>
+    public bool AutoStart { get; set; }
+
+    /// <summary>direct（直连）/ system（跟随系统）/ manual（手动填地址）。</summary>
+    public string ProxyMode { get; set; } = "system";
+
+    /// <summary>手动代理地址，例如 http://10.0.0.8:8080。</summary>
+    public string ProxyUrl { get; set; } = "";
+
+    public string ProxyUser { get; set; } = "";
+    public string ProxyPassword { get; set; } = "";
+
+    /// <summary>通知提示音：none / soft / alert。</summary>
+    public string NotificationSound { get; set; } = "none";
+
+    /// <summary>快捷键改动：命令 id → 按键。只存和默认不一样的，默认值变了也能跟上。</summary>
+    public System.Collections.Generic.Dictionary<string, string> Shortcuts { get; set; } = new();
+
     /// <summary>软件别名，例如 "生产程序" → "D:\MES\client.exe"。后续由服务端下发。</summary>
     public System.Collections.Generic.Dictionary<string, string> AppAliases { get; set; } = new();
 

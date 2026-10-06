@@ -196,7 +196,7 @@ header {
 .name {
   flex: 1;
   overflow: hidden;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--font-scale));
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -233,7 +233,7 @@ header {
   border-radius: 999px;
   background: transparent;
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
@@ -251,7 +251,7 @@ header {
 .hint,
 .notice {
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .notice {
   margin-bottom: 10px;
@@ -272,12 +272,12 @@ header {
 .code {
   margin: 0;
   overflow-x: auto;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   line-height: 1.65;
   white-space: pre;
 }
 .prose {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   line-height: 1.75;
 }
 .prose :deep(h1),
@@ -294,13 +294,13 @@ header {
   border: 1px solid var(--line);
 }
 .sections .text {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   line-height: 1.8;
   white-space: pre-wrap;
 }
 .sections h3 {
   margin: 0 0 10px;
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
 }
 .prose :deep(pre.rich-block),
 .diagram :deep(pre.rich-block) {
@@ -332,7 +332,7 @@ header {
 }
 table {
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
 }
 td {
   max-width: 320px;
@@ -354,7 +354,7 @@ td.head {
   gap: 12px;
   align-items: flex-start;
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .open {
   display: inline-flex;

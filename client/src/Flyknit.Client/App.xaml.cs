@@ -96,7 +96,7 @@ public partial class App : Application
         });
 
         // Windows 系统通知：确认按钮直接生效，点通知回到对应任务
-        _notifications = new NotificationService();
+        _notifications = new NotificationService { SoundSetting = () => _settings.NotificationSound };
         _notifications.ConfirmAnswered += (requestId, choice) => Dispatcher.BeginInvoke(() =>
         {
             if (_main?.Bridge?.ResolveConfirm(requestId, choice) != true)
@@ -120,12 +120,14 @@ public partial class App : Application
         RegisterHotkey();
 
         // 先创建主窗口（初始化 WebView2）再隐藏，之后点击悬浮球可以秒开
+        _main.HotkeyChanged += () => Dispatcher.BeginInvoke(() => { UnregisterHotkey(); RegisterHotkey(); });
         _main.Loaded += (_, _) => HookBridge();
         _main.Prewarm();
 
         await _host.InitializeAsync();
 
-        if (e.Args.Contains("--show"))
+        // --silent 是开机自启用的：只放悬浮球，不弹主窗口打断用户登录
+        if (e.Args.Contains("--show") && !e.Args.Contains("--silent"))
         {
             _main.ShowAndFocus();
         }
@@ -288,8 +290,42 @@ public partial class App : Application
     // ---------- 全局热键 Ctrl+Alt+Space ----------
 
     private const int WmHotkey = 0x0312;
-    private const uint ModAlt = 0x1, ModControl = 0x2, ModNoRepeat = 0x4000;
-    private const uint VkSpace = 0x20;
+    private const uint ModAlt = 0x1, ModControl = 0x2, ModShift = 0x4, ModWin = 0x8, ModNoRepeat = 0x4000;
+
+    /// <summary>把 "Ctrl+Alt+Space" 这样的写法翻成 RegisterHotKey 要的修饰位和虚拟键码。</summary>
+    private static (uint Modifiers, uint Key)? ParseHotkey(string binding)
+    {
+        var normalized = Flyknit.Core.Settings.Shortcuts.Normalize(binding);
+        if (normalized.Length == 0)
+        {
+            return null;
+        }
+        uint mods = ModNoRepeat;
+        var parts = normalized.Split('+');
+        foreach (var part in parts[..^1])
+        {
+            mods |= part switch
+            {
+                "Ctrl" => ModControl,
+                "Alt" => ModAlt,
+                "Shift" => ModShift,
+                "Meta" => ModWin,
+                _ => 0u,
+            };
+        }
+        var key = parts[^1];
+        var vk = key switch
+        {
+            "Space" => 0x20u,
+            "Escape" => 0x1Bu,
+            "Enter" => 0x0Du,
+            "Up" => 0x26u, "Down" => 0x28u, "Left" => 0x25u, "Right" => 0x27u,
+            _ when key.Length == 1 && char.IsLetterOrDigit(key[0]) => (uint)char.ToUpperInvariant(key[0]),
+            _ when key.Length >= 2 && key[0] == 'F' && int.TryParse(key[1..], out var n) && n is >= 1 and <= 24 => (uint)(0x70 + n - 1),
+            _ => 0u,
+        };
+        return vk == 0 ? null : (mods, vk);
+    }
 
     private void RegisterHotkey()
     {
@@ -304,9 +340,20 @@ public partial class App : Application
             }
             return IntPtr.Zero;
         });
-        if (!RegisterHotKey(_hotkeySource.Handle, HotkeyId, ModControl | ModAlt | ModNoRepeat, VkSpace))
+        var resolved = Flyknit.Core.Settings.Shortcuts.Resolve(_settings.Shortcuts);
+        var binding = resolved.GetValueOrDefault("window.toggle", "Ctrl+Alt+Space");
+        if (ParseHotkey(binding) is not { } hk)
         {
-            Log.Warn("注册全局热键 Ctrl+Alt+Space 失败（可能被其他程序占用）");
+            Log.Info($"全局热键已停用（{binding}）");
+            return;
+        }
+        if (!RegisterHotKey(_hotkeySource.Handle, HotkeyId, hk.Modifiers, hk.Key))
+        {
+            Log.Warn($"注册全局热键 {binding} 失败（可能被其他程序占用）");
+        }
+        else
+        {
+            Log.Info($"全局热键已注册：{binding}");
         }
     }
 

@@ -20,6 +20,8 @@ import type {
   SecurityEvent,
   OutputFile,
   PreviewDoc,
+  ShortcutInfo,
+  StorageInfo,
   UsageStats,
   Permission,
   WorkspaceInfo,
@@ -188,6 +190,19 @@ class Bridge {
   runSchedule = (id: string) => this.call<{ ok: boolean; message: string; conversationId: string | null }>('schedules.run', { id })
 
   usageStats = () => this.call<UsageStats>('usage.stats')
+
+  setFontScale = (scale: number) => this.call<number>('settings.setFontScale', { scale })
+  setNotificationSound = (sound: string) => this.call<void>('settings.setNotificationSound', { sound })
+  setAutoStart = (enabled: boolean) => this.call<{ ok: boolean; message: string; enabled: boolean }>('settings.setAutoStart', { enabled })
+  setProxy = (mode: string, url: string, user: string, password: string) =>
+    this.call<{ ok: boolean; message: string }>('settings.setProxy', { mode, url, user, password })
+  testProxy = () => this.call<{ ok: boolean; message: string }>('settings.testProxy')
+  storageInfo = () => this.call<StorageInfo>('storage.info')
+  openDataFolder = () => this.call<void>('storage.openDataFolder')
+  listShortcuts = () => this.call<ShortcutInfo[]>('shortcuts.list')
+  setShortcut = (id: string, binding: string) =>
+    this.call<{ ok: boolean; reason: string; conflictsWith?: string; shortcuts?: ShortcutInfo[] }>('shortcuts.set', { id, binding })
+  resetShortcuts = (id?: string) => this.call<ShortcutInfo[]>('shortcuts.reset', { id })
 
   /** 用系统默认应用打开 */
   launchFile = (path: string) => this.call<{ ok: boolean; message: string }>('files.launch', { path })

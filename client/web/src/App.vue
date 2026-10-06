@@ -15,8 +15,24 @@ import Composer from './components/Composer.vue'
 import PlanPanel from './components/PlanPanel.vue'
 import PreviewPane from './components/PreviewPane.vue'
 import TraceDialog from './components/TraceDialog.vue'
+import ShortcutsDialog from './components/ShortcutsDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
-import { addFiles, current, currentState, init, newConversation, state } from './store'
+import {
+  addFiles,
+  closePreview,
+  current,
+  currentState,
+  init,
+  newConversation,
+  openConversation,
+  openPreview,
+  setFontScale,
+  state,
+  stepFontScale,
+  toggleMaximize,
+  stop,
+} from './store'
+import { loadShortcuts, registerShortcut, startShortcuts } from './shortcuts'
 
 const { t } = useI18n()
 const composer = ref<InstanceType<typeof Composer>>()
@@ -34,6 +50,58 @@ const narrow = computed(() => width.value < 760)
 const showPlan = computed(() => width.value >= 1100 && (currentState.value?.plan.length ?? 0) > 0)
 /** 有当前对话时显示对话视图，否则显示新任务首页 */
 const inConversation = computed(() => current.value !== null)
+
+/**
+ * 把命令表里的 id 接到实际动作上。
+ * 加一条快捷键时在这里补一行即可——按键本身、冲突检测、改键界面都已经是现成的。
+ */
+function wireShortcuts() {
+  registerShortcut('conversation.new', () => void newConversation())
+  registerShortcut('conversation.prev', () => moveConversation(-1))
+  registerShortcut('conversation.next', () => moveConversation(1))
+  registerShortcut('chat.stop', () => {
+    if (state.trace) state.trace = null
+    else if (state.preview) closePreview()
+    else if (currentState.value?.busy) void stop()
+  })
+  registerShortcut('chat.focusInput', () => composer.value?.focusInput())
+  registerShortcut('sidebar.toggle', toggleSidebar)
+  registerShortcut('preview.toggle', togglePreview)
+  registerShortcut('font.increase', () => stepFontScale(1))
+  registerShortcut('font.decrease', () => stepFontScale(-1))
+  registerShortcut('font.reset', () => void setFontScale(1))
+  registerShortcut('settings.open', () => (state.settingsOpen = true))
+  registerShortcut('skills.open', () => (state.skillsOpen = true))
+  registerShortcut('memory.open', () => (state.memoryOpen = true))
+  registerShortcut('schedules.open', () => (state.schedulesOpen = true))
+  registerShortcut('usage.open', () => (state.usageOpen = true))
+  registerShortcut('window.fullscreen', () => void toggleMaximize())
+}
+
+/** 上一个 / 下一个任务 */
+function moveConversation(step: number) {
+  const list = state.conversations
+  if (list.length === 0) return
+  const i = list.findIndex((c) => c.id === state.currentId)
+  const next = list[Math.min(Math.max((i < 0 ? 0 : i) + step, 0), list.length - 1)]
+  if (next) void openConversation(next.id)
+}
+
+/** 右侧分屏：有内容就收起，没有就打开最近一次任务产出的第一个可预览文件 */
+function togglePreview() {
+  if (state.preview) {
+    closePreview()
+    return
+  }
+  const messages = currentState.value?.messages ?? []
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const file = (messages[i].outputs ?? []).find((f) => f.previewable && f.exists)
+    if (file) {
+      void openPreview(file)
+      return
+    }
+  }
+}
 
 function toggleSidebar() {
   if (narrow.value) drawer.value = !drawer.value
@@ -79,6 +147,9 @@ onMounted(async () => {
   window.addEventListener('keydown', onKey)
   try {
     await init()
+    wireShortcuts()
+    await loadShortcuts()
+    startShortcuts()
     ready.value = true
   } catch (e) {
     initError.value = e instanceof Error ? e.message : String(e)
@@ -133,6 +204,7 @@ onBeforeUnmount(() => {
     </div>
 
     <TraceDialog v-if="state.trace" />
+    <ShortcutsDialog v-if="state.shortcutsOpen" />
     <SettingsDialog v-if="state.settingsOpen" />
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />
     <MemoryDialog v-if="state.memoryOpen" />

@@ -43,7 +43,7 @@ const label = computed(() => {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--ink-soft);
 }
 .line span:first-of-type {

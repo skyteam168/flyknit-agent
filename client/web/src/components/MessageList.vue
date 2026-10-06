@@ -642,7 +642,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
 }
 .md :deep(pre.rich-block.rendering)::after {
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   content: '正在绘制…';
 }
 .md :deep(pre.rich-block svg) {
@@ -656,12 +656,12 @@ const isImage = (mime: string) => mime.startsWith('image/')
 .md :deep(pre.rich-block .rich-error) {
   margin-bottom: 8px;
   color: var(--amber-ink, #9a6b00);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
 }
 .md :deep(pre.rich-block code) {
   display: block;
   overflow-x: auto;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   white-space: pre;
 }
 .md :deep(pre.code) {
@@ -695,7 +695,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
   padding: 12px 14px;
   overflow-x: auto;
   background: none;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   line-height: 1.6;
 }
 .md :deep(table) {

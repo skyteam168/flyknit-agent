@@ -161,7 +161,7 @@ function onToggle(toggle: () => void) {
   background: var(--chip);
   color: var(--ink-faint);
   font-style: normal;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 400;
 }
 .text small {

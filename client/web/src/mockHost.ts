@@ -142,6 +142,8 @@ export function createMockHost(): HostTransport {
     emit({ type: 'context.compacting', conversationId, phase: 'done', percent: 100, messages: 34 })
   }
 
+  const mockShortcuts = [{"id": "conversation.new", "group": "task", "binding": "Ctrl+N", "default": "Ctrl+N", "global": false, "fixed": false, "customized": false}, {"id": "conversation.prev", "group": "task", "binding": "Ctrl+[", "default": "Ctrl+[", "global": false, "fixed": false, "customized": false}, {"id": "conversation.next", "group": "task", "binding": "Ctrl+]", "default": "Ctrl+]", "global": false, "fixed": false, "customized": false}, {"id": "conversation.rename", "group": "task", "binding": "F2", "default": "F2", "global": false, "fixed": false, "customized": false}, {"id": "conversation.delete", "group": "task", "binding": "Ctrl+Delete", "default": "Ctrl+Delete", "global": false, "fixed": false, "customized": false}, {"id": "chat.send", "group": "chat", "binding": "Enter", "default": "Enter", "global": false, "fixed": true, "customized": false}, {"id": "chat.newline", "group": "chat", "binding": "Shift+Enter", "default": "Shift+Enter", "global": false, "fixed": true, "customized": false}, {"id": "chat.stop", "group": "chat", "binding": "Escape", "default": "Escape", "global": false, "fixed": false, "customized": false}, {"id": "chat.search", "group": "chat", "binding": "Ctrl+F", "default": "Ctrl+F", "global": false, "fixed": false, "customized": false}, {"id": "chat.regenerate", "group": "chat", "binding": "Ctrl+R", "default": "Ctrl+R", "global": false, "fixed": false, "customized": false}, {"id": "chat.focusInput", "group": "chat", "binding": "Ctrl+L", "default": "Ctrl+L", "global": false, "fixed": false, "customized": false}, {"id": "sidebar.toggle", "group": "view", "binding": "Ctrl+B", "default": "Ctrl+B", "global": false, "fixed": false, "customized": false}, {"id": "preview.toggle", "group": "view", "binding": "Ctrl+Shift+B", "default": "Ctrl+Shift+B", "global": false, "fixed": false, "customized": false}, {"id": "font.increase", "group": "view", "binding": "Ctrl+=", "default": "Ctrl+=", "global": false, "fixed": false, "customized": false}, {"id": "font.decrease", "group": "view", "binding": "Ctrl+-", "default": "Ctrl+-", "global": false, "fixed": false, "customized": false}, {"id": "font.reset", "group": "view", "binding": "Ctrl+0", "default": "Ctrl+0", "global": false, "fixed": false, "customized": false}, {"id": "settings.open", "group": "panel", "binding": "Ctrl+,", "default": "Ctrl+,", "global": false, "fixed": false, "customized": false}, {"id": "skills.open", "group": "panel", "binding": "Ctrl+Shift+S", "default": "Ctrl+Shift+S", "global": false, "fixed": false, "customized": false}, {"id": "memory.open", "group": "panel", "binding": "Ctrl+Shift+M", "default": "Ctrl+Shift+M", "global": false, "fixed": false, "customized": false}, {"id": "schedules.open", "group": "panel", "binding": "Ctrl+Shift+T", "default": "Ctrl+Shift+T", "global": false, "fixed": false, "customized": false}, {"id": "usage.open", "group": "panel", "binding": "Ctrl+Shift+U", "default": "Ctrl+Shift+U", "global": false, "fixed": false, "customized": false}, {"id": "window.fullscreen", "group": "window", "binding": "F11", "default": "F11", "global": false, "fixed": false, "customized": false}, {"id": "window.toggle", "group": "window", "binding": "Ctrl+Alt+Space", "default": "Ctrl+Alt+Space", "global": true, "fixed": false, "customized": false}]
+
   const approvals: { id: string; tool: string; shell: string; prefix: string; scope: string; display: string; approvedAt: string; lastUsedAt: string; uses: number }[] = [
     { id: 'r1', tool: 'run_shell', shell: 'powershell', prefix: 'npm run', scope: 'D:\\工作区\\日报', display: 'npm run *', approvedAt: now(), lastUsedAt: now(), uses: 6 },
     { id: 'r2', tool: 'run_shell', shell: '*', prefix: 'git status', scope: '*', display: 'git status *', approvedAt: now(), lastUsedAt: now(), uses: 23 },
@@ -427,6 +429,14 @@ export function createMockHost(): HostTransport {
           theme: 'system',
           userName: 'nguyen.van.a',
           machineName: 'PC-QC-017',
+          notificationSound: 'none',
+          fontScale: 1,
+          autoStart: false,
+          proxyMode: 'system',
+          proxyUrl: '',
+          proxyUser: '',
+          dataDir: 'C:\\Users\\yangxiaowei\\AppData\\Roaming\\Flyknit',
+          shortcuts: mockShortcuts,
           connected: true,
           serverMessage: '',
           modelName: 'Qwen3.5-397B',
@@ -473,6 +483,40 @@ export function createMockHost(): HostTransport {
         return { ok: true, message: '' }
       case 'ui.activeConversation':
         return null
+      case 'shortcuts.list':
+        return mockShortcuts
+      case 'shortcuts.set': {
+        const hit = mockShortcuts.find((x) => x.id === p.id)
+        if (hit) { hit.binding = String(p.binding); hit.customized = true }
+        return { ok: true, reason: '', shortcuts: mockShortcuts }
+      }
+      case 'shortcuts.reset': {
+        for (const c of mockShortcuts) {
+          if (!p.id || c.id === p.id) { c.binding = c.default; c.customized = false }
+        }
+        return mockShortcuts
+      }
+      case 'settings.setFontScale':
+        return p.scale
+      case 'settings.setNotificationSound':
+        return null
+      case 'settings.setAutoStart':
+        return { ok: true, message: '', enabled: !!p.enabled }
+      case 'settings.setProxy':
+        return { ok: true, message: '' }
+      case 'settings.testProxy':
+        await sleep(800)
+        return { ok: true, message: '' }
+      case 'storage.openDataFolder':
+        return null
+      case 'storage.info':
+        await sleep(400)
+        return {
+          dataDir: 'C:\\Users\\yangxiaowei\\AppData\\Roaming\\Flyknit',
+          bytes: 740_100_000, files: 18240,
+          diskTotal: 512_000_000_000, diskUsed: 349_000_000_000, diskFree: 163_000_000_000,
+          workspace: 'C:\\Users\\yangxiaowei\\Documents\\Flyknit',
+        }
       case 'usage.stats':
         await sleep(300)
         return {

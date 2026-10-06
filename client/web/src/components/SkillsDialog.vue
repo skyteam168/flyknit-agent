@@ -407,7 +407,7 @@ h2 {
   background: var(--chip);
   color: var(--ink-faint);
   font-style: normal;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .body {
   flex: 1;
@@ -502,7 +502,7 @@ h2 {
   border-radius: 10px;
   background: var(--cloth-sunk);
   color: var(--ink-faint);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .state i {
   width: 6px;
@@ -591,7 +591,7 @@ dd.wrap {
   margin-left: 6px;
   padding: 1px 7px;
   border-radius: 9px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 .tag.req {
   background: var(--amber-wash);

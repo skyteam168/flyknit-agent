@@ -103,7 +103,7 @@ header {
 header h2 {
   flex: 1;
   margin: 0;
-  font-size: 16px;
+  font-size: calc(16px * var(--font-scale));
 }
 .ico {
   display: grid;
@@ -126,12 +126,12 @@ header h2 {
   padding: 0 22px 14px;
   border-bottom: 1px solid var(--line);
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
 }
 .stats strong {
   margin-right: 5px;
   color: var(--ink);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   font-variant-numeric: tabular-nums;
 }
 .stats .bad strong {
@@ -162,7 +162,7 @@ header h2 {
   flex: none;
   width: 22px;
   color: var(--ink-soft);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale));
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -184,7 +184,7 @@ li.blocked .ico-step {
 }
 .name {
   display: block;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 600;
 }
 .tag {
@@ -193,7 +193,7 @@ li.blocked .ico-step {
   border-radius: 999px;
   background: color-mix(in srgb, var(--rust, #c0392b) 14%, transparent);
   color: var(--rust, #c0392b);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-style: normal;
 }
 .sum {
@@ -201,7 +201,7 @@ li.blocked .ico-step {
   margin-top: 2px;
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -225,12 +225,12 @@ li.blocked .ico-step {
 }
 .ms {
   display: block;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   font-variant-numeric: tabular-nums;
 }
 .right small {
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
 }
 footer {
   display: flex;
@@ -242,6 +242,6 @@ footer {
 .hint {
   flex: 1;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
 }
 </style>
