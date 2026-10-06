@@ -425,7 +425,8 @@ cd client/web && npm install && npm run dev
 client\run.bat
 ```
 
-`run.bat` 每一步的输出都写进 `client\build.log`。任何一步失败窗口都会停住、把报错行挑出来显示，
+`run.bat` 会自动检查前端依赖是否跟得上 `package.json`（比对 `node_modules\.package-lock.json` 的时间戳），
+拉到新依赖时自动 `npm install`，不用手动装。每一步的输出都写进 `client\build.log`。任何一步失败窗口都会停住、把报错行挑出来显示，
 失败时把 `build.log` 发出来即可，不用截图。它开头还会检查源码是否完整——
 **源码必须解压到空文件夹**，覆盖旧目录会留下已删除或改名的文件，照样编译不过。
 

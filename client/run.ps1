@@ -98,8 +98,29 @@ foreach ($name in 'FlyknitBuddy', 'Flyknit') {
 # ---------- 3. 前端依赖 ----------
 Note '[3/5] 准备前端依赖...'
 Set-Location -LiteralPath (Join-Path $root 'web')
-if (-not (Test-Path -LiteralPath 'node_modules')) {
-    Write-Host '    第一次运行，正在下载依赖，可能要几分钟...'
+# 不能只看 node_modules 在不在：package.json 加了新依赖时目录也还在，
+# 直接跳过安装就会在编译时报 "Cannot find module"。
+# npm 装完会写 node_modules\.package-lock.json，拿它和 package.json / package-lock.json
+# 比时间戳，就能知道依赖是不是跟得上。
+$stamp = Join-Path 'node_modules' '.package-lock.json'
+$needInstall = $true
+$reason = '第一次运行，正在下载依赖，可能要几分钟...'
+# .package-lock.json 以点开头，算隐藏文件，Get-Item 要加 -Force 才读得到
+if ((Test-Path -LiteralPath 'node_modules') -and (Test-Path -LiteralPath $stamp)) {
+    $installedAt = (Get-Item -LiteralPath $stamp -Force).LastWriteTimeUtc
+    $newest = @('package.json', 'package-lock.json') |
+        Where-Object { Test-Path -LiteralPath $_ } |
+        ForEach-Object { (Get-Item -LiteralPath $_ -Force).LastWriteTimeUtc } |
+        Sort-Object -Descending | Select-Object -First 1
+    if ($newest -and $newest -le $installedAt) {
+        $needInstall = $false
+    } else {
+        $reason = '依赖有更新，正在安装...'
+    }
+}
+
+if ($needInstall) {
+    Write-Host "    $reason"
     if ((Invoke-Step 'npm install') -ne 0) {
         Set-Location -LiteralPath $root
         Stop-Here 'npm install 失败' "多半是网络或代理。公司网要先设代理：`n  npm config set proxy http://代理地址:端口`n  npm config set https-proxy http://代理地址:端口"
