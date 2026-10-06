@@ -120,7 +120,7 @@ def main() -> int:
     print(f"\n已创建账号：{user['username']}（{user['display_name']}）")
     print(f"  初始密码：{password}")
     print(f"  查看聊天正文：{'允许' if user['can_read_chats'] else '不允许'}")
-    print("\n把密码当面或通过私密渠道给本人，**首次登录会强制改密**——")
+    print("\n把密码当面或通过私密渠道给本人。首次登录会强制改密——")
     print("否则建号的人一直知道他的密码，审计记录就失去意义了。")
     if args.can_read_chats:
         print("\n提醒：这个账号能看到员工的对话内容，每次查看都会留痕，用 --access 可以查。")
