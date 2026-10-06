@@ -385,7 +385,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 {
                     return new { ok = false, message = "任务不存在" };
                 }
-                var (ok, message) = await _host.Scheduler.RunAsync(task, DateTimeOffset.Now, manual: true);
+                var (ok, message) = _host.Scheduler.Run(task, DateTimeOffset.Now, manual: true);
                 return new { ok, message, conversationId = task.LastConversationId };
             }
 

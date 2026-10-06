@@ -32,7 +32,7 @@ public sealed class ScheduleRunner : IDisposable
     public ScheduleRunner(AgentHost host)
     {
         _host = host;
-        _timer = new Timer(_ => _ = TickAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _timer = new Timer(_ => Tick(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
     private ScheduledTaskStore Store => _host.Store.Schedules;
@@ -63,7 +63,7 @@ public sealed class ScheduleRunner : IDisposable
         _timer.Change(TimeSpan.FromSeconds(10), Interval);
     }
 
-    private async Task TickAsync()
+    private void Tick()
     {
         if (Interlocked.Exchange(ref _ticking, 1) == 1)
         {
@@ -84,7 +84,7 @@ public sealed class ScheduleRunner : IDisposable
             }
             foreach (var task in due)
             {
-                await RunAsync(task, now, manual: false);
+                Run(task, now, manual: false);
             }
         }
         finally
@@ -93,8 +93,8 @@ public sealed class ScheduleRunner : IDisposable
         }
     }
 
-    /// <summary>立即运行一次（界面上的「运行」按钮，或到点自动触发）。</summary>
-    public async Task<(bool Ok, string Message)> RunAsync(ScheduledTask task, DateTimeOffset now, bool manual)
+    /// <summary>立即运行一次（界面上的「运行」按钮，或到点自动触发）。只负责把任务发出去，不等它跑完。</summary>
+    public (bool Ok, string Message) Run(ScheduledTask task, DateTimeOffset now, bool manual)
     {
         if (task.Instructions.Trim().Length == 0)
         {
