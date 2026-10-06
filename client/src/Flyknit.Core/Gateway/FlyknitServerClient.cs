@@ -166,6 +166,18 @@ public sealed class FlyknitServerClient : IChatGateway
         return await resp.Content.ReadFromJsonAsync<ClientConfig>(cancellationToken: ct) ?? new ClientConfig();
     }
 
+    /// <summary>
+    /// 上报本机信息，供后台做资产台账。注册时采的那一份很快就过时了——IP 跟着
+    /// DHCP 变，用户换人登录，客户端会升级——所以每次拉配置后都重报一次。
+    /// </summary>
+    public async Task ReportMachineAsync(MachineInfo info, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/devices/heartbeat");
+        req.Content = JsonContent.Create(info);
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
     /// <summary>输入框可选择的模型。</summary>
     public async Task<List<ClientModel>> GetModelsAsync(CancellationToken ct)
     {

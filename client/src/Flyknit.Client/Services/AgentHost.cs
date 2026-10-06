@@ -176,8 +176,32 @@ public sealed class AgentHost : IDisposable
             ServerMessage = agent is { Available: true } ? "" : "服务端尚未配置模型";
             ModelName = agent?.ModelName ?? "";
             _configTimer.Change(TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
+            // 顺带把本机信息报上去。配置拉得到就说明在线，两件事本来就是同一个信号。
+            // 失败不影响对话，所以吞掉异常，不改 Connected。
+            try
+            {
+                var version = typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
+                var info = MachineInfo.Collect(version, _settings.ResolveUiLanguage());
+                await Server.ReportMachineAsync(info, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"上报本机信息失败：{ex.Message}");
+            }
             // 同步公司技能库里管理员标记为必装的技能
             _ = SkillManager.SyncRequiredAsync(CancellationToken.None);
+        }
+        catch (GatewayException ex) when (ex.StatusCode is 401 or 403)
+        {
+            // 管理端把这台机器停用了，或者令牌被吊销。以前这里只会显示「连接失败」，
+            // 用户和 IT 都看不出发生了什么，所以单独说清楚。
+            Connected = false;
+            ServerMessage = ex.StatusCode == 403
+                ? $"本机已被管理员停用。{ex.Message}"
+                : "本机的注册信息已失效，请联系 IT 重新注册这台电脑。";
+            Log.Warn($"设备认证被拒（HTTP {ex.StatusCode}）：{ex.Message}");
+            // 这种状态重试再快也没用，退到十分钟一次
+            _configTimer.Change(TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
         }
         catch (Exception ex)
         {

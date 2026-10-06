@@ -4,7 +4,7 @@ import hmac
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from ..schemas import (
     ClientModelOut,
     DeviceRegisterIn,
     DeviceRegisterOut,
+    MachineInfoIn,
     SceneInfo,
 )
 from ..services import model_router, skill_library, usage_store
@@ -51,6 +52,36 @@ async def register_device(data: DeviceRegisterIn, session: AsyncSession = Depend
     session.add(device)
     await session.commit()
     return DeviceRegisterOut(device_id=device.id, token=token)
+
+
+def _client_ip(request: Request) -> str:
+    """看到的来源地址。经过反向代理时取 X-Forwarded-For 的第一跳。"""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:64]
+    return (request.client.host if request.client else "")[:64]
+
+
+@router.post("/devices/heartbeat", status_code=204)
+async def heartbeat(
+    data: MachineInfoIn,
+    request: Request,
+    device: Device = Depends(require_device),
+    session: AsyncSession = Depends(get_session),
+):
+    """客户端每次拉完配置顺带上报一次，让台账跟着 DHCP、换人、升级一起动。"""
+    # 空字符串表示这次没采到，不要用它覆盖掉上次采到的好数据
+    for field in ("machine_name", "user_name", "domain", "os_version", "client_version", "ui_language"):
+        value = getattr(data, field, "")
+        if value:
+            setattr(device, field, value[:200])
+    if data.ip_addresses:
+        device.ip_addresses = ",".join(data.ip_addresses)[:300]
+    if data.mac_address:
+        device.mac_address = data.mac_address[:64]
+    # 这个不听客户端的，以服务端看到的为准
+    device.observed_ip = _client_ip(request)
+    await session.commit()
 
 
 @router.get("/client/config", response_model=ClientConfigOut)

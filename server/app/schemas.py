@@ -90,6 +90,19 @@ class DeviceRegisterIn(BaseModel):
     ui_language: str = "zh-CN"
 
 
+class MachineInfoIn(BaseModel):
+    """客户端定期上报的本机信息。全部可选——采不到的字段不该让整次上报失败。"""
+
+    machine_name: str = ""
+    user_name: str = ""
+    domain: str = ""
+    os_version: str = ""
+    client_version: str = ""
+    ui_language: str = ""
+    ip_addresses: list[str] = Field(default_factory=list, max_length=16)
+    mac_address: str = ""
+
+
 class DeviceRegisterOut(BaseModel):
     device_id: int
     token: str
@@ -107,6 +120,10 @@ class DeviceOut(BaseModel):
     disabled: bool
     created_at: datetime
     last_seen: datetime | None
+    domain: str = ""
+    ip_addresses: str = ""
+    observed_ip: str = ""
+    mac_address: str = ""
 
 
 class DevicePatch(BaseModel):

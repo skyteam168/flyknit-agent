@@ -67,6 +67,14 @@ class Device(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # 资产台账：客户端定期重报，不是注册时采一次就完
+    domain: Mapped[str] = mapped_column(String(200), default="")
+    #: 客户端自己枚举的内网地址，逗号分隔（多网卡很常见）
+    ip_addresses: Mapped[str] = mapped_column(String(300), default="")
+    #: 服务端从连接上看到的地址。客户端伪造不了，跨 NAT 时和上面那列不一样
+    observed_ip: Mapped[str] = mapped_column(String(64), default="")
+    mac_address: Mapped[str] = mapped_column(String(64), default="")
+
 
 class Setting(Base):
     """键值配置：policy、smb 等。"""

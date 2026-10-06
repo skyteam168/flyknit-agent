@@ -46,7 +46,21 @@ public sealed class AppSettings
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     public string ServerUrl { get; set; } = "";
+
+    /// <summary>
+    /// 设备令牌。内存里是明文，落盘时用 DPAPI 包一层——它等同于这台机器的身份，
+    /// 和代理密码一样不该以明文躺在 settings.json 里。
+    /// </summary>
+    [JsonIgnore]
     public string DeviceToken { get; set; } = "";
+
+    /// <summary>落盘用。老版本升上来时文件里是明文，读出来照用，下次保存自动包上。</summary>
+    [JsonPropertyName("deviceToken")]
+    public string DeviceTokenStored
+    {
+        get => DataProtection.Protect(DeviceToken);
+        set => DeviceToken = DataProtection.Unprotect(value);
+    }
 
     /// <summary>zh-CN / vi-VN / en-US；为空时按 Windows 区域自动选择。</summary>
     public string UiLanguage { get; set; } = "";
@@ -101,7 +115,16 @@ public sealed class AppSettings
     public string ProxyUrl { get; set; } = "";
 
     public string ProxyUser { get; set; } = "";
+
+    [JsonIgnore]
     public string ProxyPassword { get; set; } = "";
+
+    [JsonPropertyName("proxyPassword")]
+    public string ProxyPasswordStored
+    {
+        get => DataProtection.Protect(ProxyPassword);
+        set => ProxyPassword = DataProtection.Unprotect(value);
+    }
 
     /// <summary>通知提示音：none / soft / alert。</summary>
     public string NotificationSound { get; set; } = "none";

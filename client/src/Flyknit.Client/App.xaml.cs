@@ -57,6 +57,10 @@ public partial class App : Application
         }
         ListenForActivation();
 
+        // 先把数据目录标记为加密，再去读设置、开数据库——之后新建的库文件、WAL、
+        // journal 都会自动继承这个属性。老用户升上来时目录里已经有明文文件，单独补一遍。
+        ProtectDataAtRest();
+
         _settings = AppSettings.Load();
         NativeStrings.Language = _settings.ResolveUiLanguage();
 
@@ -372,6 +376,35 @@ public partial class App : Application
 
     [DllImport("user32.dll")]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    // ---------- 本地数据保护 ----------
+
+    /// <summary>
+    /// 把本地数据目录标记为加密。对手是「拿本机管理员账号把 history.db 拷走，
+    /// 用 SQLite 工具读完所有对话」——加密之后拷出去的是密文，换个账号也解不开。
+    /// 加不上就算了（家庭版、FAT32、组策略禁用），功能照常，只是不加密。
+    /// </summary>
+    private static void ProtectDataAtRest()
+    {
+        try
+        {
+            var dataDir = Path.GetDirectoryName(AppPaths.Database)!;
+            if (!DataProtection.ProtectDirectory(dataDir))
+            {
+                return;
+            }
+            DataProtection.ProtectDirectory(AppPaths.Memory);
+            // 升级场景：目录属性不会追溯已有文件，把库和记忆补加密一遍
+            DataProtection.ProtectExisting(dataDir);
+            DataProtection.ProtectExisting(AppPaths.Memory);
+            DataProtection.ProtectExisting(AppPaths.Root, "settings.json", "approval-rules.json");
+        }
+        catch (Exception ex)
+        {
+            // 这一步失败绝不能挡住启动
+            Log.Warn($"本地数据加密未生效：{ex.Message}");
+        }
+    }
 
     // ---------- 单实例激活 ----------
 
