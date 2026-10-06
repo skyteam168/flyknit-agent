@@ -116,8 +116,24 @@ def main() -> int:  # noqa: C901
         if r.status_code == 403:
             print("管理员令牌无效：服务端用的令牌和本机 server/.env 不一致。改完 .env 要重启服务端。")
             sys.exit(1)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            # 把服务端自己的说明打出来，比抛一串 traceback 有用
+            try:
+                detail = r.json().get("detail") or r.text
+            except ValueError:
+                detail = r.text
+            print(f"\n服务端拒绝了 {method} {path}（HTTP {r.status_code}）：{str(detail)[:300]}")
+            sys.exit(1)
         return r.json() if r.content else None
+
+    # asr 是新加的场景。服务端如果还跑着旧代码就不认它，这里先确认，
+    # 免得提供方和模型都建好了才在最后一步失败，留下半截配置。
+    if "asr" not in {r["scene"] for r in call("GET", "/routes")}:
+        print("服务端还在跑旧代码——它的场景列表里没有 asr，配置写不进去。")
+        print("请到服务端那个窗口按 Ctrl+C 停掉，然后重新启动：")
+        print("  python -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
+        print("（代码已经拉下来了，但正在运行的进程还是启动时加载的那份，必须重启才生效。）")
+        return 1
 
     def show() -> int:
         route = next((r for r in call("GET", "/routes") if r["scene"] == "asr"), None)
