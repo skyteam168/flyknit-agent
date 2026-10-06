@@ -77,6 +77,21 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
         });
     }
 
+    /// <summary>安全中心要显示的全部条目。锁住的也要显示——让用户看见自己被什么规则管着。</summary>
+    private object SecurityList() => _host.Security.Items
+        .Select(kv => new
+        {
+            key = kv.Key,
+            value = kv.Value.Value,
+            locked = kv.Value.Locked,
+            kind = kv.Value.Kind,
+            title = kv.Value.Title,
+            risk = kv.Value.Risk,
+            min = kv.Value.Min,
+            max = kv.Value.Max,
+        })
+        .ToList();
+
     // ---------- 宿主 → 页面 ----------
 
     public void Post(object evt) => Send(new { kind = "event", @event = evt });
@@ -248,6 +263,30 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     maximized = _window.IsMaximized,
                     micAvailable = SpeechService.Available(), // 没有麦克风就不显示语音按钮
                 };
+
+            case "security.settings":
+                return SecurityList();
+
+            case "security.setItem":
+            {
+                // 锁住的项在这里就拒掉。界面上置灰只是提示，不能只靠界面拦。
+                var key = Str("key");
+                object value = p.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
+                    ? v.GetInt32()
+                    : Bool("value");
+                if (!_host.Security.TrySet(key, value, out var why))
+                {
+                    return new { ok = false, message = why, items = SecurityList() };
+                }
+                _settings.SecurityChoices = _host.Security.LocalChanges();
+                _settings.Save();
+                _host.RefreshSecurity();
+                return new { ok = true, message = "", items = SecurityList() };
+            }
+
+            case "security.openBackups":
+                StorageUsage.Open(AppPaths.Backups);
+                return null;
 
             case "speech.start":
                 try

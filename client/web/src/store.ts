@@ -74,6 +74,7 @@ export const state = reactive({
   autoPreview: true,
   /** 正在查看的执行链路 */
   trace: null as TraceInfo | null,
+  securityOpen: false,
   shortcutsOpen: false,
   shortcuts: [] as ShortcutInfo[],
   fontScale: 1,

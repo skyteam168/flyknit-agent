@@ -374,6 +374,21 @@ export interface AppInfo {
   micAvailable: boolean
 }
 
+/** 安全中心里的一项 */
+export interface SecurityItem {
+  key: string
+  value: boolean | number
+  /** true = 由 IT 统一配置，本机改不了 */
+  locked: boolean
+  /** bool / int */
+  kind: string
+  title: string
+  /** 关掉它的后果。用户要关时原样显示 */
+  risk: string
+  min: number | null
+  max: number | null
+}
+
 /** 一次语音输入的结果。失败时 reason 说明原因，界面据此给不同的提示 */
 export interface SpeechResult {
   ok: boolean

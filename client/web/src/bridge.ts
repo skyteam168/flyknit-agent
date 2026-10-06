@@ -31,6 +31,7 @@ import type {
   HostEvent,
   Mode,
   ModelInfo,
+  SecurityItem,
   SkillInfo,
   SpeechResult,
   Theme,
@@ -204,6 +205,12 @@ class Bridge {
   setShortcut = (id: string, binding: string) =>
     this.call<{ ok: boolean; reason: string; conflictsWith?: string; shortcuts?: ShortcutInfo[] }>('shortcuts.set', { id, binding })
   resetShortcuts = (id?: string) => this.call<ShortcutInfo[]>('shortcuts.reset', { id })
+
+  /** 安全中心：读取全部条目 / 改一项（锁住的会被宿主拒绝） */
+  securitySettings = () => this.call<SecurityItem[]>('security.settings', {})
+  setSecurityItem = (key: string, value: boolean | number) =>
+    this.call<{ ok: boolean; message: string; items: SecurityItem[] }>('security.setItem', { key, value })
+  openBackupFolder = () => this.call<void>('security.openBackups', {})
 
   /** 语音输入：开始录音 / 停止并转写 / 放弃 */
   startSpeech = () => this.call<{ ok: boolean; reason?: string; message?: string }>('speech.start', {})

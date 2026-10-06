@@ -352,6 +352,61 @@ const zh = {
         'window_toggle': '唤起 / 隐藏主窗口',
       },
     },
+    security: {
+      title: '安全中心',
+      subtitle: '这台电脑上 AI 能做什么、数据会怎样，都在这里',
+      open: '打开安全中心',
+      loading: '正在读取…',
+      unavailable: '还没有拿到安全设置，请确认已连上服务器',
+      managedCount: '{n} 项由 IT 配置',
+      managedBy: '由 IT 统一配置，本机不能修改',
+      yours: '这一项你可以自己改',
+      openBackups: '打开备份目录',
+      auditHint: '最近被拦下来的操作。想知道为什么被拦，看这里。',
+      confirmTitle: '确定要关闭「{name}」吗？',
+      willBeLogged: '这次关闭会记录下来。',
+      keepOn: '不关了',
+      turnOff: '仍然关闭',
+      footer: '带锁的项由 IT 统一配置。需要调整请联系 IT。',
+      groups: {
+        sandbox: 'AI 能做什么',
+        data: '数据与删除',
+        notify: '通知',
+        audit: '最近拦截',
+      },
+      // 条目文案服务端只有中文，三种语言各自在这里翻一份。服务端以后新加的项如果
+      // 没翻到，界面退回服务端那句中文，不会变成空白
+      items: {
+        auto_backup: {
+          title: '修改文件前自动备份',
+          risk: '关闭后 AI 覆盖文件将无法还原。删除仍会进回收站，但覆盖写不会。',
+        },
+        backup_quota_mb: { title: '备份容量上限（MB）', risk: '调小之后较早的备份会被提前清掉。' },
+        notifications: { title: '任务完成通知', risk: '关闭后任务跑完不会提醒，需要自己回来看。' },
+        notification_sound: { title: '通知提示音', risk: '' },
+        sandbox: {
+          title: '工作区隔离',
+          risk: '关闭后 AI 可以在工作区之外读写文件。危险命令仍会拦截，但范围限制没有了。',
+        },
+        command_policy: {
+          title: '命令安全策略',
+          risk: '关闭后不再按规则拦截危险命令，所有命令只靠你每次确认。',
+        },
+        delete_protection: {
+          title: '删除保护（回收站）',
+          risk: '关闭后 AI 删除的文件直接永久删除，不进回收站，无法恢复。',
+        },
+        network_allowlist: { title: '网络访问白名单', risk: '关闭后 AI 可以访问任意网址。' },
+        system_tools: {
+          title: '系统级工具（wmic / sc / reg / schtasks）',
+          risk: '开启后 AI 可以调用这些工具，它们能绕过一部分文件和进程限制。',
+        },
+        batch_delete_threshold: {
+          title: '批量删除确认阈值',
+          risk: '调大之后，一次删除更多文件也不再额外确认。',
+        },
+      },
+    },
     speech: {
       start: '按住说话（点一下开始，再点结束）',
       cancel: '取消录音',
@@ -869,6 +924,68 @@ const vi: Messages = {
         'window_toggle': 'Hiện / ẩn cửa sổ chính',
       },
     },
+    security: {
+      title: 'Trung tâm bảo mật',
+      subtitle: 'AI làm được gì trên máy này và dữ liệu sẽ ra sao đều ở đây',
+      open: 'Mở trung tâm bảo mật',
+      loading: 'Đang tải…',
+      unavailable: 'Chưa nhận được cấu hình bảo mật, kiểm tra kết nối máy chủ',
+      managedCount: '{n} mục do IT quản lý',
+      managedBy: 'Do IT cấu hình chung, máy này không sửa được',
+      yours: 'Mục này bạn tự đổi được',
+      openBackups: 'Mở thư mục sao lưu',
+      auditHint: 'Những thao tác vừa bị chặn. Muốn biết vì sao bị chặn thì xem ở đây.',
+      confirmTitle: 'Tắt «{name}»?',
+      willBeLogged: 'Lần tắt này sẽ được ghi lại.',
+      keepOn: 'Giữ nguyên',
+      turnOff: 'Vẫn tắt',
+      footer: 'Mục có khóa do IT cấu hình. Cần đổi thì liên hệ IT.',
+      groups: {
+        sandbox: 'AI làm được gì',
+        data: 'Dữ liệu và xóa',
+        notify: 'Thông báo',
+        audit: 'Vừa bị chặn',
+      },
+      items: {
+        auto_backup: {
+          title: 'Tự sao lưu trước khi sửa tệp',
+          risk: 'Tắt rồi thì tệp bị AI ghi đè không khôi phục được. Xóa vẫn vào thùng rác, nhưng ghi đè thì không.',
+        },
+        backup_quota_mb: {
+          title: 'Dung lượng sao lưu tối đa (MB)',
+          risk: 'Giảm xuống thì các bản sao lưu cũ bị dọn sớm hơn.',
+        },
+        notifications: {
+          title: 'Thông báo khi xong việc',
+          risk: 'Tắt rồi thì chạy xong không báo, phải tự quay lại xem.',
+        },
+        notification_sound: { title: 'Âm báo', risk: '' },
+        sandbox: {
+          title: 'Giới hạn trong thư mục làm việc',
+          risk: 'Tắt rồi thì AI đọc ghi được cả ngoài thư mục làm việc. Lệnh nguy hiểm vẫn bị chặn, nhưng hết giới hạn phạm vi.',
+        },
+        command_policy: {
+          title: 'Chính sách an toàn lệnh',
+          risk: 'Tắt rồi thì không còn chặn lệnh nguy hiểm theo quy tắc, mọi lệnh chỉ dựa vào bạn xác nhận từng lần.',
+        },
+        delete_protection: {
+          title: 'Bảo vệ khi xóa (thùng rác)',
+          risk: 'Tắt rồi thì tệp AI xóa mất luôn, không vào thùng rác, không khôi phục được.',
+        },
+        network_allowlist: {
+          title: 'Danh sách trang được phép truy cập',
+          risk: 'Tắt rồi thì AI vào được mọi địa chỉ web.',
+        },
+        system_tools: {
+          title: 'Công cụ hệ thống (wmic / sc / reg / schtasks)',
+          risk: 'Bật lên thì AI gọi được các công cụ này, chúng vượt qua được một phần giới hạn tệp và tiến trình.',
+        },
+        batch_delete_threshold: {
+          title: 'Ngưỡng xác nhận khi xóa hàng loạt',
+          risk: 'Tăng lên thì xóa nhiều tệp hơn một lần cũng không hỏi lại.',
+        },
+      },
+    },
     speech: {
       start: 'Nhấn để nói (nhấn lần nữa để kết thúc)',
       cancel: 'Hủy ghi âm',
@@ -1382,6 +1499,68 @@ const en: Messages = {
         'usage_open': 'Open usage',
         'window_fullscreen': 'Maximize / restore',
         'window_toggle': 'Show / hide main window',
+      },
+    },
+    security: {
+      title: 'Security',
+      subtitle: 'What the AI can do on this computer, and what happens to your files',
+      open: 'Open security',
+      loading: 'Loading…',
+      unavailable: 'No security settings yet — check the server connection',
+      managedCount: '{n} set by IT',
+      managedBy: 'Set by IT — cannot be changed on this computer',
+      yours: 'This one is yours to change',
+      openBackups: 'Open backup folder',
+      auditHint: 'Recently blocked actions. This is where to look when something was refused.',
+      confirmTitle: 'Turn off "{name}"?',
+      willBeLogged: 'Turning this off is recorded.',
+      keepOn: 'Keep it on',
+      turnOff: 'Turn it off',
+      footer: 'Items with a padlock are set by IT. Contact IT to change them.',
+      groups: {
+        sandbox: 'What the AI can do',
+        data: 'Files and deletion',
+        notify: 'Notifications',
+        audit: 'Recently blocked',
+      },
+      items: {
+        auto_backup: {
+          title: 'Keep a copy before changing a file',
+          risk: 'Once off, files the AI overwrites cannot be restored. Deletions still go to the Recycle Bin, but overwrites do not.',
+        },
+        backup_quota_mb: {
+          title: 'Backup size limit (MB)',
+          risk: 'Lowering this clears older backups sooner.',
+        },
+        notifications: {
+          title: 'Notify me when a task finishes',
+          risk: 'Once off, nothing tells you a task has finished — you have to come back and look.',
+        },
+        notification_sound: { title: 'Notification sound', risk: '' },
+        sandbox: {
+          title: 'Keep the AI inside the workspace',
+          risk: 'Once off, the AI can read and write files outside the workspace. Dangerous commands are still blocked, but the boundary is gone.',
+        },
+        command_policy: {
+          title: 'Command safety rules',
+          risk: 'Once off, dangerous commands are no longer blocked by rule — every command rests on you confirming it.',
+        },
+        delete_protection: {
+          title: 'Deletion protection (Recycle Bin)',
+          risk: 'Once off, files the AI deletes are gone for good — no Recycle Bin, no way back.',
+        },
+        network_allowlist: {
+          title: 'Website allowlist',
+          risk: 'Once off, the AI can reach any address on the web.',
+        },
+        system_tools: {
+          title: 'System tools (wmic / sc / reg / schtasks)',
+          risk: 'Once on, the AI can call these tools, which get around some of the file and process limits.',
+        },
+        batch_delete_threshold: {
+          title: 'Ask before deleting this many files',
+          risk: 'Raising this lets larger deletions run without asking.',
+        },
       },
     },
     speech: {

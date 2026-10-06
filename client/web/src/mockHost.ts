@@ -7,6 +7,20 @@ import type { AttachmentRef, Conversation, HostEvent, Mode, UiMessage } from './
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// 安全中心：锁住的那几项照着真实默认值来，开发预览里才看得出区别
+const mockSecurity = [
+  { key: 'sandbox', value: true, locked: true, kind: 'bool', title: '工作区隔离', risk: '关闭后 AI 可以在工作区之外读写文件。危险命令仍会拦截，但范围限制没有了。', min: null, max: null },
+  { key: 'command_policy', value: true, locked: true, kind: 'bool', title: '命令安全策略', risk: '关闭后不再按规则拦截危险命令，所有命令只靠你每次确认。', min: null, max: null },
+  { key: 'network_allowlist', value: true, locked: true, kind: 'bool', title: '网络访问白名单', risk: '关闭后 AI 可以访问任意网址。', min: null, max: null },
+  { key: 'system_tools', value: false, locked: false, kind: 'bool', title: '系统级工具（wmic / sc / reg / schtasks）', risk: '开启后 AI 可以调用这些工具，它们能绕过一部分文件和进程限制。', min: null, max: null },
+  { key: 'delete_protection', value: true, locked: true, kind: 'bool', title: '删除保护（回收站）', risk: '关闭后 AI 删除的文件直接永久删除，不进回收站，无法恢复。', min: null, max: null },
+  { key: 'auto_backup', value: true, locked: false, kind: 'bool', title: '修改文件前自动备份', risk: '关闭后 AI 覆盖文件将无法还原。删除仍会进回收站，但覆盖写不会。', min: null, max: null },
+  { key: 'backup_quota_mb', value: 512, locked: false, kind: 'int', title: '备份容量上限（MB）', risk: '调小之后较早的备份会被提前清掉。', min: 64, max: 20480 },
+  { key: 'batch_delete_threshold', value: 20, locked: true, kind: 'int', title: '批量删除确认阈值', risk: '调大之后，一次删除更多文件也不再额外确认。', min: 1, max: 10000 },
+  { key: 'notifications', value: true, locked: false, kind: 'bool', title: '任务完成通知', risk: '关闭后任务跑完不会提醒，需要自己回来看。', min: null, max: null },
+  { key: 'notification_sound', value: false, locked: false, kind: 'bool', title: '通知提示音', risk: '', min: null, max: null },
+]
+
 // 伪造录音的计时器（只在开发预览里用）
 let speechTimer: number | null = null
 let speechElapsed = 0
@@ -502,6 +516,17 @@ export function createMockHost(): HostTransport {
         return { ok: true, reason: '', shortcuts: mockShortcuts }
       }
       // 语音输入：开发预览里用定时器伪造响度和时长，走的事件和真宿主完全一样
+      case 'security.settings':
+        return mockSecurity
+      case 'security.setItem': {
+        const item = mockSecurity.find((i) => i.key === p.key)
+        if (!item) return { ok: false, message: '没有这一项设置', items: mockSecurity }
+        if (item.locked) return { ok: false, message: '这一项由 IT 统一配置，本机不能修改', items: mockSecurity }
+        item.value = p.value
+        return { ok: true, message: '', items: mockSecurity }
+      }
+      case 'security.openBackups':
+        return
       case 'speech.start':
         speechElapsed = 0
         speechTimer = setInterval(() => {

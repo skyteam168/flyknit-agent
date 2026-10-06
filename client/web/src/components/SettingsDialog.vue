@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FolderOpen, Keyboard, Loader, TerminalSquare, X } from '@lucide/vue'
+import { FolderOpen, Keyboard, Loader, ShieldCheck, TerminalSquare, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { uiLanguages } from '../i18n'
 import { setFontScale, setLanguage, setLearning, setNotifications, setTheme, state, toast } from '../store'
@@ -203,6 +203,14 @@ onMounted(async () => {
         <p class="hint">{{ t('settings.shortcutsHint') }}</p>
         <button type="button" class="btn" @click="state.shortcutsOpen = true">
           <Keyboard :size="15" /> {{ t('settings.openShortcuts') }}
+        </button>
+      </section>
+
+      <section>
+        <h3>{{ t('ui.security.title') }}</h3>
+        <p class="hint">{{ t('ui.security.subtitle') }}</p>
+        <button type="button" class="btn" @click="state.securityOpen = true">
+          <ShieldCheck :size="15" /> {{ t('ui.security.open') }}
         </button>
       </section>
       </div>

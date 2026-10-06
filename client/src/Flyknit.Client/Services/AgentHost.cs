@@ -61,6 +61,9 @@ public sealed class AgentHost : IDisposable
     /// <summary>
     /// 把安全设置落到实处。界面上置灰只是提示，真正的管控要在这里生效。
     /// </summary>
+    /// <summary>用户在安全中心改了可改的项之后，让它立刻生效。</summary>
+    public void RefreshSecurity() => ApplySecurity();
+
     private void ApplySecurity()
     {
         var quota = Security.Number(Flyknit.Core.Security.SecuritySettings.BackupQuotaMb, 512);
