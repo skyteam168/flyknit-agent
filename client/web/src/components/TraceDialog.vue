@@ -172,7 +172,7 @@ header h2 {
   color: var(--ink-soft);
 }
 li.model .ico-step {
-  color: var(--accent);
+  color: var(--indigo);
 }
 li.error .ico-step,
 li.blocked .ico-step {
@@ -217,7 +217,7 @@ li.blocked .ico-step {
   height: 100%;
   min-width: 2px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--indigo);
 }
 .right {
   flex: none;

@@ -55,6 +55,15 @@ public sealed class UsageStats
     [JsonPropertyName("contact_phone")] public string ContactPhone { get; set; } = "";
 }
 
+public sealed class TranscriptResult
+{
+    [JsonPropertyName("text")] public string Text { get; set; } = "";
+    [JsonPropertyName("language")] public string Language { get; set; } = "";
+    [JsonPropertyName("duration_seconds")] public int DurationSeconds { get; set; }
+    [JsonPropertyName("transport")] public string Transport { get; set; } = "";
+    [JsonPropertyName("model")] public string Model { get; set; } = "";
+}
+
 public sealed class SceneUsage
 {
     [JsonPropertyName("scene")] public string Scene { get; set; } = "";
@@ -185,6 +194,23 @@ public sealed class FlyknitServerClient : IChatGateway
         using var resp = await _http.SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<UsageStats>(cancellationToken: ct) ?? new UsageStats();
+    }
+
+    /// <summary>语音转文字。音频字节直接上传，上游地址和密钥都在服务端，客户端不碰。</summary>
+    public async Task<TranscriptResult> TranscribeAsync(byte[] audio, string format, string language, CancellationToken ct)
+    {
+        using var content = new MultipartFormDataContent();
+        var part = new ByteArrayContent(audio);
+        part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+        content.Add(part, "audio", $"clip.{format}");
+        content.Add(new StringContent(format), "audio_format");
+        content.Add(new StringContent(language ?? ""), "language");
+
+        using var req = Authorized(HttpMethod.Post, "api/v1/speech/transcribe");
+        req.Content = content;
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<TranscriptResult>(cancellationToken: ct) ?? new TranscriptResult();
     }
 
     /// <summary>公司技能库列表。</summary>

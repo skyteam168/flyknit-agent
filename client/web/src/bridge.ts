@@ -32,6 +32,7 @@ import type {
   Mode,
   ModelInfo,
   SkillInfo,
+  SpeechResult,
   Theme,
   UiLanguage,
   UiMessage,
@@ -203,6 +204,11 @@ class Bridge {
   setShortcut = (id: string, binding: string) =>
     this.call<{ ok: boolean; reason: string; conflictsWith?: string; shortcuts?: ShortcutInfo[] }>('shortcuts.set', { id, binding })
   resetShortcuts = (id?: string) => this.call<ShortcutInfo[]>('shortcuts.reset', { id })
+
+  /** 语音输入：开始录音 / 停止并转写 / 放弃 */
+  startSpeech = () => this.call<{ ok: boolean; reason?: string; message?: string }>('speech.start', {})
+  stopSpeech = (language: string) => this.call<SpeechResult>('speech.stop', { language })
+  cancelSpeech = () => this.call<void>('speech.cancel', {})
 
   /** 用系统默认应用打开 */
   launchFile = (path: string) => this.call<{ ok: boolean; message: string }>('files.launch', { path })

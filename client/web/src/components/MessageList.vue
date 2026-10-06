@@ -629,8 +629,8 @@ const isImage = (mime: string) => mime.startsWith('image/')
 }
 .trace-chip:hover,
 .trace-chip:focus-visible {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--indigo);
+  color: var(--indigo);
   outline: none;
 }
 

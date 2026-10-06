@@ -69,8 +69,8 @@ const contact = computed(() => {
   cursor: pointer;
 }
 .more:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--indigo);
+  color: var(--indigo);
 }
 .close {
   flex: none;

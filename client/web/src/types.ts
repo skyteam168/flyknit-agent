@@ -370,6 +370,17 @@ export interface AppInfo {
   dataDir: string
   shortcuts: ShortcutInfo[]
   maximized: boolean
+  /** 这台机器有没有麦克风。没有就不显示语音按钮 */
+  micAvailable: boolean
+}
+
+/** 一次语音输入的结果。失败时 reason 说明原因，界面据此给不同的提示 */
+export interface SpeechResult {
+  ok: boolean
+  text: string
+  /** device / tooShort / silent / empty / cancelled / failed */
+  reason: string
+  message: string
 }
 
 /** 界面上的工具卡片状态 */
@@ -420,6 +431,8 @@ export type HostEvent =
   | { type: 'plan.updated'; conversationId: string; plan: PlanItem[] }
   | { type: 'files.produced'; conversationId: string; files: OutputFile[] }
   | { type: 'chat.trace'; conversationId: string; messageId: string; trace: string }
+  | { type: 'speech.tick'; level: number; elapsedMs: number; maxMs: number }
+  | { type: 'speech.autoStop' }
   | { type: 'chat.notice'; conversationId: string; text: string }
   | {
       type: 'context.compacting'

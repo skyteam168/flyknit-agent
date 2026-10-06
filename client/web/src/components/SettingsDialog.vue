@@ -374,7 +374,7 @@ onMounted(async () => {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--thread, var(--accent));
+  background: var(--thread, var(--indigo));
 }
 .store-legend {
   display: flex;
@@ -392,7 +392,7 @@ onMounted(async () => {
   border-radius: 50%;
 }
 .dot.app {
-  background: var(--thread, var(--accent));
+  background: var(--thread, var(--indigo));
 }
 .dot.used {
   background: color-mix(in srgb, var(--ink) 35%, transparent);
@@ -407,7 +407,7 @@ onMounted(async () => {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--indigo);
   font-size: var(--t-xs);
   cursor: pointer;
 }
@@ -531,7 +531,7 @@ onMounted(async () => {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--thread, var(--accent));
+  background: var(--thread, var(--indigo));
 }
 .store-legend {
   display: flex;
@@ -549,7 +549,7 @@ onMounted(async () => {
   border-radius: 50%;
 }
 .dot.app {
-  background: var(--thread, var(--accent));
+  background: var(--thread, var(--indigo));
 }
 .dot.used {
   background: color-mix(in srgb, var(--ink) 35%, transparent);
@@ -564,7 +564,7 @@ onMounted(async () => {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--indigo);
   font-size: var(--t-xs);
   cursor: pointer;
 }

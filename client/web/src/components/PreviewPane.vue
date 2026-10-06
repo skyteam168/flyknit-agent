@@ -183,7 +183,7 @@ function onKeyResize(e: KeyboardEvent) {
   bottom: 0;
   left: 3px;
   width: 1px;
-  background: var(--accent);
+  background: var(--indigo);
   content: '';
 }
 header {
@@ -368,7 +368,7 @@ td.head {
   cursor: pointer;
 }
 .open:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--indigo);
+  color: var(--indigo);
 }
 </style>

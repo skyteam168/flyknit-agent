@@ -3,8 +3,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
-Scene = Literal["chat", "agent", "translate", "title", "vision"]
-SCENES: tuple[str, ...] = ("chat", "agent", "translate", "title", "vision")
+Scene = Literal["chat", "agent", "translate", "title", "vision", "asr"]
+# asr 是语音转文字，和对话模型不通用，所以它没有回退场景
+SCENES: tuple[str, ...] = ("chat", "agent", "translate", "title", "vision", "asr")
 
 
 # ---------- 模型提供方 ----------

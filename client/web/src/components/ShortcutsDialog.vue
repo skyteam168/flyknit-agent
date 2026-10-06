@@ -270,7 +270,7 @@ header h2 {
   background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
 .row.recording {
-  background: var(--indigo-wash, color-mix(in srgb, var(--accent) 10%, transparent));
+  background: var(--indigo-wash, color-mix(in srgb, var(--indigo) 10%, transparent));
 }
 .cmd {
   font-size: var(--t-sm);
@@ -279,8 +279,8 @@ header h2 {
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--indigo) 14%, transparent);
+  color: var(--indigo);
   font-size: calc(11px * var(--font-scale));
   font-style: normal;
 }

@@ -77,7 +77,68 @@ export const state = reactive({
   shortcutsOpen: false,
   shortcuts: [] as ShortcutInfo[],
   fontScale: 1,
+  /** 语音输入。idle 时不显示录音条 */
+  speech: { phase: 'idle', level: 0, elapsedMs: 0, maxMs: 180000 } as {
+    phase: 'idle' | 'recording' | 'working'
+    level: number
+    elapsedMs: number
+    maxMs: number
+  },
 })
+
+/** 转写出来的文字送到输入框（Composer 挂的这个事件） */
+const SpeechTextEvent = 'flyknit:speech-text'
+
+export function onSpeechText(handler: (text: string) => void) {
+  const fn = (e: Event) => handler((e as CustomEvent<string>).detail)
+  window.addEventListener(SpeechTextEvent, fn)
+  return () => window.removeEventListener(SpeechTextEvent, fn)
+}
+
+function resetSpeech() {
+  state.speech = { phase: 'idle', level: 0, elapsedMs: 0, maxMs: state.speech.maxMs }
+}
+
+/** 开始录音。麦克风打不开时直接提示，不进录音态。 */
+export async function startSpeech() {
+  if (state.speech.phase !== 'idle') return
+  const r = await bridge.startSpeech().catch(() => ({ ok: false, message: '' }))
+  if (!r?.ok) {
+    toast(r?.message || i18n.global.t('ui.speech.deviceError'))
+    return
+  }
+  state.speech = { phase: 'recording', level: 0, elapsedMs: 0, maxMs: state.speech.maxMs }
+}
+
+/** 停止录音并转写。识别到的文字通过事件交给输入框。 */
+export async function finishSpeech() {
+  if (state.speech.phase !== 'recording') return
+  state.speech = { ...state.speech, phase: 'working', level: 0 }
+  const r = await bridge
+    .stopSpeech(speechLanguage())
+    .catch(() => ({ ok: false, text: '', reason: 'failed', message: '' }))
+  resetSpeech()
+  if (r.ok && r.text) {
+    window.dispatchEvent(new CustomEvent(SpeechTextEvent, { detail: r.text }))
+    return
+  }
+  if (r.reason === 'cancelled') return
+  const key = ['tooShort', 'silent', 'empty', 'device'].includes(r.reason) ? r.reason : 'failed'
+  toast(r.message || i18n.global.t(`ui.speech.${key}`))
+}
+
+/** 放弃这次录音，什么都不发 */
+export function cancelSpeech() {
+  if (state.speech.phase === 'idle') return
+  resetSpeech()
+  void bridge.cancelSpeech().catch(() => {})
+}
+
+/** 界面语言就是用户说的话的语言，直接作为识别语言的提示 */
+function speechLanguage(): string {
+  const map: Record<string, string> = { 'zh-CN': 'zh', 'vi-VN': 'vi', 'en-US': 'en' }
+  return map[state.app?.uiLanguage ?? ''] ?? ''
+}
 
 /** 字号靠一个 CSS 变量统一放大缩小，各处的 rem 自动跟着变 */
 export function applyFontScale(scale: number) {
@@ -791,6 +852,18 @@ function onHostEvent(e: HostEvent) {
       if (!s.notices.includes(e.text)) s.notices.push(e.text)
       break
     }
+    case 'speech.tick': {
+      if (state.speech.phase === 'recording') {
+        // 响度取较大值再缓慢回落，不然竖条会抖得很难看
+        const level = Math.max(e.level, state.speech.level * 0.72)
+        state.speech = { phase: 'recording', level, elapsedMs: e.elapsedMs, maxMs: e.maxMs }
+      }
+      break
+    }
+    case 'speech.autoStop':
+      // 录满上限，自动收尾去识别
+      void finishSpeech()
+      break
     case 'chat.trace': {
       // 链路要整轮跑完才齐，而回答是边生成边推上来的，所以这里补挂到对应那条回答上
       const s = convState(e.conversationId)

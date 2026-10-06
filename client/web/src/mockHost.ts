@@ -6,6 +6,14 @@ import type { HostTransport } from './bridge'
 import type { AttachmentRef, Conversation, HostEvent, Mode, UiMessage } from './types'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// 伪造录音的计时器（只在开发预览里用）
+let speechTimer: number | null = null
+let speechElapsed = 0
+function stopSpeechTimer() {
+  if (speechTimer !== null) clearInterval(speechTimer)
+  speechTimer = null
+}
 const now = () => new Date().toISOString()
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -431,6 +439,7 @@ export function createMockHost(): HostTransport {
           theme: 'system',
           userName: 'nguyen.van.a',
           machineName: 'PC-QC-017',
+          micAvailable: true,
           notificationSound: 'none',
           fontScale: 1,
           autoStart: false,
@@ -492,6 +501,28 @@ export function createMockHost(): HostTransport {
         if (hit) { hit.binding = String(p.binding); hit.customized = true }
         return { ok: true, reason: '', shortcuts: mockShortcuts }
       }
+      // 语音输入：开发预览里用定时器伪造响度和时长，走的事件和真宿主完全一样
+      case 'speech.start':
+        speechElapsed = 0
+        speechTimer = setInterval(() => {
+          speechElapsed += 100
+          emit({
+            type: 'speech.tick',
+            level: 0.25 + 0.55 * Math.abs(Math.sin(speechElapsed / 420)),
+            elapsedMs: speechElapsed,
+            maxMs: 180000,
+          })
+        }, 100) as unknown as number
+        return { ok: true }
+      case 'speech.stop': {
+        stopSpeechTimer()
+        await sleep(700) // 装作在等服务端转写
+        if (speechElapsed < 400) return { ok: false, text: '', reason: 'tooShort', message: '' }
+        return { ok: true, text: '把九月的日报按月份整理到 D 盘', reason: '', message: '' }
+      }
+      case 'speech.cancel':
+        stopSpeechTimer()
+        return
       case 'shortcuts.reset': {
         for (const c of mockShortcuts) {
           if (!p.id || c.id === p.id) { c.binding = c.default; c.customized = false }

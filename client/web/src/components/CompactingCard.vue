@@ -62,7 +62,7 @@ const label = computed(() => {
 .fill {
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--indigo);
   transition: width 0.25s ease-out;
 }
 </style>

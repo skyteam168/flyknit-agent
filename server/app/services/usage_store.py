@@ -26,7 +26,7 @@ DEFAULT_QUOTA = {
 }
 
 # 统计里展示的场景（title 场景只是生成标题，并入对话）
-SCENES = ("agent", "chat", "translate", "vision", "title")
+SCENES = ("agent", "chat", "translate", "vision", "title", "asr")
 
 
 def today(tz_offset_hours: int = 8) -> str:
@@ -76,6 +76,20 @@ async def record(session: AsyncSession, device_id: int, scene: str, prompt: int,
         session.add(row)
     row.prompt_tokens += max(0, prompt)
     row.completion_tokens += max(0, completion)
+    row.requests += 1
+    await session.commit()
+
+
+async def record_request(session: AsyncSession, device_id: int, scene: str) -> None:
+    """只记一次调用，不计 token。语音转文字按音频时长计费，没有 token 可记。"""
+    day = today()
+    scene = scene if scene in SCENES else "chat"
+    row = await session.scalar(
+        select(UsageDaily).where(UsageDaily.device_id == device_id, UsageDaily.day == day, UsageDaily.scene == scene)
+    )
+    if row is None:
+        row = UsageDaily(device_id=device_id, day=day, scene=scene, prompt_tokens=0, completion_tokens=0, requests=0)
+        session.add(row)
     row.requests += 1
     await session.commit()
 

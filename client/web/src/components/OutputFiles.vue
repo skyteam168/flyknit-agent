@@ -97,8 +97,8 @@ function act(fn: (f: OutputFile) => unknown, f: OutputFile) {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--indigo) 12%, transparent);
+  color: var(--indigo);
 }
 /* 常见格式给个辨识色，加格式不用改这里也能正常显示 */
 .icon[data-ext='xlsx'],
@@ -152,8 +152,8 @@ function act(fn: (f: OutputFile) => unknown, f: OutputFile) {
 }
 .btn:hover,
 .btn.on {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--indigo);
+  color: var(--indigo);
 }
 .more {
   position: relative;
@@ -171,8 +171,8 @@ function act(fn: (f: OutputFile) => unknown, f: OutputFile) {
   cursor: pointer;
 }
 .chev:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--indigo);
+  color: var(--indigo);
 }
 .menu {
   position: absolute;

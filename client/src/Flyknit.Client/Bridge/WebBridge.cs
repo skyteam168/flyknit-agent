@@ -36,6 +36,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     /// <summary>按文件类型分派的预览实现。加一种格式只要注册一个 Provider。</summary>
     private readonly Flyknit.Core.Preview.PreviewRegistry _preview = Flyknit.Core.Preview.PreviewRegistry.CreateDefault();
 
+    /// <summary>语音输入。录音在本机，转写在服务端。</summary>
+    private readonly SpeechService _speech;
+
     /// <summary>等待用户确认的数量变化（悬浮球提示用）。</summary>
     public event Action<int>? PendingConfirmsChanged;
 
@@ -55,6 +58,16 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
         _web.WebMessageReceived += OnMessage;
         _host.AttachUi(this, this);
         _host.Scheduler.Changed += () => Post(new { type = "schedules.changed" });
+        _speech = new SpeechService(_host.Server);
+        // 录音时把响度和时长推给界面画动效。回调在音频线程上，Post 内部会切回 UI 线程
+        _speech.Tick += (level, elapsed) => Post(new
+        {
+            type = "speech.tick",
+            level,
+            elapsedMs = (long)elapsed.TotalMilliseconds,
+            maxMs = (long)Flyknit.Core.Speech.RecordingLimits.MaxDuration.TotalMilliseconds,
+        });
+        _speech.AutoStopped += () => Post(new { type = "speech.autoStop" });
         _host.StatusChanged += () => Post(new
         {
             type = "app.status",
@@ -233,7 +246,30 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     dataDir = AppPaths.Root,
                     shortcuts = ShortcutList(),
                     maximized = _window.IsMaximized,
+                    micAvailable = SpeechService.Available(), // 没有麦克风就不显示语音按钮
                 };
+
+            case "speech.start":
+                try
+                {
+                    _speech.Start();
+                    return new { ok = true };
+                }
+                catch (Services.Audio.AudioDeviceException ex)
+                {
+                    // 麦克风被占用、被禁用等等，消息本身就是中文，直接给界面显示
+                    return new { ok = false, reason = "device", message = ex.Message };
+                }
+
+            case "speech.stop":
+            {
+                var outcome = await _speech.StopAndTranscribeAsync(Str("language"));
+                return new { ok = outcome.Ok, text = outcome.Text, reason = outcome.Reason, message = outcome.Message };
+            }
+
+            case "speech.cancel":
+                _speech.Cancel();
+                return null;
 
             case "window.toggleMaximize":
                 return _window.ToggleMaximize();

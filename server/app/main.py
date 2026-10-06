@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__, db
 from .config import get_settings
-from .routers import admin, client, gateway
+from .routers import admin, client, gateway, speech
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -40,6 +40,7 @@ app.add_middleware(
 app.include_router(gateway.router)
 app.include_router(client.router)
 app.include_router(admin.router)
+app.include_router(speech.router)
 
 
 @app.get("/healthz", tags=["system"])

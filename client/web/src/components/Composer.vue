@@ -9,7 +9,9 @@ import {
   FileText,
   ImageIcon,
   Languages,
+  Loader2,
   MessageSquare,
+  Mic,
   Paperclip,
   Puzzle,
   Square,
@@ -23,7 +25,22 @@ import PermissionPicker from './PermissionPicker.vue'
 import ConfirmBar from './ConfirmBar.vue'
 import CompactingCard from './CompactingCard.vue'
 import UsageWarning from './UsageWarning.vue'
-import { addPastedImage, current, currentState, draftMode, pickFiles, send, setMode, setTranslate, state, stop } from '../store'
+import {
+  addPastedImage,
+  cancelSpeech,
+  current,
+  currentState,
+  draftMode,
+  finishSpeech,
+  onSpeechText,
+  pickFiles,
+  send,
+  setMode,
+  setTranslate,
+  startSpeech,
+  state,
+  stop,
+} from '../store'
 import type { Mode } from '../types'
 
 const props = defineProps<{ home?: boolean }>()
@@ -63,6 +80,17 @@ async function submit() {
 }
 
 function onKey(e: KeyboardEvent) {
+  // 录音时键盘先归录音条：回车结束并识别，Esc 放弃
+  if (speech.value.phase !== 'idle') {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelSpeech()
+    } else if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault()
+      if (speech.value.phase === 'recording') void finishSpeech()
+    }
+    return
+  }
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault()
     void submit()
@@ -100,6 +128,43 @@ function useSkill(name: string, close?: () => void) {
   })
 }
 
+// ---- 语音输入 ----
+const speech = computed(() => state.speech)
+const micReady = computed(() => state.app?.micAvailable !== false)
+
+/** 00:00 / 01:23 */
+const spoken = computed(() => {
+  const s = Math.floor(speech.value.elapsedMs / 1000)
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+})
+
+/** 快到上限时把计时变红，提醒用户收一下 */
+const nearLimit = computed(() => speech.value.maxMs > 0 && speech.value.elapsedMs > speech.value.maxMs - 20000)
+
+/** 一排竖条，中间高两头低，再乘上当前响度 */
+const bars = Array.from({ length: 13 }, (_, i) => 0.45 + 0.55 * Math.sin((Math.PI * (i + 1)) / 14))
+
+function barHeight(shape: number) {
+  const level = speech.value.phase === 'recording' ? speech.value.level : 0
+  return `${Math.round(3 + shape * level * 15)}px`
+}
+
+/** 识别出来的文字插到光标处，而不是覆盖已经打了一半的内容 */
+function insert(said: string) {
+  const el = box.value
+  const at = el ? (el.selectionStart ?? text.value.length) : text.value.length
+  const before = text.value.slice(0, at)
+  const after = text.value.slice(at)
+  const glue = before && !/\s$/.test(before) ? ' ' : ''
+  text.value = before + glue + said + after
+  const caret = (before + glue + said).length
+  void nextTick(() => {
+    resize()
+    el?.focus()
+    el?.setSelectionRange(caret, caret)
+  })
+}
+
 /** 由首页快捷入口或外部调用填入文字 */
 function fill(value: string) {
   text.value = value
@@ -116,11 +181,18 @@ function focusInput() {
 defineExpose({ fill, useSkill, focusInput })
 
 const focus = () => box.value?.focus()
+let offSpeech: (() => void) | null = null
 onMounted(() => {
   window.addEventListener('flyknit:focus-input', focus)
+  offSpeech = onSpeechText(insert)
   focus()
 })
-onBeforeUnmount(() => window.removeEventListener('flyknit:focus-input', focus))
+onBeforeUnmount(() => {
+  window.removeEventListener('flyknit:focus-input', focus)
+  offSpeech?.()
+  // 组件卸载时还在录，就别留着麦克风开着
+  if (state.speech.phase !== 'idle') cancelSpeech()
+})
 </script>
 
 <template>
@@ -147,6 +219,31 @@ onBeforeUnmount(() => window.removeEventListener('flyknit:focus-input', focus))
         @keydown="onKey"
         @paste="onPaste"
       />
+
+      <!-- 录音条：录音中盖住输入区，和打字互不干扰 -->
+      <div v-if="speech.phase !== 'idle'" class="recorder" role="status" aria-live="polite">
+        <span class="rec-ico" :class="{ live: speech.phase === 'recording' }">
+          <Mic v-if="speech.phase === 'recording'" :size="15" />
+          <Loader2 v-else :size="15" class="spin" />
+        </span>
+        <span class="wave" aria-hidden="true">
+          <i v-for="(shape, i) in bars" :key="i" :style="{ height: barHeight(shape) }" />
+        </span>
+        <span class="elapsed" :class="{ warn: nearLimit }">{{ spoken }}</span>
+        <span class="rec-hint">{{ t(speech.phase === 'recording' ? 'ui.speech.listening' : 'ui.speech.working') }}</span>
+        <button type="button" class="rec-btn" :title="t('ui.speech.cancel')" @click="cancelSpeech">
+          <X :size="15" />
+        </button>
+        <button
+          type="button"
+          class="rec-btn done"
+          :disabled="speech.phase !== 'recording'"
+          :title="t('ui.speech.finish')"
+          @click="finishSpeech"
+        >
+          <Check :size="15" />
+        </button>
+      </div>
 
       <div class="bar">
         <!-- 模式 -->
@@ -212,6 +309,17 @@ onBeforeUnmount(() => window.removeEventListener('flyknit:focus-input', focus))
         <button type="button" class="tool-btn icon-only" :title="t('input.attach')" @click="pickFiles">
           <Paperclip :size="17" />
         </button>
+        <button
+          v-if="micReady"
+          type="button"
+          class="tool-btn icon-only"
+          :class="{ on: speech.phase !== 'idle' }"
+          :disabled="offline || speech.phase === 'working'"
+          :title="t(speech.phase === 'idle' ? 'ui.speech.start' : 'ui.speech.cancel')"
+          @click="speech.phase === 'idle' ? startSpeech() : cancelSpeech()"
+        >
+          <Mic :size="17" />
+        </button>
         <button v-if="busy" type="button" class="send stop" :title="t('input.stop')" @click="stop">
           <Square :size="13" fill="currentColor" />
         </button>
@@ -238,6 +346,110 @@ onBeforeUnmount(() => window.removeEventListener('flyknit:focus-input', focus))
 .composer-wrap.home {
   padding: 0;
 }
+/* 录音条：跟着输入框的圆角走，像是从卡片里长出来的 */
+.recorder {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 12px 2px;
+  padding: 7px 8px 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--cloth-sunk);
+}
+.rec-ico {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: var(--ink-soft);
+}
+.rec-ico.live {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    background: color-mix(in srgb, var(--red) 30%, transparent);
+  }
+}
+.spin {
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* 说话时跳动的竖条。高度由实际响度算出来，不是固定动画 */
+.wave {
+  display: flex;
+  flex: none;
+  gap: 3px;
+  align-items: center;
+  height: 20px;
+}
+.wave i {
+  width: 3px;
+  min-height: 3px;
+  border-radius: 999px;
+  background: var(--indigo);
+  transition: height 110ms ease-out;
+}
+.elapsed {
+  flex: none;
+  color: var(--ink);
+  font-size: calc(13px * var(--font-scale));
+  font-variant-numeric: tabular-nums;
+}
+.elapsed.warn {
+  color: var(--red);
+}
+.rec-hint {
+  flex: 1;
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rec-btn {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--cloth);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.rec-btn:hover:not(:disabled) {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
+.rec-btn.done:hover:not(:disabled) {
+  border-color: var(--indigo);
+  color: var(--indigo);
+}
+.rec-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-ico.live,
+  .spin {
+    animation: none;
+  }
+  .wave i {
+    transition: none;
+  }
+}
+
 .card {
   max-width: var(--column);
   margin: 0 auto;
