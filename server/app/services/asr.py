@@ -73,7 +73,10 @@ class AsrTarget:
     api_key: str
     transport: str = "auto"  # inline / filetrans / auto
     language: str | None = None
+    #: 热词只对 inline 生效——它是拼进提示词里的。filetrans 接口不收这种形式的词表
     hotwords: list[str] = field(default_factory=list)
+    #: filetrans 要用热词得先在上游注册一份词表，这里填它的 id
+    vocabulary_id: str | None = None
     display_name: str = ""
 
     @property
@@ -209,6 +212,12 @@ async def _filetrans(client: httpx.AsyncClient, target: AsrTarget, audio: bytes,
     }
     if target.language:
         body["parameters"]["language_hints"] = [target.language]
+    # 这条路不收现拼的热词，只认上游注册好的词表
+    if target.vocabulary_id:
+        body["parameters"]["vocabulary_id"] = target.vocabulary_id
+    elif target.hotwords:
+        log.debug("filetrans 不支持内联热词，已忽略 %d 个词；需要的话去上游注册词表再填 asr_vocabulary_id",
+                  len(target.hotwords))
 
     submit = await client.post(
         f"{target.root}/api/v1/services/audio/asr/transcription", headers=headers, json=body
@@ -306,6 +315,20 @@ def _from_status(resp: httpx.Response, where: str) -> AsrError:
 def _should_fallback(exc: AsrError) -> bool:
     """inline 被拒，是“这个上游不吃内联音频”还是真的出错了？"""
     return not exc.retryable and bool(_UNSUPPORTED.search(str(exc)))
+
+
+#: 所有可用的通道，供探测脚本按顺序试
+TRANSPORTS = ("inline", "filetrans")
+
+
+async def try_transport(client: httpx.AsyncClient, target: AsrTarget, audio: bytes,
+                        fmt: str, transport: str) -> AsrResult:
+    """指定走哪条通道，不做任何回退。配置脚本用它逐条探测。"""
+    if transport == "inline":
+        return await _inline(client, target, audio, fmt)
+    if transport == "filetrans":
+        return await _filetrans(client, target, audio, fmt)
+    raise AsrError(f"未知的调用方式：{transport}")
 
 
 # 记住每个上游实际走通的是哪条路，避免每次都先试错一次

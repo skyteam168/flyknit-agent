@@ -43,6 +43,7 @@ async def build_target(session: AsyncSession) -> asr.AsrTarget:
         api_key=t.api_key,
         transport=str(extra.get("asr_transport") or "auto"),
         language=extra.get("asr_language") or None,
+        vocabulary_id=extra.get("asr_vocabulary_id") or None,
         hotwords=list(hotwords or []),
         display_name=t.display_name,
     )

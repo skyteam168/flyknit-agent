@@ -26,7 +26,8 @@ import httpx
 
 from app.config import get_settings
 
-SCENES = ["chat", "agent", "translate", "title", "vision"]
+# asr 用 setup_asr.py 配，这里列出来只是为了 --scenes 校验时不误报
+SCENES = ["chat", "agent", "translate", "title", "vision", "asr"]
 
 
 def main() -> int:
