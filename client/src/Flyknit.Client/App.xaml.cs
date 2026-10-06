@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
@@ -341,7 +342,7 @@ public partial class App : Application
             return IntPtr.Zero;
         });
         var resolved = Flyknit.Core.Settings.Shortcuts.Resolve(_settings.Shortcuts);
-        var binding = resolved.GetValueOrDefault("window.toggle", "Ctrl+Alt+Space");
+        var binding = resolved.TryGetValue("window.toggle", out var configured) ? configured : "Ctrl+Alt+Space";
         if (ParseHotkey(binding) is not { } hk)
         {
             Log.Info($"全局热键已停用（{binding}）");
