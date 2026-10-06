@@ -13,18 +13,20 @@
 
 脚本会真发一段 1 秒的音频去试，把能通的那条写进模型配置，之后客户端就不用每次试错。
 
-用法（在 server 目录下，服务端需已启动）：
+用法（在 server 目录下，服务端需已启动）。
+下面每条都写成一行——PowerShell 的续行符是反引号 ` 而不是 \\，不要照搬 Linux 的换行写法：
+
     # 典型：百炼专属网关
-    python -m scripts.setup_asr \\
-        --base-url https://ws-xxxx.ap-southeast-1.maas.aliyuncs.com/api/v1 \\
-        --api-key sk-xxx --model qwen3-asr-flash
+    python -m scripts.setup_asr --base-url "https://ws-xxxx.ap-southeast-1.maas.aliyuncs.com/api/v1" --api-key "sk-xxx" --model qwen3-asr-flash
 
     # 只想看看哪条路能通，先不改配置：
-    python -m scripts.setup_asr --base-url ... --api-key sk-xxx --model qwen3-asr-flash --probe-only
+    python -m scripts.setup_asr --base-url "..." --api-key "sk-xxx" --model qwen3-asr-flash --probe-only
 
     # 已经知道只能走文件上传：
-    python -m scripts.setup_asr --base-url ... --api-key sk-xxx \\
-        --model qwen3-asr-flash-filetrans --transport filetrans
+    python -m scripts.setup_asr --base-url "..." --api-key "sk-xxx" --model qwen3-asr-flash-filetrans --transport filetrans
+
+    # 服务端不在本机时，指明地址：
+    python -m scripts.setup_asr --server http://10.0.0.10:8000 --base-url "..." --api-key "sk-xxx" --model qwen3-asr-flash
 
     # 配全厂热词（机台号、工序名这些，能明显减少同音字错误）：
     python -m scripts.setup_asr --hotwords "七号机台,飞织鞋面,楦头,后道" --only-hotwords

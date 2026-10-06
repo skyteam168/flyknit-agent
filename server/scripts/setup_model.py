@@ -3,17 +3,15 @@
 自动读取 server/.env 中的管理员令牌，调用本机服务端的管理接口：
 添加模型提供方 → 添加模型 → 把指定场景路由到该模型 → 测试连通性。
 
-用法（在 server 目录下，服务端需已启动）：
+用法（在 server 目录下，服务端需已启动）。
+每条写成一行——PowerShell 的续行符是反引号 ` 而不是 \，别照搬 Linux 的换行写法：
     python -m scripts.setup_model --base-url http://10.0.0.10:8000/v1 --api-key sk-xxx --model qwen3.5-397b
 
     # 作为备用模型（例如阿里云百炼），只挂到各场景的 fallback：
-    python -m scripts.setup_model --provider-name 阿里云百炼 \
-        --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
-        --api-key sk-xxx --model qwen-plus --fallback
+    python -m scripts.setup_model --provider-name 阿里云百炼 --base-url "https://dashscope.aliyuncs.com/compatible-mode/v1" --api-key "sk-xxx" --model qwen-plus --fallback
 
     # 同步提供方的全部对话模型，供客户端输入框选择（可与 --model 一起用，--model 作为默认模型）：
-    python -m scripts.setup_model --provider-name 阿里云百炼 --base-url https://...compatible-mode/v1 \
-        --api-key sk-xxx --sync --model qwen3.8-max
+    python -m scripts.setup_model --provider-name 阿里云百炼 --base-url "https://...compatible-mode/v1" --api-key "sk-xxx" --sync --model qwen3.8-max
 
     # 查看当前配置：
     python -m scripts.setup_model --list
