@@ -133,7 +133,9 @@ export function createMockHost(): HostTransport {
         procedure: '1. 先暂停实时防护\n2. 以管理员身份运行安装包', lessons: ['安装前先确认杀毒软件不会拦截'], feedback: 0, uses: 0, createdAt: '2026-09-25T15:00:00+08:00',
       },
     ],
-    skills: [{ name: 'qc-weekly-report', description: '生成质检周报（按车间汇总、折线图、保存到 D:\\报表）', path: 'C:\\Users\\demo\\AppData\\Roaming\\Flyknit\\skills\\learned\\qc-weekly-report' }],
+    skills: [{ name: 'qc-weekly-report', description: '生成质检周报（按车间汇总、折线图、保存到 D:\\报表）', path: 'C:\\Users\\demo\\AppData\\Roaming\\Flyknit\\skills\\learned\\qc-weekly-report', status: 'active' as const, version: 2, uses: 5, successes: 4, failures: 1 },
+      { name: 'erp-install', description: '安装 ERP 客户端（先关杀毒软件）', path: 'C:\\Users\\demo\\AppData\\Roaming\\Flyknit\\skills\\learned\\erp-install', status: 'candidate' as const, version: 1, uses: 0, successes: 0, failures: 0 },
+      { name: 'merge-invoices', description: '合并多张发票 PDF', path: 'C:\\Users\\demo\\AppData\\Roaming\\Flyknit\\skills\\learned\\merge-invoices', status: 'retired' as const, version: 1, uses: 3, successes: 0, failures: 3 }],
   }
   const makeSkill = (name: string, description: string, extra: Record<string, any> = {}) => ({
     name,
@@ -818,6 +820,22 @@ export function createMockHost(): HostTransport {
       case 'skills.deleteLearned':
         memory.skills = memory.skills.filter((k) => k.name !== p.name)
         return
+      case 'skills.setLearnedStatus': {
+        const k = memory.skills.find((x) => x.name === p.name)
+        if (k) k.status = p.status
+        return !!k
+      }
+      case 'memory.metrics':
+        return {
+          days: 30, active: memory.items.length, pinned: 1, inferred: 2,
+          answers: 42, answersWithMemory: 31, avgItems: 4.2, avgTokens: 310, maxTokens: 820,
+          usedRecently: 3, usedShare: 0.6, neverUsed: 1, liked: 6, disliked: 1,
+          fresh30: 4, fresh90: 1, stale: 1, medianAgeDays: 21,
+          episodes: memory.episodes.length, episodesReused: 1, episodesRecent: 2,
+          skillsActive: 1, skillsCandidate: 1, skillsRetired: 1,
+        }
+      case 'conversations.plan':
+        return []
       case 'workspaces.list':
         return workspaces
       case 'workspaces.add': {

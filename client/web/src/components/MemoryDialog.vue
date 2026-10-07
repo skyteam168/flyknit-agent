@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { BookOpenCheck, Brain, FolderOpen, Heart, History, Info, Lightbulb, Loader2, Pin, PinOff, Plus, Sparkles, ThumbsDown, ThumbsUp, Trash2, Wand2, X } from '@lucide/vue'
+import { BookOpenCheck, Brain, FolderOpen, Heart, History, Info, Lightbulb, Loader2, Pin, PinOff, Plus, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, Trash2, Wand2, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { setLearning, state, toast } from '../store'
-import type { MemoryKind, MemoryOverview } from '../types'
+import type { MemoryKind, MemoryMetrics, MemoryOverview } from '../types'
 
 const { t } = useI18n()
 type Tab = 'preference' | 'fact' | 'experience' | 'episodes' | 'skills'
 const tab = ref<Tab>('preference')
 const data = ref<MemoryOverview | null>(null)
+const metrics = ref<MemoryMetrics | null>(null)
 const draft = ref('')
 const openEpisode = ref<string | null>(null)
 const openHistory = ref<string | null>(null)
@@ -28,6 +29,21 @@ async function load() {
     data.value = await bridge.memoryOverview()
   } catch (e) {
     toast(String(e))
+  }
+  // 指标拿不到不影响使用
+  metrics.value = await bridge.memoryMetrics().catch(() => null)
+}
+
+const pct = (x: number) => `${Math.round(x * 100)}%`
+
+async function reviveSkill(name: string) {
+  const k = data.value?.skills.find((s) => s.name === name)
+  if (!k) return
+  const ok = await bridge.setLearnedSkillStatus(name, 'active').catch(() => false)
+  if (ok) {
+    k.status = 'active'
+    k.uses = k.successes = k.failures = 0
+    toast(t('ui.memory.skillRevived'))
   }
 }
 onMounted(load)
@@ -140,6 +156,26 @@ const close = () => (state.memoryOpen = false)
         </button>
       </div>
 
+      <!-- 记忆指标：注入量、利用率、新鲜度 -->
+      <dl v-if="metrics && metrics.active" class="metrics">
+        <div :title="t('ui.memory.metrics.injectHint', { days: metrics.days, answers: metrics.answers, max: metrics.maxTokens })">
+          <dt>{{ t('ui.memory.metrics.inject') }}</dt>
+          <dd>{{ t('ui.memory.metrics.injectValue', { items: metrics.avgItems, tokens: metrics.avgTokens }) }}</dd>
+        </div>
+        <div :title="t('ui.memory.metrics.usageHint', { days: metrics.days, never: metrics.neverUsed, liked: metrics.liked, disliked: metrics.disliked })">
+          <dt>{{ t('ui.memory.metrics.usage') }}</dt>
+          <dd>{{ pct(metrics.usedShare) }}<small>{{ metrics.usedRecently }}/{{ metrics.active }}</small></dd>
+        </div>
+        <div :title="t('ui.memory.metrics.freshHint', { fresh90: metrics.fresh90, median: metrics.medianAgeDays })">
+          <dt>{{ t('ui.memory.metrics.fresh') }}</dt>
+          <dd>{{ metrics.fresh30 }}/{{ metrics.active }}<small>{{ t('ui.memory.metrics.stale', { n: metrics.stale }) }}</small></dd>
+        </div>
+        <div :title="t('ui.memory.metrics.reuseHint', { recent: metrics.episodesRecent, active: metrics.skillsActive, candidate: metrics.skillsCandidate, retired: metrics.skillsRetired })">
+          <dt>{{ t('ui.memory.metrics.reuse') }}</dt>
+          <dd>{{ metrics.episodesReused }}/{{ metrics.episodes }}</dd>
+        </div>
+      </dl>
+
       <nav class="tabs" role="tablist">
         <button
           v-for="x in tabs"
@@ -225,9 +261,14 @@ const close = () => (state.memoryOpen = false)
         <template v-else>
           <p v-if="!data?.skills.length" class="empty">{{ t('ui.memory.noSkills') }}</p>
           <ul v-else class="list">
-            <li v-for="k in data.skills" :key="k.name">
+            <li v-for="k in data.skills" :key="k.name" :class="{ retired: k.status === 'retired' }">
               <BookOpenCheck :size="16" class="skill-ico" />
-              <span class="text"><b>{{ k.name }}</b><small>{{ k.description }}</small></span>
+              <span class="text">
+                <b>{{ k.name }}</b><small>{{ k.description }}</small>
+                <small class="skill-stats">v{{ k.version }} · {{ t('ui.memory.skillStats', { uses: k.uses, ok: k.successes, bad: k.failures }) }}</small>
+              </span>
+              <span class="status" :class="k.status" :title="t(`ui.memory.skillStatusHint.${k.status}`)">{{ t(`ui.memory.skillStatus.${k.status}`) }}</span>
+              <button v-if="k.status === 'retired'" type="button" class="mini keep" :title="t('ui.memory.skillRevive')" @click="reviveSkill(k.name)"><RotateCcw :size="14" /></button>
               <button type="button" class="mini" :title="t('ui.workspace.open')" @click="bridge.openPath(k.path)"><FolderOpen :size="14" /></button>
               <button type="button" class="mini" :title="t('ui.memory.delete')" @click="removeSkill(k.name)"><Trash2 :size="14" /></button>
             </li>
@@ -456,6 +497,68 @@ h2 {
   border-radius: 9px;
   font-size: calc(11px * var(--font-scale));
   white-space: nowrap;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.metrics div {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--cloth-sunk);
+  cursor: default;
+}
+.metrics dt {
+  color: var(--ink-faint);
+  font-size: calc(11px * var(--font-scale));
+}
+.metrics dd {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.metrics dd small {
+  margin-left: 6px;
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+@media (max-width: 560px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.status {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: calc(11px * var(--font-scale));
+  white-space: nowrap;
+}
+.status.active {
+  background: var(--thread-wash);
+  color: var(--thread);
+}
+.status.candidate {
+  background: var(--amber-wash);
+  color: var(--amber);
+}
+.status.retired {
+  background: var(--chip);
+  color: var(--ink-faint);
+}
+li.retired .text b {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+.skill-stats {
+  color: var(--ink-faint);
 }
 .pin-badge {
   background: var(--amber-wash);

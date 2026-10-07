@@ -93,16 +93,18 @@ public class MemorySystemTests : IDisposable
     [Fact]
     public void EpisodesAreFoundBySimilarity()
     {
+        // 教训正文只存在记忆库里，历史任务按 ID 引用
+        new MemoryStore(_dir).Save(MemoryKind.Lesson, "安装 ERP 要先关闭杀毒软件", "reflect");
         var episodes = new EpisodeStore(_dir);
         episodes.Add(new Episode { ConversationId = "c1", Title = "生成质检周报", Task = "根据 9 月质检数据生成质检周报 Excel", Procedure = "1. 读取数据 2. 透视表", Outcome = "success" });
-        episodes.Add(new Episode { ConversationId = "c2", Title = "安装 ERP 客户端", Task = "从共享盘安装 ERP 客户端", Outcome = "failure", Lessons = { "要先关闭杀毒软件" } });
+        episodes.Add(new Episode { ConversationId = "c2", Title = "安装 ERP 客户端", Task = "从共享盘安装 ERP 客户端", Outcome = "failure", Lessons = { "安装 ERP 要先关闭杀毒软件" } });
 
         var found = new EpisodeStore(_dir).Search("帮我做一下这周的质检周报");
         Assert.Equal("生成质检周报", Assert.Single(found).Episode.Title);
         Assert.Empty(episodes.Search("今天天气怎么样"));
 
         var section = EpisodeStore.BuildPromptSection(episodes.Search("安装 ERP"));
-        Assert.Contains("教训：要先关闭杀毒软件", section);
+        Assert.Contains("教训：安装 ERP 要先关闭杀毒软件", section);
         Assert.Contains("失败", section);
 
         episodes.SetFeedback("c1", -1);

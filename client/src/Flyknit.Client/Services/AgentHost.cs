@@ -101,6 +101,9 @@ public sealed class AgentHost : IDisposable
     }
     public EpisodeStore Episodes { get; }
 
+    /// <summary>学习技能的使用记录与生命周期（候选 → 启用 → 退役）。</summary>
+    public Flyknit.Core.Skills.LearnedSkills LearnedSkillLedger { get; }
+
     /// <summary>资料库：对话里上传的文件、截图、AI 产出，以及在资料库里新建的东西。</summary>
     public LibraryService Library { get; }
     public ScheduleRunner Scheduler { get; }
@@ -206,7 +209,9 @@ public sealed class AgentHost : IDisposable
         Approvals = new ApprovalStore(AppPaths.ApprovalRules);
         // 启动时清一次，免得上次退出前超了上限一直留着
         _ = Task.Run(() => _backup.Trim());
-        Episodes = new EpisodeStore(AppPaths.Memory);
+        // 历史任务和记忆条目在同一个库里：教训只存一份，按 ID 引用
+        Episodes = new EpisodeStore(AppPaths.Memory, AppPaths.Database);
+        LearnedSkillLedger = new Flyknit.Core.Skills.LearnedSkills(AppPaths.LearnedSkills, AppPaths.Database);
         Library = new LibraryService(AppPaths.Database);
         Scheduler = new ScheduleRunner(this);
         RunFinished += Scheduler.OnRunFinished;
@@ -509,6 +514,13 @@ public sealed class AgentHost : IDisposable
                 summary = null; // 摘要覆盖的消息已不存在（编辑或重新生成过），摘要作废
             }
 
+            // 任务计划跟着对话保存：上一轮没做完的计划带进这一轮，压缩上下文后原样附在摘要后面
+            var plan = TaskPlan.Parse(conv.Plan);
+            if (!TaskPlan.HasOpenSteps(plan))
+            {
+                plan.Clear();
+            }
+
             ContextManager? context = null;
             var history = new List<ChatMessage>();
             if (conv.Mode == ConversationMode.Translate)
@@ -518,7 +530,7 @@ public sealed class AgentHost : IDisposable
             }
             else
             {
-                context = new ContextManager(Server, prompt, summary, _contextLength) { Scene = scene, ModelId = conv.ModelId };
+                context = new ContextManager(Server, prompt, summary, _contextLength) { Scene = scene, ModelId = conv.ModelId, Plan = () => plan };
                 context.Progress += p => events.Post(new
                 {
                     type = "context.compacting",
@@ -559,6 +571,20 @@ public sealed class AgentHost : IDisposable
             Security = Security,
             };
 
+            ctx.Plan.AddRange(plan);
+            ctx.PlanChanged += updated =>
+            {
+                plan = updated.ToList();
+                try
+                {
+                    Store.SetPlan(id, TaskPlan.Serialize(updated));
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("保存任务计划失败", ex);
+                }
+            };
+
             var loop = new AgentLoop(Server, Tools, confirm, _auditSink, new AgentOptions { MaxSteps = _settings.ResolveAgentMaxSteps() }, Approvals);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId, context);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
@@ -582,16 +608,17 @@ public sealed class AgentHost : IDisposable
                 });
             }
             Store.AddMessages(id, result.NewMessages);
-            if (answer is not null && promptBuilder.MemoryIdsUsed.Count > 0)
+            if (answer is not null)
             {
                 try
                 {
-                    Memory.RecordUsage(id, answer.Id, promptBuilder.MemoryIdsUsed);
+                    Memory.RecordUsage(id, answer.Id, promptBuilder.MemoryIdsUsed, promptBuilder.MemoryTokens, promptBuilder.EpisodesUsed);
                 }
                 catch (Exception ex)
                 {
                     Log.Warn("记录记忆使用情况失败", ex);
                 }
+                RecordSkillRun(id, answer.Id, result.NewMessages, result.StopReason == AgentStopReason.Completed);
             }
             if (context is { ContextLength: > 0 })
             {
@@ -636,6 +663,35 @@ public sealed class AgentHost : IDisposable
         }
     }
 
+    /// <summary>这一轮加载过的学习技能：记下用得怎么样，该转正的转正、该退役的退役。</summary>
+    private void RecordSkillRun(string conversationId, string messageId, IReadOnlyList<ChatMessage> messages, bool ok)
+    {
+        try
+        {
+            var used = Flyknit.Core.Skills.LearnedSkills.LoadedIn(messages).Select(Skills.FindAny).OfType<SkillInfo>().Where(s => s.IsLearned).ToList();
+            var changed = LearnedSkillLedger.RecordRun(conversationId, messageId, used, ok);
+            ApplySkillChanges(changed);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("记录技能使用情况失败", ex);
+        }
+    }
+
+    private void ApplySkillChanges(IReadOnlyList<(string Name, string Status)> changed)
+    {
+        if (changed.Count == 0)
+        {
+            return;
+        }
+        foreach (var (name, status) in changed)
+        {
+            Log.Info($"学习技能 {name} → {status}");
+        }
+        SkillManager.Refresh();
+        SkillsChanged?.Invoke();
+    }
+
     /// <summary>一次运行结束（用于系统通知）。StopReason 为 null 表示出错。</summary>
     public event Action<RunFinishedInfo>? RunFinished;
 
@@ -646,7 +702,7 @@ public sealed class AgentHost : IDisposable
     {
         try
         {
-            var reflector = new Reflector(Server, Memory, Episodes, LearnedSkills) { Scene = Scenes.Agent, ModelId = conv.ModelId };
+            var reflector = new Reflector(Server, Memory, Episodes, LearnedSkills) { Scene = Scenes.Agent, ModelId = conv.ModelId, Learned = LearnedSkillLedger };
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
             var report = await reflector.ReflectAsync(new ReflectionInput
             {
@@ -700,6 +756,16 @@ public sealed class AgentHost : IDisposable
         catch (Exception ex)
         {
             Log.Warn("记录记忆评价失败", ex);
+        }
+        try
+        {
+            // 用过的学习技能也跟着记上评价：点踩算一次失败
+            var skills = LearnedSkillLedger.ApplyFeedback(messageId, value).Select(Skills.FindAny).OfType<SkillInfo>();
+            ApplySkillChanges(skills.Select(LearnedSkillLedger.Review).OfType<(string, string)>().ToList());
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("记录技能评价失败", ex);
         }
         if (value is null)
         {
@@ -916,6 +982,10 @@ public sealed class AgentHost : IDisposable
             var loop = new AgentLoop(Server, Tools, confirm, _auditSink, new AgentOptions { MaxSteps = _settings.ResolveAgentMaxSteps() }, Approvals);
             var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
             Store.AddMessages(conv.Id, result.NewMessages);
+            if (result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant) is { } done)
+            {
+                RecordSkillRun(conv.Id, done.Id, result.NewMessages, result.StopReason == AgentStopReason.Completed);
+            }
             if (context.ContextLength > 0)
             {
                 _contextLength = context.ContextLength;

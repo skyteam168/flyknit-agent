@@ -598,7 +598,22 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                         uses = e.Uses,
                         createdAt = e.CreatedAt.ToString("O"),
                     }).ToList(),
-                    skills = _host.Skills.Skills.Where(k => k.IsLearned).Select(k => new { name = k.Name, description = k.Description, path = k.Directory }).ToList(),
+                    skills = _host.Skills.Skills.Where(k => k.IsLearned).Select(k =>
+                    {
+                        var version = Flyknit.Core.Skills.LearnedSkillStatus.VersionOf(k);
+                        var stats = _host.LearnedSkillLedger.Stats(k.Name, version);
+                        return new
+                        {
+                            name = k.Name,
+                            description = k.Description,
+                            path = k.Directory,
+                            status = k.LearnedStatus,
+                            version,
+                            uses = stats.Uses,
+                            successes = stats.Successes,
+                            failures = stats.Failures,
+                        };
+                    }).ToList(),
                     learning = _settings.EnableLearning,
                 };
             }
@@ -640,6 +655,52 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             case "episodes.delete":
                 _host.Episodes.Delete(Str("id"));
                 return null;
+
+            case "memory.metrics":
+            {
+                var m = _host.Memory.Metrics();
+                var (total, reused, recent) = _host.Episodes.Stats();
+                var learned = _host.Skills.Skills.Where(k => k.IsLearned).ToList();
+                return new
+                {
+                    days = m.Days,
+                    active = m.Active,
+                    pinned = m.Pinned,
+                    inferred = m.Inferred,
+                    answers = m.Answers,
+                    answersWithMemory = m.AnswersWithMemory,
+                    avgItems = m.AvgItemsInjected,
+                    avgTokens = m.AvgTokensInjected,
+                    maxTokens = m.MaxTokensInjected,
+                    usedRecently = m.UsedRecently,
+                    usedShare = m.UsedShare,
+                    neverUsed = m.NeverUsed,
+                    liked = m.Liked,
+                    disliked = m.Disliked,
+                    fresh30 = m.Fresh30,
+                    fresh90 = m.Fresh90,
+                    stale = m.Stale,
+                    medianAgeDays = m.MedianAgeDays,
+                    episodes = total,
+                    episodesReused = reused,
+                    episodesRecent = recent,
+                    skillsActive = learned.Count(k => k.LearnedStatus == Flyknit.Core.Skills.LearnedSkillStatus.Active),
+                    skillsCandidate = learned.Count(k => k.LearnedStatus == Flyknit.Core.Skills.LearnedSkillStatus.Candidate),
+                    skillsRetired = learned.Count(k => k.LearnedStatus == Flyknit.Core.Skills.LearnedSkillStatus.Retired),
+                };
+            }
+
+            case "skills.setLearnedStatus":
+            {
+                // 用户手动把退役的技能重新启用（或者停掉一个）
+                var skill = _host.Skills.Skills.FirstOrDefault(k => k.IsLearned && k.Name == Str("name"));
+                var ok = skill is not null && _host.LearnedSkillLedger.SetStatus(skill, Str("status"));
+                if (ok)
+                {
+                    _host.SkillManager.Refresh();
+                }
+                return ok;
+            }
 
             case "skills.deleteLearned":
             {
@@ -1132,6 +1193,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 var messages = await Task.Run(() => _host.Store.GetMessages(Str("id")));
                 return messages.Select(MessageDto.From).ToList();
             }
+
+            case "conversations.plan":
+                return Flyknit.Core.Tools.TaskPlan.Parse(_host.Store.Get(Str("id"))?.Plan)
+                    .Select(p => new { step = p.Step, status = p.Status }).ToList();
 
             case "chat.send":
             {

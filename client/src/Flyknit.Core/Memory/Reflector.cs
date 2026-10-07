@@ -1,10 +1,10 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using Flyknit.Core.Chat;
 using Flyknit.Core.Context;
 using Flyknit.Core.Gateway;
+using Flyknit.Core.Skills;
 
 namespace Flyknit.Core.Memory;
 
@@ -152,7 +152,7 @@ public sealed class LearnedSkill
 /// <summary>复盘后实际写入的内容，界面据此提示“学到了什么”。</summary>
 public sealed class LearningReport
 {
-    public Episode? Episode { get; init; }
+    public Episode? Episode { get; set; }
     public List<(MemoryKind Kind, string Text)> Added { get; } = new();
 
     /// <summary>没过写入门槛的（原因 → 条数），用于日志。</summary>
@@ -282,35 +282,16 @@ public sealed class Reflector
             }
         }
 
-        // 先过写入门槛：没过的教训也不进历史任务
         var userText = input.UserRequest;
-        var gatedLessons = r.Lessons.Where(l => MemoryGate.Check(MemoryKind.Lesson, l, userText, r.WorthSaving).Accept).ToList();
-
-        Episode? episode = null;
-        if (r.WorthSaving && r.Title.Length > 0)
-        {
-            episode = new Episode
-            {
-                ConversationId = input.ConversationId,
-                Workspace = input.Workspace,
-                Title = Clip(r.Title, 60),
-                Task = Clip(input.UserRequest, 600),
-                Summary = Clip(r.Summary, 800),
-                Outcome = r.Outcome is "success" or "partial" or "failure" ? r.Outcome : "partial",
-                Procedure = Clip(r.Procedure, 2000),
-                Lessons = gatedLessons.Take(5).Select(l => Clip(l.Text, 200)).ToList(),
-                Tools = input.Messages.SelectMany(m => m.ToolCalls).Select(c => c.Name).Distinct().ToList(),
-                Feedback = Math.Sign(input.Feedback),
-            };
-        }
-
-        var report = new LearningReport { Episode = episode };
+        var report = new LearningReport();
+        var lessonIds = new List<string>();
         string? Resolve(string? alias) =>
             alias is null ? null : r.Aliases.TryGetValue(alias.Trim(), out var id) ? id : null;
         void Add(MemoryKind kind, IEnumerable<MemoryProposal> items)
         {
             foreach (var p in items.Where(p => !string.IsNullOrWhiteSpace(p.Text)).Take(5))
             {
+                // 先过写入门槛
                 var verdict = MemoryGate.Check(kind, p, userText, r.WorthSaving);
                 if (!verdict.Accept)
                 {
@@ -321,6 +302,7 @@ public sealed class Reflector
                 if (Resolve(p.Same) is { } same && p.Replaces is null && _memory.Reinforce(same))
                 {
                     report.Reinforced++;
+                    if (kind == MemoryKind.Lesson) lessonIds.Add(same);
                     continue;
                 }
                 var result = _memory.Save(kind, p.Text, "reflect", input.ConversationId, Resolve(p.Replaces),
@@ -341,12 +323,36 @@ public sealed class Reflector
                         report.Rejected++;
                         break;
                 }
+                if (kind == MemoryKind.Lesson && result.Id is not null && result.Outcome != MemoryWriteOutcome.Rejected)
+                {
+                    lessonIds.Add(result.Id);
+                }
             }
         }
         Add(MemoryKind.Preference, r.Preferences);
         Add(MemoryKind.Fact, r.Facts);
         Add(MemoryKind.Success, r.Successes);
         Add(MemoryKind.Lesson, r.Lessons);
+
+        // 历史任务里的教训只存记忆 ID：正文只在记忆库里有一份，删除、合并时跟着变
+        Episode? episode = null;
+        if (r.WorthSaving && r.Title.Length > 0)
+        {
+            episode = new Episode
+            {
+                ConversationId = input.ConversationId,
+                Workspace = input.Workspace,
+                Title = Clip(r.Title, 60),
+                Task = Clip(input.UserRequest, 600),
+                Summary = Clip(r.Summary, 800),
+                Outcome = r.Outcome is "success" or "partial" or "failure" ? r.Outcome : "partial",
+                Procedure = Clip(r.Procedure, 2000),
+                LessonIds = lessonIds.Distinct().Take(5).ToList(),
+                Tools = input.Messages.SelectMany(m => m.ToolCalls).Select(c => c.Name).Distinct().ToList(),
+                Feedback = Math.Sign(input.Feedback),
+            };
+        }
+        report.Episode = episode;
 
         if (episode is not null)
         {
@@ -361,42 +367,20 @@ public sealed class Reflector
         return report;
     }
 
-    /// <summary>写入 learned/&lt;name&gt;/SKILL.md。已存在的学习技能会被更新，用户自己写的同名技能不会被覆盖。</summary>
-    public string? SaveSkill(LearnedSkill skill)
+    /// <summary>
+    /// 学习技能的生命周期（候选 → 启用 → 退役、版本）。宿主传入带使用记录的实例；
+    /// 没传时只按目录写文件，不看使用情况。
+    /// </summary>
+    public LearnedSkills? Learned
     {
-        if (_learnedSkillsDir is null)
-        {
-            return null;
-        }
-        var name = Regex.Replace(skill.Name.Trim().ToLowerInvariant(), @"[^a-z0-9\-]+", "-").Trim('-');
-        if (name.Length < 3 || skill.Description.Trim().Length == 0 || skill.Body.Trim().Length < 20)
-        {
-            return null;
-        }
-        name = name.Length > 48 ? name[..48].Trim('-') : name;
-        var dir = Path.Combine(_learnedSkillsDir, name);
-        var file = Path.Combine(dir, "SKILL.md");
-        if (File.Exists(file) && !File.ReadAllText(file).Contains("source: learned"))
-        {
-            return null;
-        }
-        Directory.CreateDirectory(dir);
-        var description = skill.Description.Replace('\n', ' ').Replace("\"", "'").Trim();
-        var content = $"""
-            ---
-            name: {name}
-            description: "{description}"
-            source: learned
-            updated: {DateTime.Now:yyyy-MM-dd}
-            ---
-
-            {skill.Body.Trim()}
-
-            > 这个技能由 FlyknitBuddy 根据多次成功完成的任务自动总结，可以直接修改或删除。
-            """;
-        File.WriteAllText(file, content.Replace("\r\n", "\n"), new UTF8Encoding(false));
-        return name;
+        get => _learned ??= _learnedSkillsDir is null ? null : new LearnedSkills(_learnedSkillsDir, null);
+        init => _learned = value;
     }
+
+    private LearnedSkills? _learned;
+
+    /// <summary>写入 learned/&lt;name&gt;/SKILL.md（先作为候选）。用户自己写的同名技能不会被覆盖；已启用且好用的不改。</summary>
+    public string? SaveSkill(LearnedSkill skill) => Learned?.Propose(skill.Name, skill.Description, skill.Body);
 
     public static string BuildTranscript(ReflectionInput input, IReadOnlyList<(string Alias, MemoryItem Item)>? existing = null)
     {
