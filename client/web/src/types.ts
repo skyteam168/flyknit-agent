@@ -491,6 +491,8 @@ export interface ToolActivity {
   risk: Risk
   state: 'running' | 'waiting' | 'done' | 'failed' | 'blocked' | 'rejected'
   output?: string
+  /** 调用参数（JSON 原文），展开卡片时逐项显示 */
+  args?: string
   confirm?: ConfirmPrompt
   /** 之前授权过的同样操作，本次自动通过 */
   remembered?: boolean
@@ -513,7 +515,7 @@ export type HostEvent =
   | { type: 'chat.delta'; conversationId: string; text: string }
   | { type: 'chat.reasoning'; conversationId: string; text: string }
   | { type: 'chat.message'; conversationId: string; message: UiMessage }
-  | { type: 'tool.started'; conversationId: string; callId: string; name: string; summary: string; risk: Risk }
+  | { type: 'tool.started'; conversationId: string; callId: string; name: string; summary: string; args?: string; risk: Risk }
   | {
       type: 'tool.confirm'
       conversationId: string

@@ -817,6 +817,7 @@ function onHostEvent(e: HostEvent) {
         callId: e.callId,
         name: e.name,
         summary: e.summary,
+        args: e.args,
         risk: e.risk,
         state: e.risk === 'blocked' ? 'blocked' : 'running',
       }
@@ -1003,14 +1004,14 @@ function rebuildTools(messages: UiMessage[]): Record<string, ToolActivity> {
   const tools: Record<string, ToolActivity> = {}
   for (const m of messages) {
     for (const c of m.toolCalls ?? []) {
-      tools[c.id] = { callId: c.id, name: c.name, summary: summarize(c.name, c.arguments), risk: 'auto', state: 'done' }
+      tools[c.id] = { callId: c.id, name: c.name, summary: summarize(c.name, c.arguments), args: c.arguments, risk: 'auto', state: 'done' }
     }
     if (m.role === 'tool' && m.toolCallId && tools[m.toolCallId]) {
       const t = tools[m.toolCallId]
       t.output = m.content
       if (m.content.startsWith('已被安全策略阻止')) t.state = 'blocked'
       else if (m.content.startsWith('用户拒绝')) t.state = 'rejected'
-      else if (/^(错误|执行失败|文件不存在|目录不存在|路径不存在)/.test(m.content)) t.state = 'failed'
+      else if (/^(错误|执行失败|文件不存在|目录不存在|路径不存在)/.test(m.content) || /^.{1,40} 调用失败：/.test(m.content)) t.state = 'failed'
     }
   }
   return tools
@@ -1019,8 +1020,32 @@ function rebuildTools(messages: UiMessage[]): Record<string, ToolActivity> {
 function summarize(name: string, args: string): string {
   try {
     const a = JSON.parse(args)
+    if (name.startsWith('mcp__')) return mcpArgsPreview(a)
     return a.command ?? a.path ?? a.name ?? a.fact ?? ''
   } catch {
     return ''
   }
+}
+
+/** MCP 工具卡片上那一行：前三个简单参数「键：值」，和宿主 McpTool.Describe 同一个写法 */
+export function mcpArgsPreview(a: unknown): string {
+  if (!a || typeof a !== 'object' || Array.isArray(a)) return ''
+  const parts: string[] = []
+  for (const [k, v] of Object.entries(a as Record<string, unknown>)) {
+    const value =
+      typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : Array.isArray(v) ? `[${v.length} 项]` : v ? '{…}' : ''
+    if (!value) continue
+    parts.push(`${k}：${value.length > 60 ? value.slice(0, 60) + '…' : value}`)
+    if (parts.length === 3) break
+  }
+  return parts.join('，')
+}
+
+/** 卡片上的厂商信息（图标、名字、工具标题），不是 MCP 工具返回 null */
+export function mcpToolInfo(name: string) {
+  const m = /^mcp__(.+?)__(.+)$/.exec(name)
+  if (!m) return null
+  const vendor = state.mcp.find((v) => v.id === m[1])
+  const tool = vendor?.tools.find((x) => x.name === m[2])
+  return { id: m[1], vendor: vendor?.name ?? m[1], icon: vendor?.icon ?? '', tool: tool?.title || m[2], readOnly: tool?.readOnly ?? false }
 }

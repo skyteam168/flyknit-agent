@@ -58,15 +58,37 @@ public sealed class McpTool : ITool
         };
     }
 
+    /// <summary>
+    /// 卡片上那一行：挑前几个简单参数拼成「键：值」。界面已经单独显示「厂商 · 工具」，这里不再重复；
+    /// 完整参数展开卡片能看到。
+    /// </summary>
     public string Describe(JsonElement args)
     {
-        var label = Info.Title.Length > 0 ? Info.Title : Info.Name;
-        var preview = args.ValueKind == JsonValueKind.Object ? args.GetRawText() : "";
-        if (preview is "{}" or "")
+        var parts = new List<string>();
+        if (args.ValueKind == JsonValueKind.Object)
         {
-            return $"{ServerName} · {label}";
+            foreach (var p in args.EnumerateObject())
+            {
+                var value = p.Value.ValueKind switch
+                {
+                    JsonValueKind.String => p.Value.GetString() ?? "",
+                    JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => p.Value.GetRawText(),
+                    JsonValueKind.Array => $"[{p.Value.GetArrayLength()} 项]",
+                    JsonValueKind.Object => "{…}",
+                    _ => "",
+                };
+                if (value.Length == 0)
+                {
+                    continue;
+                }
+                parts.Add($"{p.Name}：{(value.Length > 60 ? value[..60] + "…" : value)}");
+                if (parts.Count == 3)
+                {
+                    break;
+                }
+            }
         }
-        return $"{ServerName} · {label} {(preview.Length > 160 ? preview[..160] + "…" : preview)}";
+        return parts.Count > 0 ? string.Join("，", parts) : (Info.Title.Length > 0 ? Info.Title : Info.Name);
     }
 
     public async Task<ToolResult> ExecuteAsync(JsonElement args, ToolContext ctx, CancellationToken ct)
