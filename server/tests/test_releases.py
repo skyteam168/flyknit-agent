@@ -19,7 +19,8 @@ INIT = "init-pass-123"
 def a_zip(marker: str = "hello") -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as z:
-        z.writestr("FlyknitBuddy.exe", marker)
+        # 固定文件时间：zip 里会记修改时间（2 秒精度），不固定的话两次生成跨过整 2 秒就不是同一个包，sha256 对不上
+        z.writestr(zipfile.ZipInfo("FlyknitBuddy.exe", date_time=(2026, 1, 1, 0, 0, 0)), marker)
     return buffer.getvalue()
 
 
