@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { BookOpenCheck, Brain, FolderOpen, Heart, History, Info, Lightbulb, Loader2, Plus, Sparkles, ThumbsDown, ThumbsUp, Trash2, Wand2, X } from '@lucide/vue'
+import { BookOpenCheck, Brain, FolderOpen, Heart, History, Info, Lightbulb, Loader2, Pin, PinOff, Plus, Sparkles, ThumbsDown, ThumbsUp, Trash2, Wand2, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { setLearning, state, toast } from '../store'
 import type { MemoryKind, MemoryOverview } from '../types'
@@ -34,9 +34,20 @@ onMounted(load)
 
 const items = computed(() => {
   const all = data.value?.items ?? []
-  if (tab.value === 'experience') return all.filter((i) => i.kind === 'success' || i.kind === 'lesson')
-  return all.filter((i) => i.kind === tab.value)
+  const list = tab.value === 'experience' ? all.filter((i) => i.kind === 'success' || i.kind === 'lesson') : all.filter((i) => i.kind === tab.value)
+  // 置顶的排在前面
+  return [...list.filter((i) => i.pinned), ...list.filter((i) => !i.pinned)]
 })
+
+async function togglePin(id: string) {
+  const item = data.value?.items.find((i) => i.id === id)
+  if (!item) return
+  const next = !item.pinned
+  item.pinned = next
+  const ok = await bridge.pinMemory(id, next).catch(() => false)
+  if (!ok) item.pinned = !next
+  else toast(next ? t('ui.memory.pinned') : t('ui.memory.unpinned'))
+}
 
 function count(k: Tab) {
   const d = data.value
@@ -159,7 +170,9 @@ const close = () => (state.memoryOpen = false)
             <li v-for="i in items" :key="i.id" class="item">
               <div class="row">
                 <span v-if="tab === 'experience'" class="kind" :class="i.kind">{{ t(`ui.memory.kinds.${i.kind}`) }}</span>
-                <span class="text">{{ i.text }}</span>
+                <span class="text" :title="i.evidence ? t('ui.memory.evidence', { text: i.evidence }) : undefined">{{ i.text }}</span>
+                <span v-if="i.pinned" class="pin-badge" :title="t('ui.memory.pinnedHint')"><Pin :size="11" />{{ t('ui.memory.pinBadge') }}</span>
+                <span v-if="i.origin === 'inferred'" class="guess" :title="t('ui.memory.inferredHint')">{{ t('ui.memory.inferred') }}</span>
                 <span v-if="(i.proofCount ?? 1) > 1" class="proof" :title="t('ui.memory.proofHint')">{{ t('ui.memory.proof', { n: i.proofCount }) }}</span>
                 <button
                   v-if="i.history?.length"
@@ -172,7 +185,10 @@ const close = () => (state.memoryOpen = false)
                   <History :size="14" />
                 </button>
                 <span v-if="i.lastSeen || i.date" class="date">{{ i.lastSeen || i.date }}</span>
-                <button type="button" class="mini" :title="t('ui.memory.delete')" @click="removeItem(i.id)"><Trash2 :size="14" /></button>
+                <button type="button" class="mini" :class="{ keep: i.pinned }" :title="i.pinned ? t('ui.memory.unpin') : t('ui.memory.pin')" @click="togglePin(i.id)">
+                  <component :is="i.pinned ? PinOff : Pin" :size="14" />
+                </button>
+                <button type="button" class="mini" :title="t('ui.memory.deleteForever')" @click="removeItem(i.id)"><Trash2 :size="14" /></button>
               </div>
               <ul v-if="openHistory === i.id" class="history">
                 <li v-for="h in i.history" :key="h">{{ h }}</li>
@@ -429,6 +445,25 @@ h2 {
 }
 .mini.keep {
   opacity: 1;
+}
+.pin-badge,
+.guess {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: calc(11px * var(--font-scale));
+  white-space: nowrap;
+}
+.pin-badge {
+  background: var(--amber-wash);
+  color: var(--amber);
+}
+.guess {
+  background: var(--chip);
+  color: var(--ink-faint);
 }
 .mini.keep:hover {
   color: var(--indigo);

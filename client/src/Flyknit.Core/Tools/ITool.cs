@@ -78,6 +78,9 @@ public sealed class ToolContext
     }
 
     public MemoryStore? Memory { get; init; }
+
+    /// <summary>用户这一轮说的话。memory_write 用它核对“用户原话”，防止把文件、网页里的话当成用户的要求记下来。</summary>
+    public string UserRequest { get; init; } = "";
     public EpisodeStore? Episodes { get; init; }
     public SkillCatalog? Skills { get; init; }
     public IFileDeleter Deleter { get; init; } = new PermanentDeleter();

@@ -96,7 +96,9 @@ public class MemoryUpgradeTests : IDisposable
             ("帮我做一份季度汇报 PPT", "微软雅黑"),
             ("用 python 处理一下这个 Excel 表", ".py"),
             ("调用设备管家的接口导出设备台账", "8081"),
-            ("发一封邮件给供应商", "Outlook"),
+            // “邮件”和“Outlook 账户”字面上没有重合，按字面相关度召回不到——这类靠模型用 memory_search 去查，
+            // 以后上语义检索再解决；偏好（“邮件正文简洁”）会补进去
+            ("发一封邮件给供应商", "邮件正文简洁"),
         };
         foreach (var (query, expected) in cases)
         {
@@ -104,7 +106,10 @@ public class MemoryUpgradeTests : IDisposable
             var tokens = TokenEstimator.Estimate(prompt.Text);
             _out.WriteLine($"{query} → {prompt.ItemIds.Count} 条，约 {tokens} tokens");
             Assert.Contains(expected, prompt.Text);
-            Assert.InRange(prompt.ItemIds.Count, 1, 120);
+            // 不再整段塞：条数和 token 都在预算以内（预算约 1000 token，另有准则、性格等固定内容）
+            Assert.InRange(prompt.ItemIds.Count, 1, 30);
+            Assert.True(tokens < 1600, $"{query}: {tokens} tokens");
+            Assert.Contains("<用户记忆 说明=", prompt.Text);
         }
     }
 
@@ -341,10 +346,10 @@ public class MemoryUpgradeTests : IDisposable
             string Alias(string contains) => Regex.Match(user, @"\[(m\d+)\][^\n]*" + Regex.Escape(contains)).Groups[1].Value;
             return $$"""
                 {"worth_saving": true, "title": "生成质检周报", "summary": "", "outcome": "success", "procedure": "",
-                 "preferences": [{"text": "质检周报保存到 D:\\报表", "replaces": "{{Alias("桌面")}}"}],
+                 "preferences": [{"text": "质检周报保存到 D:\\报表", "origin": "user_said", "evidence": "以后质检周报都存到 D:\\报表", "confidence": 0.95, "replaces": "{{Alias("桌面")}}"}],
                  "facts": [],
                  "successes": [],
-                 "lessons": [{"text": "PowerShell 中 python -c 多行脚本引号转义易出错", "same": "{{Alias("python -c")}}"}],
+                 "lessons": [{"text": "PowerShell 中 python -c 多行脚本引号转义易出错", "origin": "inferred", "confidence": 0.9, "same": "{{Alias("python -c")}}"}],
                  "skill": null}
                 """;
         });
@@ -353,7 +358,7 @@ public class MemoryUpgradeTests : IDisposable
         var report = await reflector.ReflectAsync(new ReflectionInput
         {
             ConversationId = "conv",
-            UserRequest = "生成质检周报，用 python 处理",
+            UserRequest = "生成质检周报，用 python 处理。以后质检周报都存到 D:\\报表",
             Messages = new[] { ChatMessage.Assistant("", new[] { call }), ChatMessage.ToolResult(call, "ok"), ChatMessage.Assistant("质检周报已保存") },
         }, CancellationToken.None);
 

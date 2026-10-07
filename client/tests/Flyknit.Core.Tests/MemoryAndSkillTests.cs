@@ -23,7 +23,9 @@ public class MemoryAndSkillTests : IDisposable
         var text = store.Read(MemoryStore.MemoryFile);
         Assert.Equal(1, text.Split("日报放在").Length - 1);
 
-        var prompt = store.BuildPromptSection();
+        // 事实要和当前任务相关才放进提示词
+        Assert.DoesNotContain("<长期记忆>", store.BuildPromptSection());
+        var prompt = store.BuildPromptSection("日报放在哪个文件夹");
         Assert.Contains("<长期记忆>", prompt);
         Assert.Contains("D:\\日报", prompt);
     }

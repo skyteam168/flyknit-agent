@@ -120,9 +120,9 @@ public class MemorySystemTests : IDisposable
           "summary": "读取 D:\\质检\\9月.xlsx，生成周报",
           "outcome": "success",
           "procedure": "1. 读取数据\n2. 按车间汇总\n3. 保存到 D:\\报表",
-          "preferences": ["报表默认保存到 D:\\报表"],
+          "preferences": [{"text": "报表默认保存到 D:\\报表", "origin": "user_said", "evidence": "报表默认保存到 D:\\报表", "confidence": 0.95}],
           "facts": [],
-          "successes": ["按车间汇总后再画图更清楚"],
+          "successes": [{"text": "按车间汇总后再画图更清楚", "origin": "inferred", "confidence": 0.85}],
           "lessons": [],
           "skill": {"name": "QC Weekly Report", "description": "生成质检周报", "body": "1. 读取质检数据\n2. 按车间汇总\n3. 保存到 D:\\报表"}
         }
@@ -154,7 +154,7 @@ public class MemorySystemTests : IDisposable
         var input = new ReflectionInput
         {
             ConversationId = "conv",
-            UserRequest = "生成质检周报",
+            UserRequest = "生成质检周报，报表默认保存到 D:\\报表",
             Messages = new[] { ChatMessage.Assistant("", new[] { call }), ChatMessage.ToolResult(call, "数据…"), ChatMessage.Assistant("完成") },
         };
 
@@ -183,7 +183,7 @@ public class MemorySystemTests : IDisposable
         memory.EnsureDefaults();
         var episodes = new EpisodeStore(Path.Combine(_dir, "memory"));
         var skills = Path.Combine(_dir, "skills", "learned");
-        var json = ReflectionJson.Replace("\"lessons\": []", "\"lessons\": [\"整理前先确认用户要按月份还是按车间\"]");
+        var json = ReflectionJson.Replace("\"lessons\": []", "\"lessons\": [{\"text\": \"整理前先确认用户要按月份还是按车间\", \"origin\": \"inferred\", \"confidence\": 0.9}]");
         var gateway = new FakeGateway(_ => new ChatTurn { Content = json });
         var reflector = new Reflector(gateway, memory, episodes, skills);
         var call = new ToolCall("c1", "run_shell", "{}");

@@ -580,6 +580,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                         feedback = i.Feedback,
                         source = i.Source,
                         history = i.History,
+                        pinned = i.Pinned,
+                        origin = i.Origin,
+                        evidence = i.Evidence,
                     }).ToList(),
                     episodes = _host.Episodes.List().Select(e => new
                     {
@@ -601,8 +604,18 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             }
 
             case "memory.delete":
-                _host.Memory.Delete(Str("id"));
+            {
+                // 遗忘：记忆里的原文清掉，历史任务里同样的教训也删掉
+                var forgotten = _host.Memory.Forget(Str("id"));
+                if (forgotten is not null)
+                {
+                    _host.Episodes.Forget(forgotten);
+                }
                 return null;
+            }
+
+            case "memory.pin":
+                return _host.Memory.Pin(Str("id"), Bool("pinned"));
 
             case "memory.add":
             {
@@ -613,7 +626,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     "lesson" => Flyknit.Core.Memory.MemoryKind.Lesson,
                     _ => Flyknit.Core.Memory.MemoryKind.Fact,
                 };
-                var saved = _host.Memory.Save(kind, Str("text"), "user");
+                var saved = _host.Memory.Save(kind, Str("text"), "user", origin: Flyknit.Core.Memory.MemoryOrigin.UserSaid, pinned: Bool("pinned"));
                 return new { outcome = saved.Outcome.ToString().ToLowerInvariant(), reason = saved.Reason };
             }
 

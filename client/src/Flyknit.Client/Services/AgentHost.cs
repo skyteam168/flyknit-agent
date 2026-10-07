@@ -546,6 +546,7 @@ public sealed class AgentHost : IDisposable
             {
                 Policy = _policy,
                 ConversationId = id,
+                UserRequest = text,
                 Workspace = workspace,
                 Permission = conv.Permission,
                 Memory = Memory,
@@ -663,7 +664,7 @@ public sealed class AgentHost : IDisposable
                 Log.Warn($"对话 {conv.Id} 复盘失败：{reflector.LastError}");
                 return;
             }
-            Log.Info($"对话 {conv.Id} 复盘完成：新增记忆 {report.Added.Count} 条（其中更新 {report.Updated} 条），再次确认 {report.Reinforced} 条，拒绝 {report.Rejected} 条，历史任务 {(report.Episode is null ? "无" : report.Episode.Title)}，技能 {report.SkillName ?? "无"}");
+            Log.Info($"对话 {conv.Id} 复盘完成：新增记忆 {report.Added.Count} 条（其中更新 {report.Updated} 条），再次确认 {report.Reinforced} 条，拒绝 {report.Rejected} 条，未达写入门槛 {report.Filtered.Values.Sum()} 条（{string.Join("，", report.Filtered.Select(f => $"{f.Key} {f.Value}"))}），历史任务 {(report.Episode is null ? "无" : report.Episode.Title)}，技能 {report.SkillName ?? "无"}");
             if (report.SkillName is not null)
             {
                 SkillManager.Refresh();
@@ -899,6 +900,7 @@ public sealed class AgentHost : IDisposable
             {
                 Policy = _policy,
                 ConversationId = conv.Id,
+                UserRequest = prompt,
                 Workspace = workspace,
                 Permission = conv.Permission,
                 Memory = Memory,
