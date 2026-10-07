@@ -160,6 +160,9 @@ public partial class MainWindow : Window, IWindowActions
             return;
         }
         core.SetVirtualHostNameToFolderMapping(VirtualHost, root, CoreWebView2HostResourceAccessKind.Deny);
+        // 资料库文件：https://files.flyknit.local/{id}[?thumb=1]。按 ID 从索引里找到文件再给，网页拿不到任意路径
+        core.AddWebResourceRequestedFilter($"https://{LibraryService.Host}/*", CoreWebView2WebResourceContext.All);
+        core.WebResourceRequested += OnLibraryRequest;
         // WebView2 会缓存 index.html；界面重新构建后资源文件名变了，旧缓存会导致白屏。
         // 用 index.html 的修改时间作为版本参数，每次构建后都会加载最新页面。
         var index = Path.Combine(root, "index.html");
@@ -168,6 +171,35 @@ public partial class MainWindow : Window, IWindowActions
 
         // 兜底：15 秒内没有收到加载完成事件也显示页面，避免一直停在加载卡片
         _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(_ => Dispatcher.BeginInvoke(() => RevealWeb()));
+    }
+
+    private async void OnLibraryRequest(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        var uri = new Uri(e.Request.Uri);
+        if (!uri.Host.Equals(LibraryService.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        var deferral = e.GetDeferral();
+        try
+        {
+            var id = uri.AbsolutePath.Trim('/');
+            var thumb = uri.Query.Contains("thumb=1", StringComparison.Ordinal);
+            var file = await Task.Run(() => _host.Library.Open(id, thumb));
+            var env = Web.CoreWebView2.Environment;
+            e.Response = file is { } f
+                ? env.CreateWebResourceResponse(f.Stream, 200, "OK",
+                    $"Content-Type: {f.Mime}\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: https://{VirtualHost}")
+                : env.CreateWebResourceResponse(null, 404, "Not Found", "");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"读取资料库文件失败：{e.Request.Uri}", ex);
+        }
+        finally
+        {
+            deferral.Complete();
+        }
     }
 
     private readonly System.Threading.Tasks.TaskCompletionSource<bool> _pageReady = new();
@@ -581,9 +613,13 @@ public partial class MainWindow : Window, IWindowActions
 
     public void LanguageChanged(string language) => UiLanguageChanged?.Invoke(language);
 
-    public IReadOnlyList<string> PickFiles()
+    public IReadOnlyList<string> PickFiles(string? filter = null)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Multiselect = true };
+        if (!string.IsNullOrEmpty(filter))
+        {
+            dialog.Filter = filter;
+        }
         return dialog.ShowDialog(this) == true ? dialog.FileNames : Array.Empty<string>();
     }
 

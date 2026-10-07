@@ -52,7 +52,7 @@ function startNew() {
     </button>
 
     <div class="title-wrap">
-      <template v-if="current">
+      <template v-if="current && state.view === 'chat'">
         <span class="mode-chip"><component :is="icon" :size="14" />{{ t(`mode.${current.mode}`) }}</span>
         <input
           v-if="editing"

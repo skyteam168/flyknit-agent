@@ -14,6 +14,9 @@ public static class AppPaths
     public static string SettingsFile => Path.Combine(Root, "settings.json");
     public static string Database => Path.Combine(Root, "data", "history.db");
     public static string Memory => Path.Combine(Root, "memory");
+
+    /// <summary>资料库：上传和截图的副本（files）、缩略图（thumbs）。索引在 history.db。</summary>
+    public static string Library => Path.Combine(Root, "library");
     public static string Skills => Path.Combine(Root, "skills");
     public static string OrgSkills => Path.Combine(Root, "skills", "org");
     public static string LearnedSkills => Path.Combine(Root, "skills", "learned");

@@ -413,6 +413,7 @@ Docker 部署的都在卷里，备份 `docker volume` 即可。
 settings.json        服务器地址、设备令牌、界面语言、工作区、权限默认值
 approvals.json       已记住的命令授权
 data\history.db      对话记录、本机安全记录、长期记忆条目（确认次数、使用情况、评价）
+library\             资料库：对话里上传的文件、截图的副本和缩略图（AI 生成的文件留在工作区，只登记位置）
 memory\              agent.md / soul.md / role.md、memory.md 偏好、lessons.md 经验（可直接编辑，改动会读回库里）、episodes.json 历史任务
 skills\              已安装技能（org\ 企业必装，learned\ 自动沉淀）
 logs\                运行日志，排查问题时看这里

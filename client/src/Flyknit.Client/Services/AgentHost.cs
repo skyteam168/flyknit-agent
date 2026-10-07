@@ -100,6 +100,9 @@ public sealed class AgentHost : IDisposable
         return !item.AsBool(false) ? "none" : chosen == "none" ? "soft" : chosen;
     }
     public EpisodeStore Episodes { get; }
+
+    /// <summary>资料库：对话里上传的文件、截图、AI 产出，以及在资料库里新建的东西。</summary>
+    public LibraryService Library { get; }
     public ScheduleRunner Scheduler { get; }
 
     /// <summary>
@@ -204,6 +207,7 @@ public sealed class AgentHost : IDisposable
         // 启动时清一次，免得上次退出前超了上限一直留着
         _ = Task.Run(() => _backup.Trim());
         Episodes = new EpisodeStore(AppPaths.Memory);
+        Library = new LibraryService(AppPaths.Database);
         Scheduler = new ScheduleRunner(this);
         RunFinished += Scheduler.OnRunFinished;
         Updater = new UpdateService(Server, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
@@ -214,6 +218,7 @@ public sealed class AgentHost : IDisposable
     public async Task InitializeAsync()
     {
         Memory.EnsureDefaults();
+        Library.Initialize(Store);
         _settings.EnsureWorkspaces();
         Directory.CreateDirectory(AppPaths.Skills);
         Directory.CreateDirectory(AppPaths.OrgSkills);
@@ -358,7 +363,7 @@ public sealed class AgentHost : IDisposable
     /// <param name="messageId">界面生成的消息 ID，保证界面与数据库中的 ID 一致（编辑、重发时使用）。</param>
     public void Send(string conversationId, string text, IReadOnlyList<Attachment> attachments, string? messageId, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
     {
-        StartRun(conversationId, uiLanguage, confirm, events, _ => NewUserMessage(messageId, text, attachments));
+        StartRun(conversationId, uiLanguage, confirm, events, id => NewUserMessage(messageId, text, IngestUploads(attachments, id)));
     }
 
     /// <summary>重新生成最后一个问题的回答：删除最后一条用户消息之后的内容，再运行一次。</summary>
@@ -383,6 +388,24 @@ public sealed class AgentHost : IDisposable
             Store.DeleteMessagesFrom(id, messageId, inclusive: true);
             return NewUserMessage(newMessageId, text, original.Attachments);
         });
+    }
+
+    /// <summary>附件收进资料库；收录失败不影响发送。</summary>
+    private IReadOnlyList<Attachment> IngestUploads(IReadOnlyList<Attachment> attachments, string conversationId)
+    {
+        if (attachments.Count == 0)
+        {
+            return attachments;
+        }
+        try
+        {
+            return Library.IngestUploads(attachments, conversationId);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("附件收入资料库失败", ex);
+            return attachments;
+        }
     }
 
     private static readonly System.Text.RegularExpressions.Regex SafeId = new("^[A-Za-z0-9_-]{8,64}$");
@@ -542,6 +565,7 @@ public sealed class AgentHost : IDisposable
             if (observer.Outputs.Count > 0)
             {
                 answer?.Outputs.AddRange(observer.Outputs);
+                Library.IngestOutputs(observer.Outputs, id);
             }
             if (answer is not null && result.Trace is { } trace)
             {

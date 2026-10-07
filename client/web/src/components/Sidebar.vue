@@ -9,6 +9,7 @@ import {
   Check,
   ChevronRight,
   Hand,
+  LibraryBig,
   Languages,
   LoaderCircle,
   MessageSquare,
@@ -30,6 +31,7 @@ import KnitMark from './KnitMark.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import Popover from './Popover.vue'
 import { bridge } from '../bridge'
+import { openLibrary } from '../library'
 import {
   deleteConversation,
   newConversation,
@@ -193,13 +195,16 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-if="!state.showTrash">
-      <button class="new-task" type="button" :class="{ on: state.currentId === null }" @click="startNew">
+      <button class="new-task" type="button" :class="{ on: state.currentId === null && state.view === 'chat' }" @click="startNew">
         <Plus :size="18" />
         <span>{{ t('sidebar.newChat') }}</span>
         <kbd>Ctrl N</kbd>
       </button>
 
       <nav class="nav">
+        <button type="button" :class="{ on: state.view === 'library' }" @click="(openLibrary(), emit('navigate'))">
+          <LibraryBig :size="17" /> {{ t('ui.nav.library') }}
+        </button>
         <button type="button" @click="state.skillsOpen = true"><Puzzle :size="17" /> {{ t('ui.nav.skills') }}</button>
         <button type="button" @click="state.mcpOpen = true"><Plug :size="17" /> {{ t('ui.nav.connectors') }}</button>
         <button type="button" @click="state.memoryOpen = true"><Brain :size="17" /> {{ t('ui.nav.memory') }}</button>
@@ -217,7 +222,7 @@ onBeforeUnmount(() => {
           class="item"
           role="listitem"
           tabindex="0"
-          :class="{ active: c.id === state.currentId, menuOpen: menuFor === c.id }"
+          :class="{ active: c.id === state.currentId && state.view === 'chat', menuOpen: menuFor === c.id }"
           @click="select(c)"
           @keydown.enter="select(c)"
           @keydown.f2.prevent="startRename(c)"
@@ -444,6 +449,11 @@ onBeforeUnmount(() => {
   padding: 0 12px;
   border-radius: 10px;
   color: var(--ink-soft);
+}
+.nav button.on {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+  font-weight: 500;
 }
 .nav button:hover {
   background: color-mix(in srgb, var(--ink) 6%, transparent);

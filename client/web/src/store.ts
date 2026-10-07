@@ -52,6 +52,8 @@ export const state = reactive({
   /** 自动更新：有新版本时界面上挂一条，点了才装；不点退出时也会装 */
   update: null as UpdateInfo | null,
   toast: '' as string,
+  /** 主区域显示什么：对话（含新任务首页），或者资料库 */
+  view: 'chat' as 'chat' | 'library',
   settingsOpen: false,
   skillsOpen: false,
   /** MCP 连接器面板 */
@@ -435,6 +437,7 @@ export async function setTheme(theme: Theme) {
 
 // ---------- 会话操作 ----------
 export async function openConversation(id: string) {
+  state.view = 'chat'
   state.currentId = id
   const s = convState(id)
   if (!s.loaded) {
@@ -451,6 +454,7 @@ export async function openConversation(id: string) {
 
 /** 新建任务只在本地生成草稿，发送第一条消息时才真正创建，避免产生空会话。 */
 export function newConversation(mode?: Mode) {
+  state.view = 'chat'
   state.currentId = null
   state.pending = []
   if (mode) draftMode.mode = mode
@@ -890,6 +894,9 @@ function onHostEvent(e: HostEvent) {
       else state.conversations.unshift(e.conversation)
       break
     }
+    case 'library.changed':
+      window.dispatchEvent(new CustomEvent('flyknit:library-changed'))
+      break
     case 'files.added':
       state.pending.push(...e.attachments)
       break
