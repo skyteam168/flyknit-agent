@@ -601,7 +601,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
 
             case "memory.consolidate":
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
                 var report = await _host.ConsolidateMemoryAsync(cts.Token);
                 return new { groups = report.Groups, merged = report.ItemsMerged, errors = report.Errors };
             }

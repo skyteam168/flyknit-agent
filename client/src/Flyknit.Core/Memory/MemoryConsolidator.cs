@@ -37,7 +37,10 @@ public sealed class MemoryConsolidator
     public double CandidateThreshold { get; init; } = 0.3;
 
     /// <summary>一次请求最多发多少条，免得提示词太长。</summary>
-    public int MaxItemsPerRequest { get; init; } = 80;
+    public int MaxItemsPerRequest { get; init; } = 40;
+
+    /// <summary>同时发给模型的请求数。</summary>
+    public int MaxParallelRequests { get; init; } = 4;
 
     public MemoryConsolidator(IChatGateway gateway, MemoryStore memory)
     {
@@ -48,24 +51,33 @@ public sealed class MemoryConsolidator
     public async Task<ConsolidationReport> RunAsync(CancellationToken ct)
     {
         var report = new ConsolidationReport();
-        foreach (var kind in Enum.GetValues<MemoryKind>())
+        var all = _memory.List();
+        var work = Enum.GetValues<MemoryKind>()
+            .SelectMany(kind => Batches(CandidateGroups(all.Where(i => i.Kind == kind).ToList(), CandidateThreshold), MaxItemsPerRequest)
+                .Where(b => b.Length >= 2)
+                .Select(batch => (kind, batch)))
+            .ToList();
+        // 各批之间条目互不重叠，可以同时请求模型；一批一次请求要几十秒，挨个跑会很慢
+        using var gate = new SemaphoreSlim(MaxParallelRequests);
+        await Task.WhenAll(work.Select(async w =>
         {
-            foreach (var batch in Batches(CandidateGroups(_memory.List().Where(i => i.Kind == kind).ToList(), CandidateThreshold), MaxItemsPerRequest))
+            await gate.WaitAsync(ct);
+            try
             {
-                if (batch.Length < 2)
-                {
-                    continue;
-                }
-                try
-                {
-                    await MergeBatchAsync(kind, batch, report, ct);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                await MergeBatchAsync(w.kind, w.batch, report, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                lock (report)
                 {
                     report.Errors.Add(ex.Message);
                 }
             }
-        }
+            finally
+            {
+                gate.Release();
+            }
+        }));
         return report;
     }
 
@@ -159,8 +171,11 @@ public sealed class MemoryConsolidator
             }
             if (_memory.Merge(real, text) is not null)
             {
-                report.Groups++;
-                report.ItemsMerged += real.Count;
+                lock (report)
+                {
+                    report.Groups++;
+                    report.ItemsMerged += real.Count;
+                }
                 // 合并过的不能再出现在后面的组里
                 foreach (var id in real)
                 {
