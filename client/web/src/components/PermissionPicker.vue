@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, ChevronDown, Eye, FolderPen, ShieldAlert } from '@lucide/vue'
+import { Check, ChevronDown, Eye, FolderPen, Lock, ShieldAlert } from '@lucide/vue'
 import Popover from './Popover.vue'
 import FullAccessDialog from './FullAccessDialog.vue'
-import { selectedPermission, setPermission } from '../store'
+import { selectedPermission, setPermission, state } from '../store'
 import type { Permission } from '../types'
 
 const { t } = useI18n()
 const askFull = ref(false)
+
+// 工作区隔离开着时「完全权限」实际按「工作区内修改」算。所以这里直接置灰并说明为什么，
+// 而不是让人选完了再发现写不出去——选项能点却不生效，比没有这个选项更让人困惑
+const fullLocked = computed(() => state.app?.sandboxed !== false)
 
 const options: { key: Permission; icon: unknown }[] = [
   { key: 'readonly', icon: Eye },
@@ -18,6 +22,7 @@ const options: { key: Permission; icon: unknown }[] = [
 const currentIcon = computed(() => options.find((o) => o.key === selectedPermission.value)!.icon)
 
 async function choose(p: Permission, close: () => void) {
+  if (p === 'full' && fullLocked.value) return // 点不动，弹窗也不弹
   close()
   if (p === selectedPermission.value) return
   if (p === 'full') {
@@ -55,13 +60,17 @@ async function confirmFull() {
         :key="o.key"
         type="button"
         class="opt"
-        :class="[o.key, { on: selectedPermission === o.key }]"
+        :class="[o.key, { on: selectedPermission === o.key, locked: o.key === 'full' && fullLocked }]"
+        :disabled="o.key === 'full' && fullLocked"
         @click="choose(o.key, close)"
       >
         <component :is="o.icon" :size="16" class="ico" />
         <span class="text">
-          <strong>{{ t(`ui.permission.${o.key}`) }}</strong>
-          <small>{{ t(`ui.permission.${o.key}Hint`) }}</small>
+          <strong>
+            {{ t(`ui.permission.${o.key}`) }}
+            <Lock v-if="o.key === 'full' && fullLocked" :size="11" />
+          </strong>
+          <small>{{ o.key === 'full' && fullLocked ? t('ui.permission.fullManaged') : t(`ui.permission.${o.key}Hint`) }}</small>
         </span>
         <Check v-if="selectedPermission === o.key" :size="15" class="tick" />
       </button>
@@ -124,6 +133,17 @@ async function confirmFull() {
 }
 .opt.full .ico {
   color: var(--amber);
+}
+/* 这几条要排在 .opt.full .ico 后面：同优先级下写在后面的赢 */
+.opt.locked {
+  cursor: not-allowed;
+}
+.opt.locked .ico,
+.opt.locked strong {
+  color: var(--ink-faint);
+}
+.opt:disabled:hover {
+  background: transparent;
 }
 .text {
   flex: 1;

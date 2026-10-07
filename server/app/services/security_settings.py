@@ -86,11 +86,6 @@ SETTINGS: tuple[Setting, ...] = (
         risk="关闭后 AI 可以在工作区之外读写文件。危险命令仍会拦截，但范围限制没有了。",
     ),
     Setting(
-        key="command_policy", kind="bool", default=True, locked=True,
-        title="命令安全策略",
-        risk="关闭后不再按规则拦截危险命令，所有命令只靠你每次确认。",
-    ),
-    Setting(
         key="delete_protection", kind="bool", default=True, locked=True,
         title="删除保护（回收站）",
         risk="关闭后 AI 删除的文件直接永久删除，不进回收站，无法恢复。",
@@ -102,8 +97,8 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="system_tools", kind="bool", default=False, locked=True,
-        title="系统级工具（wmic / sc / reg / schtasks）",
-        risk="开启后 AI 可以调用这些工具，它们能绕过一部分文件和进程限制。",
+        title="系统级工具（注册表 / 服务 / 计划任务 / WMI）",
+        risk="开启后 AI 可以改注册表、服务和计划任务。这些东西留在工作区之外，长期生效，隔离和删除保护都管不着。",
     ),
     Setting(
         key="batch_delete_threshold", kind="int", default=20, locked=True,

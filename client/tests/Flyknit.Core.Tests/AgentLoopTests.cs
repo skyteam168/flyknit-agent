@@ -100,12 +100,20 @@ public class AgentLoopTests : IDisposable
         public void OnPlanUpdated(IReadOnlyList<PlanItem> plan) => Plans.Add(plan);
     }
 
+    /// <summary>
+    /// 这组用例测的是权限模式本身，所以显式关掉工作区隔离——隔离是 IT 在上面加的一道封顶
+    /// （开着时「完全权限」按「工作区内修改」算），它有自己的测试，不该在这里混进来。
+    /// </summary>
     private ToolContext Context(PermissionMode permission = PermissionMode.Workspace) => new()
     {
         Policy = CommandPolicy.Default(),
         ConversationId = "c1",
         Workspace = _dir,
         Permission = permission,
+        Security = new SecuritySettings(new Dictionary<string, SecurityItem>
+        {
+            [SecuritySettings.Sandbox] = new() { Value = false, Locked = true },
+        }),
     };
 
     private static ChatTurn Call(string name, string args, string content = "") => new()

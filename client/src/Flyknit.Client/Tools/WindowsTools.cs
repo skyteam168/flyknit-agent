@@ -76,10 +76,16 @@ public sealed class OpenAppTool : ITool
         {
             return PolicyDecision.Auto();
         }
+        // open_app 也能启动 regedit、services.msc 这些。开关关着时从这条路进来一样拦，
+        // 否则绕开 run_shell 就等于绕开了这个开关
+        if (SystemToolPolicy.Evaluate($"{name} {args.Str("arguments")}", ctx.SystemTools) is { } systemTool)
+        {
+            return systemTool;
+        }
         var ext = Path.GetExtension(name).ToLowerInvariant();
         if (ext is ".ps1" or ".bat" or ".cmd" or ".vbs" or ".js" or ".py")
         {
-            return PermissionRules.ForScript(ctx.Policy, ctx.Permission, ctx.ResolvePath(name));
+            return PermissionRules.ForScript(ctx.Policy, ctx.EffectivePermission, ctx.ResolvePath(name));
         }
         return PolicyDecision.Auto();
     }

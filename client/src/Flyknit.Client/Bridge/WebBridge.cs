@@ -289,6 +289,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     shortcuts = ShortcutList(),
                     maximized = _window.IsMaximized,
                     micAvailable = SpeechService.Available(), // 没有麦克风就不显示语音按钮
+                    // 工作区隔离开着时「完全权限」实际按「工作区内修改」算。界面据此把那一项
+                    // 置灰并说明原因——选了却悄悄降级，比不给选更糟
+                    sandboxed = _host.Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 };
 
             case "security.settings":

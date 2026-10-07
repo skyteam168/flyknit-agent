@@ -92,6 +92,24 @@ public sealed class ToolContext
     public bool NetworkAllowlist =>
         Security?.On(Flyknit.Core.Security.SecuritySettings.NetworkAllowlist) ?? true;
 
+    /// <summary>能不能用注册表、服务、计划任务、WMI。默认不能。</summary>
+    public bool SystemTools =>
+        Security?.On(Flyknit.Core.Security.SecuritySettings.SystemTools) ?? false;
+
+    /// <summary>工作区隔离是否生效。服务端还没下发这一项时按生效算。</summary>
+    public bool Sandboxed =>
+        Security?.On(Flyknit.Core.Security.SecuritySettings.Sandbox) ?? true;
+
+    /// <summary>
+    /// 实际生效的权限模式。
+    ///
+    /// 工作区隔离开着时，「完全权限」最多按「工作区内修改」算——隔离的含义就是工作区
+    /// 之外不能写。这一档归 IT：员工在输入框里选什么都越不过去，需要哪台机器用完全
+    /// 权限，IT 在后台给那台单独关掉隔离。
+    /// </summary>
+    public PermissionMode EffectivePermission =>
+        Sandboxed && Permission == PermissionMode.Full ? PermissionMode.Workspace : Permission;
+
     /// <summary>一次删除多少个文件就要强制确认。安全中心改了这里要跟着变。</summary>
     public int BatchDeleteThreshold =>
         Security?.Number(Flyknit.Core.Security.SecuritySettings.BatchDeleteThreshold,
@@ -123,7 +141,7 @@ public sealed class ToolContext
         {
             return PolicyDecision.Blocked("路径无效");
         }
-        return PermissionRules.ForWrite(Policy, Permission, Workspace, full, delete);
+        return PermissionRules.ForWrite(Policy, EffectivePermission, Workspace, full, delete);
     }
 
     public bool InWorkspace(string fullPath) => PermissionRules.IsInWorkspace(fullPath, Workspace);

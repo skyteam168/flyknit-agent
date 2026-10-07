@@ -50,6 +50,18 @@ public sealed class PromptContext
     public string? Workspace { get; init; }
     public Security.PermissionMode Permission { get; init; } = Security.PermissionMode.Workspace;
 
+    /// <summary>工作区隔离是否生效（安全中心里的项）。</summary>
+    public bool Sandboxed { get; init; } = true;
+
+    /// <summary>
+    /// 讲给模型听的权限。隔离开着时「完全权限」按「工作区内修改」讲——
+    /// 跟它说有完全权限而实际写不出去，它只会反复试同一件做不到的事。
+    /// </summary>
+    public Security.PermissionMode EffectivePermission =>
+        Sandboxed && Permission == Security.PermissionMode.Full
+            ? Security.PermissionMode.Workspace
+            : Permission;
+
     /// <summary>当前的用户请求，用于挑选相关的记忆和历史任务。</summary>
     public string Query { get; init; } = "";
 }
@@ -127,7 +139,7 @@ public sealed class PromptBuilder
             {
                 sb.AppendLine($"工作区：{ctx.Workspace}。相对路径、命令的默认工作目录都在这里；生成的文件、脚本、编译输出等都放在工作区内（可以建子文件夹），不要散落到桌面或其他目录。");
             }
-            sb.AppendLine("当前权限：" + Security.PermissionModes.Describe(ctx.Permission, ctx.Workspace));
+            sb.AppendLine("当前权限：" + Security.PermissionModes.Describe(ctx.EffectivePermission, ctx.Workspace));
             sb.AppendLine();
         }
 

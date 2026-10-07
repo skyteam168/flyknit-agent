@@ -12,7 +12,7 @@ def test_only_harmless_items_are_unlocked_by_default():
 
     assert unlocked == {"auto_backup", "backup_quota_mb", "notifications", "notification_sound"}
     # 这几项要是默认放开，员工就能自己把管控关掉
-    for key in ("sandbox", "command_policy", "delete_protection", "network_allowlist", "system_tools"):
+    for key in ("sandbox", "delete_protection", "network_allowlist", "system_tools"):
         assert ss.BY_KEY[key].locked, key
 
 
@@ -70,3 +70,27 @@ def test_effective_carries_what_the_ui_needs():
     assert item["title"] and item["risk"]
     assert ss.effective()["sandbox"]["kind"] == "bool"
     assert "min" not in ss.effective()["sandbox"]
+
+
+def test_a_setting_only_exists_if_something_enforces_it():
+    """
+    每一项都要有客户端代码真的去读它。
+
+    曾经有三项（system_tools / sandbox / command_policy）下发了、画出来了、
+    常量也定义了，但没有任何代码读过——后台显示「系统级工具：已禁用」，而
+    wmic 和 schtasks /create 照跑。显示为关、实际是开的开关比没有这个开关更糟。
+
+    客户端那边 SecuritySwitchTests 有对应的一条；这里守住服务端这一侧的清单，
+    加项时两边都会提醒你。
+    """
+    assert {s.key for s in ss.SETTINGS} == {
+        "sandbox",
+        "delete_protection",
+        "network_allowlist",
+        "system_tools",
+        "auto_backup",
+        "backup_quota_mb",
+        "batch_delete_threshold",
+        "notifications",
+        "notification_sound",
+    }

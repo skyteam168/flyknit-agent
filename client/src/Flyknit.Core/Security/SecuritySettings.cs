@@ -51,7 +51,6 @@ public sealed class SecurityItem
 public sealed class SecuritySettings
 {
     public const string Sandbox = "sandbox";
-    public const string CommandPolicy = "command_policy";
     public const string DeleteProtection = "delete_protection";
     public const string NetworkAllowlist = "network_allowlist";
     public const string SystemTools = "system_tools";

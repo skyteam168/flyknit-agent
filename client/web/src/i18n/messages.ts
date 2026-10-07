@@ -427,18 +427,14 @@ const zh = {
           title: '工作区隔离',
           risk: '关闭后 AI 可以在工作区之外读写文件。危险命令仍会拦截，但范围限制没有了。',
         },
-        command_policy: {
-          title: '命令安全策略',
-          risk: '关闭后不再按规则拦截危险命令，所有命令只靠你每次确认。',
-        },
         delete_protection: {
           title: '删除保护（回收站）',
           risk: '关闭后 AI 删除的文件直接永久删除，不进回收站，无法恢复。',
         },
         network_allowlist: { title: '网络访问白名单', risk: '关闭后 AI 可以访问任意网址。' },
         system_tools: {
-          title: '系统级工具（wmic / sc / reg / schtasks）',
-          risk: '开启后 AI 可以调用这些工具，它们能绕过一部分文件和进程限制。',
+          title: '系统级工具（注册表 / 服务 / 计划任务 / WMI）',
+          risk: '开启后 AI 可以改注册表、服务和计划任务。这些东西留在工作区之外，长期生效，隔离和删除保护都管不着。',
         },
         batch_delete_threshold: {
           title: '批量删除确认阈值',
@@ -595,7 +591,8 @@ const zh = {
       workspaceHint: '可以在工作区内创建、修改文件；执行命令前先问你，同样的命令确认一次后自动通过',
       full: '完全权限',
       fullHint: '可以修改工作区外的文件，普通命令直接执行，不再逐条询问',
-      always: '无论哪种权限，rm -rf、格式化磁盘、修改系统设置等危险命令都会被直接拦截。',
+      fullManaged: '由 IT 统一配置，本机不能用。需要请联系 IT',
+      always: '无论哪种权限，格式化磁盘、删除系统目录这类命令都会被直接拦截。',
     },
     fullAccess: {
       title: '确认启用完全权限？',
@@ -1044,10 +1041,6 @@ const vi: Messages = {
           title: 'Giới hạn trong thư mục làm việc',
           risk: 'Tắt rồi thì AI đọc ghi được cả ngoài thư mục làm việc. Lệnh nguy hiểm vẫn bị chặn, nhưng hết giới hạn phạm vi.',
         },
-        command_policy: {
-          title: 'Chính sách an toàn lệnh',
-          risk: 'Tắt rồi thì không còn chặn lệnh nguy hiểm theo quy tắc, mọi lệnh chỉ dựa vào bạn xác nhận từng lần.',
-        },
         delete_protection: {
           title: 'Bảo vệ khi xóa (thùng rác)',
           risk: 'Tắt rồi thì tệp AI xóa mất luôn, không vào thùng rác, không khôi phục được.',
@@ -1057,8 +1050,8 @@ const vi: Messages = {
           risk: 'Tắt rồi thì AI vào được mọi địa chỉ web.',
         },
         system_tools: {
-          title: 'Công cụ hệ thống (wmic / sc / reg / schtasks)',
-          risk: 'Bật lên thì AI gọi được các công cụ này, chúng vượt qua được một phần giới hạn tệp và tiến trình.',
+          title: 'Công cụ hệ thống (registry / dịch vụ / tác vụ định kỳ / WMI)',
+          risk: 'Bật lên thì AI sửa được registry, dịch vụ và tác vụ định kỳ. Những thứ đó nằm ngoài thư mục làm việc và có hiệu lực lâu dài.',
         },
         batch_delete_threshold: {
           title: 'Ngưỡng xác nhận khi xóa hàng loạt',
@@ -1215,7 +1208,8 @@ const vi: Messages = {
       workspaceHint: 'Được tạo, sửa tệp trong thư mục làm việc; hỏi bạn trước khi chạy lệnh, lệnh giống hệt chỉ hỏi một lần',
       full: 'Toàn quyền',
       fullHint: 'Được sửa tệp ngoài thư mục làm việc, lệnh thông thường chạy ngay không hỏi',
-      always: 'Ở mọi chế độ, các lệnh nguy hiểm như rm -rf, định dạng ổ đĩa, sửa cài đặt hệ thống đều bị chặn.',
+      fullManaged: 'Do IT cấu hình chung, máy này không dùng được. Cần thì liên hệ IT',
+      always: 'Ở mọi chế độ, các lệnh như định dạng ổ đĩa hay xóa thư mục hệ thống đều bị chặn.',
     },
     fullAccess: {
       title: 'Bật toàn quyền?',
@@ -1662,10 +1656,6 @@ const en: Messages = {
           title: 'Keep the AI inside the workspace',
           risk: 'Once off, the AI can read and write files outside the workspace. Dangerous commands are still blocked, but the boundary is gone.',
         },
-        command_policy: {
-          title: 'Command safety rules',
-          risk: 'Once off, dangerous commands are no longer blocked by rule — every command rests on you confirming it.',
-        },
         delete_protection: {
           title: 'Deletion protection (Recycle Bin)',
           risk: 'Once off, files the AI deletes are gone for good — no Recycle Bin, no way back.',
@@ -1675,8 +1665,8 @@ const en: Messages = {
           risk: 'Once off, the AI can reach any address on the web.',
         },
         system_tools: {
-          title: 'System tools (wmic / sc / reg / schtasks)',
-          risk: 'Once on, the AI can call these tools, which get around some of the file and process limits.',
+          title: 'System tools (registry, services, scheduled tasks, WMI)',
+          risk: 'Once on, the AI can change the registry, services and scheduled tasks. Those live outside the workspace and keep working after the task ends.',
         },
         batch_delete_threshold: {
           title: 'Ask before deleting this many files',
@@ -1833,7 +1823,8 @@ const en: Messages = {
       workspaceHint: 'Creates and edits files inside the workspace. Asks before running commands; the same command is asked only once',
       full: 'Full access',
       fullHint: 'Can edit files outside the workspace. Ordinary commands run without asking',
-      always: 'In every mode, dangerous commands such as rm -rf, formatting disks or changing system settings are blocked.',
+      fullManaged: 'Set by IT — not available on this computer. Contact IT if you need it',
+      always: 'In every mode, commands such as formatting a disk or deleting a system folder are blocked.',
     },
     fullAccess: {
       title: 'Turn on full access?',

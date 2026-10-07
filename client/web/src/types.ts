@@ -392,6 +392,8 @@ export interface AppInfo {
   maximized: boolean
   /** 这台机器有没有麦克风。没有就不显示语音按钮 */
   micAvailable: boolean
+  /** 工作区隔离是否生效。开着时「完全权限」不可选 */
+  sandboxed: boolean
 }
 
 /** 安全中心里的一项 */

@@ -445,6 +445,7 @@ public sealed class AgentHost : IDisposable
                 TranslateTo = conv.TranslateTo,
                 Workspace = workspace,
                 Permission = conv.Permission,
+                Sandboxed = Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 Query = text,
             });
 
@@ -814,6 +815,7 @@ public sealed class AgentHost : IDisposable
                 UiLanguage = uiLanguage,
                 Workspace = workspace,
                 Permission = conv.Permission,
+                Sandboxed = Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 Query = prompt,
             });
 

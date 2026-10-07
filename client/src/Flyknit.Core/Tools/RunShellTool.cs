@@ -35,7 +35,13 @@ public sealed class RunShellTool : ITool
         }
         var shell = args.Str("shell", "powershell").Equals("cmd", StringComparison.OrdinalIgnoreCase) ? "cmd" : "powershell";
         var command = args.Str("command");
-        var decision = PermissionRules.ForCommand(ctx.Policy, ctx.Permission, ctx.Workspace, command, dir, shell);
+        // 系统级工具先判：改注册表、建服务和计划任务，是在工作区之外留下长期生效的东西，
+        // 权限模式和工作区范围都管不着它
+        if (SystemToolPolicy.Evaluate(command, ctx.SystemTools) is { } systemTool)
+        {
+            return systemTool;
+        }
+        var decision = PermissionRules.ForCommand(ctx.Policy, ctx.EffectivePermission, ctx.Workspace, command, dir, shell);
         return ctx.NetworkAllowlist
             ? PermissionRules.ForNetwork(decision, ctx.Policy.Network.EvaluateCommand(command))
             : decision;

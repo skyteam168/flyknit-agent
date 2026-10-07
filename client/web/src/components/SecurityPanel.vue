@@ -31,7 +31,7 @@ const confirming = ref<SecurityItem | null>(null)
 
 /** 界面按这三组排，和用户的心智对得上：能做什么 / 数据会怎样 / 发生过什么 */
 const groups = [
-  { id: 'sandbox', keys: ['sandbox', 'command_policy', 'network_allowlist', 'system_tools'] },
+  { id: 'sandbox', keys: ['sandbox', 'network_allowlist', 'system_tools'] },
   { id: 'data', keys: ['delete_protection', 'auto_backup', 'backup_quota_mb', 'batch_delete_threshold'] },
 ]
 

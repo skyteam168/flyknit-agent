@@ -10,9 +10,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // 安全中心：锁住的那几项照着真实默认值来，开发预览里才看得出区别
 const mockSecurity = [
   { key: 'sandbox', value: true, locked: true, kind: 'bool', title: '工作区隔离', risk: '关闭后 AI 可以在工作区之外读写文件。危险命令仍会拦截，但范围限制没有了。', min: null, max: null },
-  { key: 'command_policy', value: true, locked: true, kind: 'bool', title: '命令安全策略', risk: '关闭后不再按规则拦截危险命令，所有命令只靠你每次确认。', min: null, max: null },
   { key: 'network_allowlist', value: true, locked: true, kind: 'bool', title: '网络访问白名单', risk: '关闭后 AI 可以访问任意网址。', min: null, max: null },
-  { key: 'system_tools', value: false, locked: false, kind: 'bool', title: '系统级工具（wmic / sc / reg / schtasks）', risk: '开启后 AI 可以调用这些工具，它们能绕过一部分文件和进程限制。', min: null, max: null },
+  { key: 'system_tools', value: false, locked: false, kind: 'bool', title: '系统级工具（注册表 / 服务 / 计划任务 / WMI）', risk: '开启后 AI 可以调用这些工具，它们能绕过一部分文件和进程限制。', min: null, max: null },
   { key: 'delete_protection', value: true, locked: true, kind: 'bool', title: '删除保护（回收站）', risk: '关闭后 AI 删除的文件直接永久删除，不进回收站，无法恢复。', min: null, max: null },
   { key: 'auto_backup', value: true, locked: false, kind: 'bool', title: '修改文件前自动备份', risk: '关闭后 AI 覆盖文件将无法还原。删除仍会进回收站，但覆盖写不会。', min: null, max: null },
   { key: 'backup_quota_mb', value: 512, locked: false, kind: 'int', title: '备份容量上限（MB）', risk: '调小之后较早的备份会被提前清掉。', min: 64, max: 20480 },
@@ -466,6 +465,7 @@ export function createMockHost(): HostTransport {
           userName: 'nguyen.van.a',
           machineName: 'PC-QC-017',
           micAvailable: true,
+          sandboxed: true,
           notificationSound: 'none',
           fontScale: 1,
           autoStart: false,
