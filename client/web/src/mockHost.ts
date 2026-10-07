@@ -115,6 +115,22 @@ export function createMockHost(): HostTransport {
     libItem('l10', 'run.py', 'code', 'output', 1, { hidden: true }),
   ]
   const libTrash: MockLib[] = []
+  const persona = {
+    preset: 'default',
+    effective: 'default',
+    custom: '耐心、礼貌、简洁、专业。',
+    callName: '王工',
+    assistantName: '',
+    playfulAllowed: false,
+    customAllowed: true,
+    presets: [
+      { key: 'default', playful: false }, { key: 'professional', playful: false }, { key: 'friendly', playful: false },
+      { key: 'direct', playful: false }, { key: 'imaginative', playful: true }, { key: 'efficient', playful: false },
+      { key: 'roast', playful: true }, { key: 'socratic', playful: false },
+    ],
+    about: { department: '质检部', position: '质检员', language: '', systems: 'ERP、MES', folders: 'D:\\报表', other: '' },
+  }
+
   const memory = {
     items: [
       { id: 'm1', kind: 'preference', text: '报表默认保存到 D:\\报表，文件名带日期', date: '2026-09-28', lastSeen: '2026-10-05', proofCount: 3, history: ['报表保存到桌面'], slot: 'save_folder', slotLabel: '文件默认保存位置' },
@@ -545,6 +561,9 @@ export function createMockHost(): HostTransport {
           notificationSound: 'none',
           fontScale: 1,
           autoStart: false,
+          keepAwake: 'tasks',
+          keepAwakeAllowed: true,
+          keepScreenAllowed: false,
           proxyMode: 'system',
           proxyUrl: '',
           proxyUser: '',
@@ -655,6 +674,20 @@ export function createMockHost(): HostTransport {
         return { ok: true, message: '', enabled: !!p.enabled }
       case 'settings.setAutoStart':
         return { ok: true, message: '', enabled: !!p.enabled }
+      case 'settings.setKeepAwake':
+        if (p.mode === 'screen') return { ok: false, message: '“保持屏幕常亮”已被 IT 关闭', mode: 'tasks' }
+        return { ok: true, message: '', mode: p.mode }
+      case 'persona.get':
+        return persona
+      case 'persona.set': {
+        if (p.preset === 'roast') return { ok: false, message: '这个语气已被 IT 关闭', persona }
+        if (p.preset) persona.preset = persona.effective = p.preset
+        if (typeof p.custom === 'string') persona.custom = p.custom
+        if (typeof p.callName === 'string') persona.callName = p.callName.trim()
+        if (typeof p.assistantName === 'string') persona.assistantName = p.assistantName.trim()
+        if (p.about) persona.about = p.about
+        return { ok: true, message: '', persona }
+      }
       case 'settings.setProxy':
         return { ok: true, message: '' }
       case 'settings.testProxy':

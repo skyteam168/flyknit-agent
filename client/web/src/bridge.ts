@@ -48,6 +48,9 @@ import type {
   LearnedSkillStatus,
   MemoryMetrics,
   PlanItem,
+  KeepAwakeMode,
+  PersonaInfo,
+  PersonaUpdate,
 } from './types'
 import { createMockHost } from './mockHost'
 
@@ -230,6 +233,10 @@ class Bridge {
     this.call<{ ok: boolean; message: string; sound: string }>('settings.setNotificationSound', { sound })
   previewSound = (sound: string) => this.call<void>('settings.previewSound', { sound })
   setAutoStart = (enabled: boolean) => this.call<{ ok: boolean; message: string; enabled: boolean }>('settings.setAutoStart', { enabled })
+  setKeepAwake = (mode: KeepAwakeMode) => this.call<{ ok: boolean; message: string; mode: KeepAwakeMode }>('settings.setKeepAwake', { mode })
+  getPersona = () => this.call<PersonaInfo>('persona.get')
+  setPersona = (update: PersonaUpdate) =>
+    this.call<{ ok: boolean; message: string; persona: PersonaInfo | null }>('persona.set', update as Record<string, unknown>)
   setProxy = (mode: string, url: string, user: string, password: string) =>
     this.call<{ ok: boolean; message: string }>('settings.setProxy', { mode, url, user, password })
   testProxy = () => this.call<{ ok: boolean; message: string }>('settings.testProxy')

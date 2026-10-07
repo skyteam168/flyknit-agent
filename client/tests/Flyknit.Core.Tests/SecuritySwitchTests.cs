@@ -181,6 +181,11 @@ public class SecuritySwitchTests
             // AgentHost 读这两项填 AgentOptions（见 AgentQualityTests）
             SecuritySettings.PlanGuidance,
             SecuritySettings.VerifyOutputs,
+            // AgentHost 读这几项：能选哪些语气、能不能锁屏运行（见 PersonalizationTests）
+            SecuritySettings.PersonaPlayful,
+            SecuritySettings.PersonaCustom,
+            SecuritySettings.KeepAwakeAllowed,
+            SecuritySettings.KeepScreenOn,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

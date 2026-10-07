@@ -15,6 +15,7 @@ using Flyknit.Core.Context;
 using Flyknit.Core.Gateway;
 using Flyknit.Core.Memory;
 using Flyknit.Core.Security;
+using Flyknit.Core.Settings;
 using Flyknit.Core.Skills;
 using Flyknit.Core.Storage;
 using Flyknit.Core.Tools;
@@ -84,6 +85,48 @@ public sealed class AgentHost : IDisposable
             _settings.EnableNotifications = notify.AsBool();
         }
         _settings.Save();
+        RefreshKeepAwake(); // IT 可能刚关掉了锁屏运行
+    }
+
+    // ---------- 锁屏运行 ----------
+
+    private readonly KeepAwakeService _keepAwake = new();
+    private Timer? _keepAwakeTimer;
+
+    public bool KeepAwakeAllowed => Security.On(Flyknit.Core.Security.SecuritySettings.KeepAwakeAllowed);
+    public bool KeepScreenOnAllowed => Security.On(Flyknit.Core.Security.SecuritySettings.KeepScreenOn);
+
+    /// <summary>按现在的设置、公司策略和有没有任务，决定要不要挡住睡眠。有任务开始/结束、策略变了、每分钟都会算一次。</summary>
+    public void RefreshKeepAwake()
+    {
+        try
+        {
+            var now = DateTimeOffset.Now;
+            var busy = _runs.Count > 0
+                || Store.Schedules.List().Any(t => t.Enabled && t.NextRunAt is { } next && next <= now + KeepAwake.ScheduleLead);
+            _keepAwake.Set(KeepAwake.Resolve(_settings.KeepAwakeMode, KeepAwakeAllowed, KeepScreenOnAllowed, busy));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("更新锁屏运行状态失败", ex);
+        }
+    }
+
+    // ---------- 个性化 ----------
+
+    /// <summary>现在选的语气预设（还没选过时按 soul.md 有没有被改过推断）。</summary>
+    public string PersonaKey => Personas.Infer(_settings.Persona, Memory.Read(MemoryStore.SoulFile));
+
+    public bool PlayfulPersonasAllowed => Security.On(Flyknit.Core.Security.SecuritySettings.PersonaPlayful);
+    public bool CustomPersonaAllowed => Security.On(Flyknit.Core.Security.SecuritySettings.PersonaCustom);
+
+    /// <summary>放进提示词的语气、称呼、名字（已按公司策略换算）。</summary>
+    private (string Tone, string CallName, string AssistantName) PersonaForPrompt()
+    {
+        var soul = Memory.Read(MemoryStore.SoulFile);
+        var key = Personas.Effective(Personas.Infer(_settings.Persona, soul), PlayfulPersonasAllowed, CustomPersonaAllowed);
+        return (Personas.ToneText(key, soul), Personas.CleanName(_settings.UserCallName),
+            CustomPersonaAllowed ? Personas.CleanName(_settings.AssistantName) : "");
     }
 
     /// <summary>
@@ -237,6 +280,9 @@ public sealed class AgentHost : IDisposable
         await RefreshConfigAsync();
         Scheduler.Start();
         Updater.Start();
+        // 锁屏运行：任务开始、结束时重新算；每分钟再算一次（定时任务快到点时提前挡住睡眠）
+        ActiveRunsChanged += _ => RefreshKeepAwake();
+        _keepAwakeTimer = new Timer(_ => RefreshKeepAwake(), null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
         // 把上次连着的 MCP 连接器连回来。放后台：哪家连不上都不该拖慢启动
         _ = Task.Run(Mcp.StartAsync);
         // 长轮询监听配置变更，IT 一改安全中心/策略就近乎即时拉取生效
@@ -483,8 +529,12 @@ public sealed class AgentHost : IDisposable
 
             var workspace = _settings.ResolveWorkspace(conv.Workspace);
             var promptBuilder = new PromptBuilder(Memory, Skills, Episodes);
+            var persona = PersonaForPrompt();
             var prompt = promptBuilder.Build(new PromptContext
             {
+                Tone = persona.Tone,
+                CallName = persona.CallName,
+                AssistantName = persona.AssistantName,
                 Mode = conv.Mode,
                 UiLanguage = uiLanguage,
                 TranslateFrom = conv.TranslateFrom,
@@ -1015,8 +1065,12 @@ public sealed class AgentHost : IDisposable
             Store.AddMessages(conv.Id, new[] { user });
 
             var workspace = _settings.ResolveWorkspace(conv.Workspace);
+            var persona = PersonaForPrompt();
             var systemPrompt = new PromptBuilder(Memory, Skills, Episodes).Build(new PromptContext
             {
+                Tone = persona.Tone,
+                CallName = persona.CallName,
+                AssistantName = persona.AssistantName,
                 Mode = ConversationMode.Agent,
                 UiLanguage = uiLanguage,
                 Workspace = workspace,
@@ -1103,6 +1157,8 @@ public sealed class AgentHost : IDisposable
             cts.Cancel();
         }
         _configTimer.Dispose();
+        _keepAwakeTimer?.Dispose();
+        _keepAwake.Dispose();
         Scheduler.Dispose();
         Skills.Dispose();
         Mcp.Dispose();

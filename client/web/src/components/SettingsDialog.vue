@@ -13,6 +13,7 @@ import {
   Lock,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   TerminalSquare,
   Volume2,
   X,
@@ -20,8 +21,9 @@ import {
 import { bridge } from '../bridge'
 import { uiLanguages } from '../i18n'
 import { setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
-import type { ApprovalInfo, StorageInfo, Theme } from '../types'
+import type { ApprovalInfo, KeepAwakeMode, StorageInfo, Theme } from '../types'
 import AuditLog from './AuditLog.vue'
+import PersonalizePanel from './PersonalizePanel.vue'
 import SecurityPanel from './SecurityPanel.vue'
 import ShortcutsPanel from './ShortcutsPanel.vue'
 
@@ -29,7 +31,7 @@ const { t } = useI18n()
 const themes: Theme[] = ['system', 'light', 'dark']
 
 // ---------- 左侧菜单 ----------
-type Page = 'general' | 'notify' | 'shortcuts' | 'network' | 'memory' | 'data' | 'security' | 'about'
+type Page = 'general' | 'notify' | 'shortcuts' | 'network' | 'personalize' | 'memory' | 'data' | 'security' | 'about'
 const nav: { group: string; pages: { id: Page; icon: Component; label: string }[] }[] = [
   {
     group: 'settings.nav.groupSettings',
@@ -42,7 +44,10 @@ const nav: { group: string; pages: { id: Page; icon: Component; label: string }[
   },
   {
     group: 'settings.nav.groupFeatures',
-    pages: [{ id: 'memory', icon: Lightbulb, label: 'settings.nav.memory' }],
+    pages: [
+      { id: 'personalize', icon: Sparkles, label: 'settings.nav.personalize' },
+      { id: 'memory', icon: Lightbulb, label: 'settings.nav.memory' },
+    ],
   },
   {
     group: 'settings.nav.groupData',
@@ -96,6 +101,23 @@ const autoStart = ref(false)
 async function toggleAutoStart(on: boolean) {
   const r = await bridge.setAutoStart(on).catch(() => ({ ok: false, message: '设置失败', enabled: autoStart.value }))
   autoStart.value = r.enabled
+  if (!r.ok && r.message) toast(r.message)
+}
+
+// ---------- 锁屏运行 ----------
+const keepAwakeModes: KeepAwakeMode[] = ['off', 'tasks', 'awake', 'screen']
+const keepAwake = ref<KeepAwakeMode>('tasks')
+function keepAwakeLocked(mode: KeepAwakeMode) {
+  if (mode === 'off') return false
+  if (!(state.app?.keepAwakeAllowed ?? true)) return true
+  return mode === 'screen' && !(state.app?.keepScreenAllowed ?? true)
+}
+async function changeKeepAwake(mode: KeepAwakeMode) {
+  const before = keepAwake.value
+  keepAwake.value = mode
+  const r = await bridge.setKeepAwake(mode).catch(() => ({ ok: false, message: '设置失败', mode: before }))
+  keepAwake.value = r.mode
+  if (state.app) state.app.keepAwake = r.mode
   if (!r.ok && r.message) toast(r.message)
 }
 
@@ -157,6 +179,7 @@ async function changeWorkspace() {
 onMounted(async () => {
   await loadApprovals()
   autoStart.value = state.app?.autoStart ?? false
+  keepAwake.value = state.app?.keepAwake ?? 'tasks'
   proxyMode.value = state.app?.proxyMode ?? 'system'
   proxyUrl.value = state.app?.proxyUrl ?? ''
   proxyUser.value = state.app?.proxyUser ?? ''
@@ -277,7 +300,29 @@ onMounted(async () => {
               </span>
               <input type="checkbox" class="switch" :checked="autoStart" @change="toggleAutoStart(($event.target as HTMLInputElement).checked)" />
             </label>
+            <div class="row">
+              <span class="label">
+                <strong>
+                  {{ t('settings.keepAwake') }}
+                  <Lock v-if="!(state.app?.keepAwakeAllowed ?? true)" :size="12" class="locked" />
+                </strong>
+                <small>{{ t(`settings.keepAwakeModes.${keepAwake}.desc`) }}</small>
+                <small v-if="!(state.app?.keepAwakeAllowed ?? true)">{{ t('ui.security.managedBy') }}</small>
+                <small v-else>{{ t('settings.keepAwakeNote') }}</small>
+              </span>
+              <select :value="keepAwake" :aria-label="t('settings.keepAwake')" @change="changeKeepAwake(($event.target as HTMLSelectElement).value as KeepAwakeMode)">
+                <option v-for="m in keepAwakeModes" :key="m" :value="m" :disabled="keepAwakeLocked(m)">
+                  {{ t(`settings.keepAwakeModes.${m}.name`) }}{{ keepAwakeLocked(m) ? ' 🔒' : '' }}
+                </option>
+              </select>
+            </div>
           </section>
+        </template>
+
+        <!-- 个性化 -->
+        <template v-else-if="page === 'personalize'">
+          <h2>{{ t('settings.nav.personalize') }}</h2>
+          <PersonalizePanel />
         </template>
 
         <!-- 通知 -->

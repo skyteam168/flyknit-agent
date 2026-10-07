@@ -308,6 +308,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     soundLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound)?.Locked ?? false,
                     fontScale = _settings.FontScale,
                     autoStart = AutoStart.IsEnabled(),   // 以注册表为准，用户可能在任务管理器里关过
+                    keepAwake = Flyknit.Core.Settings.KeepAwake.Normalize(_settings.KeepAwakeMode),
+                    keepAwakeAllowed = _host.KeepAwakeAllowed,
+                    keepScreenAllowed = _host.KeepScreenOnAllowed,
                     proxyMode = _settings.ProxyMode,
                     proxyUrl = _settings.ProxyUrl,
                     proxyUser = _settings.ProxyUser,
@@ -465,6 +468,69 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     _settings.Save();
                 }
                 return new { ok, message, enabled = AutoStart.IsEnabled() };
+            }
+
+            case "settings.setKeepAwake":
+            {
+                // 界面上锁住的选项置灰了，这里再拦一次：不能只靠界面
+                var mode = Flyknit.Core.Settings.KeepAwake.Normalize(Str("mode"));
+                string? why = mode == Flyknit.Core.Settings.KeepAwake.Off ? null
+                    : !_host.KeepAwakeAllowed ? "锁屏运行由 IT 统一配置，本机只能选“关闭”"
+                    : mode == Flyknit.Core.Settings.KeepAwake.Screen && !_host.KeepScreenOnAllowed ? "“保持屏幕常亮”已被 IT 关闭"
+                    : null;
+                if (why is null)
+                {
+                    _settings.KeepAwakeMode = mode;
+                    _settings.Save();
+                    _host.RefreshKeepAwake();
+                }
+                return new { ok = why is null, message = why ?? "", mode = Flyknit.Core.Settings.KeepAwake.Normalize(_settings.KeepAwakeMode) };
+            }
+
+            case "persona.get":
+                return PersonaInfo();
+
+            case "persona.set":
+            {
+                // 每次只传改了的那几项
+                if (OptStr("preset") is { } preset)
+                {
+                    preset = Flyknit.Core.Settings.Personas.Normalize(preset);
+                    if (Flyknit.Core.Settings.Personas.Effective(preset, _host.PlayfulPersonasAllowed, _host.CustomPersonaAllowed) != preset)
+                    {
+                        return new { ok = false, message = "这个语气已被 IT 关闭", persona = PersonaInfo() };
+                    }
+                    _settings.Persona = preset;
+                }
+                if (p.TryGetProperty("custom", out var custom) && custom.ValueKind == JsonValueKind.String)
+                {
+                    if (!_host.CustomPersonaAllowed)
+                    {
+                        return new { ok = false, message = "自定义语气已被 IT 关闭", persona = PersonaInfo() };
+                    }
+                    var text = custom.GetString()!.Trim();
+                    _host.Memory.Write(Flyknit.Core.Memory.MemoryStore.SoulFile, "# 性格与语气\n\n" + (text.Length > 2000 ? text[..2000] : text) + "\n");
+                }
+                if (p.TryGetProperty("callName", out var call) && call.ValueKind == JsonValueKind.String)
+                {
+                    _settings.UserCallName = Flyknit.Core.Settings.Personas.CleanName(call.GetString());
+                }
+                if (p.TryGetProperty("assistantName", out var name) && name.ValueKind == JsonValueKind.String)
+                {
+                    if (!_host.CustomPersonaAllowed && name.GetString()!.Trim().Length > 0)
+                    {
+                        return new { ok = false, message = "修改 AI 的名字已被 IT 关闭", persona = PersonaInfo() };
+                    }
+                    _settings.AssistantName = Flyknit.Core.Settings.Personas.CleanName(name.GetString());
+                }
+                if (p.TryGetProperty("about", out var about) && about.ValueKind == JsonValueKind.Object)
+                {
+                    string F(string key) => about.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()!.Trim() : "";
+                    var me = new Flyknit.Core.Settings.AboutMe(F("department"), F("position"), F("language"), F("systems"), F("folders"), F("other"));
+                    _host.Memory.Write(Flyknit.Core.Memory.MemoryStore.RoleFile, me.Render());
+                }
+                _settings.Save();
+                return new { ok = true, message = "", persona = PersonaInfo() };
             }
 
             case "settings.setProxy":
@@ -1585,6 +1651,33 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
         warnings = results.Where(r => r.Ok).SelectMany(r => r.Inspection.Warnings).Distinct().ToList(),
         skills = SkillList(),
     };
+
+    /// <summary>个性化页面需要的全部内容。</summary>
+    private object PersonaInfo()
+    {
+        var soul = _host.Memory.Read(Flyknit.Core.Memory.MemoryStore.SoulFile);
+        var about = Flyknit.Core.Settings.AboutMe.Parse(_host.Memory.Read(Flyknit.Core.Memory.MemoryStore.RoleFile));
+        return new
+        {
+            preset = _host.PersonaKey,
+            effective = Flyknit.Core.Settings.Personas.Effective(_host.PersonaKey, _host.PlayfulPersonasAllowed, _host.CustomPersonaAllowed),
+            custom = string.Join("\n", soul.Replace("\r", "").Split('\n').Where(l => !l.TrimStart().StartsWith('#'))).Trim(),
+            callName = _settings.UserCallName,
+            assistantName = _settings.AssistantName,
+            playfulAllowed = _host.PlayfulPersonasAllowed,
+            customAllowed = _host.CustomPersonaAllowed,
+            presets = Flyknit.Core.Settings.Personas.Presets.Select(x => new { key = x.Key, playful = x.Playful }).ToList(),
+            about = new
+            {
+                department = about.Department,
+                position = about.Position,
+                language = about.Language,
+                systems = about.Systems,
+                folders = about.Folders,
+                other = about.Other,
+            },
+        };
+    }
 
     private object WorkspaceList()
     {

@@ -128,6 +128,16 @@ public sealed class AppSettings
     /// <summary>登录 Windows 后自动启动。实际开关写在注册表的 Run 项里，这里只记用户的选择。</summary>
     public bool AutoStart { get; set; }
 
+    /// <summary>锁屏运行：off / tasks（默认，只在有任务时挡住睡眠）/ awake / screen，见 KeepAwake。</summary>
+    public string KeepAwakeMode { get; set; } = Flyknit.Core.Settings.KeepAwake.Tasks;
+
+    /// <summary>回复语气预设（见 Personas）；空表示还没选过，按 soul.md 有没有被改过推断。</summary>
+    public string Persona { get; set; } = "";
+
+    /// <summary>AI 对用户的称呼、AI 的名字；空表示不指定。</summary>
+    public string UserCallName { get; set; } = "";
+    public string AssistantName { get; set; } = "";
+
     /// <summary>direct（直连）/ system（跟随系统）/ manual（手动填地址）。</summary>
     public string ProxyMode { get; set; } = "system";
 
