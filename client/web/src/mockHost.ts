@@ -528,6 +528,7 @@ export function createMockHost(): HostTransport {
           defaultPermission: 'workspace',
           workspaces,
           learning: true,
+          maxSteps: 100,
           notifications: true,
           maximized,
         }
@@ -678,6 +679,8 @@ export function createMockHost(): HostTransport {
       case 'window.toggleMaximize':
         maximized = !maximized
         return maximized
+      case 'settings.setMaxSteps':
+        return p.value
       case 'memory.list':
         return { ...memory, learning: true }
       case 'memory.delete':

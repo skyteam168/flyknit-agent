@@ -74,7 +74,19 @@ public interface IAgentObserver : IStreamSink
 
 public sealed class AgentOptions
 {
-    public int MaxSteps { get; init; } = 25;
+    /// <summary>
+    /// 一轮最多调用多少次模型。只是最后的保险：真正防空转靠 <see cref="LoopGuard"/>（重复同一个操作会被提醒、再犯就停），
+    /// 上下文过长靠 ContextManager 压缩，所以这里可以放得比较宽，长任务不会中途被打断。
+    /// </summary>
+    public int MaxSteps { get; init; } = DefaultMaxSteps;
+
+    public const int DefaultMaxSteps = 100;
+
+    /// <summary>每隔多少步提醒模型对照计划自查一次（不停下）。0 表示不提醒。</summary>
+    public int CheckpointInterval { get; init; } = 25;
+
+    /// <summary>因步数上限或空转暂停时，先让模型不调工具总结一次做到哪了。</summary>
+    public bool WrapUpOnPause { get; init; } = true;
     public TimeSpan ToolTimeout { get; init; } = TimeSpan.FromMinutes(10);
     public int MaxToolOutputChars { get; init; } = ToolResult.DefaultMaxChars;
 
@@ -88,6 +100,9 @@ public enum AgentStopReason
     MaxSteps,
     TooManyFailures,
     Cancelled,
+
+    /// <summary>反复做同一个操作没有进展（空转），提醒后仍然如此，主动停下。</summary>
+    Stuck,
 
     /// <summary>模型服务返回错误（网络、鉴权、内容审核等），已经做完的部分照常保留。</summary>
     Failed,

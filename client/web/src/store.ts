@@ -35,7 +35,7 @@ interface ConversationState {
   draft: { content: string; reasoning: string } | null
   tools: Record<string, ToolActivity>
   plan: PlanItem[]
-  notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'failed'; text?: string } | null
+  notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'stuck' | 'failed'; text?: string } | null
   /** 运行过程中的一次性提示（例如内容被审核拦截后省略重试） */
   notices: string[]
 }
@@ -716,6 +716,13 @@ export async function setLearning(enabled: boolean) {
   await bridge.setLearning(enabled).catch(fail)
 }
 
+export async function setMaxSteps(value: number) {
+  const prev = state.app?.maxSteps
+  if (state.app) state.app.maxSteps = value
+  const r = await bridge.setMaxSteps(value).catch(fail)
+  if (state.app) state.app.maxSteps = typeof r === 'number' ? r : (prev ?? value)
+}
+
 export async function setNotifications(enabled: boolean) {
   if (state.app) state.app.notifications = enabled
   const r = await bridge.setNotifications(enabled).catch(fail)
@@ -859,6 +866,7 @@ function onHostEvent(e: HostEvent) {
       else if (e.stopReason === 'Failed') s.notice = { kind: 'failed' }
       else if (e.stopReason === 'MaxSteps') s.notice = { kind: 'maxSteps' }
       else if (e.stopReason === 'TooManyFailures') s.notice = { kind: 'tooManyFailures' }
+      else if (e.stopReason === 'Stuck') s.notice = { kind: 'stuck' }
       for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
       if (e.modelName && state.app) state.app.modelName = e.modelName
       if (state.compacting?.conversationId === e.conversationId) state.compacting = null

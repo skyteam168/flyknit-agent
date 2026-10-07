@@ -296,6 +296,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     defaultPermission = _settings.DefaultPermission == "readonly" ? "readonly" : "workspace",
                     workspaces = WorkspaceList(),
                     learning = _settings.EnableLearning,
+                    maxSteps = _settings.ResolveAgentMaxSteps(),
                     notifications = _settings.EnableNotifications,
                     notificationSound = _host.NotificationSoundChoice(),
                     notificationsLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.Notifications)?.Locked ?? false,
@@ -378,6 +379,18 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             case "window.startResize":
                 _window.StartResize(Str("direction"));
                 return null;
+
+            case "settings.setMaxSteps":
+            {
+                var n = Int("value") ?? 0;
+                if (!AppSettings.AgentMaxStepsChoices.Contains(n))
+                {
+                    throw new ArgumentException("不支持的步数上限");
+                }
+                _settings.AgentMaxSteps = n;
+                _settings.Save();
+                return n;
+            }
 
             case "settings.setLearning":
                 _settings.EnableLearning = Bool("enabled");
