@@ -43,6 +43,8 @@ import type {
   Theme,
   UiLanguage,
   UiMessage,
+  LibraryFolder,
+  LibraryItem,
 } from './types'
 import { createMockHost } from './mockHost'
 
@@ -270,6 +272,29 @@ class Bridge {
   pickFiles = () => this.call<AttachmentRef[]>('files.pick')
   /** 拖入窗口的文件：WebView2 通过 additionalObjects 把真实路径交给宿主 */
   addDroppedFiles = (files: File[]) => this.call<AttachmentRef[]>('files.dropped', {}, files)
+
+  // ---------- 资料库 ----------
+  libraryList = (q: { tab: string; folderId?: string | null; search?: string; kind?: string; sort?: string; hidden?: boolean }) =>
+    this.call<{ items: LibraryItem[]; folders: LibraryFolder[] }>('library.list', q)
+  libraryUpload = (folderId: string | null, accept?: 'image') => this.call<LibraryItem[]>('library.upload', { folderId, accept }, undefined, 10 * 60_000)
+  libraryAddDropped = (files: File[], folderId: string | null) => this.call<LibraryItem[]>('library.addDropped', { folderId }, files, 10 * 60_000)
+  libraryAddNote = (title: string, text: string, folderId: string | null) => this.call<LibraryItem>('library.addNote', { title, text, folderId })
+  libraryUpdateNote = (id: string, text: string) => this.call<boolean>('library.updateNote', { id, text })
+  libraryRename = (id: string, name: string) => this.call<boolean>('library.rename', { id, name })
+  libraryFavorite = (ids: string[], favorite: boolean) => this.call<number>('library.favorite', { ids, favorite })
+  libraryMove = (ids: string[], folderId: string | null) => this.call<number>('library.move', { ids, folderId })
+  libraryDelete = (ids: string[]) => this.call<number>('library.delete', { ids })
+  libraryRestore = (ids: string[]) => this.call<number>('library.restore', { ids })
+  libraryPurge = (ids: string[]) => this.call<number>('library.purge', { ids }, undefined, 60_000)
+  libraryEmptyTrash = () => this.call<number>('library.emptyTrash', {}, undefined, 60_000)
+  libraryCreateFolder = (name: string) => this.call<LibraryFolder>('library.createFolder', { name })
+  libraryRenameFolder = (id: string, name: string) => this.call<boolean>('library.renameFolder', { id, name })
+  libraryDeleteFolder = (id: string) => this.call<boolean>('library.deleteFolder', { id })
+  libraryDownload = (ids: string[]) => this.call<number>('library.download', { ids }, undefined, 10 * 60_000)
+  libraryShare = (ids: string[]) => this.call<number>('library.share', { ids })
+  libraryReveal = (id: string) => this.call<{ ok: boolean; message: string }>('library.reveal', { id })
+  libraryPreview = (id: string) => this.call<PreviewDoc>('library.preview', { id }, undefined, 40_000)
+  libraryAttachments = (ids: string[]) => this.call<AttachmentRef[]>('library.attachments', { ids })
   /** 粘贴的截图等没有路径的内容，以 base64 交给宿主保存为临时文件 */
   saveBlob = (fileName: string, mime: string, base64: string) =>
     this.call<AttachmentRef>('files.saveBlob', { fileName, mime, base64 })

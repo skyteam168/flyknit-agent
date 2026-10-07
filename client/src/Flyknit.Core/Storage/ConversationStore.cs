@@ -429,6 +429,55 @@ public sealed class ConversationStore
         tx.Commit();
     }
 
+    /// <summary>
+    /// 所有对话里出现过的文件：用户上传的附件和 AI 产出的文件（不含回收站里的对话）。资料库升级后补登历史时用。
+    /// </summary>
+    public List<(string Path, string Source, string ConversationId, DateTimeOffset At)> FileReferences()
+    {
+        var list = new List<(string, string, string, DateTimeOffset)>();
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT m.conversation_id, m.created_at, m.attachments, m.outputs
+            FROM messages m JOIN conversations v ON v.id = m.conversation_id
+            WHERE v.deleted_at IS NULL AND (m.attachments IS NOT NULL OR m.outputs IS NOT NULL)
+            ORDER BY m.created_at
+            """;
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var conv = r.GetString(0);
+            var at = DateTimeOffset.TryParse(r.GetString(1), out var t) ? t : DateTimeOffset.Now;
+            if (!r.IsDBNull(2))
+            {
+                try
+                {
+                    foreach (var a in JsonSerializer.Deserialize<List<Attachment>>(r.GetString(2), Json) ?? new())
+                    {
+                        list.Add((a.LocalPath, "upload", conv, at));
+                    }
+                }
+                catch (JsonException)
+                {
+                }
+            }
+            if (!r.IsDBNull(3))
+            {
+                try
+                {
+                    foreach (var path in JsonSerializer.Deserialize<List<string>>(r.GetString(3), Json) ?? new())
+                    {
+                        list.Add((path, "output", conv, at));
+                    }
+                }
+                catch (JsonException)
+                {
+                }
+            }
+        }
+        return list;
+    }
+
     public List<ChatMessage> GetMessages(string conversationId)
     {
         using var c = Open();

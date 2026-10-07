@@ -18,6 +18,8 @@ import PlanPanel from './components/PlanPanel.vue'
 import PreviewPane from './components/PreviewPane.vue'
 import TraceDialog from './components/TraceDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
+import LibraryPage from './components/LibraryPage.vue'
+import { uploadDropped } from './library'
 import {
   addFiles,
   closePreview,
@@ -148,7 +150,9 @@ function onDrop(e: DragEvent) {
   e.preventDefault()
   dragging.value = 0
   const files = [...(e.dataTransfer?.files ?? [])]
-  void addFiles(files)
+  // 在资料库页面拖进来的文件放进资料库，其他时候作为附件
+  if (state.view === 'library') void uploadDropped(files)
+  else void addFiles(files)
 }
 
 onMounted(async () => {
@@ -199,13 +203,14 @@ onBeforeUnmount(() => {
       <TopBar :narrow="narrow" :sidebar-hidden="narrow || sidebarHidden" @toggle-sidebar="toggleSidebar" />
       <UpdateBar class="update" />
       <div class="body">
-        <div v-if="inConversation" class="conversation">
+        <LibraryPage v-if="state.view === 'library'" />
+        <div v-else-if="inConversation" class="conversation">
           <MessageList />
           <Composer ref="composer" />
         </div>
         <Home v-else ref="home" />
-        <PlanPanel v-if="showPlan && !state.preview" :plan="currentState!.plan" />
-        <PreviewPane v-if="state.preview && !narrow" />
+        <PlanPanel v-if="showPlan && !state.preview && state.view === 'chat'" :plan="currentState!.plan" />
+        <PreviewPane v-if="state.preview && !narrow && state.view === 'chat'" />
       </div>
     </main>
 

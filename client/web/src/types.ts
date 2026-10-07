@@ -390,6 +390,43 @@ export interface SkillActionResult {
   skills: SkillInfo[]
 }
 
+export type LibraryKind = 'image' | 'document' | 'sheet' | 'slides' | 'pdf' | 'audio' | 'video' | 'archive' | 'code' | 'note' | 'other'
+export type LibraryTab = 'recent' | 'favorites' | 'folders' | 'images' | 'all' | 'trash'
+
+/** 资料库里的一个文件 */
+export interface LibraryItem {
+  id: string
+  name: string
+  /** 文件在磁盘上的位置 */
+  path: string
+  kind: LibraryKind
+  mime: string
+  size: number
+  /** upload / paste / output / library / note */
+  source: string
+  conversationId: string | null
+  folderId: string | null
+  favorite: boolean
+  managed: boolean
+  hidden: boolean
+  exists: boolean
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+  /** 原文件地址（宿主拦截 files.flyknit.local 提供） */
+  url: string
+  /** 图片缩略图地址 */
+  thumbUrl: string | null
+}
+
+export interface LibraryFolder {
+  id: string
+  name: string
+  count: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface AttachmentRef {
   fileName: string
   localPath: string
@@ -584,6 +621,7 @@ export type HostEvent =
   | { type: 'chat.error'; conversationId: string; message: string }
   | { type: 'conversation.updated'; conversation: Conversation }
   | { type: 'files.added'; attachments: AttachmentRef[] }
+  | { type: 'library.changed' }
   | { type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string }
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }

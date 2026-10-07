@@ -88,6 +88,33 @@ export function createMockHost(): HostTransport {
     { id: 2, conversationId: '', title: 'Email gửi nhà cung cấp', scene: 'chat', tool: 'write_file', detail: 'D:\\草稿\\供应商邮件.txt', decision: 'approved', reason: '', createdAt: ago(3 * 1440) },
     { id: 1, conversationId: '', title: '车间排班表翻译成越南语', scene: 'translate', tool: 'delete_path', detail: 'D:\\排班\\旧排班表.docx', decision: 'approved', reason: '', createdAt: ago(12 * 1440) },
   ]
+  // 资料库（演示数据）：图片用 SVG 渐变代替
+  const svg = (c1: string, c2: string, w: number, h: number, label: string) =>
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/><text x="50%" y="52%" font-size="${Math.round(w / 10)}" fill="white" text-anchor="middle" font-family="sans-serif">${label}</text></svg>`,
+    )
+  type MockLib = import('./types').LibraryItem
+  const libItem = (id: string, name: string, kind: MockLib['kind'], source: string, days: number, extra: Partial<MockLib> = {}): MockLib => ({
+    id, name, path: `C:\\Users\\demo\\Documents\\Flyknit\\${name}`, kind, mime: '', size: 1024 * (40 + id.length * 37), source,
+    conversationId: null, folderId: null, favorite: false, managed: source !== 'output', hidden: false, exists: true,
+    createdAt: new Date(Date.now() - days * 86400000).toISOString(), updatedAt: new Date(Date.now() - days * 86400000).toISOString(),
+    deletedAt: null, url: '', thumbUrl: null, ...extra,
+  })
+  const libFolders: import('./types').LibraryFolder[] = [{ id: 'f1', name: '品牌素材', count: 0, createdAt: now(), updatedAt: now() }]
+  const library: MockLib[] = [
+    libItem('l1', 'FlyknitBuddy-logo.png', 'image', 'upload', 1, { thumbUrl: svg('#1d4ed8', '#60a5fa', 400, 400, 'Logo'), url: svg('#1d4ed8', '#60a5fa', 800, 800, 'Logo'), favorite: true }),
+    libItem('l2', '安全海报.png', 'image', 'output', 2, { thumbUrl: svg('#0f172a', '#2563eb', 400, 560, '海报'), url: svg('#0f172a', '#2563eb', 800, 1120, '海报') }),
+    libItem('l3', '录音.m4a', 'audio', 'upload', 4),
+    libItem('l4', '粘贴的 markdown.md', 'document', 'library', 5),
+    libItem('l5', '服装OEM产业AI数字化转型专家访谈准备稿.docx', 'document', 'output', 7),
+    libItem('l6', '城市夜景.png', 'image', 'paste', 3, { thumbUrl: svg('#312e81', '#0ea5e9', 480, 300, '截图'), url: svg('#312e81', '#0ea5e9', 960, 600, '截图') }),
+    libItem('l7', '九月产量汇总.xlsx', 'sheet', 'output', 8),
+    libItem('l8', 'Q3 汇报.pptx', 'slides', 'output', 9),
+    libItem('l9', '会议要点.md', 'note', 'note', 0),
+    libItem('l10', 'run.py', 'code', 'output', 1, { hidden: true }),
+  ]
+  const libTrash: MockLib[] = []
   const memory = {
     items: [
       { id: 'm1', kind: 'preference', text: '报表默认保存到 D:\\报表，文件名带日期', date: '2026-09-28', lastSeen: '2026-10-05', proofCount: 3, history: ['报表保存到桌面'] },
@@ -679,6 +706,92 @@ export function createMockHost(): HostTransport {
       case 'window.toggleMaximize':
         maximized = !maximized
         return maximized
+      case 'library.list': {
+        const pool = p.tab === 'trash' ? libTrash : library
+        let items = pool.filter((i) => p.hidden || !i.hidden || p.tab === 'trash')
+        if (p.folderId) items = items.filter((i) => i.folderId === p.folderId)
+        if (p.tab === 'favorites') items = items.filter((i) => i.favorite)
+        if (p.tab === 'images') items = items.filter((i) => i.kind === 'image')
+        if (p.kind) items = items.filter((i) => i.kind === p.kind)
+        if (p.search) items = items.filter((i) => i.name.toLowerCase().includes(String(p.search).toLowerCase()))
+        if (p.sort === 'name') items = [...items].sort((a, b) => a.name.localeCompare(b.name))
+        else if (p.sort === 'size') items = [...items].sort((a, b) => b.size - a.size)
+        else items = [...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        for (const f of libFolders) f.count = library.filter((i) => i.folderId === f.id).length
+        return { items, folders: libFolders }
+      }
+      case 'library.upload':
+      case 'library.addDropped':
+        return []
+      case 'library.addNote': {
+        const item = libItem(uid(), (p.title || '新备注') + '.md', 'note', 'note', 0, { folderId: p.folderId ?? null })
+        library.unshift(item)
+        return item
+      }
+      case 'library.updateNote':
+        return true
+      case 'library.rename': {
+        const item = library.find((i) => i.id === p.id)
+        if (item) item.name = p.name
+        return !!item
+      }
+      case 'library.favorite':
+        for (const i of library) if (p.ids.includes(i.id)) i.favorite = p.favorite
+        return p.ids.length
+      case 'library.move':
+        for (const i of library) if (p.ids.includes(i.id)) i.folderId = p.folderId ?? null
+        return p.ids.length
+      case 'library.delete':
+        for (const id of p.ids) {
+          const i = library.findIndex((x) => x.id === id)
+          if (i >= 0) libTrash.push({ ...library.splice(i, 1)[0], deletedAt: now() })
+        }
+        return p.ids.length
+      case 'library.restore':
+        for (const id of p.ids) {
+          const i = libTrash.findIndex((x) => x.id === id)
+          if (i >= 0) library.push({ ...libTrash.splice(i, 1)[0], deletedAt: null })
+        }
+        return p.ids.length
+      case 'library.purge':
+        for (const id of p.ids) {
+          const i = libTrash.findIndex((x) => x.id === id)
+          if (i >= 0) libTrash.splice(i, 1)
+        }
+        return p.ids.length
+      case 'library.emptyTrash': {
+        const n = libTrash.length
+        libTrash.length = 0
+        return n
+      }
+      case 'library.createFolder': {
+        const f = { id: uid(), name: p.name, count: 0, createdAt: now(), updatedAt: now() }
+        libFolders.push(f)
+        return f
+      }
+      case 'library.renameFolder': {
+        const f = libFolders.find((x) => x.id === p.id)
+        if (f) f.name = p.name
+        return !!f
+      }
+      case 'library.deleteFolder': {
+        const i = libFolders.findIndex((x) => x.id === p.id)
+        if (i >= 0) libFolders.splice(i, 1)
+        for (const it of library) if (it.folderId === p.id) it.folderId = null
+        return i >= 0
+      }
+      case 'library.download':
+      case 'library.share':
+        return p.ids.length
+      case 'library.reveal':
+        return { ok: true, message: '' }
+      case 'library.preview': {
+        const item = library.find((i) => i.id === p.id)
+        const text = '# ' + (item?.name ?? '') + '\n\n下面是演示内容：\n\n- engine.py 76-84\n- build_ast → chunk → metadata\n\n```python\nast = build_ast(body)\nchunks = chunk_document(doc_id, body, ast=ast)\n```\n'
+        return { path: item?.path ?? '', name: item?.name ?? '', kind: item?.kind === 'note' ? 'markdown' : 'text', text, sections: [] }
+      }
+      case 'library.attachments':
+        return library.filter((i) => p.ids.includes(i.id)).map((i) => ({ fileName: i.name, localPath: i.path, mime: i.mime, size: i.size }))
       case 'window.setBackground':
         return
       case 'settings.setMaxSteps':

@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using Flyknit.Client.Services;
 using Flyknit.Core.Agent;
 using Flyknit.Core.Storage;
+using Flyknit.Core.Library;
 using Microsoft.Web.WebView2.Core;
 
 namespace Flyknit.Client.Bridge;
@@ -58,6 +59,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
         _web.WebMessageReceived += OnMessage;
         _host.AttachUi(this, this);
         _host.Scheduler.Changed += () => Post(new { type = "schedules.changed" });
+        _host.Library.Changed += () => Post(new { type = "library.changed" });
         _host.Updater.Changed += state => Post(UpdateEvent(state));
         _speech = new SpeechService(_host.Server);
         // 录音时把响度和时长推给界面画动效。回调在音频线程上，Post 内部会切回 UI 线程
@@ -271,6 +273,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
 
     private async Task<object?> HandleAsync(string method, JsonElement p, List<string> droppedPaths)
     {
+        List<string> Ids() => p.ValueKind == JsonValueKind.Object && p.TryGetProperty("ids", out var v) && v.ValueKind == JsonValueKind.Array
+            ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
+            : new List<string>();
         string Str(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         bool Bool(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
         string? OptStr(string name) => Str(name) is { Length: > 0 } v ? v : null;
@@ -1166,6 +1171,121 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 return AttachmentDto.FromPath(path);
             }
 
+            // ---------- 资料库 ----------
+            case "library.list":
+            {
+                var query = new LibraryQuery
+                {
+                    Tab = Str("tab") is { Length: > 0 } tab ? tab : "all",
+                    FolderId = OptStr("folderId"),
+                    Search = Str("search"),
+                    Kind = Str("kind"),
+                    Sort = Str("sort") is { Length: > 0 } sort ? sort : "updated",
+                    IncludeHidden = Bool("hidden"),
+                };
+                var lib = _host.Library.Store;
+                var (items, folders) = await Task.Run(() => (lib.List(query), lib.Folders()));
+                return new { items = items.Select(LibraryDto).ToList(), folders = folders.Select(FolderDto).ToList() };
+            }
+
+            case "library.upload":
+            {
+                var filter = Str("accept") == "image" ? "图片|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.svg|所有文件|*.*" : null;
+                var paths = _window.PickFiles(filter);
+                var folder = OptStr("folderId");
+                var added = await Task.Run(() => _host.Library.Upload(paths, folder));
+                return added.Select(LibraryDto).ToList();
+            }
+
+            case "library.addDropped":
+            {
+                var folder = OptStr("folderId");
+                var added = await Task.Run(() => _host.Library.Upload(droppedPaths.Where(File.Exists).ToList(), folder));
+                return added.Select(LibraryDto).ToList();
+            }
+
+            case "library.addNote":
+                return LibraryDto(_host.Library.Store.AddNote(Str("title"), Str("text"), OptStr("folderId")));
+
+            case "library.updateNote":
+                return _host.Library.Store.UpdateNote(Str("id"), Str("text"));
+
+            case "library.rename":
+                return _host.Library.Store.Rename(Str("id"), Str("name"));
+
+            case "library.favorite":
+                return _host.Library.Store.SetFavorite(Ids(), Bool("favorite"));
+
+            case "library.move":
+                return _host.Library.Store.Move(Ids(), OptStr("folderId"));
+
+            case "library.delete":
+                return _host.Library.Store.Delete(Ids());
+
+            case "library.restore":
+                return _host.Library.Store.Restore(Ids());
+
+            case "library.purge":
+                return await Task.Run(() => _host.Library.Store.Purge(Ids()));
+
+            case "library.emptyTrash":
+                return await Task.Run(() => _host.Library.Store.EmptyTrash());
+
+            case "library.createFolder":
+                return FolderDto(_host.Library.Store.CreateFolder(Str("name")));
+
+            case "library.renameFolder":
+                return _host.Library.Store.RenameFolder(Str("id"), Str("name"));
+
+            case "library.deleteFolder":
+                return _host.Library.Store.DeleteFolder(Str("id"));
+
+            case "library.download":
+                return _host.Library.Download(Ids(), name =>
+                {
+                    var ext = Path.GetExtension(name);
+                    return _window.PickSaveFile(name, ext.Length > 1 ? $"{ext.TrimStart('.').ToUpperInvariant()}|*{ext}|所有文件|*.*" : "所有文件|*.*");
+                }, _window.PickFolder);
+
+            case "library.share":
+                return _host.Library.CopyToClipboard(Ids());
+
+            case "library.reveal":
+            {
+                var item = _host.Library.Store.Get(Str("id"));
+                if (item is null || !File.Exists(item.Path))
+                {
+                    return new { ok = false, message = "文件不存在，可能已被移动或删除" };
+                }
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{item.Path}\"") { UseShellExecute = true });
+                return new { ok = true, message = "" };
+            }
+
+            case "library.preview":
+            {
+                var item = _host.Library.Store.Get(Str("id")) ?? throw new InvalidOperationException("文件不存在");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var doc = await _preview.LoadAsync(item.Path, cts.Token);
+                return new
+                {
+                    path = item.Path,
+                    name = item.Name,
+                    kind = doc.Kind.ToString().ToLowerInvariant(),
+                    text = doc.Text,
+                    language = doc.Language,
+                    // 图片直接用资料库地址显示原图，不再转一遍 base64
+                    dataUrl = doc.Kind.ToString() == "Image" ? null : doc.DataUrl,
+                    notice = doc.Notice,
+                    error = doc.Error,
+                    sections = doc.Sections.Select(x => new { title = x.Title, text = x.Text, rows = x.Rows }).ToList(),
+                };
+            }
+
+            case "library.attachments":
+                // 围绕这些文件开始对话：转成附件交给输入框
+                return Ids().Select(_host.Library.Store.Get).OfType<LibraryItem>().Where(i => File.Exists(i.Path))
+                    .Select(i => new AttachmentDto { FileName = i.Name, LocalPath = i.Path, Mime = i.Mime, Size = i.Size }).ToList();
+
             case "files.open":
             case "files.reveal":
             {
@@ -1229,6 +1349,38 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 throw new NotSupportedException($"未知方法：{method}");
         }
     }
+
+    private static object LibraryDto(LibraryItem i) => new
+    {
+        id = i.Id,
+        name = i.Name,
+        path = i.Path,
+        kind = i.Kind,
+        mime = i.Mime,
+        size = i.Size,
+        source = i.Source,
+        conversationId = i.ConversationId,
+        folderId = i.FolderId,
+        favorite = i.Favorite,
+        managed = i.Managed,
+        hidden = i.Hidden,
+        exists = i.Exists,
+        createdAt = i.CreatedAt.ToString("O"),
+        updatedAt = i.UpdatedAt.ToString("O"),
+        deletedAt = i.DeletedAt?.ToString("O"),
+        // 带上修改时间：文件变了缩略图要重新取，不能用浏览器缓存的旧图
+        url = $"https://{LibraryService.Host}/{i.Id}?v={i.UpdatedAt.UtcTicks}",
+        thumbUrl = i.Kind == "image" ? $"https://{LibraryService.Host}/{i.Id}?thumb=1&v={i.UpdatedAt.UtcTicks}" : null,
+    };
+
+    private static object FolderDto(LibraryFolder f) => new
+    {
+        id = f.Id,
+        name = f.Name,
+        count = f.Count,
+        createdAt = f.CreatedAt.ToString("O"),
+        updatedAt = f.UpdatedAt.ToString("O"),
+    };
 
     /// <summary>默认值叠加用户改动后的最终快捷键表，界面直接按它渲染和分派。</summary>
     private object ShortcutList()
@@ -1360,7 +1512,8 @@ public interface IWindowActions
     bool ToggleTopmost();
     void RequestAttention();
     void LanguageChanged(string language);
-    IReadOnlyList<string> PickFiles();
+    /// <param name="filter">文件类型过滤（SaveFileDialog 格式），为空表示所有文件。</param>
+    IReadOnlyList<string> PickFiles(string? filter = null);
     string? PickFolder();
     string? PickSaveFile(string defaultName, string filter);
     bool IsMaximized { get; }
