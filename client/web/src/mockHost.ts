@@ -798,6 +798,11 @@ export function createMockHost(): HostTransport {
         return p.value
       case 'memory.list':
         return { ...memory, learning: true }
+      case 'memory.pin': {
+        const item = memory.items.find((i) => i.id === p.id) as { pinned?: boolean } | undefined
+        if (item) item.pinned = !!p.pinned
+        return !!item
+      }
       case 'memory.delete':
         memory.items = memory.items.filter((i) => i.id !== p.id)
         return

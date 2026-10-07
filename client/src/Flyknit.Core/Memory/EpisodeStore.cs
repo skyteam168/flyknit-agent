@@ -98,6 +98,48 @@ public sealed class EpisodeStore
         }
     }
 
+    /// <summary>
+    /// 用户删除一条记忆时，把历史任务里同样的内容也清掉：相同的教训删除，总结和步骤里原样出现的句子替换掉。
+    /// 返回改动了几条历史任务。
+    /// </summary>
+    public int Forget(string text)
+    {
+        text = text.Trim();
+        if (text.Length < 2)
+        {
+            return 0;
+        }
+        lock (_lock)
+        {
+            var list = Load();
+            var changed = 0;
+            foreach (var e in list)
+            {
+                var removed = e.Lessons.RemoveAll(l => MemoryStore.IsDuplicate(l, text));
+                var touched = false;
+                if (e.Summary.Contains(text, StringComparison.Ordinal))
+                {
+                    e.Summary = e.Summary.Replace(text, "（已删除）");
+                    touched = true;
+                }
+                if (e.Procedure.Contains(text, StringComparison.Ordinal))
+                {
+                    e.Procedure = e.Procedure.Replace(text, "（已删除）");
+                    touched = true;
+                }
+                if (removed > 0 || touched)
+                {
+                    changed++;
+                }
+            }
+            if (changed > 0)
+            {
+                Save(list);
+            }
+            return changed;
+        }
+    }
+
     /// <summary>用户对某个对话的回答点赞或点踩时，同步到该对话最近的复盘记录。</summary>
     public void SetFeedback(string conversationId, int feedback)
     {

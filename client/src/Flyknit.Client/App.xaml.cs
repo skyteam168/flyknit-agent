@@ -567,9 +567,17 @@ public partial class App : Application
                 return;
             }
             DataProtection.ProtectDirectory(AppPaths.Memory);
+            // 资料库里是上传文件和截图的副本、缩略图，和聊天记录一样敏感。
+            // 已经建好的子目录（按月的 files\2026-10、thumbs）不会继承上层的加密属性，要逐个标记
+            DataProtection.ProtectDirectory(AppPaths.Library);
+            foreach (var sub in Directory.EnumerateDirectories(AppPaths.Library, "*", SearchOption.AllDirectories))
+            {
+                DataProtection.ProtectDirectory(sub);
+            }
             // 升级场景：目录属性不会追溯已有文件，把库和记忆补加密一遍
             DataProtection.ProtectExisting(dataDir);
             DataProtection.ProtectExisting(AppPaths.Memory);
+            DataProtection.ProtectExisting(AppPaths.Library);
             DataProtection.ProtectExisting(AppPaths.Root, "settings.json", "approval-rules.json");
         }
         catch (Exception ex)

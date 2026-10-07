@@ -41,6 +41,12 @@ export interface MemoryItem {
   source?: string
   /** 被取代的旧说法（从新到旧） */
   history?: string[]
+  /** 置顶：用户要求一直遵守，每次都带上 */
+  pinned?: boolean
+  /** user_said / user_confirmed / inferred / ''（早期记下、来源不明） */
+  origin?: string
+  /** 依据：用户原话 */
+  evidence?: string
 }
 
 export interface MemoryAddResult {
