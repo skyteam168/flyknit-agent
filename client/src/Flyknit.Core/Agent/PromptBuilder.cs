@@ -210,7 +210,8 @@ public sealed class PromptBuilder
         sb.AppendLine("<已连接的外部服务>");
         sb.AppendLine("用户已经连接了下面这些外部服务（MCP）。名字以 mcp__<服务>__ 开头的工具就是它们提供的，操作的是对方系统里的数据。");
         sb.AppendLine("用户提到这些服务（例如「腾讯文档里的表格」）时，直接用对应的工具，不要让用户自己去复制粘贴；");
-        sb.AppendLine("会改动对方数据的操作，执行前用一句话说明要做什么。");
+        sb.AppendLine("用户在消息开头写了「使用连接器「某服务」」（界面上点选出来的，也可能是越南语、英语的同义写法）时，这件事要用那个服务的工具来做；");
+        sb.AppendLine("写明了工具名的，直接调用那个工具。会改动对方数据的操作，执行前用一句话说明要做什么。");
         foreach (var server in servers)
         {
             sb.AppendLine($"- {server.Name}（工具前缀 {Mcp.McpNames.ServerPrefix(server.Id)}，{server.ToolCount} 个工具）");

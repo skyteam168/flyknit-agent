@@ -7,6 +7,7 @@ import { loadMcp, state, toast } from '../store'
 import { renderMarkdown } from '../markdown'
 import type { McpVendor } from '../types'
 import KnitMark from './KnitMark.vue'
+import VendorIcon from './VendorIcon.vue'
 
 /**
  * MCP 连接器：管理员在后台上架的厂商，一张张卡片排开；点卡片看介绍，点「连接」就能用。
@@ -110,15 +111,6 @@ function useExample(text: string) {
   emit('use', text)
 }
 
-/** 没有图标的厂商用名字首字当图标，颜色按 id 固定 */
-function initial(v: McpVendor) {
-  return [...v.name.trim()][0] ?? '?'
-}
-function hue(id: string) {
-  let h = 0
-  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 360
-  return h
-}
 const detailHtml = computed(() => (current.value?.detail ? renderMarkdown(current.value.detail) : ''))
 const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
 </script>
@@ -168,8 +160,7 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
             @keydown.enter="open(v)"
           >
             <div class="top">
-              <img v-if="v.icon" :src="v.icon" alt="" class="logo" />
-              <span v-else class="logo letter" :style="{ background: `hsl(${hue(v.id)} 55% 48%)` }">{{ initial(v) }}</span>
+              <VendorIcon :icon="v.icon" :name="v.name" :id="v.id" :size="36" />
               <strong>{{ v.name }}</strong>
               <button
                 type="button"
@@ -194,13 +185,16 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
     <!-- 详情 -->
     <div v-if="current" class="scrim inner" @mousedown.self="closeDetail">
       <div class="detail" role="dialog" aria-modal="true" :aria-label="current.name">
-        <button type="button" class="icon-btn corner" :aria-label="t('settings.close')" @click="closeDetail"><X :size="18" /></button>
+        <!-- 关闭按钮固定在顶栏，内容在下面单独滚动：内容再长也不会顶到按钮上面去 -->
+        <div class="detail-head">
+          <button type="button" class="icon-btn" :aria-label="t('settings.close')" @click="closeDetail"><X :size="18" /></button>
+        </div>
+        <div class="detail-body">
 
         <div class="pair">
           <span class="big"><KnitMark :size="56" /></span>
           <span class="dots"><i /><i /><i /></span>
-          <img v-if="current.icon" :src="current.icon" alt="" class="big" />
-          <span v-else class="big letter" :style="{ background: `hsl(${hue(current.id)} 55% 48%)` }">{{ initial(current) }}</span>
+          <VendorIcon :icon="current.icon" :name="current.name" :id="current.id" :size="64" round class="ring" />
         </div>
 
         <h2>{{ connected(current) ? current.name : t('ui.mcp.connectTo', { name: current.name }) }}</h2>
@@ -277,6 +271,7 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
             “{{ ex }}”
           </button>
         </section>
+        </div>
       </div>
     </div>
   </div>
@@ -432,20 +427,6 @@ h2 {
   align-items: center;
   gap: 10px;
 }
-.logo {
-  flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  object-fit: contain;
-}
-.letter {
-  display: grid;
-  place-items: center;
-  color: #fff;
-  font-weight: 700;
-  font-size: 15px;
-}
 .top strong {
   flex: 1;
   min-width: 0;
@@ -490,28 +471,35 @@ h2 {
 
 /* ---- 详情 ---- */
 .detail {
-  position: relative;
+  display: flex;
+  flex-direction: column;
   width: min(600px, 100%);
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
-  padding: 28px 28px 22px;
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
   border-radius: 22px;
   background: var(--cloth);
   box-shadow: var(--shadow-pop);
   animation: pop 160ms ease-out;
   text-align: center;
 }
-.corner {
-  position: absolute;
-  top: 14px;
-  right: 14px;
+.detail-head {
+  display: flex;
+  justify-content: flex-end;
+  flex: none;
+  padding: 12px 12px 0;
+}
+.detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 28px 22px;
 }
 .pair {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 14px;
-  margin: 6px 0 16px;
+  margin: 0 0 16px;
 }
 .big {
   display: grid;
@@ -519,12 +507,11 @@ h2 {
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  object-fit: contain;
   overflow: hidden;
   background: var(--cloth-sunk);
 }
-.big.letter {
-  font-size: 26px;
+.ring {
+  box-shadow: 0 0 0 1px var(--line), 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 .dots {
   display: inline-flex;
@@ -803,8 +790,8 @@ h2 {
   .grid {
     grid-template-columns: 1fr;
   }
-  .detail {
-    padding: 24px 18px 18px;
+  .detail-body {
+    padding: 0 18px 18px;
   }
 }
 </style>

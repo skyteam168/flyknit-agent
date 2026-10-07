@@ -359,7 +359,7 @@ async function runTest() {
     </div>
 
     <!-- 编辑 -->
-    <el-dialog v-model="editing" :title="isNew ? '新增连接器' : `编辑 · ${form.name}`" width="760px" top="5vh" :close-on-click-modal="false">
+    <el-dialog v-model="editing" :title="isNew ? '新增连接器' : `编辑 · ${form.name}`" width="min(960px, 94vw)" top="4vh" :close-on-click-modal="false">
       <el-form label-width="96px" class="form">
         <h4>展示</h4>
         <el-form-item label="名称" required><el-input v-model="form.name" placeholder="腾讯文档" maxlength="100" /></el-form-item>
@@ -439,10 +439,12 @@ async function runTest() {
               :disabled="f.clear"
               class="w-preset"
             />
-            <el-checkbox v-model="f.secret">密钥</el-checkbox>
-            <el-checkbox v-model="f.required">必填</el-checkbox>
-            <el-checkbox v-if="f.masked" v-model="f.clear">清掉预填</el-checkbox>
-            <el-button link type="danger" :icon="Delete" @click="form.fields.splice(i, 1)" />
+            <div class="checks">
+              <el-checkbox v-model="f.secret">密钥</el-checkbox>
+              <el-checkbox v-model="f.required">必填</el-checkbox>
+              <el-checkbox v-if="f.masked" v-model="f.clear">清掉预填</el-checkbox>
+              <el-button link type="danger" :icon="Delete" class="del" @click="form.fields.splice(i, 1)">删除</el-button>
+            </div>
             <el-input v-model="f.help" placeholder="怎么拿到这个值（显示在输入框下面）" class="w-help" />
           </div>
           <el-button :icon="Plus" @click="form.fields.push(blankField())">添加填写项</el-button>
@@ -528,7 +530,8 @@ async function runTest() {
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--surface, #fff);
+  background: var(--cloth);
+  color: var(--ink);
 }
 .card.off {
   opacity: 0.6;
@@ -542,7 +545,10 @@ async function runTest() {
   flex: none;
   width: 36px;
   height: 36px;
+  padding: 4px;
+  border: 1px solid var(--line);
   border-radius: 9px;
+  background: #fff;
   object-fit: contain;
 }
 .logo.big {
@@ -552,6 +558,8 @@ async function runTest() {
 .letter {
   display: grid;
   place-items: center;
+  padding: 0;
+  border: 0;
   color: #fff;
   font-weight: 700;
 }
@@ -562,6 +570,7 @@ async function runTest() {
   flex-direction: column;
 }
 .title strong {
+  color: var(--ink);
   font-weight: 600;
 }
 .title code {
@@ -616,6 +625,7 @@ async function runTest() {
   margin-top: 0;
 }
 .hint {
+  flex-basis: 100%;
   margin: 4px 0 0;
   color: var(--ink-faint);
   font-size: 12px;
@@ -633,16 +643,31 @@ async function runTest() {
 }
 .field-row {
   display: grid;
-  grid-template-columns: 150px 150px 1fr auto auto auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 8px 10px;
   margin: 0 0 12px 96px;
-  padding: 10px;
+  padding: 12px;
   border: 1px dashed var(--line);
   border-radius: 8px;
 }
 .field-row .w-help {
-  grid-column: 1 / -1;
+  grid-column: 1 / 4;
+}
+.field-row .checks {
+  grid-column: 4;
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.field-row .checks .el-checkbox {
+  height: 24px;
+  margin-right: 0;
+}
+.field-row .del {
+  align-self: flex-end;
 }
 .field-row + .el-button,
 .form > .el-button {

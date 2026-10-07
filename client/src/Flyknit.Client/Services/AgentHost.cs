@@ -1050,7 +1050,10 @@ public sealed class AgentHost : IDisposable
             conversationId = _id,
             callId = call.Id,
             name = call.Name,
-            summary = ToolDetail.From(call.ArgumentsJson) is { Length: > 0 } detail ? detail : summary,
+            // MCP 工具的参数名各家不一样，用工具自己给的一句话；内置工具照旧取 command / path 这些
+            summary = !Flyknit.Core.Mcp.McpNames.IsMcp(call.Name) && ToolDetail.From(call.ArgumentsJson) is { Length: > 0 } detail ? detail : summary,
+            // 原始参数：界面展开卡片时逐项列出来，让人看得到 AI 到底拿什么去调的
+            args = call.ArgumentsJson.Length > 4000 ? call.ArgumentsJson[..4000] : call.ArgumentsJson,
             risk = decision.Level switch { RiskLevel.Blocked => "blocked", RiskLevel.Confirm => "confirm", _ => "auto" },
         });
 

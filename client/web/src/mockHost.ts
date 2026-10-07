@@ -42,13 +42,13 @@ export function createMockHost(): HostTransport {
   })
   const mcpVendors: McpVendor[] = [
     mcpVendor('tencent-docs', '腾讯文档', '创建、编辑和协作腾讯文档。用自然语言管理在线表格、文档和幻灯片，轻松完成内容查询、数据整理和团队协同。', {
-      publisher: '腾讯', category: '文档', auth: 'fields',
+      publisher: '腾讯', category: '文档', auth: 'fields', icon: "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='40'%3E%3Crect width='120' height='40' rx='6' fill='%233b82f6'/%3E%3Ctext x='60' y='27' font-size='18' text-anchor='middle' fill='white'%3EDOCS%3C/text%3E%3C/svg%3E",
       detail: '连接后，AI 可以：\n\n- 新建在线表格、文档并填入内容\n- 读取、总结你最近编辑的文档\n- 在表格里按条件查找、排序数据',
       fields: [{ key: 'API_KEY', label: 'API Key', secret: true, required: true, placeholder: '在腾讯文档开放平台获取', help: '腾讯文档 → 设置 → 开放平台 → 创建密钥', preset: false, hasValue: false, value: '' }],
       needsInput: ['API_KEY'],
       examples: ['帮我在腾讯文档里新建一个在线表格，包含姓名、部门、入职日期三列，并填入示例数据', '打开我最近编辑的腾讯文档，帮我总结文档的主要内容和关键要点', '在腾讯文档的表格里查找所有【销售额】大于 10 万的记录，按金额从高到低排序', '帮我把这份会议纪要整理成腾讯文档，按议题分段并标注负责人和截止日期'],
     }),
-    mcpVendor('wecom', '企业微信', '企业微信官方 CLI 套件，覆盖消息、邮件、文档、待办、日程、会议、微盘、通讯录等业务功能。', { publisher: '腾讯', category: '办公', examples: ['给生产部群发一条明天停电检修的通知'] }),
+    mcpVendor('wecom', '企业微信', '企业微信官方 CLI 套件，覆盖消息、邮件、文档、待办、日程、会议、微盘、通讯录等业务功能。', { publisher: '腾讯', category: '办公', icon: "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='36'%3E%3Ccircle cx='12' cy='10' r='8' fill='%23f24e1e'/%3E%3Ccircle cx='12' cy='26' r='8' fill='%230acf83'/%3E%3C/svg%3E", examples: ['给生产部群发一条明天停电检修的通知'] }),
     mcpVendor('tencent-meeting', '腾讯会议', '通过命令行创建、查询和管理腾讯会议。支持快速发起会议、查看日程安排、管理参会人员。', { publisher: '腾讯', auth: 'oauth', category: '会议' }),
     mcpVendor('qq-mail', 'QQ邮箱', '收发、搜索和整理 QQ 邮件。用自然语言读取邮件内容、汇总邮件线程、管理文件夹。', { publisher: '腾讯', category: '邮件' }),
     mcpVendor('feishu', '飞书', '通过命令行管理飞书/Lark 全产品能力：即时通讯、邮箱、日历、云文档、电子表格、多维表格（Base）、任务等。', { publisher: '字节跳动', category: '办公' }),
@@ -342,6 +342,21 @@ export function createMockHost(): HostTransport {
         c.translateTo === 'zh-CN'
           ? '请各班组长在周五前提交下周的排班表。'
           : 'Đề nghị các tổ trưởng nộp bảng phân ca tuần sau trước thứ Sáu.'
+      await stream(id, finalText)
+    } else if (c.mode === 'agent' && /^(使用连接器|Use the|Dùng)/.test(text)) {
+      // 模拟一次 MCP 调用：看卡片上的厂商图标、参数和返回结果
+      const lead = '好的，我在腾讯文档里新建这张表格。'
+      await stream(id, lead)
+      const call = uid()
+      const args = JSON.stringify({ title: '新员工名单', columns: ['姓名', '部门', '入职日期'], rows: 3 })
+      list.push({ id: uid(), role: 'assistant', content: lead, toolCalls: [{ id: call, name: 'mcp__tencent-docs__create_sheet', arguments: args }], createdAt: now() })
+      emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+      emit({ type: 'tool.started', conversationId: id, callId: call, name: 'mcp__tencent-docs__create_sheet', summary: 'title：新员工名单，columns：[3 项]，rows：3', args, risk: 'auto' })
+      await sleep(900)
+      const output = '已创建表格「新员工名单」\nhttps://docs.qq.com/sheet/DEMO123\n写入 3 行示例数据'
+      emit({ type: 'tool.finished', conversationId: id, callId: call, ok: true, output, decision: 'auto' })
+      list.push({ id: uid(), role: 'tool', content: output, toolCallId: call, createdAt: now() })
+      finalText = '表格建好了：[新员工名单](https://docs.qq.com/sheet/DEMO123)，包含姓名、部门、入职日期三列和 3 行示例数据。'
       await stream(id, finalText)
     } else if (c.mode === 'agent') {
       emit({ type: 'chat.reasoning', conversationId: id, text: '用户想整理文件。先查看目录，再列出计划，移动前需要确认。' })

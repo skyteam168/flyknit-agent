@@ -704,3 +704,25 @@ public class McpPromptTests
         Assert.DoesNotContain("企业微信", chat);
     }
 }
+
+public class McpDescribeTests
+{
+    private static McpTool Tool(string title = "") =>
+        new("figma", "Figma", new McpToolInfo("get_file", title, "", new JsonObject(), true, false),
+            (_, _, _) => Task.FromResult(new McpCallResult(false, "")));
+
+    [Fact]
+    public void TheCardLineShowsTheFirstFewSimpleArguments()
+    {
+        var args = JsonDocument.Parse("""{"fileKey":"abc123","depth":2,"ids":["1","2"],"opts":{"x":1},"extra":"ignored"}""").RootElement;
+        Assert.Equal("fileKey：abc123，depth：2，ids：[2 项]", Tool().Describe(args));
+    }
+
+    [Fact]
+    public void NoArgumentsFallsBackToTheToolTitle()
+    {
+        var empty = JsonDocument.Parse("{}").RootElement;
+        Assert.Equal("读取设计稿", Tool("读取设计稿").Describe(empty));
+        Assert.Equal("get_file", Tool().Describe(empty));
+    }
+}

@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronRight,
   FileText,
   ImageIcon,
   Languages,
@@ -13,12 +14,14 @@ import {
   MessageSquare,
   Mic,
   Paperclip,
+  Plug,
   Puzzle,
   Square,
   Wrench,
   X,
 } from '@lucide/vue'
 import Popover from './Popover.vue'
+import VendorIcon from './VendorIcon.vue'
 import ModelPicker from './ModelPicker.vue'
 import WorkspacePicker from './WorkspacePicker.vue'
 import PermissionPicker from './PermissionPicker.vue'
@@ -116,6 +119,26 @@ async function chooseMode(m: Mode, close: () => void) {
   close()
   await setMode(m)
   focus()
+}
+
+// ---- 连接器（MCP）：列出已连上的服务，选一个就在输入框前面加上「使用连接器「X」：」 ----
+const connected = computed(() => state.mcp.filter((v) => v.status === 'connected'))
+const mcpExpanded = ref<string | null>(null)
+
+function useConnector(name: string, tool: string | null, close: () => void) {
+  close()
+  mcpExpanded.value = null
+  const prefix = tool ? t('ui.mcp.useTool', { name, tool }) : t('ui.mcp.use', { name })
+  if (!text.value.startsWith(prefix)) text.value = prefix + text.value
+  void nextTick(() => {
+    resize()
+    focus()
+  })
+}
+
+function manageConnectors(close: () => void) {
+  close()
+  state.mcpOpen = true
 }
 
 function useSkill(name: string, close?: () => void) {
@@ -288,6 +311,48 @@ onBeforeUnmount(() => {
                 <small>{{ s.description }}</small>
               </span>
             </button>
+          </template>
+        </Popover>
+
+        <!-- 连接器（办事模式）：和技能并列，但是两套东西 -->
+        <Popover v-if="mode === 'agent'" :width="320">
+          <template #trigger="{ toggle, open }">
+            <button type="button" class="tool-btn" :class="{ open }" :title="t('ui.mcp.title')" @click="toggle">
+              <Plug :size="15" />
+              <span class="hide-narrow">{{ t('ui.mcp.title') }}</span>
+              <em v-if="connected.length" class="count">{{ connected.length }}</em>
+            </button>
+          </template>
+          <template #default="{ close }">
+            <p v-if="connected.length === 0" class="pop-empty">{{ t('ui.mcp.noneConnected') }}</p>
+            <template v-for="v in connected" :key="v.id">
+              <div class="mcp-row">
+                <button type="button" class="pop-opt" @click="useConnector(v.name, null, close)">
+                  <VendorIcon :icon="v.icon" :name="v.name" :id="v.id" :size="26" />
+                  <span class="pop-text">
+                    <strong>{{ v.name }}</strong>
+                    <small>{{ t('ui.mcp.toolCount', { n: v.tools.length }) }}</small>
+                  </span>
+                </button>
+                <button
+                  v-if="v.tools.length"
+                  type="button"
+                  class="expand"
+                  :aria-expanded="mcpExpanded === v.id"
+                  :title="t('ui.mcp.pickTool')"
+                  @click="mcpExpanded = mcpExpanded === v.id ? null : v.id"
+                >
+                  <ChevronRight :size="15" :class="{ down: mcpExpanded === v.id }" />
+                </button>
+              </div>
+              <div v-if="mcpExpanded === v.id" class="mcp-tools">
+                <button v-for="tool in v.tools" :key="tool.name" type="button" class="mcp-tool" @click="useConnector(v.name, tool.name, close)">
+                  <code>{{ tool.title || tool.name }}</code>
+                  <small>{{ tool.description }}</small>
+                </button>
+              </div>
+            </template>
+            <button type="button" class="pop-link" @click="manageConnectors(close)">{{ t('ui.mcp.manage') }}</button>
           </template>
         </Popover>
 
@@ -633,6 +698,89 @@ textarea::placeholder {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+.count {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--thread-wash);
+  color: var(--thread);
+  font-style: normal;
+  font-size: calc(11px * var(--font-scale));
+}
+.pop-empty {
+  margin: 6px 8px 8px;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+.mcp-row {
+  display: flex;
+  align-items: center;
+}
+.mcp-row .pop-opt {
+  flex: 1;
+  min-width: 0;
+}
+.expand {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  color: var(--ink-faint);
+}
+.expand:hover {
+  background: var(--chip);
+  color: var(--ink);
+}
+.expand svg {
+  transition: transform 140ms;
+}
+.expand .down {
+  transform: rotate(90deg);
+}
+.mcp-tools {
+  margin: 0 0 4px 44px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+}
+.mcp-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 7px;
+  text-align: left;
+}
+.mcp-tool:hover {
+  background: var(--chip);
+}
+.mcp-tool code {
+  color: var(--ink);
+  font-family: var(--font-code);
+  font-size: var(--t-xs);
+}
+.mcp-tool small {
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-size: calc(11px * var(--font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pop-link {
+  display: block;
+  width: calc(100% - 8px);
+  margin: 4px;
+  padding: 7px 8px;
+  border-top: 1px solid var(--line);
+  color: var(--indigo);
+  font-size: var(--t-xs);
+  text-align: left;
+}
+.pop-link:hover {
+  text-decoration: underline;
 }
 .pop-note {
   margin: 4px 8px 6px;
