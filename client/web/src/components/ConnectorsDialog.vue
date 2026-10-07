@@ -635,8 +635,12 @@ h2 {
   font-weight: 500;
 }
 .btn.primary {
-  background: var(--ink);
-  color: var(--cloth);
+  background: var(--action);
+  color: var(--action-ink);
+  transition: background 120ms;
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--action-hover);
 }
 .btn.ghost {
   background: none;

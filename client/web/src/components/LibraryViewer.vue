@@ -252,10 +252,14 @@ header {
   height: 34px;
   padding: 0 16px;
   border-radius: 17px;
-  background: var(--pill);
-  color: var(--pill-ink);
+  background: var(--action);
+  color: var(--action-ink);
   font-size: var(--t-sm);
   font-weight: 500;
+}
+.pill:hover:not(:disabled):not(.ghost),
+.send:hover:not(:disabled) {
+  background: var(--action-hover);
 }
 .pill.ghost {
   background: var(--chip);
@@ -457,8 +461,8 @@ td.head {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  background: var(--pill);
-  color: var(--pill-ink);
+  background: var(--action);
+  color: var(--action-ink);
 }
 .send:disabled {
   opacity: 0.35;
