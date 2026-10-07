@@ -511,4 +511,5 @@ export type HostEvent =
   | { type: 'files.added'; attachments: AttachmentRef[] }
   | { type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string }
   | { type: 'app.focusInput' }
+  | { type: 'app.translate'; text: string; from: string; to: string }
   | ({ type: 'update.state' } & UpdateInfo)
