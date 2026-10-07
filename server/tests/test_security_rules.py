@@ -102,4 +102,9 @@ def test_a_setting_only_exists_if_something_enforces_it():
         # 客户端读这两项决定 Agent 循环里的规划提醒、产出检查
         "plan_guidance",
         "verify_outputs",
+        # 客户端读这几项决定能选哪些语气、能不能锁屏运行
+        "persona_playful",
+        "persona_custom",
+        "keep_awake",
+        "keep_screen_on",
     }

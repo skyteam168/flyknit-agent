@@ -143,6 +143,28 @@ SETTINGS: tuple[Setting, ...] = (
         title="检查产出文件",
         risk="关闭后 AI 生成的文件不再自动检查（是否存在、能否打开、行数页数），文件没保存成功或打不开时可能发现不了。",
     ),
+    # ---- 个性化：员工可以在设置里选回复语气、给 AI 起名字。这两项决定哪些能选 ----
+    Setting(
+        key="persona_playful", kind="bool", default=True, locked=True,
+        title="允许玩笑类语气（天马行空、毒舌吐槽）",
+        risk="关闭后这两种语气不能选，已经选了的按默认语气回答。",
+    ),
+    Setting(
+        key="persona_custom", kind="bool", default=True, locked=True,
+        title="允许自定义语气和 AI 的名字",
+        risk="关闭后员工不能自己写语气说明、不能给 AI 改名字，已经设置的按默认处理。",
+    ),
+    # ---- 锁屏运行：阻止电脑睡眠，让定时任务和下发的指令在锁屏后照常执行 ----
+    Setting(
+        key="keep_awake", kind="bool", default=True, locked=True,
+        title="允许锁屏运行（阻止电脑睡眠）",
+        risk="关闭后电脑按系统电源设置正常睡眠，睡着时定时任务不会执行、收不到下发的指令。",
+    ),
+    Setting(
+        key="keep_screen_on", kind="bool", default=True, locked=True,
+        title="允许保持屏幕常亮",
+        risk="关闭后“保持屏幕常亮”按“熄屏后保持唤醒”处理，屏幕照常熄灭，比较省电。",
+    ),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

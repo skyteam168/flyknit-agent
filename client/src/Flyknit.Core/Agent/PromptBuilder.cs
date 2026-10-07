@@ -66,6 +66,15 @@ public sealed class PromptContext
     /// <summary>当前的用户请求，用于挑选相关的记忆和历史任务。</summary>
     public string Query { get; init; } = "";
 
+    /// <summary>设置里选的回复语气（已经按公司策略换算好的完整说明）；为 null 时用 soul.md 原文。</summary>
+    public string? Tone { get; init; }
+
+    /// <summary>用户希望 AI 怎么称呼自己；空表示不指定。</summary>
+    public string CallName { get; init; } = "";
+
+    /// <summary>用户给 AI 起的名字；空表示用产品名。</summary>
+    public string AssistantName { get; init; } = "";
+
     /// <summary>语义检索给的相似度（记忆条目 ID → 余弦），事先异步算好传进来；没有时只按字面匹配挑记忆。</summary>
     public IReadOnlyDictionary<string, double>? SemanticScores { get; init; }
 
@@ -135,7 +144,13 @@ public sealed class PromptBuilder
     private string BuildAssistant(PromptContext ctx)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("你是 Flyknit 智能办公助手，运行在用户的 Windows 办公电脑上。");
+        sb.AppendLine(ctx.AssistantName.Length > 0
+            ? $"你是“{ctx.AssistantName}”（Flyknit 智能办公助手），运行在用户的 Windows 办公电脑上。用户给你起了这个名字，自我介绍、署名时用它；工作准则里的 FlyknitBuddy 是产品名。"
+            : "你是 Flyknit 智能办公助手，运行在用户的 Windows 办公电脑上。");
+        if (ctx.CallName.Length > 0)
+        {
+            sb.AppendLine($"用户希望你称呼他/她为“{ctx.CallName}”。");
+        }
         sb.AppendLine($"当前时间：{DateTime.Now:yyyy-MM-dd HH:mm dddd}；电脑名：{Environment.MachineName}；Windows 用户：{Environment.UserName}。");
         sb.AppendLine($"用户的界面语言是 {Languages.DisplayName(ctx.UiLanguage)}。默认用用户提问所用的语言回答；无法判断时用界面语言。");
         sb.AppendLine();
@@ -176,7 +191,7 @@ public sealed class PromptBuilder
                 </记忆使用说明>
                 """);
             sb.AppendLine();
-            var memory = _memory.BuildPrompt(ctx.Query, semantic: ctx.SemanticScores);
+            var memory = _memory.BuildPrompt(ctx.Query, semantic: ctx.SemanticScores, tone: ctx.Tone);
             MemoryIdsUsed = memory.ItemIds;
             MemoryTokens += memory.ItemIds.Count > 0 ? TokenEstimator.Estimate(memory.Text) : 0;
             sb.Append(memory.Text);

@@ -71,6 +71,14 @@ public sealed class SecuritySettings
     public const string PlanGuidance = "plan_guidance";
     public const string VerifyOutputs = "verify_outputs";
 
+    // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字
+    public const string PersonaPlayful = "persona_playful";
+    public const string PersonaCustom = "persona_custom";
+
+    // 锁屏运行：能不能阻止电脑睡眠、能不能让屏幕保持常亮
+    public const string KeepAwakeAllowed = "keep_awake";
+    public const string KeepScreenOn = "keep_screen_on";
+
     private readonly Dictionary<string, SecurityItem> _items;
 
     public SecuritySettings(Dictionary<string, SecurityItem>? items = null)

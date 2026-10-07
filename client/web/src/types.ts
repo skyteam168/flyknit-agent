@@ -564,6 +564,11 @@ export interface AppInfo {
   soundLocked?: boolean
   fontScale: number
   autoStart: boolean
+  /** 锁屏运行：off / tasks / awake / screen */
+  keepAwake: KeepAwakeMode
+  /** IT 允不允许阻止睡眠、允不允许屏幕常亮 */
+  keepAwakeAllowed: boolean
+  keepScreenAllowed: boolean
   proxyMode: string
   proxyUrl: string
   proxyUser: string
@@ -697,3 +702,38 @@ export type HostEvent =
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }
   | ({ type: 'update.state' } & UpdateInfo)
+
+export type KeepAwakeMode = 'off' | 'tasks' | 'awake' | 'screen'
+
+export interface AboutMe {
+  department: string
+  position: string
+  language: string
+  systems: string
+  folders: string
+  other: string
+}
+
+/** 个性化：回复语气、称呼和名字、关于我 */
+export interface PersonaInfo {
+  /** 选的语气（default / 各预设 / custom） */
+  preset: string
+  /** 实际生效的（IT 关掉了选中的那个时退回 default） */
+  effective: string
+  /** 自定义语气的文字（soul.md） */
+  custom: string
+  callName: string
+  assistantName: string
+  playfulAllowed: boolean
+  customAllowed: boolean
+  presets: { key: string; playful: boolean }[]
+  about: AboutMe
+}
+
+export interface PersonaUpdate {
+  preset?: string
+  custom?: string
+  callName?: string
+  assistantName?: string
+  about?: AboutMe
+}

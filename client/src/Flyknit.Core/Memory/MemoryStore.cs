@@ -607,11 +607,12 @@ public sealed class MemoryStore
     }
 
     /// <param name="semantic">语义检索给的相似度（条目 ID → 余弦）；没有配置向量模型或这次没算出来时为 null，只按字面匹配。</param>
-    public MemoryPrompt BuildPrompt(string? query = null, int budgetTokens = DefaultPromptBudget, IReadOnlyDictionary<string, double>? semantic = null)
+    /// <param name="tone">设置里选的回复语气（见 <see cref="Settings.Personas"/>）；为 null 时用 soul.md 原文。</param>
+    public MemoryPrompt BuildPrompt(string? query = null, int budgetTokens = DefaultPromptBudget, IReadOnlyDictionary<string, double>? semantic = null, string? tone = null)
     {
         var sb = new StringBuilder();
         Append(sb, "工作准则", Read(AgentFile));
-        Append(sb, "你的性格与语气", Read(SoulFile));
+        Append(sb, "你的性格与语气", tone ?? Read(SoulFile));
         Append(sb, "关于用户", StripEmptyTemplate(Read(RoleFile)));
 
         var items = List();
@@ -1535,11 +1536,7 @@ public sealed class MemoryStore
         - 不确定用户意图时先问清楚，不要猜测后执行有影响的操作；但记忆里已有的偏好不要重复询问。
         """;
 
-    private const string DefaultSoul = """
-        # 性格与语气
-
-        耐心、礼貌、简洁、专业。面对不熟悉电脑的用户时，用简单易懂的话解释。
-        """;
+    private const string DefaultSoul = "# 性格与语气\n\n" + Settings.Personas.DefaultTone;
 
     private const string DefaultRole = """
         # 关于我
