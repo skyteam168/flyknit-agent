@@ -37,6 +37,55 @@ public sealed record ToolResult(bool Ok, string Output)
 
 public sealed record PlanItem(string Step, string Status);
 
+/// <summary>任务计划的保存格式与原样呈现。</summary>
+public static class TaskPlan
+{
+    public static bool HasOpenSteps(IReadOnlyList<PlanItem> plan) => plan.Any(p => p.Status != "completed");
+
+    public static string? Serialize(IReadOnlyList<PlanItem> plan) =>
+        plan.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(plan.Select(p => new { step = p.Step, status = p.Status }));
+
+    public static List<PlanItem> Parse(string? json)
+    {
+        var list = new List<PlanItem>();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return list;
+        }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            foreach (var e in doc.RootElement.EnumerateArray())
+            {
+                if (e.TryGetProperty("step", out var step) && step.GetString() is { Length: > 0 } text)
+                {
+                    var status = e.TryGetProperty("status", out var st) ? st.GetString() ?? "pending" : "pending";
+                    list.Add(new PlanItem(text, status));
+                }
+            }
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException)
+        {
+        }
+        return list;
+    }
+
+    /// <summary>原样列出计划（不经模型改写），压缩上下文后放在摘要旁边。</summary>
+    public static string Render(IReadOnlyList<PlanItem> plan)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("<当前任务计划>");
+        sb.AppendLine("这是你之前用 update_plan 列的计划（原样保留），继续按它推进，完成一步更新一次：");
+        for (var i = 0; i < plan.Count; i++)
+        {
+            var mark = plan[i].Status switch { "completed" => "[x]", "in_progress" => "[>]", _ => "[ ]" };
+            sb.AppendLine($"{i + 1}. {mark} {plan[i].Step}");
+        }
+        sb.Append("</当前任务计划>");
+        return sb.ToString();
+    }
+}
+
 /// <summary>删除文件的方式。Windows 客户端实现为移入回收站。</summary>
 public interface IFileDeleter
 {

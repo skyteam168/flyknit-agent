@@ -45,6 +45,9 @@ import type {
   UiMessage,
   LibraryFolder,
   LibraryItem,
+  LearnedSkillStatus,
+  MemoryMetrics,
+  PlanItem,
 } from './types'
 import { createMockHost } from './mockHost'
 
@@ -156,6 +159,9 @@ class Bridge {
   consolidateMemory = () => this.call<MemoryConsolidateResult>('memory.consolidate', {}, undefined, 9 * 60_000)
   deleteEpisode = (id: string) => this.call<void>('episodes.delete', { id })
   deleteLearnedSkill = (name: string) => this.call<void>('skills.deleteLearned', { name })
+  setLearnedSkillStatus = (name: string, status: LearnedSkillStatus) =>
+    this.call<boolean>('skills.setLearnedStatus', { name, status })
+  memoryMetrics = () => this.call<MemoryMetrics>('memory.metrics')
 
   // ---------- 会话 ----------
   listConversations = (query = '', trash = false) =>
@@ -174,6 +180,8 @@ class Bridge {
   setTranslate = (id: string, from: string, to: string) =>
     this.call<void>('conversation.setTranslate', { id, from, to })
   loadMessages = (id: string) => this.call<UiMessage[]>('messages.load', { id })
+  /** 对话保存的任务计划（重新打开对话时显示） */
+  loadPlan = (id: string) => this.call<PlanItem[]>('conversations.plan', { id })
 
   // ---------- 模型与技能 ----------
   listModels = (refresh = false) => this.call<ModelInfo[]>('models.list', { refresh })

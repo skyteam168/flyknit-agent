@@ -88,8 +88,25 @@ public sealed class ContextManager
 
     public int Budget => Math.Max(4096, (ContextLength > 0 ? ContextLength : _options.DefaultContextLength) - _options.ReserveOutputTokens);
 
-    /// <summary>系统提示词 + 摘要。</summary>
-    public string SystemPrompt => WithSummary(_baseSystemPrompt, Summary);
+    /// <summary>
+    /// 当前的任务计划。较早的消息被压缩成摘要后，update_plan 的调用也跟着没了，模型会忘了计划走到哪一步；
+    /// 所以有摘要时把计划原样（不经模型改写）附在摘要后面。
+    /// </summary>
+    public Func<IReadOnlyList<Tools.PlanItem>>? Plan { get; init; }
+
+    /// <summary>系统提示词 + 摘要（+ 未完成的任务计划）。</summary>
+    public string SystemPrompt
+    {
+        get
+        {
+            var prompt = WithSummary(_baseSystemPrompt, Summary);
+            if (Summary is not null && Plan?.Invoke() is { Count: > 0 } plan && Tools.TaskPlan.HasOpenSteps(plan))
+            {
+                prompt += "\n\n" + Tools.TaskPlan.Render(plan);
+            }
+            return prompt;
+        }
+    }
 
     public static string WithSummary(string systemPrompt, string? summary)
     {

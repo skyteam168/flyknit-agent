@@ -178,7 +178,10 @@ public sealed class FileBackup
             var tag = Math.Abs(StableHash(Path.GetFullPath(path))).ToString("x8");
             return new DirectoryInfo(_root)
                 .EnumerateFiles($"*-{tag}-*", SearchOption.AllDirectories)
-                .OrderByDescending(f => f.LastWriteTimeUtc)
+                // 按备份的时间排（日期目录 + 文件名开头的时分秒），不能按修改时间：File.Copy 保留的是原文件的修改时间，
+                // 两次改动挨得很近时分不出先后
+                .OrderByDescending(f => f.Directory?.Name, StringComparer.Ordinal)
+                .ThenByDescending(f => f.Name, StringComparer.Ordinal)
                 .Select(f => f.FullName)
                 .ToList();
         }

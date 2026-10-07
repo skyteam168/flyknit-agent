@@ -30,6 +30,9 @@ public sealed class Conversation
     public string? Summary { get; set; }
     public string? SummaryUpto { get; set; }
 
+    /// <summary>update_plan 写下的任务计划（JSON），跟着对话保存：下一轮、压缩之后都还在。</summary>
+    public string? Plan { get; set; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? DeletedAt { get; set; }
@@ -132,6 +135,7 @@ public sealed class ConversationStore
         // v0.4：上下文压缩摘要、模型与 token 用量
         AddColumn(c, "conversations", "summary", "TEXT NULL");
         AddColumn(c, "conversations", "summary_upto", "TEXT NULL");
+        AddColumn(c, "conversations", "plan", "TEXT NULL");
         AddColumn(c, "messages", "model", "TEXT NULL");
         AddColumn(c, "messages", "prompt_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
@@ -268,6 +272,9 @@ public sealed class ConversationStore
         cmd.Parameters.AddWithValue("$id", id);
         cmd.ExecuteNonQuery();
     }
+
+    /// <summary>保存任务计划（JSON）；null 时清除。</summary>
+    public void SetPlan(string id, string? planJson) => Update(id, "plan = $v", (object?)planJson ?? DBNull.Value);
 
     public void SetPermission(string id, Security.PermissionMode mode) => Update(id, "permission = $v", Security.PermissionModes.ToText(mode));
 
@@ -626,7 +633,7 @@ public sealed class ConversationStore
 
     private const string SelectConversation = """
         SELECT c.id, c.title, c.title_source, c.mode, c.pinned, c.translate_from, c.translate_to,
-               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto
+               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan
         FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id AND m.role IN ('user','assistant')
         """;
 
@@ -648,6 +655,7 @@ public sealed class ConversationStore
         Permission = Security.PermissionModes.Parse(r.IsDBNull(13) ? null : r.GetString(13)),
         Summary = r.IsDBNull(14) ? null : r.GetString(14),
         SummaryUpto = r.IsDBNull(15) ? null : r.GetString(15),
+        Plan = r.IsDBNull(16) ? null : r.GetString(16),
     };
 
     private void Update(string id, string set, object value)

@@ -1,4 +1,5 @@
 using System.Text;
+using Flyknit.Core.Context;
 using Flyknit.Core.Memory;
 using Flyknit.Core.Skills;
 
@@ -120,6 +121,9 @@ public sealed class PromptBuilder
     /// <summary>本次提示词放进去的记忆条目。回答结束后记到这条回答上，用户的评价会算到这些记忆头上。</summary>
     public IReadOnlyList<string> MemoryIdsUsed { get; private set; } = Array.Empty<string>();
 
+    /// <summary>本次提示词里记忆和历史任务占的 token（估算），用于统计注入量。</summary>
+    public int MemoryTokens { get; private set; }
+
     public string Build(PromptContext ctx)
     {
         return ctx.Mode == ConversationMode.Translate ? BuildTranslate(ctx) : BuildAssistant(ctx);
@@ -169,6 +173,7 @@ public sealed class PromptBuilder
             sb.AppendLine();
             var memory = _memory.BuildPrompt(ctx.Query);
             MemoryIdsUsed = memory.ItemIds;
+            MemoryTokens += memory.ItemIds.Count > 0 ? TokenEstimator.Estimate(memory.Text) : 0;
             sb.Append(memory.Text);
         }
         if (ctx.Mode == ConversationMode.Agent)
@@ -187,7 +192,9 @@ public sealed class PromptBuilder
                 EpisodesUsed = found.Count;
                 if (found.Count > 0)
                 {
-                    sb.Append(EpisodeStore.BuildPromptSection(found));
+                    var section = EpisodeStore.BuildPromptSection(found, MemoryIdsUsed);
+                    MemoryTokens += TokenEstimator.Estimate(section);
+                    sb.Append(section);
                     sb.AppendLine();
                     _episodes.MarkUsed(found.Select(f => f.Episode.Id));
                 }

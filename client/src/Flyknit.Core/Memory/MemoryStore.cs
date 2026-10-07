@@ -105,6 +105,38 @@ public sealed record MemoryWriteResult(MemoryWriteOutcome Outcome, string? Id, s
     public bool IsNew => Outcome is MemoryWriteOutcome.Added or MemoryWriteOutcome.Updated;
 }
 
+/// <summary>记忆指标，见 <see cref="MemoryStore.Metrics"/>。</summary>
+public sealed record MemoryMetrics
+{
+    public int Days { get; init; }
+    public int Active { get; init; }
+    public int Pinned { get; init; }
+    public int Inferred { get; init; }
+
+    /// <summary>统计期内的回答数，以及其中放了记忆或历史任务的。</summary>
+    public int Answers { get; init; }
+    public int AnswersWithMemory { get; init; }
+    public double AvgItemsInjected { get; init; }
+    public int AvgTokensInjected { get; init; }
+    public int MaxTokensInjected { get; init; }
+
+    /// <summary>统计期内被用到过的有效记忆条数；从来没被用过的条数。</summary>
+    public int UsedRecently { get; init; }
+    public int NeverUsed { get; init; }
+
+    /// <summary>用了记忆的回答里被赞、被踩的。</summary>
+    public int Liked { get; init; }
+    public int Disliked { get; init; }
+
+    /// <summary>按最近一次被提到/确认算：30 天内、31–90 天、超过 180 天没再出现的条数，以及中位天数。</summary>
+    public int Fresh30 { get; init; }
+    public int Fresh90 { get; init; }
+    public int Stale { get; init; }
+    public int MedianAgeDays { get; init; }
+
+    public double UsedShare => Active == 0 ? 0 : Math.Round((double)UsedRecently / Active, 2);
+}
+
 /// <summary>拼好的记忆提示词，以及其中用到了哪些条目（用于记录使用次数和评价）。</summary>
 public sealed record MemoryPrompt(string Text, IReadOnlyList<string> ItemIds);
 
@@ -562,18 +594,29 @@ public sealed class MemoryStore
 
     // ---------- 使用与评价 ----------
 
-    /// <summary>记下这次回答用到了哪些记忆（使用次数 +1）。以后用户评价这条回答时，评价会算到这些记忆上。</summary>
-    public void RecordUsage(string conversationId, string messageId, IEnumerable<string> itemIds)
+    /// <summary>
+    /// 记下这次回答用到了哪些记忆（使用次数 +1）。以后用户评价这条回答时，评价会算到这些记忆上。
+    /// 同时记一笔注入量（放了几条、多少 token、几条历史任务），用于统计。
+    /// </summary>
+    public void RecordUsage(string conversationId, string messageId, IEnumerable<string> itemIds, int tokens = 0, int episodes = 0)
     {
         var ids = itemIds.Distinct().ToList();
-        if (ids.Count == 0)
-        {
-            return;
-        }
         lock (_lock)
         {
             using var c = Open();
             using var tx = c.BeginTransaction();
+            using (var inj = c.CreateCommand())
+            {
+                inj.Transaction = tx;
+                inj.CommandText = "INSERT OR REPLACE INTO memory_injections(message_id, conversation_id, items, tokens, episodes, created_at) VALUES ($m, $c, $n, $tk, $e, $t)";
+                inj.Parameters.AddWithValue("$m", messageId);
+                inj.Parameters.AddWithValue("$c", conversationId);
+                inj.Parameters.AddWithValue("$n", ids.Count);
+                inj.Parameters.AddWithValue("$tk", tokens);
+                inj.Parameters.AddWithValue("$e", episodes);
+                inj.Parameters.AddWithValue("$t", Clock().ToString("O"));
+                inj.ExecuteNonQuery();
+            }
             foreach (var id in ids)
             {
                 using var cmd = c.CreateCommand();
@@ -593,6 +636,74 @@ public sealed class MemoryStore
                 }
             }
             tx.Commit();
+        }
+    }
+
+    /// <summary>
+    /// 记忆指标（最近 <paramref name="days"/> 天）：
+    /// 注入量——每次回答平均放进去几条、多少 token；
+    /// 利用率——有效记忆里被用到过的比例、用了记忆的回答被赞/踩的次数；
+    /// 新鲜度——按最近一次被提到/确认的时间分布。
+    /// </summary>
+    public MemoryMetrics Metrics(int days = 30)
+    {
+        lock (_lock)
+        {
+            using var c = Open();
+            SyncLocked(c);
+            var items = ToItems(LoadRows(c));
+            var since = Clock().AddDays(-days).ToString("O");
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = """
+                SELECT COUNT(*), COALESCE(AVG(items), 0), COALESCE(AVG(tokens), 0), COALESCE(MAX(tokens), 0), COALESCE(SUM(CASE WHEN items > 0 OR episodes > 0 THEN 1 ELSE 0 END), 0)
+                FROM memory_injections WHERE created_at >= $since;
+                """;
+            cmd.Parameters.AddWithValue("$since", since);
+            int answers, maxTokens, withMemory;
+            double avgItems, avgTokens;
+            using (var r = cmd.ExecuteReader())
+            {
+                r.Read();
+                (answers, avgItems, avgTokens, maxTokens, withMemory) = (r.GetInt32(0), r.GetDouble(1), r.GetDouble(2), r.GetInt32(3), r.GetInt32(4));
+            }
+            cmd.CommandText = """
+                SELECT COUNT(DISTINCT u.item_id) FROM memory_usage u JOIN memory_items i ON i.id = u.item_id
+                WHERE u.created_at >= $since AND i.status = 'active';
+                """;
+            var usedRecently = Convert.ToInt32(cmd.ExecuteScalar());
+            cmd.CommandText = """
+                SELECT COALESCE(SUM(CASE WHEN f > 0 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN f < 0 THEN 1 ELSE 0 END), 0)
+                FROM (SELECT MAX(feedback) AS f FROM memory_usage WHERE created_at >= $since GROUP BY message_id);
+                """;
+            int liked, disliked;
+            using (var r = cmd.ExecuteReader())
+            {
+                r.Read();
+                (liked, disliked) = (r.GetInt32(0), r.GetInt32(1));
+            }
+            var today = DateOnly.FromDateTime(Clock());
+            int Age(MemoryItem i) => Math.Max(0, today.DayNumber - (i.LastSeen ?? i.Date ?? today).DayNumber);
+            var ages = items.Select(Age).OrderBy(a => a).ToList();
+            return new MemoryMetrics
+            {
+                Days = days,
+                Active = items.Count,
+                Pinned = items.Count(i => i.Pinned),
+                Inferred = items.Count(i => i.Origin == MemoryOrigin.Inferred),
+                Answers = answers,
+                AnswersWithMemory = withMemory,
+                AvgItemsInjected = Math.Round(avgItems, 1),
+                AvgTokensInjected = (int)Math.Round(avgTokens),
+                MaxTokensInjected = maxTokens,
+                UsedRecently = usedRecently,
+                NeverUsed = items.Count(i => i.Uses == 0),
+                Liked = liked,
+                Disliked = disliked,
+                Fresh30 = ages.Count(a => a <= 30),
+                Fresh90 = ages.Count(a => a is > 30 and <= 90),
+                Stale = ages.Count(a => a > 180),
+                MedianAgeDays = ages.Count == 0 ? 0 : ages[ages.Count / 2],
+            };
         }
     }
 
@@ -726,6 +837,14 @@ public sealed class MemoryStore
                 PRIMARY KEY (message_id, item_id)
             );
             CREATE INDEX IF NOT EXISTS ix_memory_usage_item ON memory_usage(item_id);
+            CREATE TABLE IF NOT EXISTS memory_injections (
+                message_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                items INTEGER NOT NULL,
+                tokens INTEGER NOT NULL,
+                episodes INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS memory_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL

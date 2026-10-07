@@ -446,6 +446,8 @@ export async function openConversation(id: string) {
       s.messages = messages
       s.tools = rebuildTools(messages)
       s.loaded = true
+      // 任务计划跟着对话保存，重新打开时还能看到做到哪一步
+      if (!s.plan.length) s.plan = await bridge.loadPlan(id).catch(() => [])
     } catch (e) {
       fail(e)
     }

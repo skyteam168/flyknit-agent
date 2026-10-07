@@ -36,6 +36,9 @@ public sealed class SkillInfo
     public bool IsOrganization => Source == SkillSource.Organization;
     public bool IsLearned => Source == SkillSource.Learned;
 
+    /// <summary>学习技能的阶段：candidate / active / retired（其他来源的技能为空）。</summary>
+    public string LearnedStatus => IsLearned ? LearnedSkillStatus.Of(this) : "";
+
     public string Version => Meta.TryGetValue("version", out var v) ? v : "";
     public string Author => Meta.TryGetValue("author", out var v) ? v : "";
     public string License => Meta.TryGetValue("license", out var v) ? v : "";
@@ -199,6 +202,10 @@ public sealed class SkillCatalog : IDisposable
                 skill.Required = skill.IsOrganization
                     && (_required.Contains(skill.Name) || _required.Contains(SkillPackage.Sanitize(skill.Name)));
                 skill.Enabled = skill.Required || !(_disabled.Contains(skill.Name) || _disabled.Contains(SkillPackage.Sanitize(skill.Name)));
+                if (skill.LearnedStatus == LearnedSkillStatus.Retired)
+                {
+                    skill.Enabled = false; // 屡次失败已退役的学习技能不再提供给模型
+                }
                 // 企业技能优先，同名的个人技能被忽略
                 if (!found.TryGetValue(skill.Name, out var existing) || (!existing.IsOrganization && skill.IsOrganization))
                 {
@@ -275,7 +282,8 @@ public sealed class SkillCatalog : IDisposable
         sb.AppendLine("技能是针对某类任务写好的工作说明。判断某个技能与当前任务相关时，先调用 load_skill 读取完整说明，再按说明操作；不相关就不要加载。");
         foreach (var s in listed)
         {
-            sb.AppendLine($"- {s.Name}：{s.Description}");
+            var trial = s.LearnedStatus == LearnedSkillStatus.Candidate ? "（自动总结、试用中：照做时留意每一步的结果，不对就按实际情况调整）" : "";
+            sb.AppendLine($"- {s.Name}：{s.Description}{trial}");
         }
         if (truncated)
         {

@@ -74,10 +74,45 @@ export interface EpisodeInfo {
   createdAt: string
 }
 
+export type LearnedSkillStatus = 'candidate' | 'active' | 'retired'
+
 export interface LearnedSkillInfo {
   name: string
   description: string
   path: string
+  status: LearnedSkillStatus
+  version: number
+  uses: number
+  successes: number
+  failures: number
+}
+
+/** 记忆指标：注入量、利用率、新鲜度（最近 days 天） */
+export interface MemoryMetrics {
+  days: number
+  active: number
+  pinned: number
+  inferred: number
+  answers: number
+  answersWithMemory: number
+  avgItems: number
+  avgTokens: number
+  maxTokens: number
+  usedRecently: number
+  usedShare: number
+  neverUsed: number
+  liked: number
+  disliked: number
+  fresh30: number
+  fresh90: number
+  stale: number
+  medianAgeDays: number
+  episodes: number
+  episodesReused: number
+  episodesRecent: number
+  skillsActive: number
+  skillsCandidate: number
+  skillsRetired: number
 }
 
 export interface MemoryOverview {
