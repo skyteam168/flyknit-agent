@@ -117,3 +117,63 @@ def _droppable(conn, table: sa.Table, column: sa.Column) -> bool:
             return False
     unique = inspector.get_unique_constraints(table.name)
     return all(column.name not in c["column_names"] for c in unique)
+
+
+# 加超级管理员这一档之前的 admin_users：没有 is_owner
+OLD_ADMIN_USERS = """
+CREATE TABLE admin_users (
+    id INTEGER NOT NULL PRIMARY KEY,
+    username VARCHAR(64) NOT NULL UNIQUE,
+    display_name VARCHAR(100) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    must_change_password BOOLEAN NOT NULL,
+    can_read_chats BOOLEAN NOT NULL,
+    can_dispatch BOOLEAN NOT NULL,
+    disabled BOOLEAN NOT NULL,
+    created_at DATETIME NOT NULL,
+    last_login DATETIME
+)
+"""
+
+
+def _old_console(tmp_path, name):
+    """造一个加超级管理员之前的库，里面已经有两个管理员账号。"""
+    engine = sa.create_engine(f"sqlite:///{tmp_path / name}")
+    with engine.begin() as conn:
+        conn.exec_driver_sql(OLD_ADMIN_USERS)
+        for i, username in enumerate(("it.yang", "it.li"), start=1):
+            conn.exec_driver_sql(
+                "INSERT INTO admin_users (id, username, display_name, password_hash,"
+                " must_change_password, can_read_chats, can_dispatch, disabled, created_at)"
+                " VALUES (?, ?, '', 'x', 0, 0, 0, 0, CURRENT_TIMESTAMP)",
+                (i, username),
+            )
+    return engine
+
+
+def test_the_earliest_account_becomes_the_owner(tmp_path):
+    """
+    老库里一个超级管理员都没有。不认领一个的话，账号页和安全页第二天早上会
+    全变 403——只剩共享 admin_token 能用，而那个令牌多半没人记得。
+    """
+    engine = _old_console(tmp_path, "console.db")
+    with engine.begin() as conn:
+        changes = ensure_schema(conn)
+    assert any("is_owner" in c for c in changes)
+
+    with engine.connect() as conn:
+        rows = dict(conn.exec_driver_sql("SELECT username, is_owner FROM admin_users").all())
+    assert rows == {"it.yang": 1, "it.li": 0}, "最早建的那个号才是主人，不是全部提上去"
+
+
+def test_an_existing_owner_is_left_alone(tmp_path):
+    engine = _old_console(tmp_path, "console2.db")
+    with engine.begin() as conn:
+        ensure_schema(conn)
+        conn.exec_driver_sql("UPDATE admin_users SET is_owner = 0 WHERE username = 'it.yang'")
+        conn.exec_driver_sql("UPDATE admin_users SET is_owner = 1 WHERE username = 'it.li'")
+    with engine.begin() as conn:
+        assert not any("is_owner" in c for c in ensure_schema(conn))
+    with engine.connect() as conn:
+        rows = dict(conn.exec_driver_sql("SELECT username, is_owner FROM admin_users").all())
+    assert rows == {"it.yang": 0, "it.li": 1}, "已经有主人了就别再认领一个"

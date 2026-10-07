@@ -56,7 +56,37 @@ def ensure_schema(connection: Connection) -> list[str]:
             except sa.exc.SQLAlchemyError as exc:
                 log.warning("建立索引 %s 失败：%s", index.name, exc)
 
+    changes.extend(_ensure_one_owner(connection))
     return changes
+
+
+def _ensure_one_owner(connection: Connection) -> list[str]:
+    """
+    超级管理员这一档是后加的，老库里一个都没有。
+
+    一个都没有时，管理后台就只剩共享 admin_token 能建号——对已经在用的部署来说，
+    等于某天早上账号页和安全页突然全是 403。所以把最早建的那个账号提上去：
+    它是当初拿着 admin_token 建出来的第一个号，本来就是这套系统的主人。
+    """
+    users = sa.table("admin_users", sa.column("id"), sa.column("username"), sa.column("is_owner"))
+    try:
+        has_owner = connection.execute(
+            sa.select(sa.func.count()).select_from(users).where(users.c.is_owner.is_(True))
+        ).scalar()
+        if has_owner:
+            return []
+        first = connection.execute(
+            sa.select(users.c.id, users.c.username).order_by(users.c.id).limit(1)
+        ).first()
+    except sa.exc.SQLAlchemyError as exc:
+        log.warning("检查超级管理员时出错：%s", exc)
+        return []
+
+    if first is None:
+        return []  # 还没有任何账号。第一个建出来的会自动是超级管理员
+    connection.execute(sa.update(users).where(users.c.id == first.id).values(is_owner=True))
+    log.info("已把最早的管理员账号 %s 设为超级管理员", first.username)
+    return [f"admin_users.is_owner={first.username}"]
 
 
 def _add_column_ddl(connection: Connection, table: sa.Table, column: sa.Column, preparer) -> str | None:

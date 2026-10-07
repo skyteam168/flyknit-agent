@@ -74,7 +74,7 @@ async def test_audit_roundtrip(client, device_headers):
     assert rows[0]["machine_name"] == "PC-001"
 
 
-async def test_audit_export_csv(client, device_headers):
+async def test_audit_export_csv(client, device_headers, chat_reader_headers):
     import csv
     import io
 
@@ -87,7 +87,14 @@ async def test_audit_export_csv(client, device_headers):
 
     assert (await client.get("/api/v1/admin/audit/export")).status_code == 401
 
+    # 共享令牌拿得到管控字段，但拿不到参数列——它答不出「是谁导的」
     r = await client.get("/api/v1/admin/audit/export", headers=ADMIN)
+    assert r.status_code == 200
+    assert "参数" not in r.content.decode("utf-8-sig").splitlines()[0]
+    assert "rm -rf" not in r.text
+
+    # 具名的、有查看聊天权限的账号才拿得到完整内容
+    r = await client.get("/api/v1/admin/audit/export", headers=chat_reader_headers)
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     assert "attachment" in r.headers["content-disposition"]

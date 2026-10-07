@@ -11,11 +11,22 @@ from app.models import Device, UsageDaily
 from app.services import usage_store
 
 
-async def login(client, username="it.zhang", password="init-pass-123") -> dict:
-    r = await client.post("/api/v1/admin/users", headers=ADMIN,
-                          json={"username": username, "password": password, "display_name": "张工"})
+async def login(client, username="it.zhang", password="init-pass-123", **flags) -> dict:
+    """建号、登录、改掉初始密码——真人就是这么走的，改密之前这个账号什么也做不了。"""
+    body = {"username": username, "password": password, "display_name": "张工"}
+    body.update(flags)
+    r = await client.post("/api/v1/admin/users", headers=ADMIN, json=body)
     assert r.status_code == 201, r.text
     r = await client.post("/api/v1/admin/login", json={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+    headers = {"Authorization": f"Bearer {r.json()['token']}"}
+
+    changed = password + "-changed"
+    r = await client.post("/api/v1/admin/password", headers=headers,
+                          json={"old_password": password, "new_password": changed})
+    assert r.status_code == 204, r.text
+    # 改密会把已有会话全部踢掉，所以要用新密码重新登录
+    r = await client.post("/api/v1/admin/login", json={"username": username, "password": changed})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
@@ -39,7 +50,8 @@ async def test_logout_revokes_the_session(client):
 
 
 async def test_disabling_an_account_kicks_it_out(client):
-    headers = await login(client)
+    await login(client)  # 第一个号是超级管理员，留着，否则后台没人管得了
+    headers = await login(client, username="it.li", password="init-pass-456")
     user_id = (await client.get("/api/v1/admin/me", headers=headers)).json()["id"]
     r = await client.patch(f"/api/v1/admin/users/{user_id}", headers=ADMIN, json={"disabled": True})
     assert r.status_code == 200 and r.json()["disabled"] is True

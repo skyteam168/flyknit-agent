@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..crypto import hash_token, hash_password, new_token, verify_password
 from ..db import get_session
-from ..deps import require_admin, require_admin_user, require_chat_reader
+from ..deps import require_admin, require_admin_user, require_chat_reader, require_owner
 from ..models import AdminAccess, AdminSession, AdminUser, ChatRecord
 from ..schemas import (
     AdminLoginIn,
@@ -35,17 +35,27 @@ SESSION_HOURS = 12
 
 # ---------- 账号 ----------
 
-@router.post("/users", response_model=AdminUserOut, status_code=201, dependencies=[Depends(require_admin)])
-async def create_user(data: AdminUserIn, session: AsyncSession = Depends(get_session)):
-    """建管理员账号。用共享的 admin_token 建，之后这个人用自己的账号登录。"""
+@router.post("/users", response_model=AdminUserOut, status_code=201)
+async def create_user(
+    data: AdminUserIn,
+    _owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    建管理员账号。只有超级管理员（或共享 admin_token）能建——否则任何一个账号
+    都能给自己造一个权限更大的号出来，分级就白分了。
+    """
     if await session.scalar(select(AdminUser).where(AdminUser.username == data.username)):
         raise HTTPException(status.HTTP_409_CONFLICT, "该用户名已存在")
+    # 第一个账号自动是超级管理员，否则新部署建完号没人管得了账号
+    is_first = not await session.scalar(select(func.count()).select_from(AdminUser))
     user = AdminUser(
         username=data.username,
         display_name=data.display_name or data.username,
         password_hash=hash_password(data.password),
         can_read_chats=data.can_read_chats,
         can_dispatch=data.can_dispatch,
+        is_owner=data.is_owner or is_first,
         must_change_password=True,
     )
     session.add(user)
@@ -107,11 +117,27 @@ async def logout(
         await session.commit()
 
 
-@router.patch("/users/{user_id}", response_model=AdminUserOut, dependencies=[Depends(require_admin)])
-async def update_user(user_id: int, data: AdminUserPatch, session: AsyncSession = Depends(get_session)):
+@router.patch("/users/{user_id}", response_model=AdminUserOut)
+async def update_user(
+    user_id: int,
+    data: AdminUserPatch,
+    actor: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
     user = await session.get(AdminUser, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "账号不存在")
+
+    # 改自己有两条限制，都是为了别把自己或整个后台锁在门外：
+    # 停用自己、或者把自己从超级管理员上摘下来，都不允许。要交接就先提拔对方。
+    if actor is not None and actor.id == user.id:
+        if data.disabled:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能停用自己的账号")
+        if data.is_owner is False:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能撤销自己的超级管理员；请先提拔另一个人")
+
+    if data.is_owner is not None:
+        user.is_owner = data.is_owner
     if data.display_name is not None:
         user.display_name = data.display_name
     if data.can_read_chats is not None:
@@ -129,6 +155,17 @@ async def update_user(user_id: int, data: AdminUserPatch, session: AsyncSession 
         user.must_change_password = True
         for row in await session.scalars(select(AdminSession).where(AdminSession.user_id == user.id)):
             await session.delete(row)
+
+    # 最后一个超级管理员不能消失：没有他，账号和安全策略就只剩共享 admin_token 能改，
+    # 而那个令牌多半躺在某个 .env 里没人记得。用共享令牌操作时也一样挡——救急不该变成断电。
+    await session.flush()
+    if not await session.scalar(
+        select(func.count()).select_from(AdminUser)
+        .where(AdminUser.is_owner.is_(True), AdminUser.disabled.is_(False))
+    ):
+        await session.rollback()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "这是最后一个超级管理员，不能停用或降级")
+
     await session.commit()
     log.info("管理员账号 %s 已更新", user.username)
     return user

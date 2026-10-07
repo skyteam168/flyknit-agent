@@ -196,6 +196,8 @@ class AdminUser(Base):
     can_read_chats: Mapped[bool] = mapped_column(Boolean, default=False)
     #: 能不能给员工电脑下发运维任务（装软件、系统修复、重启……）。同样默认不能
     can_dispatch: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: 超级管理员：建号、改权限、改安全策略。上面两项权限都由他授予，所以他必须更难当
+    is_owner: Mapped[bool] = mapped_column(Boolean, default=False)
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -39,9 +39,9 @@ export const api = {
   changePassword: (old_password: string, new_password: string) =>
     request<void>('/password', { method: 'POST', body: { old_password, new_password }, silent: true }),
   users: () => get<AdminUser[]>('/users'),
-  createUser: (body: { username: string; password: string; display_name: string; can_read_chats: boolean; can_dispatch: boolean }) =>
+  createUser: (body: { username: string; password: string; display_name: string; can_read_chats: boolean; can_dispatch: boolean; is_owner: boolean }) =>
     post<AdminUser>('/users', body),
-  updateUser: (id: number, body: Partial<{ display_name: string; can_read_chats: boolean; can_dispatch: boolean; disabled: boolean; password: string }>) =>
+  updateUser: (id: number, body: Partial<{ display_name: string; can_read_chats: boolean; can_dispatch: boolean; is_owner: boolean; disabled: boolean; password: string }>) =>
     patch<AdminUser>(`/users/${id}`, body),
 
   // 首页

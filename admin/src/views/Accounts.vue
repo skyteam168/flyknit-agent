@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { CopyDocument, Key, Plus, Refresh } from '@element-plus/icons-vue'
 import { api } from '@/api'
@@ -20,12 +20,19 @@ async function load() {
 }
 onMounted(load)
 
-const isSelf = (u: AdminUser) => u.username === auth.username
+// 比 id 不比用户名：用户名存在本地，是客户端说了算的东西
+const isSelf = (u: AdminUser) => (auth.user ? u.id === auth.user.id : u.username === auth.username)
+
+// 建号、改权限都归超级管理员。服务端会拒，这里置灰只是别让人白点一下
+const canManage = computed(() => !!auth.user?.is_owner && !auth.user?.must_change_password)
+// 最后一个超级管理员不能摘——摘了就没人管得了账号和安全策略
+const owners = computed(() => users.value.filter((u) => u.is_owner && !u.disabled).length)
+const lastOwner = (u: AdminUser) => u.is_owner && !u.disabled && owners.value <= 1
 
 // ---------- 新建 ----------
 const createDialog = ref(false)
 const formRef = ref<FormInstance>()
-const form = reactive({ username: '', display_name: '', can_read_chats: false, can_dispatch: false })
+const form = reactive({ username: '', display_name: '', can_read_chats: false, can_dispatch: false, is_owner: false })
 const rules: FormRules = {
   username: [
     { required: true, message: '请输入登录名', trigger: 'blur' },
@@ -33,7 +40,7 @@ const rules: FormRules = {
   ],
 }
 function openCreate() {
-  Object.assign(form, { username: '', display_name: '', can_read_chats: false, can_dispatch: false })
+  Object.assign(form, { username: '', display_name: '', can_read_chats: false, can_dispatch: false, is_owner: false })
   createDialog.value = true
 }
 async function create() {
@@ -70,6 +77,22 @@ function toggleChats(u: AdminUser) {
 function toggleDispatch(u: AdminUser) {
   void patch(u, { can_dispatch: u.can_dispatch }, () => (u.can_dispatch = !u.can_dispatch))
 }
+async function toggleOwner(u: AdminUser) {
+  const undo = () => (u.is_owner = !u.is_owner)
+  // 往上提是单向门：这个人从此能改所有人的权限和全厂的安全策略，先说清楚
+  if (u.is_owner) {
+    const ok = await ElMessageBox.confirm(
+      `把「${u.display_name || u.username}」设为超级管理员？他将能建号、改所有人的权限、改全厂和单机的安全策略。`,
+      '提升为超级管理员',
+      { type: 'warning', confirmButtonText: '确定' },
+    ).then(() => true, () => false)
+    if (!ok) {
+      undo()
+      return
+    }
+  }
+  await patch(u, { is_owner: u.is_owner }, undo)
+}
 async function toggleDisabled(u: AdminUser) {
   const next = !u.disabled
   if (next) {
@@ -91,14 +114,23 @@ async function resetPassword(u: AdminUser) {
 
 <template>
   <div class="page">
+    <el-alert
+      v-if="!canManage"
+      type="info"
+      :closable="false"
+      show-icon
+      title="只有超级管理员能改账号权限"
+      description="你可以看到这里有哪些账号、各自有什么权限，但改不了。需要调整请找超级管理员。"
+      class="notice"
+    />
     <div class="page-head">
       <div>
         <h1>管理员账号</h1>
-        <p>每个 IT 人员用自己的账号登录，操作可追溯。查看员工聊天记录是额外授予的权限。</p>
+        <p>每个 IT 人员用自己的账号登录，操作可追溯。查看聊天记录、下发运维任务都是额外授予的权限。</p>
       </div>
       <div class="toolbar">
         <el-button :icon="Refresh" :loading="loading" @click="load" />
-        <el-button type="primary" :icon="Plus" @click="openCreate">新建账号</el-button>
+        <el-button type="primary" :icon="Plus" :disabled="!canManage" @click="openCreate">新建账号</el-button>
       </div>
     </div>
 
@@ -133,19 +165,40 @@ async function resetPassword(u: AdminUser) {
           <template #default="{ row }">{{ dateTime(row.created_at) }}</template>
         </el-table-column>
         <el-table-column label="可查看聊天记录" width="130" align="center">
-          <template #default="{ row }"><el-switch v-model="row.can_read_chats" @change="toggleChats(row as AdminUser)" /></template>
+          <template #default="{ row }">
+            <el-switch v-model="row.can_read_chats" :disabled="!canManage || isSelf(row as AdminUser)" @change="toggleChats(row as AdminUser)" />
+          </template>
         </el-table-column>
         <el-table-column label="可下发运维任务" width="130" align="center">
-          <template #default="{ row }"><el-switch v-model="row.can_dispatch" @change="toggleDispatch(row as AdminUser)" /></template>
+          <template #default="{ row }">
+            <el-switch v-model="row.can_dispatch" :disabled="!canManage || isSelf(row as AdminUser)" @change="toggleDispatch(row as AdminUser)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="超级管理员" width="120" align="center">
+          <template #default="{ row }">
+            <el-tooltip content="最后一个超级管理员不能撤销" placement="top" :disabled="!lastOwner(row as AdminUser)">
+              <span>
+                <el-switch
+                  v-model="row.is_owner"
+                  :disabled="!canManage || isSelf(row as AdminUser) || lastOwner(row as AdminUser)"
+                  @change="toggleOwner(row as AdminUser)"
+                />
+              </span>
+            </el-tooltip>
+          </template>
         </el-table-column>
         <el-table-column label="启用" width="80" align="center">
           <template #default="{ row }">
-            <el-switch :model-value="!row.disabled" :disabled="isSelf(row as AdminUser)" @update:model-value="toggleDisabled(row as AdminUser)" />
+            <el-switch
+              :model-value="!row.disabled"
+              :disabled="!canManage || isSelf(row as AdminUser) || lastOwner(row as AdminUser)"
+              @update:model-value="toggleDisabled(row as AdminUser)"
+            />
           </template>
         </el-table-column>
         <el-table-column width="110" align="right">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="Key" :disabled="isSelf(row as AdminUser)" @click="resetPassword(row as AdminUser)">重置密码</el-button>
+            <el-button link type="primary" :icon="Key" :disabled="!canManage || isSelf(row as AdminUser)" @click="resetPassword(row as AdminUser)">重置密码</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -157,6 +210,10 @@ async function resetPassword(u: AdminUser) {
         <el-form-item label="姓名"><el-input v-model="form.display_name" placeholder="显示在顶栏和操作记录里" /></el-form-item>
         <el-form-item><el-checkbox v-model="form.can_read_chats">允许查看员工聊天记录</el-checkbox></el-form-item>
         <el-form-item><el-checkbox v-model="form.can_dispatch">允许下发运维任务（清理、安装、修复、重启等）</el-checkbox></el-form-item>
+        <el-form-item>
+          <el-checkbox v-model="form.is_owner">超级管理员</el-checkbox>
+          <span class="sub">能建号、改所有人的权限、改全厂和单机的安全策略</span>
+        </el-form-item>
       </el-form>
       <p class="hint">系统会生成一个随机初始密码，对方首次登录时必须修改。</p>
       <template #footer>
@@ -180,6 +237,14 @@ async function resetPassword(u: AdminUser) {
 </template>
 
 <style scoped>
+.notice {
+  margin-bottom: 16px;
+}
+.sub {
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
 .who {
   display: flex;
   gap: 10px;

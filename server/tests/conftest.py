@@ -35,6 +35,23 @@ def admin_headers():
 
 
 @pytest_asyncio.fixture
+async def chat_reader_headers(client):
+    """一个能看聊天内容的具名账号。看内容必须有名字——共享令牌答不出「是谁看的」。"""
+    await client.post("/api/v1/admin/users", headers=ADMIN,
+                      json={"username": "it.reader", "password": "init-pass-123",
+                            "display_name": "读者", "can_read_chats": True})
+    first = await client.post("/api/v1/admin/login",
+                              json={"username": "it.reader", "password": "init-pass-123"})
+    headers = {"Authorization": f"Bearer {first.json()['token']}"}
+    # 初始密码改掉之前，这个账号除了改密码什么也做不了
+    await client.post("/api/v1/admin/password", headers=headers,
+                      json={"old_password": "init-pass-123", "new_password": "changed-pass-456"})
+    r = await client.post("/api/v1/admin/login",
+                          json={"username": "it.reader", "password": "changed-pass-456"})
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+@pytest_asyncio.fixture
 async def device_headers(client):
     r = await client.post(
         "/api/v1/devices/register",

@@ -18,8 +18,18 @@ from sqlalchemy.orm import joinedload
 from ..config import get_settings
 from ..crypto import decrypt, encrypt, mask
 from ..db import get_session, get_sessionmaker
-from ..deps import require_admin
-from ..models import AuditLog, Device, DevicePolicy, ModelConfig, Provider, RouteRule, SkillPackage
+from ..deps import chat_reader_or_none, require_admin, require_owner
+from ..models import (
+    AdminAccess,
+    AdminUser,
+    AuditLog,
+    Device,
+    DevicePolicy,
+    ModelConfig,
+    Provider,
+    RouteRule,
+    SkillPackage,
+)
 from ..schemas import (
     SCENES,
     AuditOut,
@@ -459,6 +469,18 @@ async def update_device(device_id: int, data: DevicePatch, session: AsyncSession
 
 
 # ---------- 审计 ----------
+#: 审计记录里属于「聊天内容」的字段：工具参数是员工让 AI 读写的文件内容，
+#: 摘要里也常带着文件名和原文片段。其余字段（谁、哪台机器、什么工具、判定）是管控数据。
+_AUDIT_CONTENT_FIELDS = ("arguments", "summary")
+
+
+async def _note_content_access(session: AsyncSession, user: AdminUser, target: str) -> None:
+    """看了聊天内容就留一条。和看正文走同一张表，这样「谁看了什么」是一份完整记录。"""
+    session.add(AdminAccess(user_id=user.id, username=user.username,
+                            action="read_audit_args", target=target[:200]))
+    await session.commit()
+
+
 @router.get("/audit", response_model=list[AuditOut])
 async def list_audit(
     decision: str | None = None,
@@ -466,8 +488,13 @@ async def list_audit(
     conversation_id: str | None = None,
     limit: int = Query(100, le=1000),
     offset: int = 0,
+    reader: AdminUser | None = Depends(chat_reader_or_none),
     session: AsyncSession = Depends(get_session),
 ):
+    """
+    审计列表。没有查看聊天权限的账号也能看——他要看的是「什么被拦了、谁在用」，
+    这是管控数据。但工具参数里是员工的文件内容，那一档按正文的规矩来：要授权，要留痕。
+    """
     q = select(AuditLog).order_by(desc(AuditLog.id)).limit(limit).offset(offset)
     if decision:
         q = q.where(AuditLog.decision == decision)
@@ -475,7 +502,14 @@ async def list_audit(
         q = q.where(AuditLog.device_id == device_id)
     if conversation_id:
         q = q.where(AuditLog.conversation_id == conversation_id)
-    return (await session.scalars(q)).all()
+    rows = (await session.scalars(q)).all()
+
+    if reader is None:
+        return [AuditOut.model_validate(r).model_copy(update={f: "" for f in _AUDIT_CONTENT_FIELDS})
+                for r in rows]
+    if rows:
+        await _note_content_access(session, reader, conversation_id or f"audit:{len(rows)}条")
+    return rows
 
 
 _AUDIT_COLUMNS = (
@@ -517,6 +551,8 @@ async def export_audit(
     device_id: int | None = None,
     since: date | None = Query(None, description="起始日期（含），按 UTC"),
     until: date | None = Query(None, description="结束日期（含），按 UTC"),
+    reader: AdminUser | None = Depends(chat_reader_or_none),
+    session: AsyncSession = Depends(get_session),
 ):
     """
     把审计记录导出成 CSV，给合规检查和 Excel 用。
@@ -526,6 +562,12 @@ async def export_audit(
     """
     if since and until and since > until:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "起始日期不能晚于结束日期")
+
+    # 导出和列表是同一份内容，权限也得是同一套，否则导出就成了绕过去的那条路
+    columns = _AUDIT_COLUMNS if reader else tuple(
+        c for c in _AUDIT_COLUMNS if c[0] not in _AUDIT_CONTENT_FIELDS)
+    if reader is not None:
+        await _note_content_access(session, reader, f"export:{since or ''}~{until or ''}")
 
     def filtered(q):
         if decision:
@@ -542,7 +584,7 @@ async def export_audit(
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         buffer.write("\ufeff")
-        writer.writerow([title for _, title in _AUDIT_COLUMNS])
+        writer.writerow([title for _, title in columns])
         yield buffer.getvalue()
 
         # 请求的会话在开始流式响应后就可能被关掉，这里自己开一个
@@ -559,7 +601,7 @@ async def export_audit(
                 buffer.seek(0)
                 buffer.truncate()
                 for row in batch[: _EXPORT_MAX_ROWS - sent]:
-                    writer.writerow([_csv_cell(getattr(row, field)) for field, _ in _AUDIT_COLUMNS])
+                    writer.writerow([_csv_cell(getattr(row, field)) for field, _ in columns])
                 sent += len(batch)
                 last_id = batch[-1].id
                 yield buffer.getvalue()
@@ -593,7 +635,12 @@ async def get_security_defaults(session: AsyncSession = Depends(get_session)):
 
 
 @router.put("/security")
-async def set_security_defaults(data: SecurityDefaultsIn, session: AsyncSession = Depends(get_session)):
+async def set_security_defaults(
+    data: SecurityDefaultsIn,
+    _owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    """改全厂安全基线。限超级管理员——放宽一项，全厂所有机器一起放宽。"""
     saved = await settings_store.set_security(session, data.values, data.locks)
     return {
         "values": saved["values"],
@@ -623,10 +670,14 @@ async def get_device_policy(device_id: int, session: AsyncSession = Depends(get_
 
 @router.put("/devices/{device_id}/policy")
 async def set_device_policy(
-    device_id: int, data: DevicePolicyIn, session: AsyncSession = Depends(get_session)
+    device_id: int,
+    data: DevicePolicyIn,
+    _owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
 ):
     """
-    给某台机器单独放开或锁死几项。
+    给某台机器单独放开或锁死几项。限超级管理员——给一台机器解掉工作区隔离，
+    比给那台机器发一条指令严重得多，不该比下发更容易。
 
     只存和全厂不一样的那几项——改全厂默认值时，没被单独设过的机器会自动跟着变。
     """
@@ -645,7 +696,11 @@ async def set_device_policy(
 
 
 @router.delete("/devices/{device_id}/policy", status_code=204)
-async def clear_device_policy(device_id: int, session: AsyncSession = Depends(get_session)):
+async def clear_device_policy(
+    device_id: int,
+    _owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
     """取消单独设置，这台机器回到全厂默认。"""
     row = await session.get(DevicePolicy, device_id)
     if row is not None:

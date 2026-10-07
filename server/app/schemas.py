@@ -331,6 +331,8 @@ class AdminUserIn(BaseModel):
     #: 看聊天正文是额外授予的权限，默认不给
     can_read_chats: bool = False
     can_dispatch: bool = False
+    #: 超级管理员：能建号改权限、能改安全策略。只有超级管理员能授予
+    is_owner: bool = False
 
 
 class AdminUserOut(BaseModel):
@@ -341,6 +343,7 @@ class AdminUserOut(BaseModel):
     display_name: str
     can_read_chats: bool
     can_dispatch: bool = False
+    is_owner: bool = False
     must_change_password: bool
     disabled: bool
     created_at: datetime
@@ -351,6 +354,7 @@ class AdminUserPatch(BaseModel):
     display_name: str | None = None
     can_read_chats: bool | None = None
     can_dispatch: bool | None = None
+    is_owner: bool | None = None
     disabled: bool | None = None
     #: 重置成新的初始密码，对方下次登录必须再改
     password: str | None = Field(default=None, min_length=8, max_length=200)

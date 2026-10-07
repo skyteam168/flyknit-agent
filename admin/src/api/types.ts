@@ -4,6 +4,8 @@ export interface AdminUser {
   display_name: string
   can_read_chats: boolean
   can_dispatch: boolean
+  /** 超级管理员：能建号改权限、能改安全策略 */
+  is_owner: boolean
   must_change_password: boolean
   disabled: boolean
   created_at: string

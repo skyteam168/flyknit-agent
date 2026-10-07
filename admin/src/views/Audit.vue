@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Download, Refresh } from '@element-plus/icons-vue'
 import { api } from '@/api'
 import type { AuditLog, Device } from '@/api/types'
 import { DECISION_LABELS, dateTime, sceneLabel } from '@/utils/format'
+import { auth } from '@/store/auth'
+
+// 工具参数里是员工让 AI 读写的文件内容，属于聊天内容那一档：服务端只发给
+// 有查看权限的具名账号。这里据此说明「为什么是空的」，而不是留一片空白让人以为出了错
+const canSeeContent = computed(() => !!auth.user?.can_read_chats && !auth.user?.must_change_password)
 
 const PAGE_SIZE = 50
 const rows = ref<AuditLog[]>([])
@@ -108,6 +113,10 @@ async function doExport() {
                 <label>参数</label>
                 <pre>{{ pretty(row.arguments) }}</pre>
               </div>
+              <div v-else-if="!canSeeContent">
+                <label>参数</label>
+                <p class="muted">参数里是员工让 AI 读写的文件内容，需要「可查看聊天记录」权限才能看。</p>
+              </div>
               <div v-if="row.summary">
                 <label>摘要</label>
                 <pre>{{ row.summary }}</pre>
@@ -134,7 +143,10 @@ async function doExport() {
           <template #default="{ row }"><code>{{ row.tool_name }}</code></template>
         </el-table-column>
         <el-table-column label="参数" min-width="260" show-overflow-tooltip>
-          <template #default="{ row }"><span class="mono muted">{{ row.arguments }}</span></template>
+          <template #default="{ row }">
+            <span v-if="row.arguments" class="mono muted">{{ row.arguments }}</span>
+            <span v-else-if="!canSeeContent" class="muted">需「可查看聊天记录」权限</span>
+          </template>
         </el-table-column>
         <el-table-column label="风险" width="70" align="center">
           <template #default="{ row }">
