@@ -52,7 +52,12 @@ public partial class MainWindow : Window, IWindowActions
         SourceInitialized += (_, _) =>
         {
             // 无边框窗口最大化时按显示器工作区计算大小：不盖住任务栏，也不溢出屏幕边缘
-            HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WndProc);
+            var handle = new WindowInteropHelper(this).Handle;
+            HwndSource.FromHwnd(handle)?.AddHook(WndProc);
+            // WindowStyle=None 会去掉标题栏样式，Windows 就不给这种窗口播放最小化/还原动画（缩进任务栏、从图标里放出来）。
+            // 把标题栏和最小化/最大化按钮的样式补回去：WindowChrome 已经把整个窗口当作客户区，补回来也不会画出系统标题栏。
+            var style = GetWindowLong(handle, GwlStyle);
+            SetWindowLong(handle, GwlStyle, style | WsCaption | WsSysMenu | WsMinimizeBox | WsMaximizeBox);
         };
         StateChanged += (_, _) =>
         {
@@ -345,16 +350,34 @@ public partial class MainWindow : Window, IWindowActions
         }
     }
 
-    /// <summary>最小化同理：隐身后再最小化，不播放会露出底色的缩小动画。</summary>
+    /// <summary>
+    /// 最小化：走系统的最小化命令，和普通软件一样播放缩进任务栏的动画。
+    /// 底色跟主题一致、WebView2 隐藏时保留画面（见 InitWebAsync），动画过程中不会闪白。
+    /// </summary>
     public void MinimizeMain()
     {
-        var cloaked = Cloak(true);
-        WindowState = WindowState.Minimized;
-        if (cloaked)
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
         {
-            Cloak(false);
+            WindowState = WindowState.Minimized;
+            return;
         }
+        SendMessage(handle, WmSysCommand, (IntPtr)ScMinimize, IntPtr.Zero);
     }
+
+    private const int WmSysCommand = 0x0112;
+    private const int ScMinimize = 0xF020;
+    private const int GwlStyle = -16;
+    private const int WsCaption = 0x00C00000;
+    private const int WsSysMenu = 0x00080000;
+    private const int WsMinimizeBox = 0x00020000;
+    private const int WsMaximizeBox = 0x00010000;
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hwnd, int index, int value);
 
     public void SetBackground(string color)
     {
