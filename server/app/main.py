@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__, db
 from .config import Settings, get_settings
-from .routers import admin, agents, chats, client, console, gateway, instructions, speech
+from .routers import admin, agents, chats, client, console, gateway, instructions, releases, speech
 from .services import housekeeping
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -113,6 +113,7 @@ app.include_router(chats.router)
 app.include_router(console.router)
 app.include_router(agents.router)
 app.include_router(instructions.router)
+app.include_router(releases.router)
 
 
 @app.get("/healthz", tags=["system"])

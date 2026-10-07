@@ -38,6 +38,16 @@ export function createMockHost(): HostTransport {
   const confirmWaiters = new Map<string, (choice: string) => void>()
   const stopped = new Set<string>()
   let language = 'zh-CN'
+
+  // 更新条在浏览器里没法真的更新，用 ?update=ready / ?update=needsit 看样子
+  const wanted = new URLSearchParams(location.search).get('update') ?? 'none'
+  const mockUpdate = {
+    stage: wanted,
+    version: '0.3.0',
+    notes: '· 语音输入支持越南语\n· 修复了大表格偶尔卡住的问题\n· 安全中心可以看到最近被拦下来的操作',
+    progress: 1,
+    message: 'C:\\Program Files\\FlyknitBuddy',
+  }
   const workspaces = [
     { path: 'C:\\Users\\demo\\Documents\\Flyknit', name: 'Flyknit', exists: true, isDefault: true },
     { path: 'D:\\agentwork', name: 'agentwork', exists: true, isDefault: false },
@@ -734,6 +744,13 @@ export function createMockHost(): HostTransport {
         conversations.get(p.id)!.modelId = p.modelId
         return
       case 'settings.setDefaultModel':
+        return
+      case 'update.state':
+        return mockUpdate
+      case 'update.apply':
+        return { ok: true, message: '' }
+      case 'update.check':
+        // 浏览器里调试更新条：?update=ready 或 ?update=needsit
         return
       case 'settings.setLanguage':
         language = p.language

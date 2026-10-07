@@ -86,6 +86,43 @@ export const put = <T>(path: string, body?: unknown) => request<T>(path, { metho
 export const patch = <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body })
 export const del = <T = void>(path: string) => request<T>(path, { method: 'DELETE' })
 
+/**
+ * 上传大文件并回报进度。
+ *
+ * 用 XMLHttpRequest 不是怀旧：fetch 报不了上传进度，而客户端安装包有一百多兆，
+ * 传两分钟没有任何反馈，人会以为卡死了然后去点第二次。
+ */
+export function upload<T>(path: string, form: FormData, onProgress?: (percent: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', BASE + path)
+    if (auth.token) xhr.setRequestHeader('Authorization', `Bearer ${auth.token}`)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.onload = () => {
+      let parsed: unknown = null
+      try {
+        parsed = JSON.parse(xhr.responseText)
+      } catch {
+        parsed = null
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(parsed as T)
+        return
+      }
+      const message = detailOf(parsed, `上传失败（HTTP ${xhr.status}）`)
+      ElMessage.error(message)
+      reject(new ApiError(message, xhr.status))
+    }
+    xhr.onerror = () => {
+      ElMessage.error('上传中断，请检查网络')
+      reject(new ApiError('上传中断', 0))
+    }
+    xhr.send(form)
+  })
+}
+
 /** 下载文件（审计导出等），带上登录令牌 */
 export async function download(path: string, query: RequestOptions['query'], fallbackName: string) {
   const resp = await request<Response>(path, { query, raw: true })

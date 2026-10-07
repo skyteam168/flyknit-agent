@@ -252,6 +252,9 @@ cd ..
 
 # 2) 打包成不依赖运行时的独立程序
 dotnet publish src\Flyknit.Client -c Release -r win-x64 --self-contained true -o publish\FlyknitBuddy
+
+# 3) 更新器也要放进同一个文件夹，否则自动更新装不上
+dotnet publish src\Flyknit.Updater -c Release -r win-x64 -o publish\FlyknitBuddy
 ```
 
 产物在 `client\publish\FlyknitBuddy\`，里面的 `FlyknitBuddy.exe` 就是主程序。
@@ -273,12 +276,35 @@ dotnet publish src\Flyknit.Client -c Release -r win-x64 --self-contained true -o
    - **注册密钥**：`.env` 里的 `FLYKNIT_ENROLLMENT_KEY`
 4. 连接成功后右下角出现悬浮球，点开就能用
 
+**以后升级不用再跑一遍**：在管理后台「员工端版本」上传新的 zip 并发布，员工电脑会自己装上。
+详见下面的「发布新版本」。
+
 **开机自启**：给 `FlyknitBuddy.exe` 建个快捷方式，放进
 `C:\Users\<用户名>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup`。
 批量部署可以用组策略或登录脚本拷贝这个快捷方式。
 
 每台电脑注册后会拿到自己的设备令牌，存在 `%APPDATA%\Flyknit\settings.json`。
 管理员可以在 `GET /api/v1/admin/devices` 看到所有电脑，`PATCH` 可以停用某一台。
+
+---
+
+## 发布新版本
+
+装完第一次之后，升级不用再跑一台台。重新打包，把 `publish\FlyknitBuddy`
+整个文件夹压成一个 zip，在管理后台「员工端版本」上传。
+
+上传和发布是**两步**：传完先停在「未发布」，确认无误再点「发布」。发布之后：
+
+- 员工电脑每 6 小时查一次，发现新版本就在后台悄悄下载，校验 sha256
+- 下好之后界面上挂一条「新版本就绪」，点「重启升级」立刻装；点「更新日志」能看你写的说明
+- 不点也行：退出程序或者下次开机时自动装上
+- 装的时候旧目录先整个改名留着，拷贝失败会自动回滚——宁可停在旧版本，也不留一个装了一半的目录
+
+zip 里必须有 `FlyknitBuddy.exe` 和 `FlyknitUpdater.exe`。缺了更新器，员工端下得到包但装不上。
+
+程序装在 `C:\Program Files\` 下而员工不是管理员时，拷贝需要管理员权限。这种情况客户端
+在下载完就会发现，界面显示「这台电脑装不了，请联系 IT」，而不是等到退出时才失败。
+想让员工自己能升级，把程序装在 `%LOCALAPPDATA%\Programs\FlyknitBuddy\` 下即可。
 
 ---
 
@@ -471,5 +497,6 @@ cd client/web && npx vue-tsc --noEmit                                      # 界
 | 四 · 记忆与技能 | 上下文压缩、长期记忆、任务复盘、技能安装与管理、用量配额、安全记录 | 已完成 |
 | 五 · 自动化 | 定时任务 | 已完成 |
 | 六 · 远程运维与管理后台 | 管理后台网页（仪表盘、设备台账、指令中心、安全中心、技能库、模型/账号/用量/审计/对话）、设备使用者与部门可编辑并回显到员工端、远程指令下发并在聊天界面可见、安全中心配置即时下发生效 | 已完成 |
-| 七 · 办公能力 | Excel/PPT/Word 模板、SMB 安装服务、自动更新 | 未开始 |
-| 八 · 扩展 | 部门角色模板、划词翻译、MCP 接入 | 未开始 |
+| 七 · 自动更新 | 后台发布版本、员工端自己下载校验、提示「新版本就绪」、退出或开机自动安装、失败回滚 | 已完成 |
+| 八 · 办公能力 | SMB 安装服务 | 未开始 |
+| 九 · 扩展 | 部门角色模板、划词翻译、MCP 工具库 | 未开始 |

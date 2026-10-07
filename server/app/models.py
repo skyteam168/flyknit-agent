@@ -298,6 +298,30 @@ class SoftwarePackage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ClientRelease(Base):
+    """
+    员工端的一个版本。上传的是 publish 出来的整个文件夹打成的 zip。
+
+    发布之后所有电脑会自己发现、自己下载、自己装上——这是这套系统里影响面最大的
+    动作，所以发布这件事限超级管理员。上传完还要显式 published=True 才下发，
+    传错了可以先不发布。
+    """
+
+    __tablename__ = "client_releases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    version: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    #: 更新日志。员工点「更新日志」看到的就是这段
+    notes: Mapped[str] = mapped_column(Text, default="")
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    #: 没发布的版本客户端看不到。上传和发布分开，传错了还有回头的机会
+    published: Mapped[bool] = mapped_column(Boolean, default=False)
+    uploaded_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AgentJob(Base):
     """一次下发：同一个任务发给一批电脑。每台电脑的执行情况在 AgentRun 里。"""
 

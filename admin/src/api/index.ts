@@ -1,6 +1,7 @@
-import { del, download, get, patch, post, put, request } from './http'
+import { del, download, get, patch, post, put, request, upload } from './http'
 import type {
   AdminUser,
+  Release,
   AgentJob,
   AgentJobDetail,
   AgentRun,
@@ -81,6 +82,19 @@ export const api = {
   updateSkill: (name: string, body: Partial<{ required: boolean; enabled: boolean }>) =>
     patch<Skill>(`/skills/${encodeURIComponent(name)}`, body),
   deleteSkill: (name: string) => del(`/skills/${encodeURIComponent(name)}`),
+
+  // 员工端版本（自动更新）
+  releases: () => get<Release[]>('/releases'),
+  uploadRelease: (file: File, version: string, notes: string, onProgress?: (p: number) => void) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('version', version)
+    form.append('notes', notes)
+    return upload<Release>('/releases', form, onProgress)
+  },
+  updateRelease: (id: number, body: Partial<{ published: boolean; notes: string }>) =>
+    patch<Release>(`/releases/${id}`, body),
+  deleteRelease: (id: number) => del(`/releases/${id}`),
 
   // 语音
   asr: () => get<AsrConfig>('/asr'),

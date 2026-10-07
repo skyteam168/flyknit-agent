@@ -396,6 +396,19 @@ export interface AppInfo {
   sandboxed: boolean
 }
 
+/** 自动更新的状态 */
+export interface UpdateInfo {
+  /** none / downloading / ready / needsit */
+  stage: string
+  version: string
+  /** 更新日志 */
+  notes: string
+  /** 0~1，下载进度 */
+  progress: number
+  /** needsit 时是程序所在目录，用来告诉 IT 哪里写不了 */
+  message: string
+}
+
 /** 安全中心里的一项 */
 export interface SecurityItem {
   key: string
@@ -498,3 +511,4 @@ export type HostEvent =
   | { type: 'files.added'; attachments: AttachmentRef[] }
   | { type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string }
   | { type: 'app.focusInput' }
+  | ({ type: 'update.state' } & UpdateInfo)

@@ -69,6 +69,9 @@ public sealed class AgentHost : IDisposable
     /// <summary>用户在安全中心改了可改的项之后，让它立刻生效。</summary>
     public void RefreshSecurity() => ApplySecurity();
 
+    /// <summary>自动更新。下载在后台做完，安装只在能重启的那一刻发生。</summary>
+    public UpdateService Updater { get; }
+
     private void ApplySecurity()
     {
         var quota = Security.Number(Flyknit.Core.Security.SecuritySettings.BackupQuotaMb, 512);
@@ -197,6 +200,7 @@ public sealed class AgentHost : IDisposable
         Episodes = new EpisodeStore(AppPaths.Memory);
         Scheduler = new ScheduleRunner(this);
         RunFinished += Scheduler.OnRunFinished;
+        Updater = new UpdateService(Server, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -213,6 +217,7 @@ public sealed class AgentHost : IDisposable
         await Task.Run(() => Store.PurgeExpired());
         await RefreshConfigAsync();
         Scheduler.Start();
+        Updater.Start();
         // 长轮询监听配置变更，IT 一改安全中心/策略就近乎即时拉取生效
         _ = Task.Run(ConfigWatchLoopAsync);
     }

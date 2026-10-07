@@ -1,0 +1,203 @@
+"""员工端的版本发布与自动更新。
+
+发布一个版本，所有电脑会自己发现、下载、校验、装上——不需要 IT 一台台跑。
+这是这套系统里影响面最大的动作（它替换的是员工电脑上正在跑的程序本身），
+所以上传和发布都限超级管理员，而且分两步：传完先不发布，确认无误再发。
+
+客户端那一侧只认 sha256。文件对不上就不装——宁可停在旧版本，也不能把一堆
+校验不过的文件铺到全厂电脑上。
+"""
+
+import hashlib
+import logging
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..config import get_settings
+from ..crypto import new_token
+from ..db import get_session
+from ..deps import require_admin, require_device, require_owner
+from ..models import AdminUser, ClientRelease, Device
+from ..schemas import ClientUpdateOut, ReleaseOut, ReleasePatch
+from ..services import versions
+
+log = logging.getLogger("flyknit.releases")
+router = APIRouter(prefix="/api/v1", tags=["releases"])
+
+#: 客户端是 self-contained 发布，整个文件夹压完 150 MB 上下。留足余量
+MAX_RELEASE_BYTES = 1024 * 1024 * 1024
+_VERSION = re.compile(r"^v?\d+(\.\d+){0,3}([-+][\w.]+)?$")
+
+
+def _release_dir() -> Path:
+    path = Path(get_settings().data_dir) / "releases"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _release_path(release: ClientRelease) -> Path:
+    return _release_dir() / f"{release.sha256}.zip"
+
+
+async def _latest(session: AsyncSession) -> ClientRelease | None:
+    """已发布的版本里最新的那个。按版本号比，不按上传时间——补传一个旧版本不该变成「最新」。"""
+    rows = await session.scalars(select(ClientRelease).where(ClientRelease.published.is_(True)))
+    newest: ClientRelease | None = None
+    for row in rows:
+        if newest is None or versions.is_newer(row.version, newest.version):
+            newest = row
+    return newest
+
+
+# ---------- 管理端 ----------
+
+@router.get("/admin/releases", response_model=list[ReleaseOut], dependencies=[Depends(require_admin)])
+async def list_releases(session: AsyncSession = Depends(get_session)):
+    rows = await session.scalars(select(ClientRelease).order_by(ClientRelease.id.desc()))
+    return list(rows)
+
+
+@router.post("/admin/releases", response_model=ReleaseOut, status_code=201)
+async def upload_release(
+    file: UploadFile = File(...),
+    version: str = Form(..., min_length=1, max_length=50),
+    notes: str = Form("", max_length=20000),
+    owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    上传一个新版本（publish 出来的整个文件夹打成的 zip）。
+
+    传完不会立刻下发：要再调一次 PATCH 把 published 置 True。发布是不可逆的动作——
+    几百台电脑会在几分钟内跟着装上，传错了这一步是最后的拦截点。
+    """
+    version = version.strip()
+    if not _VERSION.match(version):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "版本号要写成 0.2.0 这样的点分数字，可带 -beta.1 之类的后缀")
+    if (file.filename or "").lower().rsplit(".", 1)[-1] != "zip":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "只支持 zip：把 publish 出来的整个文件夹打成一个 zip")
+    if await session.scalar(select(ClientRelease).where(ClientRelease.version == version)):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"版本 {version} 已经存在。改个版本号，或先删掉旧的那个")
+
+    tmp = _release_dir() / f".upload-{new_token()[:16]}"
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with tmp.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_RELEASE_BYTES:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, "超过 1 GB")
+                digest.update(chunk)
+                out.write(chunk)
+        if size == 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件是空的")
+        release = ClientRelease(
+            version=version,
+            notes=notes.strip(),
+            filename=Path(file.filename or "release.zip").name[:255],
+            size=size,
+            sha256=digest.hexdigest(),
+            published=False,
+            uploaded_by=owner.username if owner else "admin_token",
+        )
+        target = _release_path(release)
+        if target.exists():
+            tmp.unlink()  # 同样的内容已经有了，不重复存一份
+        else:
+            tmp.replace(target)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    session.add(release)
+    await session.commit()
+    log.info("上传客户端版本 %s（%d 字节，%s）", version, size, release.sha256[:12])
+    return release
+
+
+@router.patch("/admin/releases/{release_id}", response_model=ReleaseOut)
+async def update_release(
+    release_id: int,
+    data: ReleasePatch,
+    owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    release = await session.get(ClientRelease, release_id)
+    if release is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "版本不存在")
+    if data.notes is not None:
+        release.notes = data.notes.strip()
+    if data.published is not None:
+        if data.published and not _release_path(release).exists():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "安装包文件丢失，不能发布。请重新上传这个版本")
+        release.published = data.published
+        who = owner.username if owner else "admin_token"
+        log.warning("%s 把客户端版本 %s 设为 %s", who, release.version, "已发布" if data.published else "未发布")
+    await session.commit()
+    return release
+
+
+@router.delete("/admin/releases/{release_id}", status_code=204)
+async def delete_release(
+    release_id: int,
+    _owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    release = await session.get(ClientRelease, release_id)
+    if release is None:
+        return
+    path = _release_path(release)
+    await session.delete(release)
+    await session.commit()
+    # 同一份内容可能被别的版本记录引用着，没人引用了才删文件
+    if not await session.scalar(select(ClientRelease).where(ClientRelease.sha256 == release.sha256)):
+        path.unlink(missing_ok=True)
+
+
+# ---------- 客户端 ----------
+
+@router.get("/client/update", response_model=ClientUpdateOut)
+async def check_update(
+    version: str = "",
+    device: Device = Depends(require_device),
+    session: AsyncSession = Depends(get_session),
+):
+    """这台电脑有没有新版本可装。没有就 available=false，客户端什么也不做。"""
+    latest = await _latest(session)
+    if latest is None or not versions.is_newer(latest.version, version):
+        return ClientUpdateOut(available=False)
+    if not _release_path(latest).exists():
+        # 文件丢了就当没有更新：让客户端去下一个下不到的包，只会反复失败
+        log.error("版本 %s 的安装包文件丢失，暂不下发", latest.version)
+        return ClientUpdateOut(available=False)
+    device.last_seen = datetime.now(timezone.utc)
+    await session.commit()
+    return ClientUpdateOut(
+        available=True,
+        version=latest.version,
+        notes=latest.notes,
+        size=latest.size,
+        sha256=latest.sha256,
+    )
+
+
+@router.get("/client/update/download")
+async def download_update(
+    version: str = "",
+    _: Device = Depends(require_device),
+    session: AsyncSession = Depends(get_session),
+):
+    """下载某个版本的安装包。只给已发布的。"""
+    latest = await _latest(session)
+    if latest is None or (version and latest.version != version):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "没有这个版本，或它已经不是最新版")
+    path = _release_path(latest)
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "安装包文件丢失，请在管理后台重新上传")
+    return FileResponse(path, media_type="application/zip", filename=f"FlyknitBuddy-{latest.version}.zip")

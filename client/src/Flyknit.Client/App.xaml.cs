@@ -305,6 +305,8 @@ public partial class App : Application
         _notifications?.ClearAll();
         _noticeWatcher?.Dispose();
         _instructionPoller?.Dispose();
+        // 下好了没装的，就在这会儿装上——用户说「稍后」，指的就是等他关掉程序的时候
+        _host?.Updater.ApplyOnExit();
         _host?.Dispose();
         _main?.ExitForReal();
         _ball?.Close();

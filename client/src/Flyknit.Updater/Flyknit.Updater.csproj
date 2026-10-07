@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Flyknit.Updater</RootNamespace>
+    <AssemblyName>FlyknitUpdater</AssemblyName>
+    <Version>0.1.0</Version>
+    <Product>FlyknitBuddy</Product>
+    <AssemblyTitle>FlyknitBuddy 更新程序</AssemblyTitle>
+    <Company>Flyknit</Company>
+    <!-- 这个小工具要被拷到临时目录单独运行，所以打成一个单文件、不依赖运行时 -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+</Project>

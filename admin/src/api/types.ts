@@ -344,3 +344,17 @@ export interface AsrProbe {
   notes: Record<string, string>
   saved: boolean
 }
+
+
+/** 员工端的一个版本。发布之后全厂电脑会自己装上 */
+export interface Release {
+  id: number
+  version: string
+  notes: string
+  filename: string
+  size: number
+  sha256: string
+  published: boolean
+  uploaded_by: string
+  created_at: string
+}

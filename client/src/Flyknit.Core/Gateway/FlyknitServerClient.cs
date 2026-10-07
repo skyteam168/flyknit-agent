@@ -87,6 +87,20 @@ public sealed class DayUsage
     [JsonPropertyName("tokens")] public int Tokens { get; set; }
 }
 
+/// <summary>服务端有没有更新。Available=false 时其余字段不用看。</summary>
+public sealed class ClientUpdate
+{
+    [JsonPropertyName("available")] public bool Available { get; set; }
+    [JsonPropertyName("version")] public string Version { get; set; } = "";
+
+    /// <summary>更新日志，员工点「更新日志」看到的就是这段。</summary>
+    [JsonPropertyName("notes")] public string Notes { get; set; } = "";
+    [JsonPropertyName("size")] public long Size { get; set; }
+
+    /// <summary>下完自己算一遍。对不上就不装。</summary>
+    [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
+}
+
 /// <summary>公司技能库里的一个技能。</summary>
 public sealed class ServerSkill
 {
@@ -322,6 +336,44 @@ public sealed class FlyknitServerClient : IChatGateway
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);
         await using var file = File.Create(destination);
         await stream.CopyToAsync(file, ct);
+    }
+
+    /// <summary>有没有比 currentVersion 更新的版本。</summary>
+    public async Task<ClientUpdate> CheckUpdateAsync(string currentVersion, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get,
+            $"api/v1/client/update?version={Uri.EscapeDataString(currentVersion)}");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<ClientUpdate>(cancellationToken: ct) ?? new();
+    }
+
+    /// <summary>
+    /// 下载安装包。一两百 MB，所以边下边写，并通过 progress 回报进度（0~1）。
+    /// </summary>
+    public async Task DownloadUpdateAsync(string version, string destination,
+                                          Action<double>? progress, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get,
+            $"api/v1/client/update/download?version={Uri.EscapeDataString(version)}");
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        await EnsureOk(resp, ct);
+
+        var total = resp.Content.Headers.ContentLength ?? 0;
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        await using var file = File.Create(destination);
+        var buffer = new byte[128 * 1024];
+        long done = 0;
+        int read;
+        while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+        {
+            await file.WriteAsync(buffer.AsMemory(0, read), ct);
+            done += read;
+            if (total > 0)
+            {
+                progress?.Invoke((double)done / total);
+            }
+        }
     }
 
     public async Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct)

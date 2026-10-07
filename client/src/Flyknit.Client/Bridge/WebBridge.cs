@@ -58,6 +58,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
         _web.WebMessageReceived += OnMessage;
         _host.AttachUi(this, this);
         _host.Scheduler.Changed += () => Post(new { type = "schedules.changed" });
+        _host.Updater.Changed += state => Post(UpdateEvent(state));
         _speech = new SpeechService(_host.Server);
         // 录音时把响度和时长推给界面画动效。回调在音频线程上，Post 内部会切回 UI 线程
         _speech.Tick += (level, elapsed) => Post(new
@@ -80,6 +81,25 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     }
 
     /// <summary>安全中心要显示的全部条目。锁住的也要显示——让用户看见自己被什么规则管着。</summary>
+    private static object UpdateEvent(Services.UpdateState state) => new
+    {
+        type = "update.state",
+        stage = state.Stage.ToString().ToLowerInvariant(),
+        version = state.Version,
+        notes = state.Notes,
+        progress = state.Progress,
+        message = state.Message,
+    };
+
+    private static object UpdateInfo(Services.UpdateState state) => new
+    {
+        stage = state.Stage.ToString().ToLowerInvariant(),
+        version = state.Version,
+        notes = state.Notes,
+        progress = state.Progress,
+        message = state.Message,
+    };
+
     private object SecurityList() => _host.Security.Items
         .Select(kv => new
         {
@@ -293,6 +313,24 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     // 置灰并说明原因——选了却悄悄降级，比不给选更糟
                     sandboxed = _host.Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 };
+
+            case "update.state":
+                return UpdateInfo(_host.Updater.State);
+
+            case "update.apply":
+            {
+                // 装不上去就别让程序退出——退了用户只会看到助手消失了
+                if (!_host.Updater.ApplyNow())
+                {
+                    return new { ok = false, message = "更新没能启动，请联系 IT" };
+                }
+                _dispatcher.InvokeAsync(() => System.Windows.Application.Current.Shutdown());
+                return new { ok = true, message = "" };
+            }
+
+            case "update.check":
+                _ = _host.Updater.CheckAsync(System.Threading.CancellationToken.None);
+                return new { ok = true };
 
             case "security.settings":
                 return SecurityList();

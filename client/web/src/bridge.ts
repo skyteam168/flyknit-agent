@@ -10,6 +10,7 @@
 import type {
   AppInfo,
   ApprovalInfo,
+  UpdateInfo,
   MemoryKind,
   LibrarySkill,
   MemoryOverview,
@@ -258,6 +259,12 @@ class Bridge {
   saveBlob = (fileName: string, mime: string, base64: string) =>
     this.call<AttachmentRef>('files.saveBlob', { fileName, mime, base64 })
   openPath = (path: string) => this.call<void>('files.open', { path })
+
+  // ---------- 自动更新 ----------
+  updateState = () => this.call<UpdateInfo>('update.state')
+  /** 立刻装上。宿主会在更新器起来之后让程序退出 */
+  applyUpdate = () => this.call<{ ok: boolean; message: string }>('update.apply')
+  checkUpdate = () => this.call<void>('update.check')
 }
 
 export const bridge = new Bridge()

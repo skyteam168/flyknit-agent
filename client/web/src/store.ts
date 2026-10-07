@@ -18,6 +18,7 @@ import type {
   ToolActivity,
   UiLanguage,
   UiMessage,
+  UpdateInfo,
   OutputFile,
   PreviewDoc,
   TraceInfo,
@@ -47,6 +48,8 @@ export const state = reactive({
   currentId: null as string | null,
   byId: {} as Record<string, ConversationState>,
   pending: [] as AttachmentRef[],
+  /** 自动更新：有新版本时界面上挂一条，点了才装；不点退出时也会装 */
+  update: null as UpdateInfo | null,
   toast: '' as string,
   settingsOpen: false,
   skillsOpen: false,
@@ -300,6 +303,8 @@ export async function init() {
   applyFontScale(app.fontScale ?? 1)
   await refreshList()
   void loadModels()
+  // 上次下好没装的，重开界面时也要能看见那条提示
+  void bridge.updateState().then((u) => { state.update = u }).catch(() => {})
   void loadSkills()
   void refreshUsage()
 }
@@ -840,6 +845,9 @@ function onHostEvent(e: HostEvent) {
     }
     case 'files.added':
       state.pending.push(...e.attachments)
+      break
+    case 'update.state':
+      state.update = { stage: e.stage, version: e.version, notes: e.notes, progress: e.progress, message: e.message }
       break
     case 'app.status':
       if (state.app) {

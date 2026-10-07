@@ -418,3 +418,34 @@ class ChatRecordOut(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     created_at: datetime
+
+
+class ReleaseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    version: str
+    notes: str
+    filename: str
+    size: int
+    sha256: str
+    published: bool
+    uploaded_by: str
+    created_at: datetime
+
+
+class ReleasePatch(BaseModel):
+    #: 置 True 之后所有电脑会自己发现并装上，所以上传和发布分两步
+    published: bool | None = None
+    notes: str | None = Field(default=None, max_length=20000)
+
+
+class ClientUpdateOut(BaseModel):
+    """有没有新版本。available=False 时其余字段都不用看。"""
+
+    available: bool
+    version: str = ""
+    notes: str = ""
+    size: int = 0
+    #: 客户端下完自己算一遍，对不上就不装
+    sha256: str = ""

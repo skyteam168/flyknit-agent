@@ -12,6 +12,7 @@ import UsageDialog from './components/UsageDialog.vue'
 import SchedulesDialog from './components/SchedulesDialog.vue'
 import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
+import UpdateBar from './components/UpdateBar.vue'
 import PlanPanel from './components/PlanPanel.vue'
 import PreviewPane from './components/PreviewPane.vue'
 import TraceDialog from './components/TraceDialog.vue'
@@ -188,6 +189,7 @@ onBeforeUnmount(() => {
 
     <main class="main">
       <TopBar :narrow="narrow" :sidebar-hidden="narrow || sidebarHidden" @toggle-sidebar="toggleSidebar" />
+      <UpdateBar class="update" />
       <div class="body">
         <div v-if="inConversation" class="conversation">
           <MessageList />
@@ -296,6 +298,10 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+.update {
+  flex: none;
+  margin: 0 16px 8px;
 }
 .body {
   flex: 1;

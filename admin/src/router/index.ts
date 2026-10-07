@@ -1,6 +1,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import type { Component } from 'vue'
-import { ChatDotRound, Coin, Collection, Connection, Lock, MagicStick, Microphone, Monitor, Odometer, Promotion, Tickets, UserFilled } from '@element-plus/icons-vue'
+import { ChatDotRound, Coin, Collection, Connection, Lock, MagicStick, Microphone, Monitor, Odometer, Promotion, Tickets, Upload, UserFilled } from '@element-plus/icons-vue'
 import { auth } from '@/store/auth'
 import AdminLayout from '@/layout/AdminLayout.vue'
 
@@ -25,6 +25,7 @@ export const menuRoutes: RouteRecordRaw[] = [
   { path: 'instructions', name: 'instructions', component: () => import('@/views/Instructions.vue'), meta: { title: '指令中心', icon: MagicStick, group: '运维' } },
   { path: 'chats', name: 'chats', component: () => import('@/views/Chats.vue'), meta: { title: '聊天记录', icon: ChatDotRound, group: '运维' } },
   { path: 'audit', name: 'audit', component: () => import('@/views/Audit.vue'), meta: { title: '审计日志', icon: Tickets, group: '运维' } },
+  { path: 'releases', name: 'releases', component: () => import('@/views/Releases.vue'), meta: { title: '员工端版本', icon: Upload, group: '运维' } },
   { path: 'accounts', name: 'accounts', component: () => import('@/views/Accounts.vue'), meta: { title: '管理员账号', icon: UserFilled, group: '运维' } },
 ]
 
