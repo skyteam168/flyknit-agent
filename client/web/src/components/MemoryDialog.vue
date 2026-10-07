@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { BookOpenCheck, Brain, FolderOpen, Heart, History, Info, Lightbulb, Plus, Sparkles, ThumbsDown, ThumbsUp, Trash2, X } from '@lucide/vue'
+import { BookOpenCheck, Brain, FolderOpen, Heart, History, Info, Lightbulb, Loader2, Plus, Sparkles, ThumbsDown, ThumbsUp, Trash2, Wand2, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { setLearning, state, toast } from '../store'
 import type { MemoryKind, MemoryOverview } from '../types'
@@ -12,6 +12,8 @@ const tab = ref<Tab>('preference')
 const data = ref<MemoryOverview | null>(null)
 const draft = ref('')
 const openEpisode = ref<string | null>(null)
+const openHistory = ref<string | null>(null)
+const tidying = ref(false)
 
 const tabs: { key: Tab; icon: unknown }[] = [
   { key: 'preference', icon: Heart },
@@ -66,10 +68,26 @@ async function removeSkill(name: string) {
 async function add() {
   const text = draft.value.trim()
   if (!text || (tab.value !== 'preference' && tab.value !== 'fact')) return
-  const ok = await bridge.addMemory(tab.value as MemoryKind, text).catch(() => false)
+  const res = await bridge.addMemory(tab.value as MemoryKind, text).catch((e) => ({ outcome: 'rejected' as const, reason: String(e) }))
   draft.value = ''
-  if (!ok) toast(t('ui.memory.duplicate'))
+  if (res.outcome === 'reinforced') toast(t('ui.memory.duplicate'))
+  else if (res.outcome === 'rejected') toast(t('ui.memory.rejected', { reason: res.reason ?? '' }))
   await load()
+}
+
+async function tidy() {
+  if (tidying.value) return
+  tidying.value = true
+  try {
+    const r = await bridge.consolidateMemory()
+    if (r.errors.length && !r.groups) toast(r.errors[0])
+    else toast(r.groups ? t('ui.memory.tidyDone', { groups: r.groups, merged: r.merged }) : t('ui.memory.tidyNone'))
+    await load()
+  } catch (e) {
+    toast(String(e))
+  } finally {
+    tidying.value = false
+  }
 }
 
 async function toggleLearning() {
@@ -138,11 +156,27 @@ const close = () => (state.memoryOpen = false)
           </form>
           <p v-if="items.length === 0" class="empty">{{ t('ui.memory.empty') }}</p>
           <ul v-else class="list">
-            <li v-for="i in items" :key="i.id">
-              <span v-if="tab === 'experience'" class="kind" :class="i.kind">{{ t(`ui.memory.kinds.${i.kind}`) }}</span>
-              <span class="text">{{ i.text }}</span>
-              <span v-if="i.date" class="date">{{ i.date }}</span>
-              <button type="button" class="mini" :title="t('ui.memory.delete')" @click="removeItem(i.id)"><Trash2 :size="14" /></button>
+            <li v-for="i in items" :key="i.id" class="item">
+              <div class="row">
+                <span v-if="tab === 'experience'" class="kind" :class="i.kind">{{ t(`ui.memory.kinds.${i.kind}`) }}</span>
+                <span class="text">{{ i.text }}</span>
+                <span v-if="(i.proofCount ?? 1) > 1" class="proof" :title="t('ui.memory.proofHint')">{{ t('ui.memory.proof', { n: i.proofCount }) }}</span>
+                <button
+                  v-if="i.history?.length"
+                  type="button"
+                  class="mini keep"
+                  :title="t('ui.memory.history')"
+                  :aria-expanded="openHistory === i.id"
+                  @click="openHistory = openHistory === i.id ? null : i.id"
+                >
+                  <History :size="14" />
+                </button>
+                <span v-if="i.lastSeen || i.date" class="date">{{ i.lastSeen || i.date }}</span>
+                <button type="button" class="mini" :title="t('ui.memory.delete')" @click="removeItem(i.id)"><Trash2 :size="14" /></button>
+              </div>
+              <ul v-if="openHistory === i.id" class="history">
+                <li v-for="h in i.history" :key="h">{{ h }}</li>
+              </ul>
             </li>
           </ul>
         </template>
@@ -187,6 +221,10 @@ const close = () => (state.memoryOpen = false)
 
       <footer>
         <button type="button" class="btn" @click="bridge.openMemoryFolder()"><FolderOpen :size="15" /> {{ t('settings.openMemory') }}</button>
+        <button type="button" class="btn" :disabled="tidying" :title="t('ui.memory.tidyHint')" @click="tidy">
+          <Loader2 v-if="tidying" :size="15" class="spin" /><Wand2 v-else :size="15" />
+          {{ tidying ? t('ui.memory.tidying') : t('ui.memory.tidy') }}
+        </button>
         <span class="spacer" />
         <button type="button" class="btn primary" @click="close">{{ t('settings.close') }}</button>
       </footer>
@@ -371,6 +409,49 @@ h2 {
 }
 .list > li:hover {
   background: var(--cloth-sunk);
+}
+.list > li.item {
+  display: block;
+}
+.item .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.proof {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--indigo-wash);
+  color: var(--indigo);
+  font-size: calc(11px * var(--font-scale));
+  white-space: nowrap;
+}
+.mini.keep {
+  opacity: 1;
+}
+.mini.keep:hover {
+  color: var(--indigo);
+}
+.history {
+  margin: 6px 0 2px;
+  padding: 6px 10px 6px 22px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ink-faint) 50%, transparent);
+}
+.history li {
+  margin: 2px 0;
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .text {
   flex: 1;

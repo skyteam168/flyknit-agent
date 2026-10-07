@@ -556,6 +556,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                         kind = i.Kind.ToString().ToLowerInvariant(),
                         text = i.Text,
                         date = i.Date?.ToString("yyyy-MM-dd"),
+                        lastSeen = i.LastSeen?.ToString("yyyy-MM-dd"),
+                        proofCount = i.ProofCount,
+                        uses = i.Uses,
+                        feedback = i.Feedback,
+                        source = i.Source,
+                        history = i.History,
                     }).ToList(),
                     episodes = _host.Episodes.List().Select(e => new
                     {
@@ -589,7 +595,15 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     "lesson" => Flyknit.Core.Memory.MemoryKind.Lesson,
                     _ => Flyknit.Core.Memory.MemoryKind.Fact,
                 };
-                return _host.Memory.Add(kind, Str("text"));
+                var saved = _host.Memory.Save(kind, Str("text"), "user");
+                return new { outcome = saved.Outcome.ToString().ToLowerInvariant(), reason = saved.Reason };
+            }
+
+            case "memory.consolidate":
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                var report = await _host.ConsolidateMemoryAsync(cts.Token);
+                return new { groups = report.Groups, merged = report.ItemsMerged, errors = report.Errors };
             }
 
             case "episodes.delete":

@@ -86,6 +86,11 @@ public sealed class MemoryWriteTool : ITool
                 ["enum"] = new JsonArray("preference", "fact", "success", "lesson"),
                 ["description"] = "类别，默认 fact",
             },
+            ["replaces"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["description"] = "用户改了主意、旧信息过时时，填要取代的那条旧记忆的编号（memory_search 结果里 # 后面的编号）；旧的会留作历史",
+            },
         },
         ["required"] = new JsonArray("fact"),
     };
@@ -106,8 +111,14 @@ public sealed class MemoryWriteTool : ITool
             "lesson" => MemoryKind.Lesson,
             _ => MemoryKind.Fact,
         };
-        var added = ctx.Memory.Add(kind, args.Required("fact"));
-        return Task.FromResult(ToolResult.Success(added ? "已记住" : "记忆中已有相同内容"));
+        var result = ctx.Memory.Save(kind, args.Required("fact"), "tool", ctx.ConversationId, args.Str("replaces") is { Length: > 0 } old ? old.TrimStart('#') : null);
+        return Task.FromResult(result.Outcome switch
+        {
+            MemoryWriteOutcome.Added => ToolResult.Success("已记住"),
+            MemoryWriteOutcome.Updated => ToolResult.Success("已更新"),
+            MemoryWriteOutcome.Reinforced => ToolResult.Success($"记忆中已有相同内容：{result.Text}"),
+            _ => ToolResult.Fail($"没有记录：{result.Reason}"),
+        });
     }
 }
 
@@ -141,7 +152,8 @@ public sealed class MemorySearchTool : ITool
                     MemoryKind.Lesson => "教训",
                     _ => "信息",
                 };
-                sb.AppendLine($"- [{label}] {item.Text}");
+                var proof = item.ProofCount > 1 ? $"，确认 {item.ProofCount} 次" : "";
+                sb.AppendLine($"- [{label} #{item.Id}{proof}] {item.Text}");
             }
         }
         var episodes = ctx.Episodes?.Search(query, max: 3, minScore: 0.15) ?? new();

@@ -90,7 +90,7 @@ export function createMockHost(): HostTransport {
   ]
   const memory = {
     items: [
-      { id: 'm1', kind: 'preference', text: '报表默认保存到 D:\\报表，文件名带日期', date: '2026-09-28' },
+      { id: 'm1', kind: 'preference', text: '报表默认保存到 D:\\报表，文件名带日期', date: '2026-09-28', lastSeen: '2026-10-05', proofCount: 3, history: ['报表保存到桌面'] },
       { id: 'm2', kind: 'preference', text: '给越南同事的通知用中越双语', date: '2026-10-02' },
       { id: 'm3', kind: 'fact', text: '日报放在 D:\\日报，按月份分文件夹', date: '2026-10-05' },
       { id: 'm4', kind: 'success', text: '质检周报先按车间汇总再画折线图，阅读最清楚', date: '2026-10-01' },
@@ -684,8 +684,11 @@ export function createMockHost(): HostTransport {
         memory.items = memory.items.filter((i) => i.id !== p.id)
         return
       case 'memory.add':
-        memory.items.push({ id: uid(), kind: p.kind, text: p.text, date: now().slice(0, 10) })
-        return true
+        if (memory.items.some((i) => i.text === p.text)) return { outcome: 'reinforced', reason: null }
+        memory.items.push({ id: uid(), kind: p.kind, text: p.text, date: now().slice(0, 10), proofCount: 1, lastSeen: now().slice(0, 10), history: [] })
+        return { outcome: 'added', reason: null }
+      case 'memory.consolidate':
+        return { groups: 0, merged: 0, errors: [] }
       case 'episodes.delete':
         memory.episodes = memory.episodes.filter((e) => e.id !== p.id)
         return

@@ -187,7 +187,9 @@ public sealed class AgentHost : IDisposable
         _settings = settings;
         Server = new FlyknitServerClient(ProxyFactory.CreateHttpClient(settings), settings.ServerUrl, settings.DeviceToken);
         Store = new ConversationStore(AppPaths.Database);
-        Memory = new MemoryStore(AppPaths.Memory);
+        // 记忆条目和会话放在同一个数据库里（数据目录），md 文件仍在记忆目录，可以直接编辑
+        Memory = new MemoryStore(AppPaths.Memory, AppPaths.Database);
+        Memory.SensitiveRejected += (kind, findings) => Log.Warn($"一条{MemoryStore.HeaderOf(kind)}含{string.Join("、", findings)}，没有记入记忆");
         Skills = new SkillCatalog()
             // 机器级目录优先：IT 统一预装的技能对所有 Windows 用户可见
             .AddRoot(AppPaths.MachineSkills, SkillSource.Organization)
@@ -555,6 +557,17 @@ public sealed class AgentHost : IDisposable
                 });
             }
             Store.AddMessages(id, result.NewMessages);
+            if (answer is not null && promptBuilder.MemoryIdsUsed.Count > 0)
+            {
+                try
+                {
+                    Memory.RecordUsage(id, answer.Id, promptBuilder.MemoryIdsUsed);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("记录记忆使用情况失败", ex);
+                }
+            }
             if (context is { ContextLength: > 0 })
             {
                 _contextLength = context.ContextLength;
@@ -626,7 +639,7 @@ public sealed class AgentHost : IDisposable
                 Log.Warn($"对话 {conv.Id} 复盘失败：{reflector.LastError}");
                 return;
             }
-            Log.Info($"对话 {conv.Id} 复盘完成：新增记忆 {report.Added.Count} 条，历史任务 {(report.Episode is null ? "无" : report.Episode.Title)}，技能 {report.SkillName ?? "无"}");
+            Log.Info($"对话 {conv.Id} 复盘完成：新增记忆 {report.Added.Count} 条（其中更新 {report.Updated} 条），再次确认 {report.Reinforced} 条，拒绝 {report.Rejected} 条，历史任务 {(report.Episode is null ? "无" : report.Episode.Title)}，技能 {report.SkillName ?? "无"}");
             if (report.SkillName is not null)
             {
                 SkillManager.Refresh();
@@ -654,6 +667,15 @@ public sealed class AgentHost : IDisposable
     public void Feedback(string conversationId, string messageId, int? value, string uiLanguage, IHostEvents events)
     {
         Store.SetFeedback(messageId, value);
+        try
+        {
+            // 这条回答用到的记忆跟着记上评价：常被点踩的记忆以后排得靠后，满了先被淘汰
+            Memory.ApplyFeedback(messageId, value);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("记录记忆评价失败", ex);
+        }
         if (value is null)
         {
             return;
@@ -675,6 +697,15 @@ public sealed class AgentHost : IDisposable
         var previous = messages.Take(userIndex).LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
         var workspace = _settings.ResolveWorkspace(conv.Workspace);
         _ = Task.Run(() => ReflectAsync(conv, workspace, messages[userIndex].Content, previous, turn, "Completed", -1, uiLanguage, events));
+    }
+
+    /// <summary>整理记忆：把换了说法重复记下的条目合并。</summary>
+    public async Task<ConsolidationReport> ConsolidateMemoryAsync(CancellationToken ct)
+    {
+        var consolidator = new MemoryConsolidator(Server, Memory) { Scene = Scenes.Agent };
+        var report = await consolidator.RunAsync(ct);
+        Log.Info($"整理记忆：合并 {report.Groups} 组共 {report.ItemsMerged} 条{(report.Errors.Count > 0 ? "，出错：" + string.Join("；", report.Errors) : "")}");
+        return report;
     }
 
     private async Task SummarizeTitleAsync(string id, string text, AgentRunResult result, string uiLanguage, IHostEvents events)

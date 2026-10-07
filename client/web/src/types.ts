@@ -32,6 +32,26 @@ export interface MemoryItem {
   kind: MemoryKind
   text: string
   date: string | null
+  /** 最近一次被再次确认的日期 */
+  lastSeen?: string | null
+  /** 被确认的次数 */
+  proofCount?: number
+  uses?: number
+  feedback?: number
+  source?: string
+  /** 被取代的旧说法（从新到旧） */
+  history?: string[]
+}
+
+export interface MemoryAddResult {
+  outcome: 'added' | 'reinforced' | 'updated' | 'rejected'
+  reason: string | null
+}
+
+export interface MemoryConsolidateResult {
+  groups: number
+  merged: number
+  errors: string[]
 }
 
 export interface EpisodeInfo {
