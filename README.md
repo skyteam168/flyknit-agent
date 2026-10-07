@@ -167,7 +167,8 @@ python -m scripts.setup_model --provider-name 阿里云百炼 \
 python -m scripts.setup_model --list
 ```
 
-模型按**场景**路由：`agent` 办事、`chat` 对话、`translate` 翻译、`title` 生成标题、`vision` 识图。
+模型按**场景**路由：`agent` 办事、`chat` 对话、`translate` 翻译、`title` 生成标题、`vision` 识图，
+另有可选的 `asr` 语音转文字、`embedding` 向量（员工端按意思检索记忆，不配就只按字面匹配）。
 默认一个模型管所有场景，也可以给不同场景配不同模型（`--scenes agent,chat`）。
 
 ---

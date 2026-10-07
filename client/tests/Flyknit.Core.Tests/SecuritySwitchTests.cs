@@ -172,6 +172,12 @@ public class SecuritySwitchTests
             SecuritySettings.BatchDeleteThreshold,
             SecuritySettings.Notifications,
             SecuritySettings.NotificationSound,
+            // 学习策略：LearningPolicy.From 读，复盘和 memory_write 据此跳过（见 MemoryPhase3Tests）
+            SecuritySettings.LearnPreferences,
+            SecuritySettings.LearnFacts,
+            SecuritySettings.LearnExperience,
+            SecuritySettings.LearnEpisodes,
+            SecuritySettings.LearnSkills,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

@@ -5,7 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 Scene = Literal["chat", "agent", "translate", "title", "vision", "asr"]
 # asr 是语音转文字，和对话模型不通用，所以它没有回退场景
-SCENES: tuple[str, ...] = ("chat", "agent", "translate", "title", "vision", "asr")
+# embedding：把文字转成向量，员工端用来按意思检索记忆；没配置时员工端只按字面匹配
+SCENES: tuple[str, ...] = ("chat", "agent", "translate", "title", "vision", "asr", "embedding")
 
 
 # ---------- 模型提供方 ----------

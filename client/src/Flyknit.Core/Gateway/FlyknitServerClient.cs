@@ -154,7 +154,7 @@ internal sealed class InstructionStartResult
 }
 
 /// <summary>与 Flyknit 服务端通信：模型网关、设备注册、配置、审计。</summary>
-public sealed class FlyknitServerClient : IChatGateway
+public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
 {
     private HttpClient _http;
     private string? _token;
@@ -470,6 +470,52 @@ public sealed class FlyknitServerClient : IChatGateway
                 acc.FeedLine(line);
             }
             return acc.Build(model, context);
+        }
+    }
+
+    /// <summary>文字转向量：POST api/v1/embeddings（OpenAI 兼容），模型由服务端的 embedding 场景决定。</summary>
+    public async Task<EmbeddingResult> EmbedAsync(IReadOnlyList<string> texts, CancellationToken ct)
+    {
+        var input = new JsonArray();
+        foreach (var t in texts)
+        {
+            input.Add(t);
+        }
+        using var req = Authorized(HttpMethod.Post, "api/v1/embeddings");
+        req.Content = new StringContent(new JsonObject { ["model"] = "embedding", ["input"] = input }.ToJsonString(), Encoding.UTF8, "application/json");
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await _http.SendAsync(req, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new GatewayException($"无法连接 Flyknit 服务器：{ex.Message}", null, ex);
+        }
+        using (resp)
+        {
+            await EnsureOk(resp, ct);
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            var root = doc.RootElement;
+            var vectors = new float[texts.Count][];
+            foreach (var item in root.GetProperty("data").EnumerateArray())
+            {
+                var index = item.TryGetProperty("index", out var ix) && ix.TryGetInt32(out var n) ? n : Array.IndexOf(vectors, null);
+                if (index < 0 || index >= vectors.Length)
+                {
+                    continue;
+                }
+                vectors[index] = item.GetProperty("embedding").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+            }
+            if (vectors.Any(v => v is null))
+            {
+                throw new GatewayException("向量服务返回的条数不对");
+            }
+            // 优先用上游的模型名：管理员换了模型，旧向量就不能再用
+            var model = root.TryGetProperty("model", out var m) && m.GetString() is { Length: > 0 } name
+                ? name
+                : resp.Headers.TryGetValues("X-Flyknit-Model", out var values) && values.FirstOrDefault() is { } raw ? Uri.UnescapeDataString(raw) : "embedding";
+            return new EmbeddingResult(model, vectors);
         }
     }
 

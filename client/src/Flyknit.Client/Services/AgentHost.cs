@@ -196,6 +196,8 @@ public sealed class AgentHost : IDisposable
         // 记忆条目和会话放在同一个数据库里（数据目录），md 文件仍在记忆目录，可以直接编辑
         Memory = new MemoryStore(AppPaths.Memory, AppPaths.Database);
         Memory.SensitiveRejected += (kind, findings) => Log.Warn($"一条{MemoryStore.HeaderOf(kind)}含{string.Join("、", findings)}，没有记入记忆");
+        // 服务端配了向量模型（embedding 场景）时，按意思也能找回记忆；没配就只按字面匹配
+        Memory.Semantic = new SemanticIndex(Memory, Server);
         Skills = new SkillCatalog()
             // 机器级目录优先：IT 统一预装的技能对所有 Windows 用户可见
             .AddRoot(AppPaths.MachineSkills, SkillSource.Organization)
@@ -491,6 +493,7 @@ public sealed class AgentHost : IDisposable
                 Permission = conv.Permission,
                 Sandboxed = Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 Query = text,
+                SemanticScores = conv.Mode == ConversationMode.Translate ? null : await SemanticScoresAsync(text, cts.Token),
                 McpServers = conv.Mode == ConversationMode.Agent ? Mcp.PromptInfo() : Array.Empty<McpPromptInfo>(),
             });
 
@@ -642,7 +645,7 @@ public sealed class AgentHost : IDisposable
 
             // 长期记忆：办事任务结束后在后台复盘，提炼偏好、经验和可复用的做法。
             // 被用户中途停止的任务同样复盘——用户喊停往往说明做错了方向，这是最该记下来的教训（只记教训，不记成功经验）。
-            if (_settings.EnableLearning && conv.Mode == ConversationMode.Agent
+            if (_settings.EnableLearning && conv.Mode == ConversationMode.Agent && !LearningPolicy.From(Security).Nothing
                 && Reflector.ShouldReflect(result.NewMessages, 0))
             {
                 var previous = stored.Take(stored.Count - 1).LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
@@ -660,6 +663,36 @@ public sealed class AgentHost : IDisposable
             _runs.TryRemove(id, out _);
             cts.Dispose();
             ActiveRunsChanged?.Invoke(_runs.Count);
+        }
+    }
+
+    /// <summary>
+    /// 语义检索：把用户这句话和记忆比一比意思。服务端没配向量模型、超时或出错时返回 null（只按字面挑记忆），
+    /// 最多等几秒，不会卡住对话。
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, double>?> SemanticScoresAsync(string query, CancellationToken ct)
+    {
+        if (Memory.Semantic is not { } index)
+        {
+            return null;
+        }
+        try
+        {
+            var scores = await index.ScoreAsync(query, ct);
+            if (scores is null && index.LastError is { } error)
+            {
+                Log.Info($"语义检索暂不可用，按字面匹配：{error}");
+            }
+            return scores;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("语义检索失败", ex);
+            return null;
         }
     }
 
@@ -702,7 +735,13 @@ public sealed class AgentHost : IDisposable
     {
         try
         {
-            var reflector = new Reflector(Server, Memory, Episodes, LearnedSkills) { Scene = Scenes.Agent, ModelId = conv.ModelId, Learned = LearnedSkillLedger };
+            var reflector = new Reflector(Server, Memory, Episodes, LearnedSkills)
+            {
+                Scene = Scenes.Agent,
+                ModelId = conv.ModelId,
+                Learned = LearnedSkillLedger,
+                Policy = LearningPolicy.From(Security),
+            };
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
             var report = await reflector.ReflectAsync(new ReflectionInput
             {
@@ -955,6 +994,7 @@ public sealed class AgentHost : IDisposable
                 Permission = conv.Permission,
                 Sandboxed = Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 Query = prompt,
+                SemanticScores = await SemanticScoresAsync(prompt, cts.Token),
                 McpServers = Mcp.PromptInfo(),
             });
 

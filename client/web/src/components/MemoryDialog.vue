@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { BookOpenCheck, Brain, FolderOpen, Heart, History, Info, Lightbulb, Loader2, Pin, PinOff, Plus, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, Trash2, Wand2, X } from '@lucide/vue'
+import { BookOpenCheck, Brain, CalendarCheck, FolderOpen, Heart, History, Info, Lightbulb, Loader2, Pin, PinOff, Plus, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, Trash2, Wand2, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { setLearning, state, toast } from '../store'
 import type { MemoryKind, MemoryMetrics, MemoryOverview } from '../types'
@@ -54,6 +54,16 @@ const items = computed(() => {
   // 置顶的排在前面
   return [...list.filter((i) => i.pinned), ...list.filter((i) => !i.pinned)]
 })
+
+async function renew(id: string) {
+  const item = data.value?.items.find((i) => i.id === id)
+  if (!item) return
+  const ok = await bridge.renewMemory(id).catch(() => false)
+  if (ok) {
+    toast(t('ui.memory.renewed'))
+    await load()
+  }
+}
 
 async function togglePin(id: string) {
   const item = data.value?.items.find((i) => i.id === id)
@@ -158,7 +168,7 @@ const close = () => (state.memoryOpen = false)
 
       <!-- 记忆指标：注入量、利用率、新鲜度 -->
       <dl v-if="metrics && metrics.active" class="metrics">
-        <div :title="t('ui.memory.metrics.injectHint', { days: metrics.days, answers: metrics.answers, max: metrics.maxTokens })">
+        <div :title="t('ui.memory.metrics.injectHint', { days: metrics.days, answers: metrics.answers, max: metrics.maxTokens }) + ' ' + t(metrics.semantic ? 'ui.memory.metrics.semanticOn' : 'ui.memory.metrics.semanticOff')">
           <dt>{{ t('ui.memory.metrics.inject') }}</dt>
           <dd>{{ t('ui.memory.metrics.injectValue', { items: metrics.avgItems, tokens: metrics.avgTokens }) }}</dd>
         </div>
@@ -168,7 +178,7 @@ const close = () => (state.memoryOpen = false)
         </div>
         <div :title="t('ui.memory.metrics.freshHint', { fresh90: metrics.fresh90, median: metrics.medianAgeDays })">
           <dt>{{ t('ui.memory.metrics.fresh') }}</dt>
-          <dd>{{ metrics.fresh30 }}/{{ metrics.active }}<small>{{ t('ui.memory.metrics.stale', { n: metrics.stale }) }}</small></dd>
+          <dd>{{ metrics.fresh30 }}/{{ metrics.active }}<small>{{ metrics.expired ? t('ui.memory.metrics.expired', { n: metrics.expired }) : t('ui.memory.metrics.stale', { n: metrics.stale }) }}</small></dd>
         </div>
         <div :title="t('ui.memory.metrics.reuseHint', { recent: metrics.episodesRecent, active: metrics.skillsActive, candidate: metrics.skillsCandidate, retired: metrics.skillsRetired })">
           <dt>{{ t('ui.memory.metrics.reuse') }}</dt>
@@ -208,6 +218,9 @@ const close = () => (state.memoryOpen = false)
                 <span v-if="tab === 'experience'" class="kind" :class="i.kind">{{ t(`ui.memory.kinds.${i.kind}`) }}</span>
                 <span class="text" :title="i.evidence ? t('ui.memory.evidence', { text: i.evidence }) : undefined">{{ i.text }}</span>
                 <span v-if="i.pinned" class="pin-badge" :title="t('ui.memory.pinnedHint')"><Pin :size="11" />{{ t('ui.memory.pinBadge') }}</span>
+                <span v-if="i.slotLabel" class="slot" :title="t('ui.memory.slotHint')">{{ i.slotLabel }}</span>
+                <span v-if="i.expired" class="expired" :title="t('ui.memory.expiredHint', { date: i.validUntil ?? '' })">{{ t('ui.memory.expired') }}</span>
+                <span v-else-if="i.validUntil" class="guess" :title="t('ui.memory.validHint')">{{ t('ui.memory.validUntil', { date: i.validUntil }) }}</span>
                 <span v-if="i.origin === 'inferred'" class="guess" :title="t('ui.memory.inferredHint')">{{ t('ui.memory.inferred') }}</span>
                 <span v-if="(i.proofCount ?? 1) > 1" class="proof" :title="t('ui.memory.proofHint')">{{ t('ui.memory.proof', { n: i.proofCount }) }}</span>
                 <button
@@ -221,6 +234,7 @@ const close = () => (state.memoryOpen = false)
                   <History :size="14" />
                 </button>
                 <span v-if="i.lastSeen || i.date" class="date">{{ i.lastSeen || i.date }}</span>
+                <button v-if="i.expired" type="button" class="mini keep" :title="t('ui.memory.renew')" @click="renew(i.id)"><CalendarCheck :size="14" /></button>
                 <button type="button" class="mini" :class="{ keep: i.pinned }" :title="i.pinned ? t('ui.memory.unpin') : t('ui.memory.pin')" @click="togglePin(i.id)">
                   <component :is="i.pinned ? PinOff : Pin" :size="14" />
                 </button>
@@ -559,6 +573,22 @@ li.retired .text b {
 }
 .skill-stats {
   color: var(--ink-faint);
+}
+.slot,
+.expired {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: calc(11px * var(--font-scale));
+  white-space: nowrap;
+}
+.slot {
+  background: var(--indigo-wash);
+  color: var(--indigo);
+}
+.expired {
+  background: var(--red-wash);
+  color: var(--red);
 }
 .pin-badge {
   background: var(--amber-wash);

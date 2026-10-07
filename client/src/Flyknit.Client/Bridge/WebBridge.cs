@@ -583,6 +583,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                         pinned = i.Pinned,
                         origin = i.Origin,
                         evidence = i.Evidence,
+                        slot = i.Slot,
+                        slotLabel = i.Slot is { } s ? Flyknit.Core.Memory.MemorySlots.LabelOf(s) : null,
+                        validUntil = i.ValidUntil?.ToString("yyyy-MM-dd"),
+                        expired = i.IsExpired(DateOnly.FromDateTime(DateTime.Now)),
                     }).ToList(),
                     episodes = _host.Episodes.List().Select(e => new
                     {
@@ -631,6 +635,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
 
             case "memory.pin":
                 return _host.Memory.Pin(Str("id"), Bool("pinned"));
+
+            case "memory.renew":
+                // 用户确认一条过了有效期的记忆仍然对：从今天起重新算有效期
+                return _host.Memory.Renew(Str("id"));
 
             case "memory.add":
             {
@@ -681,6 +689,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     fresh90 = m.Fresh90,
                     stale = m.Stale,
                     medianAgeDays = m.MedianAgeDays,
+                    expired = m.Expired,
+                    semantic = _host.Memory.Semantic is { Working: true },
                     episodes = total,
                     episodesReused = reused,
                     episodesRecent = recent,

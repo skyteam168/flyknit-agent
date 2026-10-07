@@ -105,6 +105,33 @@ SETTINGS: tuple[Setting, ...] = (
         title="批量删除确认阈值", minimum=1, maximum=10000,
         risk="调大之后，一次删除更多文件也不再额外确认。",
     ),
+    # ---- 学习策略：AI 自动学习哪些东西。默认都学、由 IT 统一管 ----
+    # 关掉只是不让 AI 自己记；员工在记忆面板里亲手加的不受影响，已经记下的也不会被删。
+    Setting(
+        key="learn_preferences", kind="bool", default=True, locked=True,
+        title="学习用户偏好",
+        risk="关闭后 AI 不再记住员工的习惯和要求（如报表存哪、用什么格式），每次都要重新交代。",
+    ),
+    Setting(
+        key="learn_facts", kind="bool", default=True, locked=True,
+        title="学习常用信息",
+        risk="关闭后 AI 不再记住路径、系统地址、同事称呼这类信息。",
+    ),
+    Setting(
+        key="learn_experience", kind="bool", default=True, locked=True,
+        title="学习经验与教训",
+        risk="关闭后 AI 不再总结做成的办法和踩过的坑，同样的错可能再犯。",
+    ),
+    Setting(
+        key="learn_episodes", kind="bool", default=True, locked=True,
+        title="记录历史任务",
+        risk="关闭后不再保存做过的任务及当时的做法；技能也因此无法自动沉淀。",
+    ),
+    Setting(
+        key="learn_skills", kind="bool", default=True, locked=True,
+        title="自动沉淀技能",
+        risk="关闭后同类任务做成多次也不会自动总结成技能。",
+    ),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

@@ -53,6 +53,7 @@ export const SCENE_LABELS: Record<string, string> = {
   title: '标题生成',
   vision: '识图',
   asr: '语音转文字',
+  embedding: '语义检索',
 }
 export const sceneLabel = (s: string) => SCENE_LABELS[s] ?? s
 

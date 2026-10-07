@@ -154,6 +154,8 @@ class Bridge {
   memoryOverview = () => this.call<MemoryOverview>('memory.list')
   deleteMemory = (id: string) => this.call<void>('memory.delete', { id })
   pinMemory = (id: string, pinned: boolean) => this.call<boolean>('memory.pin', { id, pinned })
+  /** 过期的记忆仍然有效：从今天起重新算有效期 */
+  renewMemory = (id: string) => this.call<boolean>('memory.renew', { id })
   addMemory = (kind: MemoryKind, text: string) => this.call<MemoryAddResult>('memory.add', { kind, text })
   // 整理要请求模型好几次，宿主那边最多等 8 分钟，这里多留一点
   consolidateMemory = () => this.call<MemoryConsolidateResult>('memory.consolidate', {}, undefined, 9 * 60_000)

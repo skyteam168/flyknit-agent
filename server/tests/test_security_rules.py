@@ -93,4 +93,10 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "batch_delete_threshold",
         "notifications",
         "notification_sound",
+        # 客户端 LearningPolicy 读这几项：复盘和 memory_write 按类别跳过
+        "learn_preferences",
+        "learn_facts",
+        "learn_experience",
+        "learn_episodes",
+        "learn_skills",
     }
