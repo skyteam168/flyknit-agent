@@ -18,7 +18,11 @@ public class MemoryPhase2Tests : IDisposable
     private readonly string _dir = Directory.CreateTempSubdirectory("flyknit-mem2").FullName;
     private DateTime _now = new(2026, 10, 7, 10, 0, 0);
 
-    public void Dispose() => Directory.Delete(_dir, true);
+    public void Dispose()
+    {
+        SqliteConnection.ClearAllPools(); // Windows 上池里的连接会占着数据库文件
+        Directory.Delete(_dir, true);
+    }
 
     private string Db => Path.Combine(_dir, MemoryStore.DatabaseFile);
 
