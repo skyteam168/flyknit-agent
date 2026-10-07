@@ -30,7 +30,7 @@ public class LibraryStoreTests : IDisposable
 
         Assert.Equal(first.Id, again.Id); // 内容一样只存一份
         Assert.True(first.Managed);
-        Assert.StartsWith(Path.Combine(_dir, "library"), first.Path);
+        Assert.StartsWith(Path.GetFullPath(Path.Combine(_dir, "library")), Path.GetFullPath(first.Path));
         Assert.Equal("sheet", first.Kind);
         File.Delete(src);
         Assert.True(store.Get(first.Id)!.Exists);
@@ -45,7 +45,7 @@ public class LibraryStoreTests : IDisposable
         var log = store.Add(Write("ws/output/build.log", "ok"), "output", copy: false)!;
 
         Assert.False(report.Managed);
-        Assert.Equal(Path.Combine(_dir, "ws/output/周报.docx"), report.Path);
+        Assert.Equal(Path.GetFullPath(Path.Combine(_dir, "ws", "output", "周报.docx")), report.Path);
         Assert.False(report.Hidden);
         Assert.True(script.Hidden);
         Assert.True(log.Hidden);
