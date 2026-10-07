@@ -843,6 +843,7 @@ export function createMockHost(): HostTransport {
           episodes: memory.episodes.length, episodesReused: 1, episodesRecent: 2,
           skillsActive: 1, skillsCandidate: 1, skillsRetired: 1,
           expired: memory.items.filter((i) => (i as { expired?: boolean }).expired).length, semantic: true,
+          runs: { total: 37, completed: 32, paused: 2, cancelled: 3, errors: 0, completionRate: 0.86, avgSteps: 7.4, disliked: 2, liked: 9, outputProblems: 4, outputProblemsAtEnd: 1, planNudges: 6 },
         }
       case 'conversations.plan':
         return []

@@ -92,6 +92,21 @@ public sealed class AgentOptions
 
     /// <summary>连续多少次工具失败后停止，避免死循环。</summary>
     public int MaxConsecutiveFailures { get; init; } = 4;
+
+    /// <summary>
+    /// 规划提醒（只提醒，不拦截）：做了几步还没列计划时提醒一次；有计划时，连续失败或原地打转就提醒先改计划。
+    /// 由 IT 在安全中心开关（plan_guidance）。
+    /// </summary>
+    public bool PlanGuidance { get; init; } = true;
+
+    /// <summary>没列计划时，做了几次操作后提醒一次。简单任务两三步就完了，不会被打扰。</summary>
+    public int PlanNudgeAfter { get; init; } = 3;
+
+    /// <summary>
+    /// 检查产出文件（存在、不是空的、能打开，以及行数页数），结果附在工具结果后面给模型看；
+    /// 最后回答前再查一遍，有问题在回答末尾注明。由 IT 在安全中心开关（verify_outputs）。
+    /// </summary>
+    public bool VerifyOutputs { get; init; } = true;
 }
 
 public enum AgentStopReason
@@ -125,4 +140,16 @@ public sealed class AgentRunResult
 
     /// <summary>运行中发生的上下文压缩（最后一次）。</summary>
     public Context.CompactionInfo? Compaction { get; init; }
+
+    /// <summary>调用了几次模型、几次工具（统计任务效果用）。</summary>
+    public int Steps { get; init; }
+    public int ToolCalls { get; init; }
+
+    /// <summary>产出文件检查发现的问题（过程中发现过的 + 最后仍然存在的）。</summary>
+    public int OutputProblems { get; init; }
+    public int OutputProblemsAtEnd { get; init; }
+
+    /// <summary>是否提醒过列计划 / 改计划。</summary>
+    public bool PlanNudged { get; init; }
+    public bool ReplanNudged { get; init; }
 }

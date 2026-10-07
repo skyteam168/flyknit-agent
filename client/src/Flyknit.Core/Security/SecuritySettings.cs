@@ -67,6 +67,10 @@ public sealed class SecuritySettings
     public const string LearnEpisodes = "learn_episodes";
     public const string LearnSkills = "learn_skills";
 
+    // 任务质量：规划提醒、产出文件检查。IT 可以先在几台机器上打开，对比效果再全厂推开
+    public const string PlanGuidance = "plan_guidance";
+    public const string VerifyOutputs = "verify_outputs";
+
     private readonly Dictionary<string, SecurityItem> _items;
 
     public SecuritySettings(Dictionary<string, SecurityItem>? items = null)

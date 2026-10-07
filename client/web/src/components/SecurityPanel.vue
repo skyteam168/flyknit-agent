@@ -34,6 +34,7 @@ const groups = [
   { id: 'sandbox', keys: ['sandbox', 'network_allowlist', 'system_tools'] },
   { id: 'data', keys: ['delete_protection', 'auto_backup', 'backup_quota_mb', 'batch_delete_threshold'] },
   { id: 'learning', keys: ['learn_preferences', 'learn_facts', 'learn_experience', 'learn_episodes', 'learn_skills'] },
+  { id: 'quality', keys: ['plan_guidance', 'verify_outputs'] },
 ]
 
 const byKey = computed(() => Object.fromEntries(items.value.map((i) => [i.key, i])))

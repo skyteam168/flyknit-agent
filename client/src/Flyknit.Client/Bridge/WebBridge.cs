@@ -691,6 +691,23 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     medianAgeDays = m.MedianAgeDays,
                     expired = m.Expired,
                     semantic = _host.Memory.Semantic is { Working: true },
+                    runs = _host.Store.RunStats(m.Days) is var r
+                        ? new
+                        {
+                            total = r.Runs,
+                            completed = r.Completed,
+                            paused = r.Paused,
+                            cancelled = r.Cancelled,
+                            errors = r.Errors,
+                            completionRate = r.CompletionRate,
+                            avgSteps = r.AvgSteps,
+                            disliked = r.Disliked,
+                            liked = r.Liked,
+                            outputProblems = r.RunsWithOutputProblems,
+                            outputProblemsAtEnd = r.RunsWithProblemsAtEnd,
+                            planNudges = r.PlanNudges,
+                        }
+                        : null,
                     episodes = total,
                     episodesReused = reused,
                     episodesRecent = recent,

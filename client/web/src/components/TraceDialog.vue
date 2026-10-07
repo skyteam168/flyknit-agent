@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Archive, Brain, Check, Wrench, X } from '@lucide/vue'
+import { AlertTriangle, Archive, Brain, Check, FileCheck, Wrench, X } from '@lucide/vue'
 import { state } from '../store'
 import type { TraceStep } from '../types'
 
@@ -24,6 +24,7 @@ function icon(step: TraceStep) {
   if (step.kind === 'model') return Brain
   if (step.kind === 'compact') return Archive
   if (step.kind === 'tool') return Wrench
+  if (step.kind === 'verify') return step.status === 'warning' ? AlertTriangle : FileCheck
   return Check
 }
 </script>

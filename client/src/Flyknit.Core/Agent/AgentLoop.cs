@@ -24,6 +24,26 @@ public sealed class AgentLoop
     /// <summary>本轮已经报过的产出文件，避免同一个文件反复出现在界面上。</summary>
     private readonly HashSet<string> _outputs = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>本轮工具报告过的全部产出路径（按出现顺序），交付前再检查一遍。</summary>
+    private readonly List<string> _produced = new();
+
+    private const string UpdatePlanName = "update_plan";
+
+    /// <summary>做了几步还没列计划时的提醒。</summary>
+    public static string PlanNudgeText(int actions) => $"""
+
+
+        【系统提醒】这个任务已经做了 {actions} 步，还没有列计划。如果后面还有好几步，先用 update_plan 把剩下的步骤列出来再继续；
+        如果马上就能做完，忽略这条，直接完成。
+        """;
+
+    /// <summary>有计划但卡住了（连续失败、原地打转）时的提醒。</summary>
+    public const string ReplanText = """
+
+
+        【系统提醒】现在的做法不太顺。先回头看看计划：这一步行不通就用 update_plan 改掉它（换个办法、拆小、或者标记需要用户帮忙），再继续执行。
+        """;
+
     public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
@@ -54,6 +74,14 @@ public sealed class AgentLoop
         TokenUsage? usage = null;
         Context.CompactionInfo? compaction = null;
         var guard = new LoopGuard();
+        var steps = 0;
+        var toolCalls = 0;
+        var actions = 0;               // 除了更新计划以外的操作次数
+        var planNudged = false;
+        var replanNudged = false;
+        var replanHintedThisStreak = false;
+        var outputProblems = 0;
+        var outputProblemsAtEnd = 0;
 
         void PlanChanged(IReadOnlyList<PlanItem> plan) => observer.OnPlanUpdated(plan);
         ctx.PlanChanged += PlanChanged;
@@ -124,6 +152,7 @@ public sealed class AgentLoop
                     return Result(AgentStopReason.Failed);
                 }
                 modelName ??= turn.ModelName;
+                steps++;
                 modelStep.PromptTokens = turn.Usage?.PromptTokens ?? 0;
                 modelStep.CompletionTokens = turn.Usage?.CompletionTokens ?? 0;
                 modelStep.Summary = turn.ToolCalls.Count > 0
@@ -137,7 +166,24 @@ public sealed class AgentLoop
                     usage = usage is null ? u : usage + u;
                 }
 
-                var assistant = ChatMessage.Assistant(turn.Content, turn.ToolCalls, turn.Reasoning.Length > 0 ? turn.Reasoning : null);
+                var content = turn.Content;
+                if (turn.ToolCalls.Count == 0 && _options.VerifyOutputs && _produced.Count > 0)
+                {
+                    // 交付前最后查一遍这一轮的产出：确定有问题的（不见了、空的、打不开）在回答末尾注明，
+                    // 不自动返工——过程中每产出一个文件都已经查过一次、模型有机会当场修
+                    using var verifyStep = trace.Begin("verify", "");
+                    var problems = _produced.Where(OutputVerifier.IsDocument).Take(OutputVerifier.MaxFiles * 2)
+                        .Select(OutputVerifier.Check).Where(c => c.Status == OutputCheckStatus.Problem).ToList();
+                    outputProblemsAtEnd = problems.Count;
+                    verifyStep.Summary = problems.Count == 0 ? "产出文件检查通过" : $"{problems.Count} 个产出文件有问题";
+                    if (problems.Count > 0)
+                    {
+                        verifyStep.Status = "warning";
+                        content = content.TrimEnd() + "\n\n> ⚠ 系统检查：" + string.Join("；", problems.Select(p => $"{p.Name} {p.Detail}")) + "。请打开确认一下。";
+                    }
+                }
+
+                var assistant = ChatMessage.Assistant(content, turn.ToolCalls, turn.Reasoning.Length > 0 ? turn.Reasoning : null);
                 assistant.ModelName = turn.ModelName;
                 assistant.PromptTokens = turn.Usage?.PromptTokens;
                 assistant.CompletionTokens = turn.Usage?.CompletionTokens;
@@ -160,14 +206,46 @@ public sealed class AgentLoop
                     }
                     var ok = await HandleCallAsync(call, turn.Content, ctx, observer, trace, ct);
                     failures = ok ? 0 : failures + 1;
+                    toolCalls++;
+                    if (call.Name != UpdatePlanName)
+                    {
+                        actions++;
+                    }
                     if (ToolMessageOf(call) is { } result)
                     {
                         var v = guard.Observe(call, result.Content);
                         if (v == LoopVerdict.Nudge)
                         {
                             result.Content += LoopGuard.NudgeText(call.Name);
+                            if (_options.PlanGuidance && call.Name != UpdatePlanName && TaskPlan.HasOpenSteps(ctx.Plan))
+                            {
+                                result.Content += ReplanText;
+                                replanNudged = true;
+                            }
                         }
                         verdict = (LoopVerdict)Math.Max((int)verdict, (int)v);
+                    }
+                }
+
+                // 规划提醒：只提醒，不拦截，每种情况至多一次，不影响失败计数
+                if (_options.PlanGuidance && newMessages.LastOrDefault(m => m.Role == ChatRole.Tool) is { } lastTool)
+                {
+                    if (!planNudged && ctx.Plan.Count == 0 && actions >= _options.PlanNudgeAfter)
+                    {
+                        // 做了几步还没有计划：多半是个多步任务，提醒一次先把剩下的步骤列出来
+                        lastTool.Content += PlanNudgeText(actions);
+                        planNudged = true;
+                    }
+                    else if (failures == 0)
+                    {
+                        replanHintedThisStreak = false;
+                    }
+                    else if (failures == 2 && !replanHintedThisStreak && TaskPlan.HasOpenSteps(ctx.Plan))
+                    {
+                        // 连着失败两次：先回头看计划还行不行，而不是第三次硬试
+                        lastTool.Content += ReplanText;
+                        replanHintedThisStreak = true;
+                        replanNudged = true;
                     }
                 }
 
@@ -219,6 +297,12 @@ public sealed class AgentLoop
             ModelName = modelName,
             Usage = usage,
             Compaction = compaction,
+            Steps = steps,
+            ToolCalls = toolCalls,
+            OutputProblems = outputProblems,
+            OutputProblemsAtEnd = outputProblemsAtEnd,
+            PlanNudged = planNudged,
+            ReplanNudged = replanNudged,
         };
 
         void Append(ChatMessage m)
@@ -406,6 +490,7 @@ public sealed class AgentLoop
             _audit.Record(audit);
 
             obs.OnToolFinished(call, result, decisionText);
+            var text = result.Output;
             if (result.Outputs.Count > 0)
             {
                 // 同一个文件被改好几次只报一次，按最后一次的状态
@@ -414,8 +499,31 @@ public sealed class AgentLoop
                 {
                     obs.OnOutputsProduced(files);
                 }
+                foreach (var path in result.Outputs.Where(p => !_produced.Contains(p, StringComparer.OrdinalIgnoreCase)))
+                {
+                    _produced.Add(path);
+                }
+                if (_options.VerifyOutputs)
+                {
+                    // 当场检查这一步产出的文件，结果附在工具结果后面：模型看得到行数、页数，发现不对当场就能修。
+                    // 检查不影响这一步算成功还是失败
+                    using var verifyStep = trace.Begin("verify", "");
+                    var checks = result.Outputs.Where(OutputVerifier.IsDocument).Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(OutputVerifier.MaxFiles).Select(OutputVerifier.Check).ToList();
+                    var problems = checks.Count(c => c.Status == OutputCheckStatus.Problem);
+                    outputProblems += problems;
+                    verifyStep.Summary = checks.Count == 0 ? "没有需要检查的文档" : problems == 0 ? $"检查了 {checks.Count} 个文件" : $"{problems} 个文件有问题";
+                    if (problems > 0)
+                    {
+                        verifyStep.Status = "warning";
+                    }
+                    if (OutputVerifier.Describe(checks) is { } note)
+                    {
+                        text += note;
+                    }
+                }
             }
-            AppendTool(call, result.Output);
+            AppendTool(call, text);
             return result.Ok;
         }
     }

@@ -178,6 +178,9 @@ public class SecuritySwitchTests
             SecuritySettings.LearnExperience,
             SecuritySettings.LearnEpisodes,
             SecuritySettings.LearnSkills,
+            // AgentHost 读这两项填 AgentOptions（见 AgentQualityTests）
+            SecuritySettings.PlanGuidance,
+            SecuritySettings.VerifyOutputs,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
