@@ -15,6 +15,10 @@
   --line-strong: #d6d6db;
   --pill: #18181b;          /* 选中的模式胶囊 */
   --pill-ink: #ffffff;
+  /* 主操作按钮（新建、连接、分享…）：亮色用品牌蓝，暗色用浅色胶囊 */
+  --action: #3446c9;
+  --action-ink: #ffffff;
+  --action-hover: #2a3aad;
   --indigo: #3446c9;        /* 品牌色 */
   --indigo-hover: #2a3aad;
   --indigo-wash: #eef0fc;
@@ -66,6 +70,9 @@
   --line-strong: #3a3a43;
   --pill: #ececef;
   --pill-ink: #141418;
+  --action: #ececef;
+  --action-ink: #141418;
+  --action-hover: #ffffff;
   --indigo: #8d9af5;
   --indigo-hover: #a3aef7;
   --indigo-wash: #23264a;

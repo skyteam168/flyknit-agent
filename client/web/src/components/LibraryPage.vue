@@ -662,13 +662,14 @@ h1 {
   height: 36px;
   padding: 0 14px 0 16px;
   border-radius: 18px;
-  background: var(--pill);
-  color: var(--pill-ink);
+  background: var(--action);
+  color: var(--action-ink);
   font-size: var(--t-sm);
   font-weight: 500;
+  transition: background 120ms;
 }
 .new-btn:hover {
-  opacity: 0.9;
+  background: var(--action-hover);
 }
 .pop-title {
   margin: 6px 8px 4px;
