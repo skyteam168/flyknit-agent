@@ -70,11 +70,17 @@ class ModelOut(BaseModel):
 
 # ---------- 路由 ----------
 class RouteIn(BaseModel):
+    # model_ 是 pydantic 的保留前缀；这几个字段名是对的，关掉这条检查，
+    # 免得每次启动刷三条 UserWarning 把真正要紧的告警挤下去
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: int | None
     fallback_model_id: int | None = None
 
 
 class RouteOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     scene: str
     model_id: int | None
     fallback_model_id: int | None
@@ -191,6 +197,8 @@ class AuditOut(BaseModel):
 
 # ---------- 客户端配置 ----------
 class SceneInfo(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     scene: str
     available: bool
     model_name: str = ""
