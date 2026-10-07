@@ -218,23 +218,38 @@ public sealed class PromptBuilder
         return null;
     }
 
-    private static string BuildTranslate(PromptContext ctx)
+    private static string BuildTranslate(PromptContext ctx) => TranslatePrompt(ctx.TranslateFrom, ctx.TranslateTo);
+
+    /// <summary>
+    /// 翻译提示词。翻译模式和划词翻译共用。
+    /// </summary>
+    /// <param name="from">源语言代码，"auto" 表示自动检测。</param>
+    /// <param name="to">目标语言代码。</param>
+    /// <param name="fallback">原文本来就是目标语言时改译成哪种语言。</param>
+    /// <param name="lookup">划词查词：单个词或短语时允许列出几个常见意思。</param>
+    public static string TranslatePrompt(string from, string to, string fallback = "zh-CN", bool lookup = false)
     {
-        var target = Languages.TranslateTargets.TryGetValue(ctx.TranslateTo, out var t) ? t : ctx.TranslateTo;
-        var source = ctx.TranslateFrom == "auto"
+        var target = LanguageName(to);
+        var source = from == "auto"
             ? "auto-detect the source language"
-            : $"the source language is {(Languages.TranslateTargets.TryGetValue(ctx.TranslateFrom, out var s) ? s : ctx.TranslateFrom)}";
+            : $"the source language is {LanguageName(from)}";
+        var lookupRule = lookup
+            ? "\n- If the text is a single word or short term with several distinct common meanings, put the most common translation first, then up to 2 others, one per line."
+            : "";
 
         return $"""
             You are a professional translator working in a manufacturing factory (textile / footwear).
             Translate the user's text into {target}; {source}.
-            If the text is already in {target}, translate it into Simplified Chinese instead.
+            If the text is already in {target}, translate it into {LanguageName(fallback)} instead.
             Rules:
             - Output only the translation. No explanations, no quotes, no notes.
             - Keep the original formatting, line breaks, numbers, units, codes and product names.
-            - Use accurate factory and office terminology; keep a natural, professional tone.
+            - Use accurate factory and office terminology; keep a natural, professional tone.{lookupRule}
             """;
     }
+
+    private static string LanguageName(string code) =>
+        Languages.TranslateTargets.TryGetValue(code, out var name) ? name : code;
 
     /// <summary>生成会话标题的提示词。</summary>
     public static string TitlePrompt(string uiLanguage) => $"""

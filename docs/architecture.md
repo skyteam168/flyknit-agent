@@ -336,9 +336,43 @@ Excel 的空单元格在 XML 里会被省略，按 `A1`/`B1` 的列号补齐，�
 - **拒绝不能用的绑定**：单个字母不带修饰键会把正常打字吃掉；`Ctrl+C`/`Ctrl+V`/`Alt+F4` 这些让给系统。
 - **冲突时指出是谁占了**，而不是只说一句"冲突"。
 - `Enter` 发送、`Shift+Enter` 换行是固定的，改了也不生效——否则用户可能把自己锁在外面。
-- 全局热键只有「唤起 / 隐藏主窗口」一条。全局热键会抢占整个系统的按键，多了会和别的软件打架。
+- 全局热键只有两条：「唤起 / 隐藏主窗口」和「划词翻译」。全局热键会抢占整个系统的按键，多了会和别的软件打架。
   改完由 `MainWindow.RefreshHotkey()` 通知 App 重新注册，不用重启。
 - 录制新按键期间所有快捷键暂停，否则按下的键会被当成命令执行。
+
+## 划词翻译
+
+在任何程序里选中文字，按 `Ctrl+Alt+T`（快捷键表里的 `selection.translate`，可改键、可停用），鼠标旁边弹出译文。
+
+| 部分 | 位置 |
+| --- | --- |
+| 整理文字、猜语言、选目标语言、组请求 | `Flyknit.Core/Translation/SelectionTranslation.cs`（有单测） |
+| 读出选中的文字 | `Flyknit.Client/Services/SelectionCapture.cs` |
+| 浮窗 | `Flyknit.Client/Windows/TranslatePopup.cs` |
+| 热键分派、转到主窗口 | `App.xaml.cs` → 界面事件 `app.translate` |
+
+**取词**分两步：
+
+1. 先问 UI Automation（`TextPattern.GetSelection`）。记事本、Word、Edge / Chrome、大多数 WPF / WinForms 程序都能直接给出选区，**不碰剪贴板**。
+   放在线程池上跑并限时 700ms，个别程序的 UIA 实现会卡住。
+2. 问不到再模拟 `Ctrl+C`：先等用户松开热键的修饰键（否则对方收到的是 `Ctrl+Alt+C`），
+   把剪贴板逐个格式拷一份，发 `Ctrl+C`，看剪贴板序号变了才读，读完放回原内容；
+   这期间用户自己又复制了别的，就不覆盖。
+   **控制台窗口（cmd、PowerShell、Windows Terminal、Git Bash）永不模拟**——那里没选区时 `Ctrl+C` 是中断正在跑的程序。
+
+什么都没读到也照样弹窗，用户可以直接在里面输入或粘贴。
+
+**目标语言**：用户在浮窗里选过就用选过的（`AppSettings.SelectionTranslateTo`），没选过（`auto`）就用界面语言。
+原文猜出来已经是目标语言时换一个：依次试界面语言、中文、越南语，取第一个不同的——
+越南同事划到越南语译成中文，中国同事划到中文译成越南语。语言只按文字系统粗猜（汉字、假名、谚文、泰文、高棉文、
+越南语特有字母），只用来决定要不要换目标；猜不准时提示词里还有一道「已经是目标语言就改译成 X」兜底。
+
+**请求**走 `translate` 场景，用量照常计入「翻译」；关掉思考（弹窗等的是译文，不是思考过程）；
+每次划词一个独立的会话 id（`sel-…`），服务端照常归档。一次最多 4000 字，超出的截断并提示用翻译模式。
+单个词或短语时提示词允许列出两三个常见意思，像查词典。
+
+浮窗：点别处关闭（钉住后不关），`Esc` 关闭，改原文后 `Enter` 重译，换目标语言立即重译并记住。
+「在主窗口继续」把原文和目标语言推给界面（`app.translate`），开一个新的翻译会话。
 
 ## 客户端与 Web 界面的通信
 
@@ -348,7 +382,7 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 { "type": "chat.send", "id": "req-1", "payload": { "conversationId": "...", "text": "..." } }
 ```
 
-宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`、`context.compacting`、`context.compacted`、`files.produced`、`chat.notice`。
+宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`、`context.compacting`、`context.compacted`、`files.produced`、`chat.notice`、`app.translate`。
 
 完整列表见 `client/web/src/bridge.ts` 与 `client/src/Flyknit.Client/Bridge/WebBridge.cs`，两边需保持一致。
 

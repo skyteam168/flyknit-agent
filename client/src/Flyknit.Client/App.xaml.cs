@@ -12,6 +12,7 @@ using System.Windows.Interop;
 using Flyknit.Client.Bridge;
 using Flyknit.Client.Services;
 using Flyknit.Client.Windows;
+using Flyknit.Core.Translation;
 
 namespace Flyknit.Client;
 
@@ -20,6 +21,7 @@ public partial class App : Application
     private const string MutexName = "Local\\Flyknit.Client.SingleInstance";
     private const string PipeName = "Flyknit.Client.Activate";
     private const int HotkeyId = 0xF17;
+    private const int TranslateHotkeyId = 0xF18;
 
     private Mutex? _mutex;
     private AppSettings _settings = new();
@@ -31,6 +33,8 @@ public partial class App : Application
     private NoticeWatcher? _noticeWatcher;
     private InstructionPoller? _instructionPoller;
     private HwndSource? _hotkeySource;
+    private TranslatePopup? _translatePopup;
+    private bool _capturingSelection;
     private CancellationTokenSource _pipeCts = new();
     private int _activeRuns;
     private int _pendingConfirms;
@@ -296,6 +300,7 @@ public partial class App : Application
     {
         _pipeCts.Cancel();
         UnregisterHotkey();
+        _translatePopup?.Close();
         if (_tray is not null)
         {
             _tray.Visible = false;
@@ -314,7 +319,7 @@ public partial class App : Application
         Shutdown();
     }
 
-    // ---------- 全局热键 Ctrl+Alt+Space ----------
+    // ---------- 全局热键：唤起主窗口（Ctrl+Alt+Space）、划词翻译（Ctrl+Alt+T） ----------
 
     private const int WmHotkey = 0x0312;
     private const uint ModAlt = 0x1, ModControl = 0x2, ModShift = 0x4, ModWin = 0x8, ModNoRepeat = 0x4000;
@@ -360,27 +365,45 @@ public partial class App : Application
         _hotkeySource = new HwndSource(parameters);
         _hotkeySource.AddHook((IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) =>
         {
-            if (msg == WmHotkey && wParam.ToInt32() == HotkeyId)
+            if (msg != WmHotkey)
             {
-                _main?.Toggle();
-                handled = true;
+                return IntPtr.Zero;
+            }
+            switch (wParam.ToInt32())
+            {
+                case HotkeyId:
+                    _main?.Toggle();
+                    handled = true;
+                    break;
+                case TranslateHotkeyId:
+                    _ = TranslateSelectionAsync();
+                    handled = true;
+                    break;
             }
             return IntPtr.Zero;
         });
         var resolved = Flyknit.Core.Settings.Shortcuts.Resolve(_settings.Shortcuts);
-        var binding = resolved.TryGetValue("window.toggle", out var configured) ? configured : "Ctrl+Alt+Space";
+        RegisterOne(HotkeyId, "window.toggle", resolved);
+        RegisterOne(TranslateHotkeyId, "selection.translate", resolved);
+    }
+
+    private void RegisterOne(int hotkeyId, string commandId, IReadOnlyDictionary<string, string> resolved)
+    {
+        var binding = resolved.TryGetValue(commandId, out var configured)
+            ? configured
+            : Flyknit.Core.Settings.Shortcuts.Find(commandId)?.Default ?? "";
         if (ParseHotkey(binding) is not { } hk)
         {
-            Log.Info($"全局热键已停用（{binding}）");
+            Log.Info($"全局热键 {commandId} 已停用（{binding}）");
             return;
         }
-        if (!RegisterHotKey(_hotkeySource.Handle, HotkeyId, hk.Modifiers, hk.Key))
+        if (!RegisterHotKey(_hotkeySource!.Handle, hotkeyId, hk.Modifiers, hk.Key))
         {
-            Log.Warn($"注册全局热键 {binding} 失败（可能被其他程序占用）");
+            Log.Warn($"注册全局热键 {commandId} = {binding} 失败（可能被其他程序占用）");
         }
         else
         {
-            Log.Info($"全局热键已注册：{binding}");
+            Log.Info($"全局热键已注册：{commandId} = {binding}");
         }
     }
 
@@ -389,8 +412,72 @@ public partial class App : Application
         if (_hotkeySource is not null)
         {
             UnregisterHotKey(_hotkeySource.Handle, HotkeyId);
+            UnregisterHotKey(_hotkeySource.Handle, TranslateHotkeyId);
             _hotkeySource.Dispose();
         }
+    }
+
+    // ---------- 划词翻译 ----------
+
+    /// <summary>
+    /// 读出前台程序里选中的文字，在鼠标旁边弹出译文。
+    /// 什么都没选中也照样弹出来，用户可以直接在里面输入或粘贴。
+    /// </summary>
+    private async Task TranslateSelectionAsync()
+    {
+        if (_host is null || _capturingSelection)
+        {
+            return; // 上一次还在取词，连按热键不重复弹
+        }
+        _capturingSelection = true;
+        try
+        {
+            var anchor = TranslatePopup.CursorPosition();
+            string raw;
+            try
+            {
+                raw = await SelectionCapture.CaptureAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("划词翻译：读取选中文字失败", ex);
+                raw = "";
+            }
+            var (text, truncated) = SelectionTranslation.Clean(raw);
+
+            // 取完词再关旧的：热键可能就是在旧浮窗里选了字按的
+            _translatePopup?.Close();
+            var popup = new TranslatePopup(_host.Server, _settings, NativeStrings.Language, text, anchor) { Truncated = truncated };
+            popup.ContinueRequested += ContinueTranslation;
+            popup.Closed += (_, _) =>
+            {
+                if (_translatePopup == popup)
+                {
+                    _translatePopup = null;
+                }
+            };
+            _translatePopup = popup;
+            popup.Show();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("划词翻译出错", ex);
+        }
+        finally
+        {
+            _capturingSelection = false;
+        }
+    }
+
+    /// <summary>把这段文字带到主窗口的翻译模式里，开一个正式的会话接着聊。</summary>
+    private void ContinueTranslation(string text, string to)
+    {
+        if (_main is null)
+        {
+            return;
+        }
+        _main.ShowAndFocus();
+        _main.Bridge?.Post(new { type = "app.translate", text, from = "auto", to });
     }
 
     [DllImport("user32.dll", SetLastError = true)]

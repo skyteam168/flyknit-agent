@@ -362,6 +362,7 @@ const zh = {
         'usage_open': '打开用量',
         'window_fullscreen': '进入 / 退出最大化',
         'window_toggle': '唤起 / 隐藏主窗口',
+        'selection_translate': '划词翻译（选中文字后按）',
       },
     },
     audit: {
@@ -982,6 +983,7 @@ const vi: Messages = {
         'usage_open': 'Mở mức dùng',
         'window_fullscreen': 'Phóng to / thu nhỏ',
         'window_toggle': 'Hiện / ẩn cửa sổ chính',
+        'selection_translate': 'Dịch nhanh (chọn chữ rồi nhấn)',
       },
     },
     audit: {
@@ -1607,6 +1609,7 @@ const en: Messages = {
         'usage_open': 'Open usage',
         'window_fullscreen': 'Maximize / restore',
         'window_toggle': 'Show / hide main window',
+        'selection_translate': 'Quick translate (select text, then press)',
       },
     },
     audit: {

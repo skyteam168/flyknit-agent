@@ -135,6 +135,12 @@ public sealed class AppSettings
     /// <summary>安全中心里用户自己改过的项。只存没被 IT 锁住的那几项。</summary>
     public System.Collections.Generic.Dictionary<string, object?> SecurityChoices { get; set; } = new();
 
+    /// <summary>
+    /// 划词翻译的目标语言（翻译语言代码）。"auto" 表示跟界面语言走；
+    /// 用户在弹窗里选过一次就记住它。原文本来就是这种语言时会自动换一个。
+    /// </summary>
+    public string SelectionTranslateTo { get; set; } = "auto";
+
     /// <summary>快捷键改动：命令 id → 按键。只存和默认不一样的，默认值变了也能跟上。</summary>
     public System.Collections.Generic.Dictionary<string, string> Shortcuts { get; set; } = new();
 

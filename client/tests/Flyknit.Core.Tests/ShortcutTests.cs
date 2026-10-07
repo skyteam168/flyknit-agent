@@ -115,10 +115,11 @@ public class ShortcutTests
     }
 
     [Fact]
-    public void OnlyTheWindowToggleIsAGlobalHotkey()
+    public void OnlyTheWindowToggleAndSelectionTranslateAreGlobalHotkeys()
     {
-        // 全局热键会抢占整个系统的按键，多了会和别的软件打架
+        // 全局热键会抢占整个系统的按键，多了会和别的软件打架。
+        // 划词翻译必须是全局的：它就是在别的程序里用的。
         var global = Shortcuts.All.Where(c => c.Global).Select(c => c.Id).ToList();
-        Assert.Equal(new[] { "window.toggle" }, global);
+        Assert.Equal(new[] { "window.toggle", "selection.translate" }, global);
     }
 }

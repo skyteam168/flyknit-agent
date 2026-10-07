@@ -563,6 +563,14 @@ export async function setTranslate(from: string, to: string) {
   await bridge.setTranslate(c.id, from, to).catch(fail)
 }
 
+/** 开一个新的翻译会话，把这段文字发出去（划词翻译转到主窗口时用） */
+export async function translateText(text: string, from: string, to: string) {
+  newConversation('translate')
+  draftMode.translateFrom = from
+  draftMode.translateTo = to
+  await send(text)
+}
+
 // ---------- 发送 ----------
 export async function send(text: string) {
   const body = text.trim()
@@ -947,6 +955,10 @@ function onHostEvent(e: HostEvent) {
       break
     case 'app.focusInput':
       window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+      break
+    case 'app.translate':
+      // 划词翻译浮窗里点了「在主窗口继续」
+      void translateText(e.text, e.from, e.to)
       break
   }
 }
