@@ -101,6 +101,8 @@ public partial class App : Application
 
         // 技能目录变化（安装、卸载、手动拷入）后通知界面刷新
         _host.SkillsChanged += () => Dispatcher.BeginInvoke(() => _main?.Bridge?.Post(new { type = "skills.changed" }));
+        // MCP 连接器状态变了（连上、断开、要登录），只刷新那一张卡片
+        _host.Mcp.Changed += id => Dispatcher.BeginInvoke(() => _main?.Bridge?.Post(new { type = "mcp.changed", id, vendor = _host.Mcp.Get(id) }));
 
         _host.ActiveRunsChanged += count => Dispatcher.BeginInvoke(() =>
         {

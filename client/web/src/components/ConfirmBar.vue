@@ -2,14 +2,18 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle, Check, Hand, HelpCircle, X } from '@lucide/vue'
-import { answerConfirm, current, currentState } from '../store'
+import { answerConfirm, current, currentState, mcpToolLabel } from '../store'
 
 // 停靠在输入框上方的确认条：等待确认的操作始终可见，不会被输入框挡住
 const { t, te } = useI18n()
 
 const waiting = computed(() => Object.values(currentState.value?.tools ?? {}).filter((x) => x.state === 'waiting' && x.confirm))
 const tool = computed(() => waiting.value[0] ?? null)
-const label = computed(() => (tool.value && te(`tool.names.${tool.value.name}`) ? t(`tool.names.${tool.value.name}`) : tool.value?.name ?? ''))
+const label = computed(() =>
+  tool.value && mcpToolLabel(tool.value.name)
+    ? mcpToolLabel(tool.value.name)!
+    : tool.value && te(`tool.names.${tool.value.name}`) ? t(`tool.names.${tool.value.name}`) : tool.value?.name ?? '',
+)
 
 // 高危（删除、改系统）走红色样式，且默认按钮是「仅这一次」，避免顺手点成永久放行
 const effect = computed(() => tool.value?.confirm?.effect ?? 'unknown')

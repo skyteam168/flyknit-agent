@@ -17,6 +17,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Plug,
   Puzzle,
   RotateCcw,
   Search,
@@ -200,6 +201,7 @@ onBeforeUnmount(() => {
 
       <nav class="nav">
         <button type="button" @click="state.skillsOpen = true"><Puzzle :size="17" /> {{ t('ui.nav.skills') }}</button>
+        <button type="button" @click="state.mcpOpen = true"><Plug :size="17" /> {{ t('ui.nav.connectors') }}</button>
         <button type="button" @click="state.memoryOpen = true"><Brain :size="17" /> {{ t('ui.nav.memory') }}</button>
         <button type="button" @click="state.schedulesOpen = true"><CalendarClock :size="17" /> {{ t('ui.nav.schedules') }}</button>
         <button type="button" @click="state.usageOpen = true"><ChartColumn :size="17" /> {{ t('ui.nav.usage') }}</button>

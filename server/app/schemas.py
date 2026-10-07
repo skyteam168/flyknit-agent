@@ -449,3 +449,135 @@ class ClientUpdateOut(BaseModel):
     size: int = 0
     #: 客户端下完自己算一遍，对不上就不装
     sha256: str = ""
+
+
+# ---------- MCP 连接器 ----------
+class McpField(BaseModel):
+    """员工连接时要填的一项，例如 API Key。key 对应配置里的 ${KEY}。"""
+
+    key: str = Field(min_length=1, max_length=41)
+    label: str = ""
+    secret: bool = True
+    required: bool = True
+    placeholder: str = ""
+    help: str = ""
+
+
+class McpVendorIn(BaseModel):
+    id: str = Field(min_length=2, max_length=40)
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=300)
+    detail: str = ""
+    icon: str = ""
+    publisher: str = Field(default="", max_length=100)
+    category: str = Field(default="", max_length=50)
+    homepage: str = Field(default="", max_length=500)
+    transport: Literal["http", "sse", "stdio"] = "http"
+    url: str = Field(default="", max_length=1000)
+    command: str = Field(default="", max_length=500)
+    args: list[str] = []
+    env: dict[str, str] = {}
+    headers: dict[str, str] = {}
+    auth: Literal["none", "fields", "oauth"] = "none"
+    fields: list[McpField] = []
+    #: 管理员统一填的值。更新时不传 = 不改；某一项传空字符串 = 清掉这一项
+    preset: dict[str, str] | None = None
+    oauth: dict[str, str] = {}
+    examples: list[str] = []
+    timeout_ms: int = Field(default=60000, ge=5000, le=600000)
+    sort_order: int = 0
+    enabled: bool = True
+
+
+class McpVendorPatch(BaseModel):
+    enabled: bool | None = None
+    sort_order: int | None = None
+
+
+class McpVendorOut(BaseModel):
+    """后台看到的：预填的值只露掩码。"""
+
+    id: str
+    name: str
+    description: str = ""
+    detail: str = ""
+    icon: str = ""
+    publisher: str = ""
+    category: str = ""
+    homepage: str = ""
+    transport: str = "http"
+    url: str = ""
+    command: str = ""
+    args: list[str] = []
+    env: dict[str, str] = {}
+    headers: dict[str, str] = {}
+    auth: str = "none"
+    fields: list[McpField] = []
+    preset_masked: dict[str, str] = {}
+    oauth: dict[str, str] = {}
+    examples: list[str] = []
+    timeout_ms: int = 60000
+    sort_order: int = 0
+    enabled: bool = True
+    updated_at: datetime
+
+
+class McpClientVendorOut(BaseModel):
+    """员工端看到的：预填的值是明文——员工电脑要拿它去连接，本来就得知道。"""
+
+    id: str
+    name: str
+    description: str = ""
+    detail: str = ""
+    icon: str = ""
+    publisher: str = ""
+    category: str = ""
+    homepage: str = ""
+    transport: str = "http"
+    url: str = ""
+    command: str = ""
+    args: list[str] = []
+    env: dict[str, str] = {}
+    headers: dict[str, str] = {}
+    auth: str = "none"
+    fields: list[McpField] = []
+    preset: dict[str, str] = {}
+    #: 员工还得自己填的项；为空表示点「连接」就能连
+    needs_input: list[str] = []
+    oauth: dict[str, str] = {}
+    examples: list[str] = []
+    timeout_ms: int = 60000
+    updated_at: datetime
+
+
+class McpImportIn(BaseModel):
+    text: str = Field(min_length=1, max_length=50000)
+
+
+class McpDraftOut(BaseModel):
+    id: str
+    name: str
+    transport: str
+    url: str = ""
+    command: str = ""
+    args: list[str] = []
+    env: dict[str, str] = {}
+    headers: dict[str, str] = {}
+    auth: str = "none"
+    fields: list[McpField] = []
+    #: 从配置里挪出来的密钥，前端回填到「管理员预填」里，保存时一起加密
+    preset: dict[str, str] = {}
+    exists: bool = False
+
+
+class McpTestIn(BaseModel):
+    #: 临时填的值（例如管理员自己的 API Key），只用于这次测试，不保存
+    values: dict[str, str] = {}
+
+
+class McpTestOut(BaseModel):
+    ok: bool
+    server_name: str = ""
+    server_version: str = ""
+    tools: list[dict] = []
+    error: str = ""

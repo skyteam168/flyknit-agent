@@ -292,6 +292,56 @@ export interface LibrarySkill {
   updatable: boolean
 }
 
+// ---------- MCP 连接器 ----------
+/** 连接器状态 */
+export type McpStatus = 'disconnected' | 'connecting' | 'authorizing' | 'connected' | 'needsauth' | 'failed'
+
+export interface McpField {
+  key: string
+  label: string
+  secret: boolean
+  required: boolean
+  placeholder: string
+  help: string
+  /** 管理员已经统一填好了，员工不用填 */
+  preset: boolean
+  /** 员工以前填过（密钥不回显） */
+  hasValue: boolean
+  /** 不是密钥的项回显上次填的值 */
+  value: string
+}
+
+export interface McpTool {
+  name: string
+  title: string
+  description: string
+  readOnly: boolean
+}
+
+/** 管理员上架的一个 MCP 连接器，以及它在这台电脑上的状态 */
+export interface McpVendor {
+  id: string
+  name: string
+  description: string
+  detail: string
+  icon: string
+  publisher: string
+  category: string
+  homepage: string
+  transport: string
+  auth: 'none' | 'fields' | 'oauth' | string
+  examples: string[]
+  fields: McpField[]
+  needsInput: string[]
+  status: McpStatus
+  error: string
+  enabled: boolean
+  serverName: string
+  transportUsed: string
+  connectedAt: string | null
+  tools: McpTool[]
+}
+
 /** 安装前的检查结果 */
 export interface SkillInspection {
   ok: boolean
@@ -505,6 +555,7 @@ export type HostEvent =
   | { type: 'app.openConversation'; conversationId: string }
   | { type: 'window.state'; maximized: boolean }
   | { type: 'skills.changed' }
+  | { type: 'mcp.changed'; id: string; vendor: McpVendor | null }
   | { type: 'schedules.changed' }
   | { type: 'chat.error'; conversationId: string; message: string }
   | { type: 'conversation.updated'; conversation: Conversation }

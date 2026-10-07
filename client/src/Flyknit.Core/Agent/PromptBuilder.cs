@@ -64,7 +64,13 @@ public sealed class PromptContext
 
     /// <summary>当前的用户请求，用于挑选相关的记忆和历史任务。</summary>
     public string Query { get; init; } = "";
+
+    /// <summary>已连接的 MCP 连接器（办事模式才用得上）。</summary>
+    public IReadOnlyList<McpPromptInfo> McpServers { get; init; } = Array.Empty<McpPromptInfo>();
 }
+
+/// <summary>提示词里要说的一个已连接的 MCP 服务。</summary>
+public sealed record McpPromptInfo(string Id, string Name, int ToolCount, string Instructions);
 
 public sealed class PromptBuilder
 {
@@ -183,8 +189,44 @@ public sealed class PromptBuilder
             {
                 sb.Append(_skills.BuildPromptSection(ctx.Query));
             }
+            // MCP 连接器单独成段，放在技能后面：两者各说各的，互不改写
+            sb.Append(BuildMcpSection(ctx.McpServers));
         }
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>每个连接器的使用说明最多放这么多字，免得一家厂商的长文档挤掉别的内容。</summary>
+    private const int MaxMcpInstructionChars = 1500;
+
+    /// <summary>已连接的 MCP 服务：工具前缀和对方给的使用说明。</summary>
+    public static string BuildMcpSection(IReadOnlyList<McpPromptInfo> servers)
+    {
+        if (servers.Count == 0)
+        {
+            return "";
+        }
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("<已连接的外部服务>");
+        sb.AppendLine("用户已经连接了下面这些外部服务（MCP）。名字以 mcp__<服务>__ 开头的工具就是它们提供的，操作的是对方系统里的数据。");
+        sb.AppendLine("用户提到这些服务（例如「腾讯文档里的表格」）时，直接用对应的工具，不要让用户自己去复制粘贴；");
+        sb.AppendLine("会改动对方数据的操作，执行前用一句话说明要做什么。");
+        foreach (var server in servers)
+        {
+            sb.AppendLine($"- {server.Name}（工具前缀 {Mcp.McpNames.ServerPrefix(server.Id)}，{server.ToolCount} 个工具）");
+            if (server.Instructions.Length > 0)
+            {
+                var text = server.Instructions.Length > MaxMcpInstructionChars
+                    ? server.Instructions[..MaxMcpInstructionChars] + "…"
+                    : server.Instructions;
+                foreach (var line in text.Split('\n'))
+                {
+                    sb.AppendLine("  " + line.TrimEnd());
+                }
+            }
+        }
+        sb.AppendLine("</已连接的外部服务>");
+        return sb.ToString();
     }
 
     /// <summary>读取工作区的项目说明（FLYKNIT.md / AGENTS.md / CLAUDE.md）。</summary>

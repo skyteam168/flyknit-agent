@@ -23,7 +23,10 @@ import type { Mode } from '../types'
 
 const { t } = useI18n()
 const composer = ref<InstanceType<typeof Composer>>()
-defineExpose({ useSkill: (name: string) => composer.value?.useSkill(name) })
+defineExpose({
+  useSkill: (name: string) => composer.value?.useSkill(name),
+  fill: (text: string) => composer.value?.fill(text),
+})
 
 const modes: { key: Mode; icon: unknown }[] = [
   { key: 'agent', icon: Wrench },

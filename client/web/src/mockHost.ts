@@ -3,7 +3,7 @@
  * 模拟会话存储、流式回复、工具调用与确认流程，便于在没有 Windows 的情况下开发界面。
  */
 import type { HostTransport } from './bridge'
-import type { AttachmentRef, Conversation, HostEvent, Mode, UiMessage } from './types'
+import type { AttachmentRef, Conversation, HostEvent, McpVendor, Mode, UiMessage } from './types'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -33,6 +33,27 @@ const uid = () => Math.random().toString(36).slice(2, 10)
 export function createMockHost(): HostTransport {
   let handler: (data: unknown) => void = () => {}
   const emit = (event: HostEvent) => handler({ kind: 'event', event })
+
+  // ---------- MCP 连接器（模拟管理员上架的几家） ----------
+  const mcpVendor = (id: string, name: string, description: string, extra: Partial<McpVendor> = {}): McpVendor => ({
+    id, name, description, detail: '', icon: '', publisher: '', category: '', homepage: '', transport: 'http', auth: 'none',
+    examples: [], fields: [], needsInput: [], status: 'disconnected', error: '', enabled: false, serverName: '',
+    transportUsed: '', connectedAt: null, tools: [], ...extra,
+  })
+  const mcpVendors: McpVendor[] = [
+    mcpVendor('tencent-docs', '腾讯文档', '创建、编辑和协作腾讯文档。用自然语言管理在线表格、文档和幻灯片，轻松完成内容查询、数据整理和团队协同。', {
+      publisher: '腾讯', category: '文档', auth: 'fields',
+      detail: '连接后，AI 可以：\n\n- 新建在线表格、文档并填入内容\n- 读取、总结你最近编辑的文档\n- 在表格里按条件查找、排序数据',
+      fields: [{ key: 'API_KEY', label: 'API Key', secret: true, required: true, placeholder: '在腾讯文档开放平台获取', help: '腾讯文档 → 设置 → 开放平台 → 创建密钥', preset: false, hasValue: false, value: '' }],
+      needsInput: ['API_KEY'],
+      examples: ['帮我在腾讯文档里新建一个在线表格，包含姓名、部门、入职日期三列，并填入示例数据', '打开我最近编辑的腾讯文档，帮我总结文档的主要内容和关键要点', '在腾讯文档的表格里查找所有【销售额】大于 10 万的记录，按金额从高到低排序', '帮我把这份会议纪要整理成腾讯文档，按议题分段并标注负责人和截止日期'],
+    }),
+    mcpVendor('wecom', '企业微信', '企业微信官方 CLI 套件，覆盖消息、邮件、文档、待办、日程、会议、微盘、通讯录等业务功能。', { publisher: '腾讯', category: '办公', examples: ['给生产部群发一条明天停电检修的通知'] }),
+    mcpVendor('tencent-meeting', '腾讯会议', '通过命令行创建、查询和管理腾讯会议。支持快速发起会议、查看日程安排、管理参会人员。', { publisher: '腾讯', auth: 'oauth', category: '会议' }),
+    mcpVendor('qq-mail', 'QQ邮箱', '收发、搜索和整理 QQ 邮件。用自然语言读取邮件内容、汇总邮件线程、管理文件夹。', { publisher: '腾讯', category: '邮件' }),
+    mcpVendor('feishu', '飞书', '通过命令行管理飞书/Lark 全产品能力：即时通讯、邮箱、日历、云文档、电子表格、多维表格（Base）、任务等。', { publisher: '字节跳动', category: '办公' }),
+    mcpVendor('lexiang', '乐享知识库', '搜索、创建和管理乐享知识库中的文档。支持导入 Markdown、按标签整理内容、追踪团队文档的更新。', { category: '知识库' }),
+  ]
   const conversations = new Map<string, Conversation>()
   const messages = new Map<string, UiMessage[]>()
   const confirmWaiters = new Map<string, (choice: string) => void>()
@@ -736,6 +757,37 @@ export function createMockHost(): HostTransport {
           if (lib) lib.installed = true
         }
         return { ok: true, installed: [name], messages: [`已安装技能 ${name}`], warnings: ['包含 1 个脚本，运行时仍会按权限逐条确认'], skills }
+      }
+      case 'mcp.list':
+        await sleep(200)
+        return mcpVendors
+      case 'mcp.connect': {
+        const v = mcpVendors.find((x) => x.id === p.id)!
+        const filled = Object.values((p.values ?? {}) as Record<string, string>).some((x) => x)
+        if (v.fields.some((f) => f.required && !f.hasValue) && !filled) {
+          return { ok: false, message: '请先填写：API Key', vendor: v }
+        }
+        v.status = v.auth === 'oauth' ? 'authorizing' : 'connecting'
+        emit({ type: 'mcp.changed', id: v.id, vendor: { ...v } })
+        await sleep(v.auth === 'oauth' ? 2500 : 900)
+        for (const f of v.fields) if (filled) f.hasValue = true
+        Object.assign(v, {
+          status: 'connected', enabled: true, error: '', needsInput: [], connectedAt: now(), transportUsed: v.transport,
+          tools: [
+            { name: 'create_sheet', title: '新建在线表格', description: '新建一个在线表格并写入数据', readOnly: false },
+            { name: 'search_docs', title: '搜索文档', description: '按标题和内容搜索文档', readOnly: true },
+            { name: 'read_doc', title: '读取文档', description: '读取文档正文', readOnly: true },
+          ],
+        })
+        return { ok: true, message: '', vendor: { ...v } }
+      }
+      case 'mcp.cancel':
+        return
+      case 'mcp.disconnect': {
+        const v = mcpVendors.find((x) => x.id === p.id)!
+        Object.assign(v, { status: 'disconnected', enabled: false, tools: [], connectedAt: null })
+        if (p.forget) for (const f of v.fields) f.hasValue = false
+        return { ...v }
       }
       case 'skills.library':
         await sleep(500)

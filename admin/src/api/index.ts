@@ -28,6 +28,10 @@ import type {
   SecurityCatalogItem,
   SecurityDefaults,
   Skill,
+  McpDraft,
+  McpTestResult,
+  McpVendor,
+  McpVendorIn,
   SoftwarePackage,
 } from './types'
 
@@ -82,6 +86,16 @@ export const api = {
   updateSkill: (name: string, body: Partial<{ required: boolean; enabled: boolean }>) =>
     patch<Skill>(`/skills/${encodeURIComponent(name)}`, body),
   deleteSkill: (name: string) => del(`/skills/${encodeURIComponent(name)}`),
+
+  // MCP 连接器（和技能库是两套接口）
+  mcpVendors: () => get<McpVendor[]>('/mcp/vendors'),
+  createMcpVendor: (body: McpVendorIn) => post<McpVendor>('/mcp/vendors', body),
+  updateMcpVendor: (id: string, body: McpVendorIn) => put<McpVendor>(`/mcp/vendors/${encodeURIComponent(id)}`, body),
+  patchMcpVendor: (id: string, body: Partial<{ enabled: boolean; sort_order: number }>) =>
+    patch<McpVendor>(`/mcp/vendors/${encodeURIComponent(id)}`, body),
+  deleteMcpVendor: (id: string) => del(`/mcp/vendors/${encodeURIComponent(id)}`),
+  parseMcpConfig: (text: string) => post<McpDraft[]>('/mcp/parse', { text }),
+  testMcpVendor: (id: string, values: Record<string, string>) => post<McpTestResult>(`/mcp/vendors/${encodeURIComponent(id)}/test`, { values }),
 
   // 员工端版本（自动更新）
   releases: () => get<Release[]>('/releases'),

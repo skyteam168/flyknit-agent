@@ -164,6 +164,56 @@ skill-name/
 模型判断相关后调用 `load_skill` 读取正文和文件列表。技能超过 12 个时按与当前任务的相关度只列出前 N 个，
 其余通过 `search_skills` 工具按关键词检索，避免提示词被技能挤满。
 
+## MCP 连接器
+
+照 Claude Code 的 MCP 设计做，但改成**管理员统一上架、员工点一下连接**（相当于 Claude Code 的 managed-mcp 独占模式）：
+员工不能自己加服务器，只能连后台上架的。
+
+| 部分 | 位置 |
+| --- | --- |
+| 厂商表、后台接口、配置导入、服务端试连 | `server/app/models.py` `McpVendor`、`server/app/routers/mcp.py`、`server/app/services/mcp_catalog.py` |
+| 后台页面 | `admin/src/views/Mcp.vue`（配置 → MCP 连接器） |
+| 协议客户端（握手、列工具、调工具、OAuth） | `client/src/Flyknit.Core/Mcp/` |
+| 连接管理、加密存储、注册工具 | `client/src/Flyknit.Client/Services/McpService.cs` |
+| 卡片和详情界面 | `client/web/src/components/ConnectorsDialog.vue`（侧栏「连接器」） |
+
+**配置写法**和 `.mcp.json` 一样：`type`（http / sse / stdio）、`url`、`headers`、`command`、`args`、`env`，
+值里可以写 `${KEY}` / `${KEY:-默认值}`。KEY 是连接器自己定义的「填写项」：管理员统一预填（Fernet 加密存库，
+员工端拿到后用 DPAPI 再加密落盘），或者员工连接时自己填。占位符**只认填写项，不读员工电脑的环境变量**——
+否则写一个 `${OPENAI_API_KEY}` 就能把本机密钥发给第三方。后台「从配置导入」认 `{"mcpServers": …}` 和
+`claude mcp add …` 两种写法，配置里写死的密钥会自动挪成预填项。
+
+**连接方式**：
+- `http`：Streamable HTTP（2025-03-26 起）。每条消息一个 POST，回应是 JSON 或 SSE 流；带 `Mcp-Session-Id` 和 `MCP-Protocol-Version`。
+  对方回 404 / 405 说明还停在旧版，自动改用 SSE 再连一次。
+- `sse`：旧版 HTTP+SSE（2024-11-05）。GET 一条长连接，`endpoint` 事件告诉往哪儿 POST。
+- `stdio`：在员工电脑上起进程，一行一条 JSON。Windows 上 `npx` / `uvx` 这类 `.cmd` 自动经 `cmd /c` 启动；
+  标准错误留最后一段，起不来时告诉用户为什么。
+- 登录：`fields`（填 API Key 之类）或 `oauth`（MCP 2025-06-18 授权规范：受保护资源元数据 → 授权服务器元数据 →
+  动态注册客户端 → 浏览器 PKCE 登录 → 回调到 `127.0.0.1` 随机端口 → 换令牌 → 过期自动刷新）。
+
+**和技能互不影响**：
+
+| | 技能 | MCP 连接器 |
+| --- | --- | --- |
+| 是什么 | 装在本机的说明书和脚本，模型按需 `load_skill` 读 | 在线服务（或本机进程），工具直接出现在工具列表 |
+| 服务端 | `skill_packages` 表、`/admin/skills`、`/client/skills` | `mcp_vendors` 表、`/admin/mcp`、`/client/mcp` |
+| 员工端存储 | `%APPDATA%\Flyknit\skills\` | `%APPDATA%\Flyknit\mcp-connections.json`（密钥、令牌 DPAPI 加密） |
+| 工具名 | `load_skill`、`search_skills` | 一律 `mcp__<连接器>__<工具>`，不会顶掉任何内置工具 |
+| 提示词 | 技能清单 | 单独一段「已连接的外部服务」，含对方给的使用说明（每家最多 1500 字） |
+
+一家连不上只影响它自己的卡片；技能、其他连接器、对话照常。
+
+**确认**：外部服务的工具默认要人确认，和 Claude Code 一样。对方声明 `readOnlyHint` 的直接执行；
+声明 `destructiveHint: false` 的可以选「以后自动执行」（规则按单个工具记）；其余每次都问。
+
+**生命周期**：启动时把上次连着的连回来（后台进行，不挡启动）；每次拉配置（含 IT 改配置的即时推送）对一遍——
+下架、删掉的断开，管理员改了地址或密钥模板的重连。远程连接断了按 1、2、4、8、16 秒退避重连五次；
+本机进程退出不自动拉起。代理设置改了，远程连接换新 HttpClient 重连。
+
+没做的：资源（resources）、提示词（prompts）、采样（sampling）——员工不敲斜杠命令，厂商也基本都包成了工具；
+工具很多时也没有做 Claude Code 那样的按需检索（tool search），连太多家会占提示词，后台上架时注意。
+
 ## 工作区与权限
 
 每个办事任务有自己的工作区（默认 `我的文档\Flyknit`，可在输入框下方添加、切换）和权限模式。
@@ -382,7 +432,7 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 { "type": "chat.send", "id": "req-1", "payload": { "conversationId": "...", "text": "..." } }
 ```
 
-宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`、`context.compacting`、`context.compacted`、`files.produced`、`chat.notice`、`app.translate`。
+宿主推送的事件类型：`chat.delta`、`chat.reasoning`、`tool.started`、`tool.confirm`、`tool.finished`、`plan.updated`、`chat.done`、`chat.error`、`conversation.updated`、`schedules.changed`、`context.compacting`、`context.compacted`、`files.produced`、`chat.notice`、`app.translate`、`mcp.changed`。
 
 完整列表见 `client/web/src/bridge.ts` 与 `client/src/Flyknit.Client/Bridge/WebBridge.cs`，两边需保持一致。
 
