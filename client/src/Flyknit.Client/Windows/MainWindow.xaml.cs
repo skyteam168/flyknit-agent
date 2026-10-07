@@ -28,11 +28,11 @@ public partial class MainWindow : Window, IWindowActions
     public MainWindow(AgentHost host, AppSettings settings)
     {
         InitializeComponent();
-        Web.DefaultBackgroundColor = System.Drawing.Color.FromArgb(0xF4, 0xF6, 0xF9);
         LoadingTitle.Text = NativeStrings.T("loading.title");
         LoadingSubtitle.Text = NativeStrings.T("loading.subtitle");
         _host = host;
         _settings = settings;
+        ApplyBackground(settings.WindowBackground);
         Width = Math.Max(MinWidth, settings.WindowWidth);
         Height = Math.Max(MinHeight, settings.WindowHeight);
         PlaceNearTray();
@@ -77,7 +77,10 @@ public partial class MainWindow : Window, IWindowActions
         try
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            var env = await CoreWebView2Environment.CreateAsync(null, AppPaths.WebViewData);
+            // 关掉 Chromium 的“窗口被遮挡/最小化就丢弃画面”：不然最小化、隐藏再恢复时，
+            // 页面要重新绘制，中间那一下露出的是空白底色（闪白）。界面静止时不重绘，开销可以忽略。
+            var options = new CoreWebView2EnvironmentOptions("--disable-features=CalculateNativeWinOcclusion");
+            var env = await CoreWebView2Environment.CreateAsync(null, AppPaths.WebViewData, options);
             Log.Info($"WebView2 环境就绪，耗时 {watch.ElapsedMilliseconds} ms（运行时 {env.BrowserVersionString}）");
             await Web.EnsureCoreWebView2Async(env);
             Log.Info($"WebView2 控件就绪，累计 {watch.ElapsedMilliseconds} ms");
@@ -248,8 +251,11 @@ public partial class MainWindow : Window, IWindowActions
             // 预加载还没结束时用户就点了悬浮球：直接把窗口移回屏幕内显示
             EndPrewarm(visible: true);
         }
+        var cloaked = false;
         if (!IsVisible)
         {
+            // 先隐身再显示，等 WebView2 把画面贴上来再现身，避免先露出一帧底色
+            cloaked = Cloak(true);
             Show();
         }
         if (!_shownOnce)
@@ -267,6 +273,22 @@ public partial class MainWindow : Window, IWindowActions
         Activate();
         Web.Focus();
         Bridge?.Post(new { type = "app.focusInput" });
+        if (cloaked)
+        {
+            _ = UncloakSoonAsync();
+        }
+    }
+
+    private async Task UncloakSoonAsync()
+    {
+        try
+        {
+            await Task.Delay(60);
+        }
+        finally
+        {
+            Cloak(false);
+        }
     }
 
     /// <summary>
@@ -305,9 +327,93 @@ public partial class MainWindow : Window, IWindowActions
 
     // ---------- IWindowActions ----------
 
-    public void HideMain() => Hide();
+    /// <summary>
+    /// 收起到悬浮球。直接 Hide 时，WebView2 会先停止绘制、窗口后消失，中间有一帧露出底色（闪白）；
+    /// 先用 DWM 把窗口从屏幕上撤下（cloak，不重绘、不动画），再隐藏，就看不到中间状态了。
+    /// </summary>
+    public void HideMain()
+    {
+        if (!IsVisible)
+        {
+            return;
+        }
+        var cloaked = Cloak(true);
+        Hide();
+        if (cloaked)
+        {
+            Cloak(false); // 窗口已经隐藏，取消隐身不会显示任何东西；下次 Show 时按正常流程来
+        }
+    }
 
-    public void MinimizeMain() => WindowState = WindowState.Minimized;
+    /// <summary>最小化同理：隐身后再最小化，不播放会露出底色的缩小动画。</summary>
+    public void MinimizeMain()
+    {
+        var cloaked = Cloak(true);
+        WindowState = WindowState.Minimized;
+        if (cloaked)
+        {
+            Cloak(false);
+        }
+    }
+
+    public void SetBackground(string color)
+    {
+        if (TryParseColor(color, out _))
+        {
+            _settings.WindowBackground = color;
+            ApplyBackground(color);
+        }
+    }
+
+    private void ApplyBackground(string color)
+    {
+        if (!TryParseColor(color, out var c))
+        {
+            return;
+        }
+        Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(c.R, c.G, c.B));
+        Web.DefaultBackgroundColor = c;
+    }
+
+    private static bool TryParseColor(string? color, out System.Drawing.Color result)
+    {
+        result = default;
+        var s = color?.Trim() ?? "";
+        if (s.Length == 4 && s[0] == '#')
+        {
+            s = $"#{s[1]}{s[1]}{s[2]}{s[2]}{s[3]}{s[3]}";
+        }
+        if (s.Length != 7 || s[0] != '#' || !int.TryParse(s[1..], System.Globalization.NumberStyles.HexNumber, null, out var rgb))
+        {
+            return false;
+        }
+        result = System.Drawing.Color.FromArgb(255, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+        return true;
+    }
+
+    private const int DwmwaCloak = 13;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    /// <summary>DWM 隐身：窗口还在，但不参与屏幕合成。失败（老系统、句柄还没创建）就返回 false，按原来的方式处理。</summary>
+    private bool Cloak(bool on)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return false;
+        }
+        var value = on ? 1 : 0;
+        try
+        {
+            return DwmSetWindowAttribute(handle, DwmwaCloak, ref value, sizeof(int)) == 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
 
     public bool IsMaximized => WindowState == WindowState.Maximized;
 

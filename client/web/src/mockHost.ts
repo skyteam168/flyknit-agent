@@ -679,6 +679,8 @@ export function createMockHost(): HostTransport {
       case 'window.toggleMaximize':
         maximized = !maximized
         return maximized
+      case 'window.setBackground':
+        return
       case 'settings.setMaxSteps':
         return p.value
       case 'memory.list':
