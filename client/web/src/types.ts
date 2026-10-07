@@ -124,6 +124,25 @@ export interface MemoryMetrics {
   expired: number
   /** 语义检索最近一次是否可用（服务端配了向量模型） */
   semantic: boolean
+  /** 办事任务的效果（最近 days 天） */
+  runs: RunStats | null
+}
+
+export interface RunStats {
+  total: number
+  completed: number
+  /** 步数用完、连续失败、原地打转被暂停的 */
+  paused: number
+  cancelled: number
+  errors: number
+  completionRate: number
+  avgSteps: number
+  disliked: number
+  liked: number
+  /** 过程中产出文件检查发现过问题的任务数 / 交付时仍有问题的 */
+  outputProblems: number
+  outputProblemsAtEnd: number
+  planNudges: number
 }
 
 export interface MemoryOverview {

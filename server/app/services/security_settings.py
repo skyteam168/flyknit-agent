@@ -132,6 +132,17 @@ SETTINGS: tuple[Setting, ...] = (
         title="自动沉淀技能",
         risk="关闭后同类任务做成多次也不会自动总结成技能。",
     ),
+    # ---- 任务质量：只提醒、不拦截，出错时自动退回原来的做法。默认开；想先小范围试，可以全厂关、单台机器开 ----
+    Setting(
+        key="plan_guidance", kind="bool", default=True, locked=True,
+        title="规划提醒",
+        risk="关闭后 AI 做多步任务时不再被提醒先列计划，卡住时也不提醒先调整计划。",
+    ),
+    Setting(
+        key="verify_outputs", kind="bool", default=True, locked=True,
+        title="检查产出文件",
+        risk="关闭后 AI 生成的文件不再自动检查（是否存在、能否打开、行数页数），文件没保存成功或打不开时可能发现不了。",
+    ),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

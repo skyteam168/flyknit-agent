@@ -32,8 +32,17 @@ public sealed class LoopGuard
     public int PollNudgeAt { get; init; } = 4;
     public int PollStopAt { get; init; } = 8;
 
-    /// <summary>不参与检测的工具（更新计划这类本来就会反复调用、也不贵）。</summary>
+    /// <summary>
+    /// 不参与上面那套检测的工具（更新计划本来就会反复调用：每做完一步更新一次）。
+    /// 但“只更新计划、不干活”另算：中间没有任何别的操作、连着更新计划 <see cref="PlanOnlyNudgeAt"/> 次提醒，
+    /// <see cref="PlanOnlyStopAt"/> 次停下。
+    /// </summary>
     public static readonly HashSet<string> Exempt = new(StringComparer.Ordinal) { "update_plan" };
+
+    public int PlanOnlyNudgeAt { get; init; } = 3;
+    public int PlanOnlyStopAt { get; init; } = 5;
+
+    private int _planOnly;
 
     private readonly LinkedList<(string Call, string Result)> _recent = new();
     private readonly HashSet<string> _nudged = new(StringComparer.Ordinal);
@@ -48,8 +57,20 @@ public sealed class LoopGuard
     {
         if (Exempt.Contains(call.Name))
         {
-            return LoopVerdict.Ok;
+            _planOnly++;
+            if (_planOnly < PlanOnlyNudgeAt)
+            {
+                return LoopVerdict.Ok;
+            }
+            LastTool = call.Name;
+            if (_planOnly == PlanOnlyNudgeAt)
+            {
+                Nudges++;
+                return LoopVerdict.Nudge;
+            }
+            return _planOnly >= PlanOnlyStopAt ? LoopVerdict.Stop : LoopVerdict.Ok;
         }
+        _planOnly = 0;
         var signature = Signature(call);
         var resultHash = Hash(result);
         _recent.AddLast((signature, resultHash));
@@ -77,13 +98,20 @@ public sealed class LoopGuard
     }
 
     /// <summary>附在工具结果后面给模型看的提醒。</summary>
-    public static string NudgeText(string tool) => $"""
+    public static string NudgeText(string tool) => Exempt.Contains(tool) ? PlanOnlyText : $"""
 
 
         【系统提醒】你已经多次用相同的参数调用 {tool}，结果没有新进展。不要再原样重复：
         - 如果是在等某件事完成（文件出现、画面变化、服务启动），改用一条命令在里面循环等待并设超时（例如 PowerShell 的 while + Start-Sleep），一次拿到结果；
         - 如果这个办法行不通，换一种办法；
         - 如果缺少信息或权限，直接停下来向用户说明卡在哪里、需要什么。
+        """;
+
+    public const string PlanOnlyText = """
+
+
+        【系统提醒】计划已经更新好几次了，中间没有做任何实际操作。计划已经够用，直接开始执行下一步；
+        如果是不知道怎么做下去，停下来告诉用户卡在哪里。
         """;
 
     /// <summary>每隔一段步数附上的自查提醒。</summary>

@@ -180,6 +180,10 @@ const close = () => (state.memoryOpen = false)
           <dt>{{ t('ui.memory.metrics.fresh') }}</dt>
           <dd>{{ metrics.fresh30 }}/{{ metrics.active }}<small>{{ metrics.expired ? t('ui.memory.metrics.expired', { n: metrics.expired }) : t('ui.memory.metrics.stale', { n: metrics.stale }) }}</small></dd>
         </div>
+        <div v-if="metrics.runs?.total" :title="t('ui.memory.metrics.runsHint', { ...metrics.runs, days: metrics.days })">
+          <dt>{{ t('ui.memory.metrics.runs') }}</dt>
+          <dd>{{ pct(metrics.runs.completionRate) }}<small>{{ t('ui.memory.metrics.runsValue', { n: metrics.runs.total, steps: metrics.runs.avgSteps }) }}</small></dd>
+        </div>
         <div :title="t('ui.memory.metrics.reuseHint', { recent: metrics.episodesRecent, active: metrics.skillsActive, candidate: metrics.skillsCandidate, retired: metrics.skillsRetired })">
           <dt>{{ t('ui.memory.metrics.reuse') }}</dt>
           <dd>{{ metrics.episodesReused }}/{{ metrics.episodes }}</dd>
@@ -514,7 +518,7 @@ h2 {
 }
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 8px;
   margin: 0 0 12px;
 }
@@ -542,11 +546,6 @@ h2 {
   margin-left: 6px;
   color: var(--ink-faint);
   font-weight: 400;
-}
-@media (max-width: 560px) {
-  .metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 .status {
   flex: none;

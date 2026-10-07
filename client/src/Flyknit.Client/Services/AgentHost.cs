@@ -588,7 +588,7 @@ public sealed class AgentHost : IDisposable
                 }
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, new AgentOptions { MaxSteps = _settings.ResolveAgentMaxSteps() }, Approvals);
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId, context);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
             var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
@@ -622,6 +622,10 @@ public sealed class AgentHost : IDisposable
                     Log.Warn("记录记忆使用情况失败", ex);
                 }
                 RecordSkillRun(id, answer.Id, result.NewMessages, result.StopReason == AgentStopReason.Completed);
+                if (conv.Mode == ConversationMode.Agent)
+                {
+                    RecordRunStats(id, answer.Id, result);
+                }
             }
             if (context is { ContextLength: > 0 })
             {
@@ -693,6 +697,31 @@ public sealed class AgentHost : IDisposable
         {
             Log.Warn("语义检索失败", ex);
             return null;
+        }
+    }
+
+    /// <summary>Agent 循环的设置：步数上限来自本机设置，规划提醒、产出检查由 IT 在安全中心开关（没下发时默认开）。</summary>
+    private AgentOptions AgentOptionsFor() => new()
+    {
+        MaxSteps = _settings.ResolveAgentMaxSteps(),
+        PlanGuidance = Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
+        VerifyOutputs = Security.On(Flyknit.Core.Security.SecuritySettings.VerifyOutputs),
+    };
+
+    /// <summary>记一轮任务的效果（只有数字），记忆面板里的“任务效果”据此统计，用来对比规划提醒、产出检查开关前后。</summary>
+    private void RecordRunStats(string conversationId, string messageId, AgentRunResult result)
+    {
+        try
+        {
+            Store.AddRunStats(new RunStatsRecord(messageId, conversationId, result.StopReason.ToString(), result.Steps, result.ToolCalls,
+                result.OutputProblems, result.OutputProblemsAtEnd,
+                Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
+                Security.On(Flyknit.Core.Security.SecuritySettings.VerifyOutputs),
+                result.PlanNudged));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("记录任务效果失败", ex);
         }
     }
 
@@ -1019,12 +1048,13 @@ public sealed class AgentHost : IDisposable
                 Security = Security,
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, new AgentOptions { MaxSteps = _settings.ResolveAgentMaxSteps() }, Approvals);
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
             var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
             Store.AddMessages(conv.Id, result.NewMessages);
             if (result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant) is { } done)
             {
                 RecordSkillRun(conv.Id, done.Id, result.NewMessages, result.StopReason == AgentStopReason.Completed);
+                RecordRunStats(conv.Id, done.Id, result);
             }
             if (context.ContextLength > 0)
             {

@@ -62,6 +62,17 @@ public sealed class SecurityEvent
 }
 
 /// <summary>会话与消息的本地存储（SQLite）。删除为软删除，回收站保留 30 天。</summary>
+/// <summary>一轮办事任务的结果（只有数字）。</summary>
+public sealed record RunStatsRecord(string MessageId, string ConversationId, string StopReason, int Steps, int ToolCalls,
+    int OutputProblems, int OutputProblemsAtEnd, bool PlanGuidance, bool VerifyOutputs, bool PlanNudged, DateTimeOffset? At = null);
+
+/// <summary>任务效果统计，见 <see cref="ConversationStore.RunStats"/>。</summary>
+public sealed record RunStatsSummary(int Days, int Runs, int Completed, int Paused, int Cancelled, int Errors, double AvgSteps,
+    int Disliked, int Liked, int RunsWithOutputProblems, int RunsWithProblemsAtEnd, int PlanNudges)
+{
+    public double CompletionRate => Runs == 0 ? 0 : Math.Round((double)Completed / Runs, 2);
+}
+
 public sealed class ConversationStore
 {
     public static readonly TimeSpan TrashRetention = TimeSpan.FromDays(30);
@@ -161,6 +172,80 @@ public sealed class ConversationStore
 
         // v0.6：定时任务
         Scheduling.ScheduledTaskStore.Migrate(c);
+
+        // v0.7：每轮任务的结果（任务效果统计：完成率、步数、产出文件问题，打开/关闭规划提醒和产出检查前后对比用）
+        using var runs = c.CreateCommand();
+        runs.CommandText = """
+            CREATE TABLE IF NOT EXISTS run_stats (
+                message_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                stop_reason TEXT NOT NULL,
+                steps INTEGER NOT NULL,
+                tool_calls INTEGER NOT NULL,
+                output_problems INTEGER NOT NULL DEFAULT 0,
+                output_problems_at_end INTEGER NOT NULL DEFAULT 0,
+                plan_guidance INTEGER NOT NULL DEFAULT 0,
+                verify_outputs INTEGER NOT NULL DEFAULT 0,
+                plan_nudged INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_run_stats_created ON run_stats(created_at);
+            """;
+        runs.ExecuteNonQuery();
+    }
+
+    /// <summary>记一轮办事任务的结果。只记数字，不记内容。</summary>
+    public void AddRunStats(RunStatsRecord r)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR REPLACE INTO run_stats(message_id, conversation_id, stop_reason, steps, tool_calls, output_problems,
+                output_problems_at_end, plan_guidance, verify_outputs, plan_nudged, created_at)
+            VALUES ($m, $c, $r, $s, $t, $p, $pe, $pg, $vo, $pn, $at)
+            """;
+        cmd.Parameters.AddWithValue("$m", r.MessageId);
+        cmd.Parameters.AddWithValue("$c", r.ConversationId);
+        cmd.Parameters.AddWithValue("$r", r.StopReason);
+        cmd.Parameters.AddWithValue("$s", r.Steps);
+        cmd.Parameters.AddWithValue("$t", r.ToolCalls);
+        cmd.Parameters.AddWithValue("$p", r.OutputProblems);
+        cmd.Parameters.AddWithValue("$pe", r.OutputProblemsAtEnd);
+        cmd.Parameters.AddWithValue("$pg", r.PlanGuidance ? 1 : 0);
+        cmd.Parameters.AddWithValue("$vo", r.VerifyOutputs ? 1 : 0);
+        cmd.Parameters.AddWithValue("$pn", r.PlanNudged ? 1 : 0);
+        cmd.Parameters.AddWithValue("$at", (r.At ?? DateTimeOffset.Now).ToString("O"));
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// 最近 <paramref name="days"/> 天办事任务的效果：完成、被暂停（步数用完、连续失败、空转）、被用户停止的次数，
+    /// 平均步数，被点踩的次数，产出文件检查发现的问题。
+    /// </summary>
+    public RunStatsSummary RunStats(int days = 30)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*),
+                   COALESCE(SUM(CASE WHEN r.stop_reason = 'Completed' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN r.stop_reason IN ('MaxSteps', 'TooManyFailures', 'Stuck') THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN r.stop_reason = 'Cancelled' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN r.stop_reason = 'Failed' THEN 1 ELSE 0 END), 0),
+                   COALESCE(AVG(r.steps), 0),
+                   COALESCE(SUM(CASE WHEN m.feedback < 0 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN m.feedback > 0 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN r.output_problems > 0 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN r.output_problems_at_end > 0 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(r.plan_nudged), 0)
+            FROM run_stats r LEFT JOIN messages m ON m.id = r.message_id
+            WHERE r.created_at >= $since
+            """;
+        cmd.Parameters.AddWithValue("$since", DateTimeOffset.Now.AddDays(-days).ToString("O"));
+        using var x = cmd.ExecuteReader();
+        x.Read();
+        return new RunStatsSummary(days, x.GetInt32(0), x.GetInt32(1), x.GetInt32(2), x.GetInt32(3), x.GetInt32(4),
+            Math.Round(x.GetDouble(5), 1), x.GetInt32(6), x.GetInt32(7), x.GetInt32(8), x.GetInt32(9), x.GetInt32(10));
     }
 
     private static void AddColumn(SqliteConnection c, string table, string column, string definition)

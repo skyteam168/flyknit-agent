@@ -99,4 +99,7 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "learn_experience",
         "learn_episodes",
         "learn_skills",
+        # 客户端读这两项决定 Agent 循环里的规划提醒、产出检查
+        "plan_guidance",
+        "verify_outputs",
     }
