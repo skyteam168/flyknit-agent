@@ -3,7 +3,7 @@
  * 模拟会话存储、流式回复、工具调用与确认流程，便于在没有 Windows 的情况下开发界面。
  */
 import type { HostTransport } from './bridge'
-import type { AttachmentRef, Conversation, HostEvent, McpVendor, Mode, UiMessage } from './types'
+import type { AttachmentRef, Conversation, HostEvent, McpVendor, MemoryItem, Mode, UiMessage } from './types'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -117,12 +117,13 @@ export function createMockHost(): HostTransport {
   const libTrash: MockLib[] = []
   const memory = {
     items: [
-      { id: 'm1', kind: 'preference', text: '报表默认保存到 D:\\报表，文件名带日期', date: '2026-09-28', lastSeen: '2026-10-05', proofCount: 3, history: ['报表保存到桌面'] },
+      { id: 'm1', kind: 'preference', text: '报表默认保存到 D:\\报表，文件名带日期', date: '2026-09-28', lastSeen: '2026-10-05', proofCount: 3, history: ['报表保存到桌面'], slot: 'save_folder', slotLabel: '文件默认保存位置' },
       { id: 'm2', kind: 'preference', text: '给越南同事的通知用中越双语', date: '2026-10-02' },
       { id: 'm3', kind: 'fact', text: '日报放在 D:\\日报，按月份分文件夹', date: '2026-10-05' },
+      { id: 'm6', kind: 'fact', text: 'ERP 测试环境地址是 http://10.2.0.15:8080', date: '2026-05-10', lastSeen: '2026-06-01', validUntil: '2026-08-30', expired: true },
       { id: 'm4', kind: 'success', text: '质检周报先按车间汇总再画折线图，阅读最清楚', date: '2026-10-01' },
       { id: 'm5', kind: 'lesson', text: '.xls 旧格式要先另存为 .xlsx 再读取，否则会乱码', date: '2026-09-30' },
-    ],
+    ] as MemoryItem[],
     episodes: [
       {
         id: 'e1', conversationId: '', title: '生成质检周报', task: '根据 9 月质检数据生成周报', summary: '读取 D:\\质检\\9月.xlsx，按车间汇总不良率，生成 Excel 周报并保存到 D:\\报表',
@@ -808,6 +809,14 @@ export function createMockHost(): HostTransport {
       case 'memory.delete':
         memory.items = memory.items.filter((i) => i.id !== p.id)
         return
+      case 'memory.renew': {
+        const item = memory.items.find((i) => i.id === p.id) as { expired?: boolean; validUntil?: string } | undefined
+        if (item) {
+          item.expired = false
+          item.validUntil = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10)
+        }
+        return !!item
+      }
       case 'memory.add':
         if (memory.items.some((i) => i.text === p.text)) return { outcome: 'reinforced', reason: null }
         memory.items.push({ id: uid(), kind: p.kind, text: p.text, date: now().slice(0, 10), proofCount: 1, lastSeen: now().slice(0, 10), history: [] })
@@ -833,6 +842,7 @@ export function createMockHost(): HostTransport {
           fresh30: 4, fresh90: 1, stale: 1, medianAgeDays: 21,
           episodes: memory.episodes.length, episodesReused: 1, episodesRecent: 2,
           skillsActive: 1, skillsCandidate: 1, skillsRetired: 1,
+          expired: memory.items.filter((i) => (i as { expired?: boolean }).expired).length, semantic: true,
         }
       case 'conversations.plan':
         return []

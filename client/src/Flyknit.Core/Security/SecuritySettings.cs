@@ -60,6 +60,13 @@ public sealed class SecuritySettings
     public const string Notifications = "notifications";
     public const string NotificationSound = "notification_sound";
 
+    // 学习策略：IT 可以按类别关掉 AI 的自动学习（只管 AI 自己记，不管用户在记忆面板里亲手加的）
+    public const string LearnPreferences = "learn_preferences";
+    public const string LearnFacts = "learn_facts";
+    public const string LearnExperience = "learn_experience";
+    public const string LearnEpisodes = "learn_episodes";
+    public const string LearnSkills = "learn_skills";
+
     private readonly Dictionary<string, SecurityItem> _items;
 
     public SecuritySettings(Dictionary<string, SecurityItem>? items = null)

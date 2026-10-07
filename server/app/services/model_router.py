@@ -125,6 +125,11 @@ def build_body(body: dict, target: Target) -> dict:
     return out
 
 
+def embeddings_url(target: Target) -> str:
+    """同一个服务的 /embeddings 地址（Target.url 是 /chat/completions）。"""
+    return target.url.removesuffix("/chat/completions") + "/embeddings"
+
+
 def headers_for(target: Target) -> dict:
     h = {"Content-Type": "application/json"}
     if target.api_key:

@@ -26,7 +26,7 @@ DEFAULT_QUOTA = {
 }
 
 # 统计里展示的场景（title 场景只是生成标题，并入对话）
-SCENES = ("agent", "chat", "translate", "vision", "title", "asr")
+SCENES = ("agent", "chat", "translate", "vision", "title", "asr", "embedding")
 
 
 def today(tz_offset_hours: int = 8) -> str:

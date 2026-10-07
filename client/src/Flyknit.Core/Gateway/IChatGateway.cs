@@ -67,6 +67,17 @@ public interface IChatGateway
     Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct);
 }
 
+/// <summary>一次向量化的结果：用的哪个模型、每段文字的向量（顺序和输入一致）。</summary>
+public sealed record EmbeddingResult(string Model, IReadOnlyList<float[]> Vectors);
+
+/// <summary>
+/// 文字转向量（服务端的 embedding 场景）。语义检索用；服务端没配向量模型时返回 503，调用方按“不可用”处理，退回字面匹配。
+/// </summary>
+public interface IEmbeddingGateway
+{
+    Task<EmbeddingResult> EmbedAsync(IReadOnlyList<string> texts, CancellationToken ct);
+}
+
 public sealed class GatewayException : Exception
 {
     public int? StatusCode { get; }

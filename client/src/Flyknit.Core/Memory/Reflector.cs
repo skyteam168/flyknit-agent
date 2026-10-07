@@ -70,6 +70,12 @@ public sealed record MemoryProposal(string Text, string? Same = null, string? Re
     /// <summary>用户要求以后一直这样做（“以后都…”“一直…”“记住…”）。</summary>
     public bool Pinned { get; init; }
 
+    /// <summary>偏好槽位（<see cref="MemorySlots"/>），同一槽位新值取代旧值。</summary>
+    public string? Slot { get; init; }
+
+    /// <summary>容易变的信息过多少天要重新确认；长期不变的为空。</summary>
+    public int? ValidDays { get; init; }
+
     public static implicit operator MemoryProposal(string text) => new(text);
     public override string ToString() => Text;
 }
@@ -142,6 +148,31 @@ public static class MemoryGate
     }
 }
 
+/// <summary>
+/// 公司策略允许 AI 自动学习哪些类别（安全中心里 IT 配置的 learn_* 几项）。
+/// 只管 AI 自己学到的；用户在记忆面板里亲手加的不受影响。服务端没下发时全部允许。
+/// </summary>
+public sealed record LearningPolicy(bool Preferences = true, bool Facts = true, bool Experience = true, bool Episodes = true, bool Skills = true)
+{
+    public static readonly LearningPolicy All = new();
+
+    public bool Allows(MemoryKind kind) => kind switch
+    {
+        MemoryKind.Preference => Preferences,
+        MemoryKind.Fact => Facts,
+        _ => Experience,
+    };
+
+    /// <summary>什么都不让学：复盘可以整个跳过，省一次模型调用。</summary>
+    public bool Nothing => !(Preferences || Facts || Experience || Episodes || Skills);
+
+    public static LearningPolicy From(Security.SecuritySettings? s) => s is null
+        ? All
+        : new(s.On(Security.SecuritySettings.LearnPreferences), s.On(Security.SecuritySettings.LearnFacts),
+            s.On(Security.SecuritySettings.LearnExperience), s.On(Security.SecuritySettings.LearnEpisodes),
+            s.On(Security.SecuritySettings.LearnSkills));
+}
+
 public sealed class LearnedSkill
 {
     public string Name { get; set; } = "";
@@ -192,6 +223,9 @@ public sealed class Reflector
 
     /// <summary>同类任务成功几次后沉淀为技能。</summary>
     public int SkillThreshold { get; init; } = 2;
+
+    /// <summary>公司策略允许学习的类别，不允许的类别复盘出来也不写。</summary>
+    public LearningPolicy Policy { get; init; } = LearningPolicy.All;
 
     public Reflector(IChatGateway gateway, MemoryStore memory, EpisodeStore episodes, string? learnedSkillsDir)
     {
@@ -291,6 +325,12 @@ public sealed class Reflector
         {
             foreach (var p in items.Where(p => !string.IsNullOrWhiteSpace(p.Text)).Take(5))
             {
+                if (!Policy.Allows(kind))
+                {
+                    const string Off = "公司策略关闭了这一类学习";
+                    report.Filtered[Off] = report.Filtered.GetValueOrDefault(Off) + 1;
+                    continue;
+                }
                 // 先过写入门槛
                 var verdict = MemoryGate.Check(kind, p, userText, r.WorthSaving);
                 if (!verdict.Accept)
@@ -306,7 +346,7 @@ public sealed class Reflector
                     continue;
                 }
                 var result = _memory.Save(kind, p.Text, "reflect", input.ConversationId, Resolve(p.Replaces),
-                    verdict.Origin, p.Evidence, p.Confidence, verdict.Pinned);
+                    verdict.Origin, p.Evidence, p.Confidence, verdict.Pinned, p.Slot, p.ValidDays);
                 switch (result.Outcome)
                 {
                     case MemoryWriteOutcome.Added:
@@ -335,8 +375,9 @@ public sealed class Reflector
         Add(MemoryKind.Lesson, r.Lessons);
 
         // 历史任务里的教训只存记忆 ID：正文只在记忆库里有一份，删除、合并时跟着变
+        // 公司策略关了历史任务：不记，技能也就没有“同类成功几次”可数，不会沉淀
         Episode? episode = null;
-        if (r.WorthSaving && r.Title.Length > 0)
+        if (r.WorthSaving && r.Title.Length > 0 && Policy.Episodes)
         {
             episode = new Episode
             {
@@ -359,7 +400,7 @@ public sealed class Reflector
             // 先统计以前的同类成功，再保存本次
             var previous = _episodes.CountSimilarSuccesses(episode.Title, episode.Task);
             _episodes.Add(episode);
-            if (r.Skill is { } skill && !cancelled && episode.Outcome == "success" && input.Feedback >= 0 && previous + 1 >= SkillThreshold)
+            if (r.Skill is { } skill && Policy.Skills && !cancelled && episode.Outcome == "success" && input.Feedback >= 0 && previous + 1 >= SkillThreshold)
             {
                 report.SkillName = SaveSkill(skill);
             }
@@ -496,6 +537,10 @@ public sealed class Reflector
                     Confidence = x.TryGetProperty("confidence", out var cf) && cf.ValueKind == JsonValueKind.Number ? Math.Clamp(cf.GetDouble(), 0, 1) : null,
                     Durable = !(x.TryGetProperty("durable", out var du) && du.ValueKind == JsonValueKind.False),
                     Pinned = x.TryGetProperty("pinned", out var pn) && pn.ValueKind == JsonValueKind.True,
+                    Slot = MemorySlots.Normalize(Str(x, "slot")),
+                    ValidDays = x.TryGetProperty("valid_days", out var vd) && vd.ValueKind == JsonValueKind.Number && vd.TryGetInt32(out var days) && days > 0
+                        ? Math.Min(days, 3650)
+                        : null,
                 });
             }
         }
@@ -524,6 +569,9 @@ public sealed class Reflector
           //  "confidence": 0.0-1.0,       // 你有多大把握这条以后仍然正确、有用
           //  "durable": true,             // 长期有效为 true；一次性的数值、临时路径、这次的数据结论为 false
           //  "pinned": false,             // 只有用户明确说“以后都/一直/每次都/记住”这样做时为 true
+          //  "slot": null,                // 仅偏好：属于这几类之一时填上，同一类只留最新的一条——
+          //                               // reply_language 回答用的语言 / save_folder 文件默认保存位置 / file_format 报表和文档的默认格式 / file_naming 文件命名规则 / tone 称呼与语气
+          //  "valid_days": null,          // 容易变的信息（系统地址、软件版本、负责人、临时规定）过多少天要重新确认，如 90；长期不变的不填
           //  "same": "m1" 或 "replaces": "m2"   // 可选：和【已有的相关记忆】是同一件事 / 取代它（用户改了主意、信息变了）
           // }
           "skill": null                  // 仅当这是会反复出现的标准流程且已成功时，给出 {"name":"英文短横线名称","description":"什么时候用","body":"Markdown 步骤说明"}

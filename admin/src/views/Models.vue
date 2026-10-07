@@ -35,12 +35,15 @@ const SCENE_HINTS: Record<string, string> = {
   title: '给会话起标题，用便宜快速的模型即可',
   vision: '带图片的请求，需要模型支持识图',
   asr: '语音转文字。详细参数在「语音转文字」页配置',
+  embedding: '把文字转成向量，员工端按意思检索记忆（如问“发邮件”也能想起“Outlook 账户”）。选向量模型，如 text-embedding-v4；不配置就只按字面匹配',
 }
+/** 这些场景的模型之间不能互相顶替：语音模型参数各不相同，两个向量模型算出的向量没法比 */
+const NO_FALLBACK = new Set(['asr', 'embedding'])
 const savingScene = ref('')
 async function saveRoute(r: RouteRule) {
   savingScene.value = r.scene
   try {
-    await api.setRoute(r.scene, r.model_id, r.scene === 'asr' ? null : r.fallback_model_id)
+    await api.setRoute(r.scene, r.model_id, NO_FALLBACK.has(r.scene) ? null : r.fallback_model_id)
     ElMessage.success(`「${sceneLabel(r.scene)}」已保存，员工端下次拉取配置（最长 10 分钟）后生效`)
   } finally {
     savingScene.value = ''
@@ -204,6 +207,7 @@ async function syncModels(p: Provider) {
             <el-table-column label="备用模型" min-width="220">
               <template #default="{ row }">
                 <span v-if="row.scene === 'asr'" class="muted">语音模型不通用，没有备用</span>
+                <span v-else-if="row.scene === 'embedding'" class="muted">换模型后向量要重算，不设备用</span>
                 <el-select v-else v-model="row.fallback_model_id" placeholder="不设置" clearable filterable style="width: 100%">
                   <el-option v-for="o in modelOptions" :key="o.value" v-bind="o" />
                 </el-select>

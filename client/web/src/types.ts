@@ -47,6 +47,13 @@ export interface MemoryItem {
   origin?: string
   /** 依据：用户原话 */
   evidence?: string
+  /** 偏好槽位：同一类只留最新的一条 */
+  slot?: string | null
+  slotLabel?: string | null
+  /** 有效期到哪天（容易变的信息才有） */
+  validUntil?: string | null
+  /** 过了有效期，等用户确认 */
+  expired?: boolean
 }
 
 export interface MemoryAddResult {
@@ -113,6 +120,10 @@ export interface MemoryMetrics {
   skillsActive: number
   skillsCandidate: number
   skillsRetired: number
+  /** 过了有效期、等确认的条数 */
+  expired: number
+  /** 语义检索最近一次是否可用（服务端配了向量模型） */
+  semantic: boolean
 }
 
 export interface MemoryOverview {
