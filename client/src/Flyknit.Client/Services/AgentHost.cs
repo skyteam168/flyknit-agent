@@ -51,6 +51,9 @@ public sealed class AgentHost : IDisposable
     public SkillCatalog Skills { get; }
     public SkillService SkillManager { get; }
     public ToolRegistry Tools { get; }
+
+    /// <summary>MCP 连接器。和技能（Skills / SkillManager）各管各的，只在工具注册表里相遇，且工具名带 mcp__ 前缀。</summary>
+    public McpService Mcp { get; }
     public AuditQueue Audit { get; }
 
     /// <summary>上报服务端的同时，把拦截与放行记录存一份在本机（用量与安全面板用）。</summary>
@@ -109,6 +112,7 @@ public sealed class AgentHost : IDisposable
         try
         {
             Server.ReplaceHttpClient(ProxyFactory.CreateHttpClient(_settings));
+            Mcp.ApplyProxy();
             Log.Info($"网络代理已切换为 {_settings.ProxyMode}");
             _ = RefreshConfigAsync();
         }
@@ -201,6 +205,7 @@ public sealed class AgentHost : IDisposable
         Scheduler = new ScheduleRunner(this);
         RunFinished += Scheduler.OnRunFinished;
         Updater = new UpdateService(Server, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
+        Mcp = new McpService(settings, Server, Tools, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -218,6 +223,8 @@ public sealed class AgentHost : IDisposable
         await RefreshConfigAsync();
         Scheduler.Start();
         Updater.Start();
+        // 把上次连着的 MCP 连接器连回来。放后台：哪家连不上都不该拖慢启动
+        _ = Task.Run(Mcp.StartAsync);
         // 长轮询监听配置变更，IT 一改安全中心/策略就近乎即时拉取生效
         _ = Task.Run(ConfigWatchLoopAsync);
     }
@@ -301,6 +308,8 @@ public sealed class AgentHost : IDisposable
             }
             // 同步公司技能库里管理员标记为必装的技能
             _ = SkillManager.SyncRequiredAsync(CancellationToken.None);
+            // MCP 连接器另走一条：下架的断开、改了配置的重连
+            _ = Task.Run(Mcp.SyncAsync);
         }
         catch (GatewayException ex) when (ex.StatusCode is 401 or 403)
         {
@@ -452,6 +461,7 @@ public sealed class AgentHost : IDisposable
                 Permission = conv.Permission,
                 Sandboxed = Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 Query = text,
+                McpServers = conv.Mode == ConversationMode.Agent ? Mcp.PromptInfo() : Array.Empty<McpPromptInfo>(),
             });
 
             var scene = conv.Mode switch
@@ -822,6 +832,7 @@ public sealed class AgentHost : IDisposable
                 Permission = conv.Permission,
                 Sandboxed = Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 Query = prompt,
+                McpServers = Mcp.PromptInfo(),
             });
 
             var context = new ContextManager(Server, systemPrompt, null, _contextLength) { Scene = Scenes.Agent, ModelId = conv.ModelId };
@@ -896,6 +907,7 @@ public sealed class AgentHost : IDisposable
         _configTimer.Dispose();
         Scheduler.Dispose();
         Skills.Dispose();
+        Mcp.Dispose();
         Audit.FlushAsync().Wait(TimeSpan.FromSeconds(3));
         Audit.Dispose();
     }

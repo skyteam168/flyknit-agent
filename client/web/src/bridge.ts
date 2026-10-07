@@ -13,6 +13,7 @@ import type {
   UpdateInfo,
   MemoryKind,
   LibrarySkill,
+  McpVendor,
   MemoryOverview,
   SkillActionResult,
   SkillInspection,
@@ -97,14 +98,14 @@ class Bridge {
     }
   }
 
-  private call<T>(method: string, params: Record<string, unknown> = {}, files?: File[]): Promise<T> {
+  private call<T>(method: string, params: Record<string, unknown> = {}, files?: File[], timeoutMs = 20000): Promise<T> {
     const id = `r${++this.seq}`
     const message = { kind: 'request', id, method, params }
     return new Promise<T>((resolve, reject) => {
-      // 宿主 20 秒未响应视为失败，避免界面一直空白
+      // 宿主 20 秒未响应视为失败，避免界面一直空白；要等浏览器登录这类调用自己给更长的时间
       const timer = window.setTimeout(() => {
         if (this.pending.delete(id)) reject(new Error(`宿主未响应：${method}`))
-      }, 20000)
+      }, timeoutMs)
       this.pending.set(id, {
         resolve: (v) => {
           clearTimeout(timer)
@@ -179,6 +180,14 @@ class Bridge {
   installSkillFolder = (path?: string) => this.call<SkillInstallOutcome | null>('skills.installFolder', path ? { path } : {})
   installSkillFromUrl = (url: string) => this.call<SkillInstallOutcome>('skills.installFromUrl', { url })
   skillLibrary = () => this.call<LibrarySkill[]>('skills.library')
+
+  // ---------- MCP 连接器（和技能是两组调用，互不影响） ----------
+  listMcp = (refresh = false) => this.call<McpVendor[]>('mcp.list', { refresh })
+  /** 可能要等浏览器登录，最长几分钟；结果（成功或原因）在返回值里 */
+  connectMcp = (id: string, values: Record<string, string>) =>
+    this.call<{ ok: boolean; message: string; vendor: McpVendor | null }>('mcp.connect', { id, values }, undefined, 6 * 60_000)
+  cancelMcp = (id: string) => this.call<void>('mcp.cancel', { id })
+  disconnectMcp = (id: string, forget: boolean) => this.call<McpVendor | null>('mcp.disconnect', { id, forget })
   installSkillFromLibrary = (name: string) => this.call<SkillInstallOutcome>('skills.installFromLibrary', { name })
 
   // ---------- 工作区与权限 ----------

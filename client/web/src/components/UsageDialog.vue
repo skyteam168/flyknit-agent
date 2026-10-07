@@ -21,7 +21,7 @@ import {
   X,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { state, toast } from '../store'
+import { mcpToolLabel, state, toast } from '../store'
 import type { SecurityDecision, SecurityEvent, UsageStats } from '../types'
 import ConfirmDialog from './ConfirmDialog.vue'
 
@@ -94,7 +94,7 @@ const blockedCount = computed(() => events.value.filter((e) => e.decision === 'b
 const sceneName = (s: string) => (te(`mode.${s}`) ? t(`mode.${s}`) : s)
 const shortDay = (d: string) => d.slice(5)
 const time = (iso: string) => new Date(iso).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-const toolName = (n: string) => (te(`tool.names.${n}`) ? t(`tool.names.${n}`) : n)
+const toolName = (n: string) => mcpToolLabel(n) ?? (te(`tool.names.${n}`) ? t(`tool.names.${n}`) : n)
 
 function copyContact() {
   const u = usage.value

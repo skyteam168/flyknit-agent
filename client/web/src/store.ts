@@ -5,6 +5,7 @@ import type {
   AppInfo,
   AttachmentRef,
   ConfirmChoice,
+  McpVendor,
   Conversation,
   HostEvent,
   Mode,
@@ -53,6 +54,9 @@ export const state = reactive({
   toast: '' as string,
   settingsOpen: false,
   skillsOpen: false,
+  /** MCP 连接器面板 */
+  mcpOpen: false,
+  mcp: [] as McpVendor[],
   /** 侧栏任务列表按模式筛选 */
   filter: 'all' as 'all' | Mode,
   models: [] as ModelInfo[],
@@ -306,6 +310,8 @@ export async function init() {
   // 上次下好没装的，重开界面时也要能看见那条提示
   void bridge.updateState().then((u) => { state.update = u }).catch(() => {})
   void loadSkills()
+  // 启动时也拉一次连接器：对话里的 MCP 工具卡片要靠它显示成「腾讯文档 · 新建表格」
+  void loadMcp(false, true)
   void refreshUsage()
 }
 
@@ -324,6 +330,27 @@ export async function loadSchedules() {
     state.schedules = await bridge.listSchedules()
   } catch (e) {
     fail(e)
+  }
+}
+
+/**
+ * MCP 工具名（mcp__腾讯文档id__create_sheet）换成给人看的「腾讯文档 · create_sheet」。
+ * 不是 MCP 工具返回 null，调用方再按内置工具的名字表翻译。
+ */
+export function mcpToolLabel(name: string): string | null {
+  const m = /^mcp__(.+?)__(.+)$/.exec(name)
+  if (!m) return null
+  const vendor = state.mcp.find((v) => v.id === m[1])
+  const tool = vendor?.tools.find((x) => x.name === m[2])
+  return `${vendor?.name ?? m[1]} · ${tool?.title || m[2]}`
+}
+
+/** MCP 连接器列表（和技能分开加载，一边出错不影响另一边） */
+export async function loadMcp(refresh = false, quiet = false) {
+  try {
+    state.mcp = await bridge.listMcp(refresh)
+  } catch (e) {
+    if (!quiet) fail(e)
   }
 }
 
@@ -945,6 +972,14 @@ function onHostEvent(e: HostEvent) {
     case 'window.state':
       state.maximized = e.maximized
       break
+    case 'mcp.changed': {
+      // 只换那一张卡片：连接、断开、要登录
+      const i = state.mcp.findIndex((v) => v.id === e.id)
+      if (e.vendor && i >= 0) state.mcp[i] = e.vendor
+      else if (e.vendor) state.mcp.push(e.vendor)
+      else if (i >= 0) state.mcp.splice(i, 1)
+      break
+    }
     case 'skills.changed':
       // 技能目录被安装、卸载或手动改动，重新注册后刷新界面
       void loadSkills()

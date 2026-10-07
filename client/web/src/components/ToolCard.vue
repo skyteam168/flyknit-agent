@@ -3,12 +3,13 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Ban, Check, ChevronDown, CircleAlert, Hand, LoaderCircle, Puzzle, ShieldAlert } from '@lucide/vue'
 import type { ToolActivity } from '../types'
+import { mcpToolLabel } from '../store'
 
 const props = defineProps<{ tool: ToolActivity; conversationId?: string }>()
 const { t, te } = useI18n()
 const open = ref(false)
 
-const label = computed(() => (te(`tool.names.${props.tool.name}`) ? t(`tool.names.${props.tool.name}`) : props.tool.name))
+const label = computed(() => mcpToolLabel(props.tool.name) ?? (te(`tool.names.${props.tool.name}`) ? t(`tool.names.${props.tool.name}`) : props.tool.name))
 const icon = computed(
   () =>
     ({ running: LoaderCircle, waiting: Hand, done: Check, failed: CircleAlert, blocked: ShieldAlert, rejected: Ban })[

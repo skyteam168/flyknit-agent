@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar.vue'
 import TopBar from './components/TopBar.vue'
 import Home from './components/Home.vue'
 import SkillsDialog from './components/SkillsDialog.vue'
+import ConnectorsDialog from './components/ConnectorsDialog.vue'
 import MemoryDialog from './components/MemoryDialog.vue'
 import ResizeEdges from './components/ResizeEdges.vue'
 import UsageDialog from './components/UsageDialog.vue'
@@ -109,6 +110,13 @@ function toggleSidebar() {
   else sidebarHidden.value = !sidebarHidden.value
 }
 
+/** 连接器详情里点了「试试这样用」的例子：放进输入框，用户看一眼再发 */
+function useExample(text: string) {
+  state.mcpOpen = false
+  if (inConversation.value) composer.value?.fill(text)
+  else home.value?.fill(text)
+}
+
 function useSkill(name: string) {
   state.skillsOpen = false
   if (inConversation.value) composer.value?.useSkill(name)
@@ -208,6 +216,7 @@ onBeforeUnmount(() => {
     <TraceDialog v-if="state.trace" />
     <SettingsDialog v-if="state.settingsOpen" />
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />
+    <ConnectorsDialog v-if="state.mcpOpen" @use="useExample" />
     <MemoryDialog v-if="state.memoryOpen" />
     <UsageDialog v-if="state.usageOpen" />
     <SchedulesDialog v-if="state.schedulesOpen" />

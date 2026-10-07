@@ -405,3 +405,49 @@ class InstructionRun(Base):
     error: Mapped[str] = mapped_column(Text, default="")
     #: 对应员工端本地的会话 ID，便于在那台电脑上回溯完整对话
     conversation_id: Mapped[str] = mapped_column(String(64), default="")
+
+
+class McpVendor(Base):
+    """
+    MCP 连接器：管理员引入的一家厂商的 MCP 服务（腾讯文档、企业微信……）。
+
+    和技能库是两套东西：技能是一包说明文字和脚本，装在员工电脑上由模型按需阅读；
+    MCP 是一个在线服务（或本机进程），员工点「连接」后它的工具直接出现在 AI 的工具列表里。
+    两边的表、接口、员工端的存储和界面都分开，互不影响。
+
+    url / headers / env / args 里可以写 ${KEY} 占位符，对应 fields 里定义的一项；
+    值由员工在连接时填写，或由管理员在 preset_enc 里统一填好（加密存储）。
+    """
+
+    __tablename__ = "mcp_vendors"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)  # 例如 tencent-docs，也是工具名前缀
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(String(300), default="")  # 卡片上的一两句话
+    detail: Mapped[str] = mapped_column(Text, default="")  # 点开后的详细介绍
+    icon: Mapped[str] = mapped_column(Text, default="")  # 图片链接或 data: URL
+    publisher: Mapped[str] = mapped_column(String(100), default="")
+    category: Mapped[str] = mapped_column(String(50), default="")
+    homepage: Mapped[str] = mapped_column(String(500), default="")
+    #: http（Streamable HTTP）/ sse（旧版 HTTP+SSE）/ stdio（在员工电脑上起一个进程）
+    transport: Mapped[str] = mapped_column(String(10), default="http")
+    url: Mapped[str] = mapped_column(String(1000), default="")
+    command: Mapped[str] = mapped_column(String(500), default="")
+    args: Mapped[list] = mapped_column(JSON, default=list)
+    env: Mapped[dict] = mapped_column(JSON, default=dict)
+    headers: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: none（不用登录）/ fields（填 API Key 之类）/ oauth（跳浏览器授权）
+    auth: Mapped[str] = mapped_column(String(10), default="none")
+    #: 连接时要填的项：[{key, label, secret, required, placeholder, help}]
+    fields: Mapped[list] = mapped_column(JSON, default=list)
+    #: 管理员统一填好的值（加密的 JSON），员工就不用自己填
+    preset_enc: Mapped[str] = mapped_column(Text, default="")
+    #: OAuth 设置：{client_id, scopes}；不填 client_id 时走动态注册
+    oauth: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: 「试试这样用」的示例问题
+    examples: Mapped[list] = mapped_column(JSON, default=list)
+    timeout_ms: Mapped[int] = mapped_column(Integer, default=60000)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

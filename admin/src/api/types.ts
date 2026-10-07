@@ -75,6 +75,69 @@ export interface Skill {
   updated_at: string
 }
 
+/** MCP 连接器里员工连接时要填的一项 */
+export interface McpField {
+  key: string
+  label: string
+  secret: boolean
+  required: boolean
+  placeholder: string
+  help: string
+}
+
+/** 管理员引入的一个 MCP 厂商 */
+export interface McpVendor {
+  id: string
+  name: string
+  description: string
+  detail: string
+  icon: string
+  publisher: string
+  category: string
+  homepage: string
+  transport: 'http' | 'sse' | 'stdio'
+  url: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  headers: Record<string, string>
+  auth: 'none' | 'fields' | 'oauth'
+  fields: McpField[]
+  preset_masked: Record<string, string>
+  oauth: Record<string, string>
+  examples: string[]
+  timeout_ms: number
+  sort_order: number
+  enabled: boolean
+  updated_at: string
+}
+
+/** 保存时提交的内容：预填值传明文，不传表示不改，传空字符串表示清掉 */
+export type McpVendorIn = Omit<McpVendor, 'preset_masked' | 'updated_at'> & { preset?: Record<string, string> }
+
+export interface McpDraft {
+  id: string
+  name: string
+  transport: 'http' | 'sse' | 'stdio'
+  url: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  headers: Record<string, string>
+  auth: 'none' | 'fields' | 'oauth'
+  fields: McpField[]
+  preset: Record<string, string>
+  exists: boolean
+}
+
+export interface McpTestResult {
+  ok: boolean
+  server_name: string
+  server_version: string
+  tools: { name: string; description: string }[]
+  error: string
+}
+
 export interface Device {
   id: number
   machine_name: string

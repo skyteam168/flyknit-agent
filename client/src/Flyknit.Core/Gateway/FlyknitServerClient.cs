@@ -318,6 +318,15 @@ public sealed class FlyknitServerClient : IChatGateway
         return await resp.Content.ReadFromJsonAsync<TranscriptResult>(cancellationToken: ct) ?? new TranscriptResult();
     }
 
+    /// <summary>管理员上架的 MCP 连接器。和技能库是两个接口，互不影响。</summary>
+    public async Task<List<Flyknit.Core.Mcp.McpVendor>> GetMcpVendorsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/mcp/vendors");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Mcp.McpVendor>>(cancellationToken: ct) ?? new();
+    }
+
     /// <summary>公司技能库列表。</summary>
     public async Task<List<ServerSkill>> GetSkillsAsync(CancellationToken ct)
     {

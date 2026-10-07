@@ -827,6 +827,43 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 _settings.Save();
                 return null;
 
+            // ---------- MCP 连接器（和技能分开的一组调用） ----------
+            case "mcp.list":
+                return await _host.Mcp.ListAsync(Bool("refresh"));
+
+            case "mcp.connect":
+            {
+                // 连接可能要等浏览器登录，最长几分钟；结果（成功或原因）都放在返回值里，界面就地显示
+                var values = new Dictionary<string, string>();
+                if (p.ValueKind == JsonValueKind.Object && p.TryGetProperty("values", out var raw) && raw.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in raw.EnumerateObject())
+                    {
+                        if (prop.Value.ValueKind == JsonValueKind.String)
+                        {
+                            values[prop.Name] = prop.Value.GetString() ?? "";
+                        }
+                    }
+                }
+                var vendorId = Str("id");
+                try
+                {
+                    var vendor = await _host.Mcp.ConnectAsync(vendorId, values, interactive: true, CancellationToken.None);
+                    return new { ok = true, message = "", vendor };
+                }
+                catch (Flyknit.Core.Mcp.McpException ex)
+                {
+                    return new { ok = false, message = ex.Message, vendor = _host.Mcp.Get(vendorId) };
+                }
+            }
+
+            case "mcp.cancel":
+                _host.Mcp.Cancel(Str("id"));
+                return null;
+
+            case "mcp.disconnect":
+                return await _host.Mcp.DisconnectAsync(Str("id"), Bool("forget"));
+
             case "skills.list":
                 _host.SkillManager.Refresh();
                 return SkillList();
