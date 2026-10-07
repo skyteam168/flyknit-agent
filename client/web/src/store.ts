@@ -280,6 +280,9 @@ const media = window.matchMedia('(prefers-color-scheme: dark)')
 export function applyTheme(theme: Theme) {
   const dark = theme === 'dark' || (theme === 'system' && media.matches)
   document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+  // 让窗口和 WebView2 的底色跟着主题：收起、最小化、恢复的瞬间露出的底色和界面一致，不会闪白
+  const color = getComputedStyle(document.documentElement).getPropertyValue('--loom').trim()
+  if (/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(color)) void bridge.setWindowBackground(color).catch(() => {})
 }
 media.addEventListener('change', () => state.app && applyTheme(state.app.theme))
 

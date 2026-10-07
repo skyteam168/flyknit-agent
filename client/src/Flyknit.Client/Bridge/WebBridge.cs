@@ -1026,6 +1026,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 _window.MinimizeMain();
                 return null;
 
+            case "window.setBackground":
+                _window.SetBackground(Str("color"));
+                return null;
+
             case "window.toggleTopmost":
                 return _window.ToggleTopmost();
 
@@ -1349,6 +1353,10 @@ public interface IWindowActions
 {
     void HideMain();
     void MinimizeMain();
+
+    /// <summary>界面底色（#rrggbb），跟着主题变。</summary>
+    void SetBackground(string color);
+
     bool ToggleTopmost();
     void RequestAttention();
     void LanguageChanged(string language);

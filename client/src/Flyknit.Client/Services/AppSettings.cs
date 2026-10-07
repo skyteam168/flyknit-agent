@@ -113,6 +113,12 @@ public sealed class AppSettings
     /// <summary>上次关闭时窗口是否最大化。</summary>
     public bool WindowMaximized { get; set; }
 
+    /// <summary>
+    /// 界面当前的底色（跟着主题走，网页每次切换主题时告诉宿主）。窗口和 WebView2 的默认底色用它，
+    /// 收起、最小化、恢复的瞬间露出来的底色就和界面一样，不会闪白；下次启动也直接用上次的颜色。
+    /// </summary>
+    public string WindowBackground { get; set; } = "#F4F6F9";
+
     /// <summary>界面字号倍率：0.85 / 0.925 / 1.0（默认）/ 1.1 / 1.25。</summary>
     public double FontScale { get; set; } = 1.0;
 
