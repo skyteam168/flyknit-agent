@@ -38,11 +38,24 @@ public sealed class ReflectionResult
     public string Summary { get; set; } = "";
     public string Outcome { get; set; } = "success";
     public string Procedure { get; set; } = "";
-    public List<string> Preferences { get; set; } = new();
-    public List<string> Facts { get; set; } = new();
-    public List<string> Successes { get; set; } = new();
-    public List<string> Lessons { get; set; } = new();
+    public List<MemoryProposal> Preferences { get; set; } = new();
+    public List<MemoryProposal> Facts { get; set; } = new();
+    public List<MemoryProposal> Successes { get; set; } = new();
+    public List<MemoryProposal> Lessons { get; set; } = new();
     public LearnedSkill? Skill { get; set; }
+
+    /// <summary>发给模型的已有记忆编号（m1、m2…）对应的真实 ID。</summary>
+    public Dictionary<string, string> Aliases { get; set; } = new();
+}
+
+/// <summary>
+/// 复盘提出的一条记忆。和已有记忆的关系由模型判断：
+/// Same 指向已有的一条，表示说的是同一件事（只加确认次数）；Replaces 表示取代那一条（偏好变了、信息更新了）。
+/// </summary>
+public sealed record MemoryProposal(string Text, string? Same = null, string? Replaces = null)
+{
+    public static implicit operator MemoryProposal(string text) => new(text);
+    public override string ToString() => Text;
 }
 
 public sealed class LearnedSkill
@@ -57,6 +70,16 @@ public sealed class LearningReport
 {
     public Episode? Episode { get; init; }
     public List<(MemoryKind Kind, string Text)> Added { get; } = new();
+
+    /// <summary>其中取代了旧说法的条数。</summary>
+    public int Updated { get; set; }
+
+    /// <summary>和已有记忆说的是一回事、只加了确认次数的条数。</summary>
+    public int Reinforced { get; set; }
+
+    /// <summary>因为含敏感信息等原因没记的条数。</summary>
+    public int Rejected { get; set; }
+
     public string? SkillName { get; set; }
 
     public bool Any => Episode is not null || Added.Count > 0 || SkillName is not null;
@@ -98,9 +121,13 @@ public sealed class Reflector
     public static bool ShouldReflect(IReadOnlyList<ChatMessage> messages, int feedback) =>
         feedback != 0 || messages.Any(m => m.Role == ChatRole.Assistant && m.ToolCalls.Count > 0);
 
+    /// <summary>发给复盘模型参考的已有记忆条数。</summary>
+    public int ExistingForContext { get; init; } = 8;
+
     public async Task<LearningReport?> ReflectAsync(ReflectionInput input, CancellationToken ct)
     {
         ReflectionResult? result;
+        var existing = RelatedMemories(input);
         try
         {
             var turn = await _gateway.CompleteAsync(new ChatRequest
@@ -111,9 +138,13 @@ public sealed class Reflector
                 Temperature = 0.2,
                 MaxTokens = 2048,
                 ExtraBody = new Dictionary<string, JsonNode?> { ["enable_thinking"] = false },
-                Messages = new[] { ChatMessage.System(ReflectPrompt), ChatMessage.User(BuildTranscript(input)) },
+                Messages = new[] { ChatMessage.System(ReflectPrompt), ChatMessage.User(BuildTranscript(input, existing.Select(e => (e.Alias, e.Item)).ToList())) },
             }, null, ct);
             result = Parse(turn.Content);
+            if (result is not null)
+            {
+                result.Aliases = existing.ToDictionary(e => e.Alias, e => e.Item.Id);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
@@ -126,6 +157,27 @@ public sealed class Reflector
             return null;
         }
         return Apply(input, result);
+    }
+
+    /// <summary>和这一轮任务相关的已有记忆，交给复盘模型判断新内容是不是已经记过、是不是要更新旧的。</summary>
+    private List<(string Alias, MemoryItem Item)> RelatedMemories(ReflectionInput input)
+    {
+        if (ExistingForContext <= 0)
+        {
+            return new();
+        }
+        var lastAnswer = input.Messages.LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
+        var query = $"{input.UserRequest} {Clip(lastAnswer, 400)}";
+        try
+        {
+            return _memory.Search(query, ExistingForContext, minScore: 0.12)
+                .Select((x, i) => ($"m{i + 1}", x.Item))
+                .ToList();
+        }
+        catch (Exception)
+        {
+            return new(); // 记忆库读不出来不影响复盘
+        }
     }
 
     /// <summary>把复盘结果写入记忆、历史任务和技能。</summary>
@@ -155,20 +207,41 @@ public sealed class Reflector
                 Summary = Clip(r.Summary, 800),
                 Outcome = r.Outcome is "success" or "partial" or "failure" ? r.Outcome : "partial",
                 Procedure = Clip(r.Procedure, 2000),
-                Lessons = r.Lessons.Take(5).Select(l => Clip(l, 200)).ToList(),
+                Lessons = r.Lessons.Take(5).Select(l => Clip(l.Text, 200)).ToList(),
                 Tools = input.Messages.SelectMany(m => m.ToolCalls).Select(c => c.Name).Distinct().ToList(),
                 Feedback = Math.Sign(input.Feedback),
             };
         }
 
         var report = new LearningReport { Episode = episode };
-        void Add(MemoryKind kind, IEnumerable<string> items)
+        string? Resolve(string? alias) =>
+            alias is null ? null : r.Aliases.TryGetValue(alias.Trim(), out var id) ? id : null;
+        void Add(MemoryKind kind, IEnumerable<MemoryProposal> items)
         {
-            foreach (var text in items.Where(t => !string.IsNullOrWhiteSpace(t)).Take(5))
+            foreach (var p in items.Where(p => !string.IsNullOrWhiteSpace(p.Text)).Take(5))
             {
-                if (_memory.Add(kind, text))
+                // 模型说“和已有的某条是一回事”：只加确认次数
+                if (Resolve(p.Same) is { } same && p.Replaces is null && _memory.Reinforce(same))
                 {
-                    report.Added.Add((kind, text.Trim()));
+                    report.Reinforced++;
+                    continue;
+                }
+                var result = _memory.Save(kind, p.Text, "reflect", input.ConversationId, Resolve(p.Replaces));
+                switch (result.Outcome)
+                {
+                    case MemoryWriteOutcome.Added:
+                        report.Added.Add((kind, result.Text));
+                        break;
+                    case MemoryWriteOutcome.Updated:
+                        report.Added.Add((kind, result.Text));
+                        report.Updated++;
+                        break;
+                    case MemoryWriteOutcome.Reinforced:
+                        report.Reinforced++;
+                        break;
+                    default:
+                        report.Rejected++;
+                        break;
                 }
             }
         }
@@ -227,9 +300,19 @@ public sealed class Reflector
         return name;
     }
 
-    public static string BuildTranscript(ReflectionInput input)
+    public static string BuildTranscript(ReflectionInput input, IReadOnlyList<(string Alias, MemoryItem Item)>? existing = null)
     {
         var sb = new StringBuilder();
+        if (existing is { Count: > 0 })
+        {
+            sb.AppendLine("【已有的相关记忆】");
+            foreach (var (alias, item) in existing)
+            {
+                var label = item.Kind switch { MemoryKind.Preference => "偏好", MemoryKind.Success => "经验", MemoryKind.Lesson => "教训", _ => "信息" };
+                sb.AppendLine($"[{alias}]（{label}）{item.Text}");
+            }
+            sb.AppendLine();
+        }
         if (input.PreviousAnswer.Length > 0)
         {
             sb.AppendLine("【上一轮助手的回答（节选）】").AppendLine(Clip(input.PreviousAnswer, 600)).AppendLine();
@@ -307,10 +390,28 @@ public sealed class Reflector
             _ => v.ToString(),
         } : "";
 
-    private static List<string> List(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
-            ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!.Trim()).Where(x => x.Length > 0).ToList()
-            : new();
+    /// <summary>数组里每条可以是一句话，也可以是 {"text": "...", "same": "m1"} / {"text": "...", "replaces": "m2"}。</summary>
+    private static List<MemoryProposal> List(JsonElement e, string name)
+    {
+        var list = new List<MemoryProposal>();
+        if (!e.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array)
+        {
+            return list;
+        }
+        foreach (var x in v.EnumerateArray())
+        {
+            if (x.ValueKind == JsonValueKind.String && x.GetString()!.Trim() is { Length: > 0 } text)
+            {
+                list.Add(new MemoryProposal(text));
+            }
+            else if (x.ValueKind == JsonValueKind.Object && Str(x, "text") is { Length: > 0 } t)
+            {
+                static string? Ref(JsonElement o, string key) => Str(o, key) is { Length: > 0 } s ? s.Trim('[', ']', ' ') : null;
+                list.Add(new MemoryProposal(t, Ref(x, "same"), Ref(x, "replaces")));
+            }
+        }
+        return list;
+    }
 
     private static string Clip(string s, int max) => s.Length <= max ? s : s[..max] + "…";
 
@@ -327,12 +428,18 @@ public sealed class Reflector
           "facts": ["以后有用的稳定信息，如常用文件夹、系统地址、同事称呼、业务术语"],
           "successes": ["值得推广的有效做法（一句话）"],
           "lessons": ["出过的错及避免方法，如“读取 .xls 旧格式要先另存为 .xlsx”"],
+          // 以上四个数组里的每一条，如果和【已有的相关记忆】中某条有关，写成对象：
+          //   {"text": "…", "same": "m1"}      说的是同一件事（不会重复记，只算再确认一次）
+          //   {"text": "新的说法", "replaces": "m2"}  用户改了主意或信息变了，用新说法取代旧的
+          // 和已有记忆无关的照常写成一句话的字符串。
           "skill": null                  // 仅当这是会反复出现的标准流程且已成功时，给出 {"name":"英文短横线名称","description":"什么时候用","body":"Markdown 步骤说明"}
         }
         要求：
         - 只记录长期有效的内容，不记录一次性的具体数值、临时文件名、本次的数据结论。
         - 偏好必须来自用户的明确表达、纠正或确认，不要凭空推测。
-        - 不记录密码、验证码、身份证号等敏感信息。
+        - 不记录密码、验证码、密钥、令牌、身份证号、银行卡号等敏感信息。
+        - 已有记忆里已经有的，不要换个说法再记一遍：用 same 指出是哪一条；已有的那条错了或过时了，用 replaces 更新它。
+        - 不要记“这个平台/助手内部是怎么实现的”这类推测，只记用户和用户的工作。
         - 每个数组最多 3 条，每条一句话；没有就给空数组。
         - 用用户使用的语言书写。
         """;

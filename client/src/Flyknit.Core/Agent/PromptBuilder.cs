@@ -117,6 +117,9 @@ public sealed class PromptBuilder
     /// <summary>本次提示词引用的历史任务数。</summary>
     public int EpisodesUsed { get; private set; }
 
+    /// <summary>本次提示词放进去的记忆条目。回答结束后记到这条回答上，用户的评价会算到这些记忆头上。</summary>
+    public IReadOnlyList<string> MemoryIdsUsed { get; private set; } = Array.Empty<string>();
+
     public string Build(PromptContext ctx)
     {
         return ctx.Mode == ConversationMode.Translate ? BuildTranslate(ctx) : BuildAssistant(ctx);
@@ -162,7 +165,9 @@ public sealed class PromptBuilder
                 </记忆使用说明>
                 """);
             sb.AppendLine();
-            sb.Append(_memory.BuildPromptSection(ctx.Query));
+            var memory = _memory.BuildPrompt(ctx.Query);
+            MemoryIdsUsed = memory.ItemIds;
+            sb.Append(memory.Text);
         }
         if (ctx.Mode == ConversationMode.Agent)
         {

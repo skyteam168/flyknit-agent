@@ -52,6 +52,9 @@ public sealed class EpisodeStore
     private readonly object _lock = new();
     private List<Episode>? _cache;
 
+    /// <summary>测试用的“现在”。</summary>
+    public Func<DateTime> Clock { get; init; } = () => DateTime.Now;
+
     public EpisodeStore(string directory)
     {
         _file = Path.Combine(directory, FileName);
@@ -122,13 +125,21 @@ public sealed class EpisodeStore
         {
             return new();
         }
+        // “把上周做的周报再做一遍”：上周做过的排前面；算内容相关度时去掉“上周”两个字
+        var range = TimeRange.Parse(query, Clock());
+        var q = range?.Strip(query) ?? query;
         lock (_lock)
         {
             return Load()
                 .Select(e =>
                 {
                     // 标题最能代表任务类型；长文本的相关度会被长度稀释，所以取两者较大者
-                    var score = Math.Max(TextSimilarity.Relevance(query, e.Title), 0.8 * TextSimilarity.Relevance(query, e.SearchText));
+                    var score = Math.Max(TextSimilarity.Relevance(q, e.Title), 0.8 * TextSimilarity.Relevance(q, e.SearchText));
+                    if (range is not null && range.Contains(e.CreatedAt.LocalDateTime))
+                    {
+                        // 只说了时间（“昨天做了什么”）也能找到
+                        score = range.IsTimeOnly(query) ? Math.Max(score, minScore) + 0.3 : score * 1.3 + 0.1;
+                    }
                     if (e.Outcome == "success") score *= 1.1;
                     if (e.Feedback > 0) score *= 1.15;
                     if (e.Feedback < 0) score *= 0.9;

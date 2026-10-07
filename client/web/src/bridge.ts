@@ -11,6 +11,8 @@ import type {
   AppInfo,
   ApprovalInfo,
   UpdateInfo,
+  MemoryAddResult,
+  MemoryConsolidateResult,
   MemoryKind,
   LibrarySkill,
   McpVendor,
@@ -144,7 +146,8 @@ class Bridge {
   // ---------- 记忆 ----------
   memoryOverview = () => this.call<MemoryOverview>('memory.list')
   deleteMemory = (id: string) => this.call<void>('memory.delete', { id })
-  addMemory = (kind: MemoryKind, text: string) => this.call<boolean>('memory.add', { kind, text })
+  addMemory = (kind: MemoryKind, text: string) => this.call<MemoryAddResult>('memory.add', { kind, text })
+  consolidateMemory = () => this.call<MemoryConsolidateResult>('memory.consolidate')
   deleteEpisode = (id: string) => this.call<void>('episodes.delete', { id })
   deleteLearnedSkill = (name: string) => this.call<void>('skills.deleteLearned', { name })
 

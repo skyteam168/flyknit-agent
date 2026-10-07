@@ -357,7 +357,8 @@ public class MemorySystemTests : IDisposable
         var args = System.Text.Json.JsonDocument.Parse("{\"query\":\"周报\"}").RootElement;
 
         var result = await new MemorySearchTool().ExecuteAsync(args, ctx, CancellationToken.None);
-        Assert.Contains("[偏好] 周报用 Excel 格式", result.Output);
+        Assert.Contains("周报用 Excel 格式", result.Output);
+        Assert.Contains("[偏好 #", result.Output);
         Assert.Contains("生成周报", result.Output);
         Assert.Equal(1, episodes.List()[0].Uses);
     }
