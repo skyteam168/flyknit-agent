@@ -535,7 +535,7 @@ public sealed class AgentHost : IDisposable
             Security = Security,
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, approvals: Approvals);
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, new AgentOptions { MaxSteps = _settings.ResolveAgentMaxSteps() }, Approvals);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId, context);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
             var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
@@ -833,6 +833,7 @@ public sealed class AgentHost : IDisposable
             AgentStopReason.Cancelled => "执行被取消",
             AgentStopReason.MaxSteps => "超过最大步数仍未完成",
             AgentStopReason.TooManyFailures => "连续多次失败后停止",
+            AgentStopReason.Stuck => "反复执行同一个操作没有进展，已停止",
             _ => answer.Length > 0 ? answer : "执行失败",
         };
         return new InstructionOutcome(ok, answer, error, conversationId);
@@ -886,7 +887,7 @@ public sealed class AgentHost : IDisposable
                 Security = Security,
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, approvals: Approvals);
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, new AgentOptions { MaxSteps = _settings.ResolveAgentMaxSteps() }, Approvals);
             var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
             Store.AddMessages(conv.Id, result.NewMessages);
             if (context.ContextLength > 0)

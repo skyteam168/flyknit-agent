@@ -447,6 +447,8 @@ export interface AppInfo {
   defaultPermission: Permission
   workspaces: WorkspaceInfo[]
   learning: boolean
+  /** 办事模式每轮最多步数 */
+  maxSteps: number
   notifications: boolean
   notificationSound: string
   /** IT 锁住了完成通知 / 提示音，本机改不了 */

@@ -19,7 +19,7 @@ import {
 } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { uiLanguages } from '../i18n'
-import { setFontScale, setLanguage, setLearning, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
+import { setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
 import type { ApprovalInfo, StorageInfo, Theme } from '../types'
 import AuditLog from './AuditLog.vue'
 import SecurityPanel from './SecurityPanel.vue'
@@ -248,6 +248,23 @@ onMounted(async () => {
                 <input v-model.number="fontIndex" type="range" min="0" max="4" step="1" :aria-label="t('settings.fontSize')" />
                 <span class="tick">{{ t('settings.fontLarge') }}</span>
               </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <h3>{{ t('settings.agent') }}</h3>
+            <div class="row">
+              <span class="label">
+                <strong>{{ t('settings.maxSteps') }}</strong>
+                <small>{{ t('settings.maxStepsHint') }}</small>
+              </span>
+              <select
+                :value="state.app?.maxSteps ?? 100"
+                :aria-label="t('settings.maxSteps')"
+                @change="setMaxSteps(Number(($event.target as HTMLSelectElement).value))"
+              >
+                <option v-for="n in [50, 100, 200]" :key="n" :value="n">{{ t('settings.maxStepsUnit', { n }) }}</option>
+              </select>
             </div>
           </section>
 

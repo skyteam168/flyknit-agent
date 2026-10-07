@@ -140,6 +140,7 @@ class Bridge {
   /** 从窗口边缘开始调整大小（无边框窗口自己实现） */
   startResize = (direction: string) => this.call<void>('window.startResize', { direction })
   setLearning = (enabled: boolean) => this.call<void>('settings.setLearning', { enabled })
+  setMaxSteps = (value: number) => this.call<number>('settings.setMaxSteps', { value })
   setNotifications = (enabled: boolean) =>
     this.call<{ ok: boolean; message: string; enabled: boolean }>('settings.setNotifications', { enabled })
 

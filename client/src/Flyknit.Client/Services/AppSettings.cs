@@ -99,6 +99,14 @@ public sealed class AppSettings
     /// <summary>任务结束后自动复盘，学习偏好与经验。</summary>
     public bool EnableLearning { get; set; } = true;
 
+    /// <summary>办事模式一轮最多执行多少步（调用模型的次数）。空转另有检测，这里只是最后的保险。</summary>
+    public int AgentMaxSteps { get; set; } = Flyknit.Core.Agent.AgentOptions.DefaultMaxSteps;
+
+    /// <summary>可选的步数上限。</summary>
+    public static readonly int[] AgentMaxStepsChoices = { 50, 100, 200 };
+
+    public int ResolveAgentMaxSteps() => AgentMaxSteps is >= 10 and <= 500 ? AgentMaxSteps : Flyknit.Core.Agent.AgentOptions.DefaultMaxSteps;
+
     /// <summary>窗口不在前台时，用 Windows 系统通知提醒确认和任务完成。</summary>
     public bool EnableNotifications { get; set; } = true;
 

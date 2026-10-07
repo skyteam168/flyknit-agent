@@ -22,7 +22,7 @@ public sealed class ReflectionInput
     /// <summary>这一轮新产生的消息（助手、工具）。</summary>
     public required IReadOnlyList<ChatMessage> Messages { get; init; }
 
-    /// <summary>Completed / Cancelled / MaxSteps / TooManyFailures</summary>
+    /// <summary>Completed / Cancelled / MaxSteps / TooManyFailures / Stuck</summary>
     public string StopReason { get; init; } = "Completed";
 
     /// <summary>用户评价：1 赞、-1 踩、0 无。点踩触发的复盘会着重总结教训。</summary>
@@ -333,7 +333,7 @@ public sealed class Reflector
             }
         }
         sb.AppendLine();
-        sb.AppendLine($"【结束方式】{input.StopReason switch { "Cancelled" => "用户中途停止", "MaxSteps" => "步骤过多被暂停", "TooManyFailures" => "连续失败被暂停", _ => "正常完成" }}");
+        sb.AppendLine($"【结束方式】{input.StopReason switch { "Cancelled" => "用户中途停止", "MaxSteps" => "步骤过多被暂停", "TooManyFailures" => "连续失败被暂停", "Stuck" => "反复做同一个操作没有进展，被暂停", _ => "正常完成" }}");
         if (IsCancelled(input.StopReason))
         {
             sb.AppendLine("用户在任务做完之前主动停止了，很可能是方向不对、做法不合适或者速度太慢。请重点分析哪里不对，总结成教训；不要把这次当成功经验。");

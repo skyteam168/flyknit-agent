@@ -53,6 +53,7 @@ public sealed class AgentLoop
         string? modelName = null;
         TokenUsage? usage = null;
         Context.CompactionInfo? compaction = null;
+        var guard = new LoopGuard();
 
         void PlanChanged(IReadOnlyList<PlanItem> plan) => observer.OnPlanUpdated(plan);
         ctx.PlanChanged += PlanChanged;
@@ -148,6 +149,7 @@ public sealed class AgentLoop
                     return Result(AgentStopReason.Completed);
                 }
 
+                var verdict = LoopVerdict.Ok;
                 foreach (var call in turn.ToolCalls)
                 {
                     if (ct.IsCancellationRequested)
@@ -158,6 +160,15 @@ public sealed class AgentLoop
                     }
                     var ok = await HandleCallAsync(call, turn.Content, ctx, observer, trace, ct);
                     failures = ok ? 0 : failures + 1;
+                    if (ToolMessageOf(call) is { } result)
+                    {
+                        var v = guard.Observe(call, result.Content);
+                        if (v == LoopVerdict.Nudge)
+                        {
+                            result.Content += LoopGuard.NudgeText(call.Name);
+                        }
+                        verdict = (LoopVerdict)Math.Max((int)verdict, (int)v);
+                    }
                 }
 
                 if (ct.IsCancellationRequested)
@@ -168,7 +179,31 @@ public sealed class AgentLoop
                 {
                     return Result(AgentStopReason.TooManyFailures);
                 }
+                if (verdict == LoopVerdict.Stop)
+                {
+                    // 提醒过了还在原地打转：停下，让模型说明卡在哪，不再继续烧 token
+                    await WrapUpAsync($"""
+
+
+                        【系统提醒】你已经多次重复调用 {guard.LastTool} 仍没有进展，任务已暂停。不要再调用工具。
+                        请用一两段话告诉用户：卡在哪一步、已经试过什么、需要用户提供什么信息或做什么操作。
+                        """);
+                    return Result(AgentStopReason.Stuck);
+                }
+                var done = step + 1;
+                if (_options.CheckpointInterval > 0 && done % _options.CheckpointInterval == 0 && done < _options.MaxSteps
+                    && newMessages.LastOrDefault(m => m.Role == ChatRole.Tool) is { } last)
+                {
+                    last.Content += LoopGuard.CheckpointText(done);
+                }
             }
+            // 步数用完：最后让模型不调工具答一次，交代做到哪了，用户回复“继续”时有清楚的交接
+            await WrapUpAsync($"""
+
+
+                【系统提醒】这一轮已经执行了 {_options.MaxSteps} 步，到达上限，任务暂停。不要再调用工具。
+                请简要总结：已经完成了什么、还差什么、下一步打算怎么做。用户回复“继续”后会接着做。
+                """);
             return Result(AgentStopReason.MaxSteps);
         }
         finally
@@ -190,6 +225,57 @@ public sealed class AgentLoop
         {
             history.Add(m);
             newMessages.Add(m);
+        }
+
+        ChatMessage? ToolMessageOf(ToolCall call) =>
+            newMessages.LastOrDefault(m => m.Role == ChatRole.Tool && m.ToolCallId == call.Id);
+
+        // 暂停前的收尾回答：不带工具，模型只能用文字说明情况。出错就算了，暂停照常
+        async Task WrapUpAsync(string note)
+        {
+            if (!_options.WrapUpOnPause || ct.IsCancellationRequested
+                || newMessages.LastOrDefault() is not { Role: ChatRole.Tool } last)
+            {
+                return;
+            }
+            last.Content += note;
+            using var step = trace.Begin("model", modelName ?? "", "暂停前总结");
+            try
+            {
+                var turn = await _gateway.CompleteAsync(
+                    new ChatRequest
+                    {
+                        Scene = scene,
+                        Messages = history,
+                        Stream = true,
+                        ModelId = modelId,
+                        ConversationId = ctx.ConversationId,
+                    },
+                    observer,
+                    ct);
+                if (turn.Usage is { } u)
+                {
+                    usage = usage is null ? u : usage + u;
+                }
+                step.PromptTokens = turn.Usage?.PromptTokens ?? 0;
+                step.CompletionTokens = turn.Usage?.CompletionTokens ?? 0;
+                if (turn.Content.Trim().Length == 0)
+                {
+                    return;
+                }
+                // 不带工具也可能吐出工具调用（个别模型），丢掉，只留文字
+                var answer = ChatMessage.Assistant(turn.Content, null, turn.Reasoning.Length > 0 ? turn.Reasoning : null);
+                answer.ModelName = turn.ModelName;
+                answer.PromptTokens = turn.Usage?.PromptTokens;
+                answer.CompletionTokens = turn.Usage?.CompletionTokens;
+                Append(answer);
+                observer.OnAssistantMessage(answer);
+            }
+            catch (Exception ex) when (ex is GatewayException || (ex is OperationCanceledException && ct.IsCancellationRequested))
+            {
+                step.Status = "error";
+                step.Summary = ex.Message;
+            }
         }
 
         void AppendTool(ToolCall call, string content)
