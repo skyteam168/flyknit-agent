@@ -128,6 +128,12 @@ export interface McpDraft {
   fields: McpField[]
   preset: Record<string, string>
   exists: boolean
+  description: string
+  homepage: string
+  icon: string
+  /** config / page / endpoint / registry / server.json */
+  source: string
+  notes: string[]
 }
 
 export interface McpTestResult {

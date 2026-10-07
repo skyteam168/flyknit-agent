@@ -25,7 +25,7 @@ from ..schemas import (
     McpVendorOut,
     McpVendorPatch,
 )
-from ..services import config_events, mcp_catalog
+from ..services import config_events, mcp_catalog, mcp_link
 
 log = logging.getLogger("flyknit.mcp")
 
@@ -158,18 +158,23 @@ async def delete_vendor(vendor_id: str, session: AsyncSession = Depends(get_sess
 
 
 @admin_router.post("/parse", response_model=list[McpDraftOut])
-async def parse_config(data: McpImportIn, session: AsyncSession = Depends(get_session)):
-    """把厂商文档里给的配置解析成草稿，管理员在表单里补上名字、图标、介绍后再保存。"""
+async def parse_config(data: McpImportIn, request: Request, session: AsyncSession = Depends(get_session)):
+    """
+    把厂商给的东西整理成草稿：一段配置、一行 claude mcp add 命令，或者一个链接
+    （MCP 地址、介绍页、GitHub 仓库、官方注册表里的服务名）。管理员在表单里确认后再保存。
+    """
     try:
-        drafts = mcp_catalog.parse_import(data.text)
+        found = await mcp_link.resolve(request.app.state.http, data.text)
     except mcp_catalog.McpConfigError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     out = []
-    for d in drafts:
+    for item in found:
+        d = item.draft
         out.append(McpDraftOut(
             id=d.id, name=d.name, transport=d.transport, url=d.url, command=d.command, args=d.args,
             env=d.env, headers=d.headers, auth=d.auth, fields=d.fields, preset=d.preset,
             exists=await session.get(McpVendor, d.id) is not None,
+            description=item.description, homepage=item.homepage, icon=item.icon, source=item.source, notes=item.notes,
         ))
     return out
 

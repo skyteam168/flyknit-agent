@@ -726,3 +726,132 @@ public class McpDescribeTests
         Assert.Equal("get_file", Tool().Describe(empty));
     }
 }
+
+public class McpRedirectTests
+{
+    /// <summary>典型的 Starlette / FastMCP 部署：/mcp 307 到 /mcp/，而 /mcp/ 要带令牌。</summary>
+    private sealed class SlashRedirectServer : HttpMessageHandler
+    {
+        public List<(string Url, string? Auth, string Body)> Seen { get; } = new();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
+            Seen.Add((request.RequestUri!.ToString(), request.Headers.Authorization?.ToString(), body));
+            var url = request.RequestUri!.ToString();
+            if (url == "https://mcp.example.com/mcp")
+            {
+                var r = new HttpResponseMessage(HttpStatusCode.TemporaryRedirect);
+                r.Headers.Location = new Uri("/mcp/", UriKind.Relative);
+                return r;
+            }
+            if (url == "https://mcp.example.com/elsewhere")
+            {
+                var r = new HttpResponseMessage(HttpStatusCode.Found);
+                r.Headers.Location = new Uri("https://other.example.org/mcp");
+                return r;
+            }
+            if (request.Headers.Authorization?.Parameter != "tok")
+            {
+                var unauthorized = new HttpResponseMessage(HttpStatusCode.Unauthorized);
+                unauthorized.Headers.WwwAuthenticate.ParseAdd("Bearer error=\"invalid_token\", error_description=\"audience mismatch\"");
+                return unauthorized;
+            }
+            var id = JsonNode.Parse(body)?["id"];
+            if (id is null)
+            {
+                return new HttpResponseMessage(HttpStatusCode.Accepted);
+            }
+            var method = JsonNode.Parse(body)!["method"]!.ToString();
+            JsonObject result = method == "initialize"
+                ? new JsonObject { ["protocolVersion"] = "2025-06-18", ["serverInfo"] = new JsonObject { ["name"] = "slash" } }
+                : new JsonObject { ["tools"] = new JsonArray(new JsonObject { ["name"] = "ping" }) };
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result }.ToJsonString(), Encoding.UTF8, "application/json"),
+            };
+        }
+    }
+
+    [Fact]
+    public async Task ATokenSurvivesASameSiteRedirect()
+    {
+        var server = new SlashRedirectServer();
+        var http = new HttpClient(new McpRedirectHandler(server));
+        var config = new McpServerConfig { Id = "x", Name = "X", Url = "https://mcp.example.com/mcp", Timeout = TimeSpan.FromSeconds(10) };
+
+        await using var conn = await McpConnection.ConnectAsync(config, http, "1.0", _ => Task.FromResult<string?>("tok"), null, CancellationToken.None);
+
+        Assert.Equal("ping", conn.Tools.Single().Name);
+        // 跳转后的请求还带着令牌和原来的正文
+        var followed = server.Seen.First(s => s.Url == "https://mcp.example.com/mcp/");
+        Assert.Equal("Bearer tok", followed.Auth);
+        Assert.Contains("\"initialize\"", followed.Body);
+    }
+
+    [Fact]
+    public async Task ATokenIsNotForwardedToAnotherSite()
+    {
+        var server = new SlashRedirectServer();
+        var http = new HttpClient(new McpRedirectHandler(server));
+        using var req = new HttpRequestMessage(HttpMethod.Post, "https://mcp.example.com/elsewhere") { Content = new StringContent("{}") };
+        req.Headers.TryAddWithoutValidation("Authorization", "Bearer tok");
+        using var resp = await http.SendAsync(req);
+
+        var crossed = server.Seen.Single(s => s.Url == "https://other.example.org/mcp");
+        Assert.Null(crossed.Auth);
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task TheServersReasonIsInTheError()
+    {
+        var server = new SlashRedirectServer();
+        var config = new McpServerConfig { Id = "x", Name = "X", Url = "https://mcp.example.com/mcp/", Timeout = TimeSpan.FromSeconds(10) };
+        var ex = await Assert.ThrowsAsync<McpAuthRequiredException>(() =>
+            McpConnection.ConnectAsync(config, new HttpClient(server), "1.0", _ => Task.FromResult<string?>("wrong"), null, CancellationToken.None));
+        Assert.Equal("audience mismatch", ex.Reason);
+        Assert.Contains("audience mismatch", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("Bearer resource_metadata=\"https://a/.well-known/x\", scope=\"files:read files:write\"", "scope", "files:read files:write")]
+    [InlineData("Bearer error=invalid_token, scope=read", "scope", "read")]
+    [InlineData("Bearer error=\"insufficient_scope\"", "error", "insufficient_scope")]
+    [InlineData("Bearer realm=\"x\"", "scope", null)]
+    [InlineData(null, "scope", null)]
+    public void ChallengeParametersAreRead(string? challenge, string name, string? expected)
+    {
+        Assert.Equal(expected, McpAuthRequiredException.ChallengeParam(challenge, name));
+    }
+
+    private sealed class ScopedAuthServer : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var url = request.RequestUri!.ToString();
+            string? json = url switch
+            {
+                "https://mcp.example.com/.well-known/oauth-protected-resource/mcp" =>
+                    """{"resource":"https://mcp.example.com/mcp/","authorization_servers":["https://auth.example.com"],"scopes_supported":["a","b","c"]}""",
+                "https://auth.example.com/.well-known/oauth-authorization-server" =>
+                    """{"authorization_endpoint":"https://auth.example.com/authorize","token_endpoint":"https://auth.example.com/token"}""",
+                _ => null,
+            };
+            return Task.FromResult(json is null
+                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
+        }
+    }
+
+    [Fact]
+    public async Task AuthorizationUsesTheScopeTheServerAskedForAndTheResourceItDeclared()
+    {
+        var begin = await McpOAuth.BeginAsync(new HttpClient(new ScopedAuthServer()), new Uri("https://mcp.example.com/mcp"),
+            "Bearer scope=\"b\"", "http://127.0.0.1:1/callback", "client-1", null, CancellationToken.None);
+        var q = LoopbackReceiver.ParseQuery(begin.AuthorizeUrl.PathAndQuery);
+        Assert.Equal("b", q["scope"]);
+        Assert.Equal("https://mcp.example.com/mcp/", q["resource"]);
+        Assert.Equal("https://mcp.example.com/mcp/", begin.Resource);
+    }
+}

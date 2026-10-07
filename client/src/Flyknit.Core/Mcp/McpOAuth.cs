@@ -71,14 +71,23 @@ public static partial class McpOAuth
         HttpClient http, Uri mcpUrl, string? wwwAuthenticate, string redirectUri,
         string? configuredClientId, string? configuredScopes, CancellationToken ct)
     {
-        var resource = CanonicalResource(mcpUrl);
-
         // 1. 受保护资源元数据：告诉我们去哪个授权服务器登录
         var prm = await FetchProtectedResourceAsync(http, mcpUrl, wwwAuthenticate, ct);
+
+        // 资源标识以对方元数据里声明的为准：令牌的受众要和它一模一样，
+        // 自己算的版本差一个结尾斜杠，对方就会认为令牌不是给它的，照样回 401
+        var resource = prm?["resource"]?.ToString() is { Length: > 0 } declared && Uri.TryCreate(declared, UriKind.Absolute, out _)
+            ? declared
+            : CanonicalResource(mcpUrl);
         var issuer = prm?["authorization_servers"] is JsonArray servers && servers.Count > 0 && Uri.TryCreate(servers[0]?.ToString(), UriKind.Absolute, out var s)
             ? s
             : new Uri(mcpUrl.GetLeftPart(UriPartial.Authority)); // 老服务没有这一步，授权服务器就是它自己
+        // scope 的优先级：管理员配置的 > 401 里对方点名要的（2025-06-18 起规范建议这样给）> 元数据里支持的全部
         var scopes = configuredScopes;
+        if (string.IsNullOrWhiteSpace(scopes))
+        {
+            scopes = McpAuthRequiredException.ChallengeParam(wwwAuthenticate, "scope");
+        }
         if (string.IsNullOrWhiteSpace(scopes) && prm?["scopes_supported"] is JsonArray supported)
         {
             scopes = string.Join(' ', supported.Select(x => x?.ToString()).Where(x => !string.IsNullOrEmpty(x)));
