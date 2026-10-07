@@ -277,10 +277,27 @@ async function parse() {
 function useDraft(d: McpDraft) {
   const existing = vendors.value.find((v) => v.id === d.id)
   isNew.value = !existing
-  fill({ ...(existing ?? {}), ...d, name: existing?.name ?? d.name })
+  // 已有的连接器只覆盖连接配置；介绍、图标这些管理员可能改过的，空着才用页面上拿到的
+  fill({
+    ...(existing ?? {}),
+    ...d,
+    name: existing?.name ?? d.name,
+    description: existing?.description || d.description,
+    homepage: existing?.homepage || d.homepage,
+    icon: existing?.icon || d.icon,
+  })
   importing.value = false
   editing.value = true
+  for (const n of d.notes) ElMessage.info({ message: n, duration: 6000 })
   if (existing) ElMessage.warning(`标识 ${d.id} 已经存在，保存会覆盖它的连接配置`)
+}
+
+const sourceLabel: Record<string, string> = {
+  config: '配置',
+  page: '介绍页',
+  endpoint: 'MCP 地址',
+  registry: '官方注册表',
+  'server.json': 'server.json',
 }
 
 // ---------- 测试连接 ----------
@@ -317,7 +334,7 @@ async function runTest() {
       <div class="toolbar">
         <el-input v-model="keyword" :prefix-icon="Search" placeholder="搜索连接器" clearable style="width: 200px" />
         <el-button :icon="Refresh" :loading="loading" @click="load" />
-        <el-button :icon="DocumentCopy" @click="openImport">从配置导入</el-button>
+        <el-button :icon="DocumentCopy" @click="openImport">从链接或配置导入</el-button>
         <el-button type="primary" :icon="Plus" @click="openNew">新增连接器</el-button>
       </div>
     </div>
@@ -326,7 +343,7 @@ async function runTest() {
       <div class="panel-title">
         <h3>全部连接器 <small>共 {{ vendors.length }} 个，其中 {{ enabledCount }} 个已上架</small></h3>
       </div>
-      <el-empty v-if="!loading && vendors.length === 0" description="还没有连接器。可以直接粘贴厂商文档里给的 MCP 配置，点「从配置导入」。" />
+      <el-empty v-if="!loading && vendors.length === 0" description="还没有连接器。点「从链接或配置导入」，贴一个 MCP 链接或厂商给的配置就行。" />
       <div v-loading="loading" class="grid">
         <div v-for="v in filtered" :key="v.id" class="card" :class="{ off: !v.enabled }">
           <div class="top">
@@ -464,19 +481,28 @@ async function runTest() {
       </template>
     </el-dialog>
 
-    <!-- 从配置导入 -->
-    <el-dialog v-model="importing" title="从配置导入" width="640px">
+    <!-- 从链接或配置导入 -->
+    <el-dialog v-model="importing" title="从链接或配置导入" width="680px">
       <el-input
         v-model="importText"
         type="textarea"
-        :rows="10"
+        :rows="9"
         class="mono"
-        placeholder='把厂商文档里给的配置粘贴进来，例如&#10;{&#10;  "mcpServers": {&#10;    "tencent-docs": {&#10;      "type": "http",&#10;      "url": "https://docs.qq.com/openapi/mcp",&#10;      "headers": { "Authorization": "Bearer 你的密钥" }&#10;    }&#10;  }&#10;}&#10;&#10;也认 claude mcp add --transport http 名字 地址 这样的一行命令。'
+        placeholder='贴一个链接就行，例如&#10;  https://mcp.example.com/mcp                     MCP 地址&#10;  https://agentuni.dev/servers/xxx                介绍页（AgentUni、Glama、Smithery、mcp.so…）&#10;  https://github.com/owner/repo                   GitHub 仓库（读 README）&#10;  io.github.owner/server                          官方注册表里的服务名&#10;&#10;也可以粘贴配置：{"mcpServers": {...}}，或者 claude mcp add ... 一行命令。'
       />
-      <p class="hint">写死在配置里的密钥会自动挪成「管理员预填」，加密保存，配置里只留 ${API_KEY}。</p>
+      <p class="hint">
+        链接由服务器去读：从页面里找配置、名字、介绍和图标；在线服务会试连一次，对方要求登录就自动设成「浏览器授权登录」。
+        写死在配置里的密钥会挪成「管理员预填」加密保存。
+      </p>
       <div v-if="drafts.length > 1" class="drafts">
-        <p>识别出 {{ drafts.length }} 个服务，选一个继续：</p>
-        <el-button v-for="d in drafts" :key="d.id" @click="useDraft(d)">{{ d.name }} <small class="muted">（{{ d.transport }}）</small></el-button>
+        <p>找到 {{ drafts.length }} 种连接方式，选一个继续：</p>
+        <button v-for="d in drafts" :key="d.id" type="button" class="draft" @click="useDraft(d)">
+          <strong>{{ d.name }}</strong>
+          <el-tag size="small" effect="plain">{{ transportLabel[d.transport] }}</el-tag>
+          <el-tag v-if="d.auth !== 'none'" size="small" effect="plain" type="warning">{{ authLabel[d.auth] }}</el-tag>
+          <el-tag size="small" effect="plain" type="info">来自{{ sourceLabel[d.source] ?? d.source }}</el-tag>
+          <code>{{ d.transport === 'stdio' ? `${d.command} ${d.args.join(' ')}` : d.url }}</code>
+        </button>
       </div>
       <template #footer>
         <el-button @click="importing = false">取消</el-button>
@@ -694,6 +720,31 @@ async function runTest() {
 .drafts p {
   width: 100%;
   margin: 0;
+}
+.draft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--cloth);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.draft:hover {
+  border-color: var(--indigo);
+}
+.draft code {
+  width: 100%;
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .test-wait {
   height: 80px;

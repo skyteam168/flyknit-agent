@@ -22,6 +22,27 @@ public sealed class McpAuthRequiredException : McpException
     {
         WwwAuthenticate = wwwAuthenticate;
     }
+
+    /// <summary>对方在 WWW-Authenticate 里说的原因（error_description，没有就 error），排查时最有用的一句话。</summary>
+    public string Reason => ChallengeParam(WwwAuthenticate, "error_description") ?? ChallengeParam(WwwAuthenticate, "error") ?? "";
+
+    /// <summary>从 WWW-Authenticate 里取一个参数，例如 scope、error、resource_metadata。</summary>
+    public static string? ChallengeParam(string? challenge, string name)
+    {
+        if (string.IsNullOrEmpty(challenge))
+        {
+            return null;
+        }
+        var m = System.Text.RegularExpressions.Regex.Match(challenge,
+            $@"(?:^|[\s,]){System.Text.RegularExpressions.Regex.Escape(name)}\s*=\s*(?:""([^""]*)""|([^\s,]+))",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success)
+        {
+            return null;
+        }
+        var value = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
+        return value.Length > 0 ? value : null;
+    }
 }
 
 /// <summary>JSON-RPC 错误（对方明确回了 error）。</summary>
@@ -311,7 +332,12 @@ public sealed class StreamableHttpTransport : McpTransport
         if (code == 401)
         {
             var challenge = resp.Headers.WwwAuthenticate.Count > 0 ? string.Join(", ", resp.Headers.WwwAuthenticate.Select(h => h.ToString())) : null;
-            throw new McpAuthRequiredException("需要登录：密钥不对或已过期", challenge);
+            var ex = new McpAuthRequiredException("需要登录：密钥不对或已过期", challenge);
+            if (ex.Reason.Length > 0)
+            {
+                throw new McpAuthRequiredException($"需要登录：密钥不对或已过期（对方说：{ex.Reason}）", challenge);
+            }
+            throw ex;
         }
         if (code == 403)
         {

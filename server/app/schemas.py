@@ -551,6 +551,7 @@ class McpClientVendorOut(BaseModel):
 
 
 class McpImportIn(BaseModel):
+    #: 一段配置、一行命令，或者一个链接 / 注册表里的服务名
     text: str = Field(min_length=1, max_length=50000)
 
 
@@ -568,6 +569,14 @@ class McpDraftOut(BaseModel):
     #: 从配置里挪出来的密钥，前端回填到「管理员预填」里，保存时一起加密
     preset: dict[str, str] = {}
     exists: bool = False
+    #: 从页面或注册表顺带拿到的展示信息，前端回填到表单
+    description: str = ""
+    homepage: str = ""
+    icon: str = ""
+    #: config / page / endpoint / registry / server.json
+    source: str = ""
+    #: 给管理员的提示，例如「对方要求登录，已设为浏览器授权登录」
+    notes: list[str] = []
 
 
 class McpTestIn(BaseModel):

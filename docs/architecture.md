@@ -181,7 +181,10 @@ skill-name/
 值里可以写 `${KEY}` / `${KEY:-默认值}`。KEY 是连接器自己定义的「填写项」：管理员统一预填（Fernet 加密存库，
 员工端拿到后用 DPAPI 再加密落盘），或者员工连接时自己填。占位符**只认填写项，不读员工电脑的环境变量**——
 否则写一个 `${OPENAI_API_KEY}` 就能把本机密钥发给第三方。后台「从配置导入」认 `{"mcpServers": …}` 和
-`claude mcp add …` 两种写法，配置里写死的密钥会自动挪成预填项。
+`claude mcp add …` 两种写法，配置里写死的密钥会自动挪成预填项；也认一个链接（`server/app/services/mcp_link.py`）：
+MCP 地址、介绍页（从页面里找 mcpServers 配置、`claude mcp add`、`/mcp` 地址，顺带取标题、介绍、图标）、GitHub 仓库（读 README）、
+官方注册表（registry.modelcontextprotocol.io）的服务名（按 server.json 生成：在线地址优先，`{var}` 模板和需要的请求头、
+环境变量变成填写项）。没写凭证的在线地址会试连一次，回 401 就标成浏览器授权登录。
 
 **连接方式**：
 - `http`：Streamable HTTP（2025-03-26 起）。每条消息一个 POST，回应是 JSON 或 SSE 流；带 `Mcp-Session-Id` 和 `MCP-Protocol-Version`。
@@ -191,6 +194,10 @@ skill-name/
   标准错误留最后一段，起不来时告诉用户为什么。
 - 登录：`fields`（填 API Key 之类）或 `oauth`（MCP 2025-06-18 授权规范：受保护资源元数据 → 授权服务器元数据 →
   动态注册客户端 → 浏览器 PKCE 登录 → 回调到 `127.0.0.1` 随机端口 → 换令牌 → 过期自动刷新）。
+  scope 优先用管理员配置的，其次用 401 里对方点名要的，最后才是元数据里支持的全部；resource 用对方元数据里声明的那个原样值。
+  后台标了「不用登录」、对方却回了带 OAuth 元数据的 401 时，员工点连接也会走浏览器登录。
+- **重定向自己处理**（`McpRedirectHandler`）：.NET 自动跟随重定向会丢掉 Authorization，而很多服务 `/mcp` 会 307 到 `/mcp/`，
+  结果是登录成功了令牌却一直发不过去。同一站点的跳转带着请求头照跳，跨站点去掉 Authorization 和 Cookie。
 
 **和技能互不影响**：
 

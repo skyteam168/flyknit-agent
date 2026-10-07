@@ -82,7 +82,10 @@ public static class ProxyFactory
     public const string System = "system";
     public const string Manual = "manual";
 
-    public static HttpClient CreateHttpClient(AppSettings settings)
+    public static HttpClient CreateHttpClient(AppSettings settings) => new(CreateHandler(settings));
+
+    /// <summary>按代理设置建好的 handler。MCP 要在外面再包一层自己处理重定向，所以单独拿出来。</summary>
+    public static HttpClientHandler CreateHandler(AppSettings settings)
     {
         var handler = new HttpClientHandler();
         switch ((settings.ProxyMode ?? System).ToLowerInvariant())
@@ -115,7 +118,7 @@ public static class ProxyFactory
                 handler.DefaultProxyCredentials = CredentialCache.DefaultCredentials;
                 break;
         }
-        return new HttpClient(handler);
+        return handler;
     }
 
     /// <summary>校验用户填的代理地址，填错了当场告诉他，而不是等到下次请求失败。</summary>

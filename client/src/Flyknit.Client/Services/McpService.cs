@@ -61,7 +61,10 @@ public sealed class McpService : IDisposable
 
     private static HttpClient CreateHttp(AppSettings settings)
     {
-        var http = ProxyFactory.CreateHttpClient(settings);
+        // 重定向自己处理：.NET 自动跟随时会丢掉 Authorization，登录拿到的令牌一跳转就没了（见 McpRedirectHandler）
+        var handler = ProxyFactory.CreateHandler(settings);
+        handler.AllowAutoRedirect = false;
+        var http = new HttpClient(new McpRedirectHandler(handler));
         // 超时由每次请求自己控制：旧版 SSE 的长连接、要跑几分钟的工具都不能被 100 秒的默认值掐断
         http.Timeout = Timeout.InfiniteTimeSpan;
         http.DefaultRequestHeaders.UserAgent.ParseAdd("FlyknitBuddy");
@@ -309,7 +312,10 @@ public sealed class McpService : IDisposable
             catch (McpAuthRequiredException ex)
             {
                 rt.Fingerprint = vendor.ConnectionFingerprint();
-                Set(id, rt, McpStatus.NeedsAuth, vendor.Auth == "oauth" ? "需要登录，点「连接」在浏览器里登录" : $"{ex.Message}，请检查填写的密钥");
+                Set(id, rt, McpStatus.NeedsAuth,
+                    WantsBrowserLogin(vendor, ex) ? "需要登录，点「连接」在浏览器里登录"
+                    : vendor.Auth == "fields" ? $"{ex.Message}，请检查填写的密钥"
+                    : $"{ex.Message}。这个服务需要凭证，请让 IT 在后台设置登录方式");
                 throw;
             }
 
@@ -349,19 +355,42 @@ public sealed class McpService : IDisposable
 
     private async Task<McpConnection> OpenAsync(McpVendor vendor, McpServerConfig config, SavedConnection saved, bool interactive, Runtime rt, CancellationToken ct)
     {
-        Func<CancellationToken, Task<string?>>? bearer = vendor.Auth == "oauth" ? token => BearerAsync(vendor.Id, token) : null;
+        // 「填写密钥」的用自己的头；其余的有登录令牌就带上（标成「不用登录」但对方其实要 OAuth 的，登录过一次后也能用）
+        Func<CancellationToken, Task<string?>>? bearer = vendor.Auth != "fields" ? token => BearerAsync(vendor.Id, token) : null;
         try
         {
             return await McpConnection.ConnectAsync(config, _http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct);
         }
-        catch (McpAuthRequiredException ex) when (vendor.Auth == "oauth" && interactive)
+        catch (McpAuthRequiredException ex) when (interactive && WantsBrowserLogin(vendor, ex))
         {
             // 没登录过或者登录过期：在浏览器里登录一次，回来再连
             Set(vendor.Id, rt, McpStatus.Authorizing, "请在打开的浏览器里登录并授权");
             await AuthorizeAsync(vendor, new Uri(config.Url), ex.WwwAuthenticate, ct);
-            return await McpConnection.ConnectAsync(config, _http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct);
+            try
+            {
+                return await McpConnection.ConnectAsync(config, _http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct);
+            }
+            catch (McpAuthRequiredException again)
+            {
+                // 刚登录完拿到的令牌还被拒：不是用户的问题，是令牌和这个服务对不上（受众、权限范围、地址），
+                // 把对方的原话和细节都记下来，界面上说清楚，别让人以为是没登录成功
+                Log.Warn($"MCP 连接器 {vendor.Id}：登录后令牌仍被拒绝。地址 {config.Url}；WWW-Authenticate：{again.WwwAuthenticate ?? "（无）"}");
+                throw new McpException(
+                    "浏览器里登录成功了，但对方仍然拒绝这次连接" +
+                    (again.Reason.Length > 0 ? $"（对方说：{again.Reason}）" : "") +
+                    "。多半是这个服务要求的权限范围（scope）或 client_id 需要 IT 在后台配置，请把这句话发给 IT。", again);
+            }
         }
     }
+
+    /// <summary>
+    /// 要不要走浏览器登录：后台标了「浏览器授权登录」的当然要；标了「不用登录」、对方却回了带 OAuth
+    /// 元数据的 401 的，说明后台没标对，也照样走——员工不该因为后台少勾一项就连不上。
+    /// </summary>
+    private static bool WantsBrowserLogin(McpVendor vendor, McpAuthRequiredException ex) =>
+        vendor.Auth == "oauth"
+        || (vendor.Auth == "none" && vendor.Transport != "stdio"
+            && (ex.WwwAuthenticate ?? "").Contains("resource_metadata", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>当前可用的 access_token，快过期了先刷新。</summary>
     private async Task<string?> BearerAsync(string id, CancellationToken ct)
