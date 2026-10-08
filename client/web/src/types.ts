@@ -698,7 +698,9 @@ export type HostEvent =
   | { type: 'conversation.updated'; conversation: Conversation }
   | { type: 'files.added'; attachments: AttachmentRef[] }
   | { type: 'library.changed' }
-  | { type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string }
+  | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
+      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed'>
+    >)
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }
   | ({ type: 'update.state' } & UpdateInfo)

@@ -912,6 +912,14 @@ function onHostEvent(e: HostEvent) {
         if (e.modelName) state.app.modelName = e.modelName
         if (e.department !== undefined) state.app.department = e.department
         if (e.owner !== undefined) state.app.owner = e.owner
+        // IT 改了安全中心配置后跟着变，不用重启
+        if (e.sandboxed !== undefined) state.app.sandboxed = e.sandboxed
+        if (e.notifications !== undefined) state.app.notifications = e.notifications
+        if (e.notificationSound !== undefined) state.app.notificationSound = e.notificationSound
+        if (e.notificationsLocked !== undefined) state.app.notificationsLocked = e.notificationsLocked
+        if (e.soundLocked !== undefined) state.app.soundLocked = e.soundLocked
+        if (e.keepAwakeAllowed !== undefined) state.app.keepAwakeAllowed = e.keepAwakeAllowed
+        if (e.keepScreenAllowed !== undefined) state.app.keepScreenAllowed = e.keepScreenAllowed
       }
       break
     case 'tool.confirmResolved': {
