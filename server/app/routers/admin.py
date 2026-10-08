@@ -45,6 +45,7 @@ from ..schemas import (
     RouteIn,
     SecurityDefaultsIn,
     RouteOut,
+    DeviceQuotaIn,
     DeviceUsageOut,
     QuotaIn,
     QuotaOut,
@@ -353,6 +354,17 @@ async def put_quota(data: QuotaIn, session: AsyncSession = Depends(get_session))
 @router.get("/usage", response_model=list[DeviceUsageOut])
 async def list_usage(days: int = Query(7, ge=1, le=90), session: AsyncSession = Depends(get_session)):
     return await usage_store.all_stats(session, days)
+
+
+@router.put("/devices/{device_id}/quota", response_model=DeviceUsageOut)
+async def put_device_quota(device_id: int, data: DeviceQuotaIn, session: AsyncSession = Depends(get_session)):
+    """单独设置一台电脑的每日 token 上限（事情多的调高、基本不用的调低）。传 null 恢复跟全局走。"""
+    d = await _get_or_404(session, Device, device_id)
+    await usage_store.set_device_limit(session, d, data.daily_tokens)
+    log.info("设备 %s（%s）每日上限改为 %s", d.id, d.machine_name, "跟全局" if d.daily_tokens is None else d.daily_tokens)
+    row = next((u for u in await usage_store.all_stats(session, 7) if u["device_id"] == d.id), None)
+    return row or {"device_id": d.id, "machine_name": d.machine_name, "user_name": d.user_name,
+                   "daily_tokens": d.daily_tokens, "daily_limit": d.daily_tokens or 0, "disabled": d.disabled}
 
 
 # ---------- 技能库 ----------

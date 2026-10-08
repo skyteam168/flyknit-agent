@@ -24,6 +24,7 @@ onMounted(load)
 const isSelf = (u: AdminUser) => (auth.user ? u.id === auth.user.id : u.username === auth.username)
 
 // 建号、改权限都归超级管理员。服务端会拒，这里置灰只是别让人白点一下
+// 超级管理员本来就能给任何人开查看聊天、下发运维，给自己开也一样——只挡停用自己和撤销自己的超级管理员（会把后台锁在门外）
 const canManage = computed(() => !!auth.user?.is_owner && !auth.user?.must_change_password)
 // 最后一个超级管理员不能摘——摘了就没人管得了账号和安全策略
 const owners = computed(() => users.value.filter((u) => u.is_owner && !u.disabled).length)
@@ -166,12 +167,12 @@ async function resetPassword(u: AdminUser) {
         </el-table-column>
         <el-table-column label="可查看聊天记录" width="130" align="center">
           <template #default="{ row }">
-            <el-switch v-model="row.can_read_chats" :disabled="!canManage || isSelf(row as AdminUser)" @change="toggleChats(row as AdminUser)" />
+            <el-switch v-model="row.can_read_chats" :disabled="!canManage" @change="toggleChats(row as AdminUser)" />
           </template>
         </el-table-column>
         <el-table-column label="可下发运维任务" width="130" align="center">
           <template #default="{ row }">
-            <el-switch v-model="row.can_dispatch" :disabled="!canManage || isSelf(row as AdminUser)" @change="toggleDispatch(row as AdminUser)" />
+            <el-switch v-model="row.can_dispatch" :disabled="!canManage" @change="toggleDispatch(row as AdminUser)" />
           </template>
         </el-table-column>
         <el-table-column label="超级管理员" width="120" align="center">

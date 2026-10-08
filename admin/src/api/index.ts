@@ -74,6 +74,9 @@ export const api = {
   quota: () => get<Quota>('/quota'),
   setQuota: (body: Partial<Quota>) => put<Quota>('/quota', body),
   usage: (days: number) => get<DeviceUsage[]>('/usage', { days }),
+  /** 单独设置一台电脑的每日上限：null 跟全局走，0 不限制 */
+  setDeviceQuota: (deviceId: number, daily_tokens: number | null) =>
+    put<DeviceUsage>(`/devices/${deviceId}/quota`, { daily_tokens }),
 
   // 技能库
   skills: () => get<Skill[]>('/skills'),

@@ -111,6 +111,49 @@ async def test_requests_are_rejected_once_the_daily_quota_is_used_up(client, dev
     assert third.status_code == 200
 
 
+@respx.mock
+async def test_one_machine_can_get_its_own_daily_limit(client, device_headers):
+    """事情多的人单独调高，基本不用的调低；没单独设置的跟全局走。"""
+    await setup_models(client)
+    respx.post("http://primary.local/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {"prompt_tokens": 900, "completion_tokens": 200}})
+    )
+    ask = {"model": "chat", "messages": [{"role": "user", "content": "hi"}]}
+    await client.put("/api/v1/admin/quota", headers=ADMIN, json={"daily_tokens": 1000})
+
+    # 还没用过的电脑也在列表里，才能提前给它调额度
+    rows = (await client.get("/api/v1/admin/usage", headers=ADMIN)).json()
+    me = next(r for r in rows if r["machine_name"] == "PC-001")
+    assert (me["tokens"], me["daily_tokens"], me["daily_limit"]) == (0, None, 1000)
+
+    # 单独调高：全局 1000 已经超了，这台照样能用
+    r = await client.put(f"/api/v1/admin/devices/{me['device_id']}/quota", headers=ADMIN, json={"daily_tokens": 5000})
+    assert r.status_code == 200, r.text
+    assert (r.json()["daily_tokens"], r.json()["daily_limit"]) == (5000, 5000)
+    for _ in range(2):
+        assert (await client.post("/api/v1/chat/completions", headers=device_headers, json=ask)).status_code == 200
+    usage = (await client.get("/api/v1/client/usage", headers=device_headers)).json()
+    assert (usage["daily_limit"], usage["remaining"]) == (5000, 2800)
+
+    # 单独调低：立刻生效，提示里写的是这台自己的上限
+    await client.put(f"/api/v1/admin/devices/{me['device_id']}/quota", headers=ADMIN, json={"daily_tokens": 2000})
+    blocked = await client.post("/api/v1/chat/completions", headers=device_headers, json=ask)
+    assert blocked.status_code == 429
+    assert "2,200/2,000" in blocked.json()["error"]["message"]
+
+    # 0 表示这台不限制
+    await client.put(f"/api/v1/admin/devices/{me['device_id']}/quota", headers=ADMIN, json={"daily_tokens": 0})
+    assert (await client.post("/api/v1/chat/completions", headers=device_headers, json=ask)).status_code == 200
+
+    # null 恢复跟全局（1000，今天早超了）
+    r = await client.put(f"/api/v1/admin/devices/{me['device_id']}/quota", headers=ADMIN, json={"daily_tokens": None})
+    assert (r.json()["daily_tokens"], r.json()["daily_limit"]) == (None, 1000)
+    assert (await client.post("/api/v1/chat/completions", headers=device_headers, json=ask)).status_code == 429
+
+    assert (await client.put(f"/api/v1/admin/devices/{me['device_id']}/quota", headers=ADMIN, json={"daily_tokens": -5})).status_code == 422
+    assert (await client.put("/api/v1/admin/devices/99999/quota", headers=ADMIN, json={"daily_tokens": 5})).status_code == 404
+
+
 async def test_quota_defaults_and_update(client):
     quota = (await client.get("/api/v1/admin/quota", headers=ADMIN)).json()
     assert quota == {

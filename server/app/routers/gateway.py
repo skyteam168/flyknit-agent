@@ -53,15 +53,16 @@ async def chat_completions(
 
     # 配额：超出当天上限后直接拒绝，客户端会提示联系 IT
     quota = await usage_store.get_quota(session)
-    if quota["daily_tokens"]:
+    limit = usage_store.limit_for(quota, device)
+    if limit:
         used = await usage_store.used_today(session, device.id)
-        if used >= quota["daily_tokens"]:
-            log.info("quota exceeded device=%s used=%s limit=%s", device.id, used, quota["daily_tokens"])
+        if used >= limit:
+            log.info("quota exceeded device=%s used=%s limit=%s", device.id, used, limit)
             return JSONResponse(
                 {
                     "error": {
                         "message": (
-                            f"今天的 token 用量已达上限（{used:,}/{quota['daily_tokens']:,}）。"
+                            f"今天的 token 用量已达上限（{used:,}/{limit:,}）。"
                             f"请联系 {quota['contact_name']} 增加额度：{quota['contact_email']}，电话 {quota['contact_phone']}。"
                         ),
                         "type": "quota_exceeded",
@@ -218,7 +219,8 @@ async def embeddings(
     texts = [t[:MAX_EMBED_CHARS] for t in texts]
 
     quota = await usage_store.get_quota(session)
-    if quota["daily_tokens"] and await usage_store.used_today(session, device.id) >= quota["daily_tokens"]:
+    limit = usage_store.limit_for(quota, device)
+    if limit and await usage_store.used_today(session, device.id) >= limit:
         return _error(429, "今天的 token 用量已达上限", "quota_exceeded")
 
     try:

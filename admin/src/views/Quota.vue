@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { EditPen, Refresh, Search } from '@element-plus/icons-vue'
 import { api } from '@/api'
 import type { DeviceUsage } from '@/api/types'
 import { num, short } from '@/utils/format'
@@ -44,10 +44,43 @@ const filtered = computed(() => {
 })
 const total = computed(() => usage.value.reduce((s, u) => s + u.tokens, 0))
 const todayTotal = computed(() => usage.value.reduce((s, u) => s + u.today_tokens, 0))
-const overCount = computed(() => (quota.daily_tokens ? usage.value.filter((u) => u.today_tokens >= quota.daily_tokens).length : 0))
+const overCount = computed(() => usage.value.filter((u) => u.daily_limit && u.today_tokens >= u.daily_limit).length)
+const customCount = computed(() => usage.value.filter((u) => u.daily_tokens !== null).length)
 
 function todayPercent(u: DeviceUsage) {
-  return quota.daily_tokens ? Math.min(100, Math.round((u.today_tokens / quota.daily_tokens) * 100)) : 0
+  return u.daily_limit ? Math.min(100, Math.round((u.today_tokens / u.daily_limit) * 100)) : 0
+}
+
+// ---------- 单台电脑的每日上限 ----------
+// 事情多的人单独调高，基本不用的调低；不设置就跟上面的全局配额走
+type LimitMode = 'global' | 'custom' | 'unlimited'
+const editing = ref<DeviceUsage | null>(null)
+const limitMode = ref<LimitMode>('global')
+const limitValue = ref(0)
+const savingLimit = ref(false)
+
+function openLimit(u: DeviceUsage) {
+  editing.value = u
+  limitMode.value = u.daily_tokens === null ? 'global' : u.daily_tokens === 0 ? 'unlimited' : 'custom'
+  limitValue.value = u.daily_tokens || quota.daily_tokens || 200_000
+}
+async function saveLimit() {
+  const u = editing.value
+  if (!u || u.device_id === null) return
+  const value = limitMode.value === 'global' ? null : limitMode.value === 'unlimited' ? 0 : limitValue.value
+  savingLimit.value = true
+  try {
+    const row = await api.setDeviceQuota(u.device_id, value)
+    Object.assign(u, { daily_tokens: row.daily_tokens, daily_limit: row.daily_limit })
+    editing.value = null
+    ElMessage.success('已保存，立即生效')
+  } finally {
+    savingLimit.value = false
+  }
+}
+function limitText(u: DeviceUsage) {
+  if (u.daily_tokens === null) return quota.daily_tokens ? `跟全局 · ${short(quota.daily_tokens)}` : '跟全局 · 不限'
+  return u.daily_tokens === 0 ? '不限制' : short(u.daily_tokens)
 }
 function status(p: number) {
   return p >= 100 ? 'exception' : p >= 80 ? 'warning' : 'success'
@@ -77,7 +110,7 @@ function status(p: number) {
                 @change="quota.daily_tokens = p"
               >{{ p ? short(p) : '不限制' }}</el-check-tag>
             </div>
-            <p class="hint">0 表示不限制。按工厂所在时区（UTC+8）每天零点重置。</p>
+            <p class="hint">0 表示不限制。按工厂所在时区（UTC+8）每天零点重置。单独设置过上限的电脑不受这里影响，在右边列表里调整。</p>
           </el-form-item>
           <el-divider content-position="left">额度用完时显示的联系人</el-divider>
           <el-form-item label="联系人"><el-input v-model="quota.contact_name" placeholder="IT 管理员" /></el-form-item>
@@ -93,6 +126,7 @@ function status(p: number) {
             各电脑用量
             <small>
               今日合计 {{ short(todayTotal) }} · 近 {{ days }} 天合计 {{ short(total) }}
+              <span v-if="customCount"> · {{ customCount }} 台单独设置</span>
               <span v-if="overCount" class="over"> · {{ overCount }} 台今日已超额</span>
             </small>
           </h3>
@@ -107,32 +141,70 @@ function status(p: number) {
             <el-button :icon="Refresh" :loading="loading" @click="loadUsage" />
           </div>
         </div>
-        <el-table :data="filtered" v-loading="loading" empty-text="这段时间没有用量" :default-sort="{ prop: 'tokens', order: 'descending' }">
+        <el-table :data="filtered" v-loading="loading" empty-text="还没有电脑" :default-sort="{ prop: 'tokens', order: 'descending' }">
           <el-table-column label="电脑" min-width="140" prop="machine_name" sortable />
-          <el-table-column label="用户" min-width="110" prop="user_name" sortable />
+          <el-table-column label="用户" min-width="110" prop="user_name" sortable>
+            <template #default="{ row }">{{ row.owner || row.user_name }}</template>
+          </el-table-column>
           <el-table-column label="今日用量" min-width="200" prop="today_tokens" sortable>
             <template #default="{ row }">
-              <div v-if="quota.daily_tokens" class="bar">
+              <div v-if="row.daily_limit" class="bar">
                 <el-progress
                   :percentage="todayPercent(row as DeviceUsage)"
                   :status="status(todayPercent(row as DeviceUsage))"
                   :stroke-width="6"
                   :show-text="false"
                 />
-                <span>{{ short(row.today_tokens) }} / {{ short(quota.daily_tokens) }}</span>
+                <span>{{ short(row.today_tokens) }} / {{ short(row.daily_limit) }}</span>
               </div>
               <span v-else>{{ short(row.today_tokens) }}</span>
             </template>
           </el-table-column>
-          <el-table-column :label="`近 ${days} 天`" width="120" prop="tokens" sortable align="right">
+          <el-table-column label="每日上限" width="150" prop="daily_limit" sortable>
+            <template #default="{ row }">
+              <el-button
+                link
+                :type="row.daily_tokens === null ? 'info' : 'primary'"
+                :disabled="row.device_id === null"
+                @click="openLimit(row as DeviceUsage)"
+              >
+                {{ limitText(row as DeviceUsage) }}<el-icon class="edit"><EditPen /></el-icon>
+              </el-button>
+            </template>
+          </el-table-column>
+          <el-table-column :label="`近 ${days} 天`" width="100" prop="tokens" sortable align="right">
             <template #default="{ row }">{{ short(row.tokens) }}</template>
           </el-table-column>
-          <el-table-column label="请求次数" width="110" prop="requests" sortable align="right">
+          <el-table-column label="请求次数" width="100" prop="requests" sortable align="right">
             <template #default="{ row }">{{ num(row.requests) }}</template>
           </el-table-column>
         </el-table>
       </section>
     </div>
+
+    <el-dialog
+      :model-value="editing !== null"
+      :title="`每日上限 · ${editing?.machine_name ?? ''}`"
+      width="420px"
+      @update:model-value="(v: boolean) => !v && (editing = null)"
+    >
+      <p class="hint">今日已用 {{ short(editing?.today_tokens ?? 0) }}。改完立即生效，每天零点按新上限重新计。</p>
+      <el-radio-group v-model="limitMode" class="modes">
+        <el-radio value="global">跟全局配额（{{ quota.daily_tokens ? short(quota.daily_tokens) : '不限' }}）</el-radio>
+        <el-radio value="custom">单独设置</el-radio>
+        <el-radio value="unlimited">不限制</el-radio>
+      </el-radio-group>
+      <div v-if="limitMode === 'custom'" class="custom">
+        <el-input-number v-model="limitValue" :min="1000" :step="50000" controls-position="right" style="width: 100%" />
+        <div class="presets">
+          <el-check-tag v-for="p in PRESETS.filter((x) => x)" :key="p" :checked="limitValue === p" @change="limitValue = p">{{ short(p) }}</el-check-tag>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="editing = null">取消</el-button>
+        <el-button type="primary" :loading="savingLimit" @click="saveLimit">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -175,5 +247,18 @@ function status(p: number) {
 }
 .over {
   color: var(--red);
+}
+.edit {
+  margin-left: 4px;
+}
+.modes {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 8px;
+}
+.custom {
+  margin-top: 8px;
 }
 </style>

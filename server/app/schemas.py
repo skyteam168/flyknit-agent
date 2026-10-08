@@ -289,9 +289,21 @@ class DeviceUsageOut(BaseModel):
     device_id: int | None = None
     machine_name: str = ""
     user_name: str = ""
+    owner: str = ""
+    department: str = ""
+    disabled: bool = False
     tokens: int = 0
     requests: int = 0
     today_tokens: int = 0
+    #: 单独设置的每日上限；None 表示跟全局走
+    daily_tokens: int | None = None
+    #: 实际生效的每日上限，0 表示不限
+    daily_limit: int = 0
+
+
+class DeviceQuotaIn(BaseModel):
+    #: None 恢复跟全局走；0 不限制；大于 0 为这台电脑每天的上限
+    daily_tokens: int | None = Field(default=None, ge=0, le=1_000_000_000)
 
 
 class SkillOut(BaseModel):

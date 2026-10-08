@@ -62,7 +62,8 @@ def main() -> int:
     print(f"\n最近 {args.days} 天用量：")
     print(f"{'电脑':<20}{'用户':<20}{'今天':>12}{'合计':>14}{'次数':>8}")
     for r in rows:
-        over = " ←已超额" if limit and r["today_tokens"] >= limit else ""
+        mine = r.get("daily_limit", limit)  # 单独设置过上限的按它自己的算
+        over = " ←已超额" if mine and r["today_tokens"] >= mine else ""
         print(f"{r['machine_name'] or '-':<20}{r['user_name'] or '-':<20}{r['today_tokens']:>12,}{r['tokens']:>14,}{r['requests']:>8}{over}")
     return 0
 
