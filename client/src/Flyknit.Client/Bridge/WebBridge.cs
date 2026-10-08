@@ -239,6 +239,14 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     private async void OnMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         string? id = null;
+        // 只认界面自己发来的请求。网页预览放在沙箱 iframe 里，不该有机会调宿主——
+        // WebView2 本来就只把顶层页面的消息送到这里，这一行是再保险一层
+        if (!Uri.TryCreate(e.Source, UriKind.Absolute, out var source)
+            || !source.Host.Equals(Flyknit.Client.Windows.MainWindow.VirtualHost, StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Warn($"忽略来源不明的界面消息：{e.Source}");
+            return;
+        }
         try
         {
             using var doc = JsonDocument.Parse(e.WebMessageAsJson);

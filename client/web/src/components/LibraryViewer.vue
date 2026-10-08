@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowUp, Download, ExternalLink, FolderOpen, MoreHorizontal, Pencil, Save, Share2, Star, StarOff, Trash2, X } from '@lucide/vue'
 import Popover from './Popover.vue'
+import HtmlFrame from './HtmlFrame.vue'
 import { bridge } from '../bridge'
 import { renderMarkdown } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
@@ -162,6 +163,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <div v-else-if="doc.kind === 'text' || doc.kind === 'diagram'" class="code">
           <div v-for="(line, i) in lines" :key="i" class="line"><span class="no">{{ i + 1 }}</span><span class="src">{{ line }}</span></div>
         </div>
+        <HtmlFrame v-else-if="doc.kind === 'html'" :key="item.id" class="html" :html="doc.text ?? ''" :title="item.name">
+          <template #source>
+            <div class="code">
+              <div v-for="(line, i) in lines" :key="i" class="line"><span class="no">{{ i + 1 }}</span><span class="src">{{ line }}</span></div>
+            </div>
+          </template>
+        </HtmlFrame>
         <article v-else-if="doc.kind === 'sections' && current" class="prose">
           <h3>{{ current.title }}</h3>
           <p class="pre">{{ current.text }}</p>
@@ -337,6 +345,9 @@ hr {
 }
 .audio {
   width: min(560px, 100%);
+}
+.html {
+  margin: 12px 24px;
 }
 .pdf {
   width: 100%;

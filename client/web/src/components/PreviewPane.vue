@@ -6,6 +6,7 @@ import { renderMarkdown } from '../markdown'
 import { closePreview, launchFile, revealFile, setPreviewWidth, state } from '../store'
 import { useRichBlocks } from '../render/useRichBlocks'
 import { encodeBlockCode, hasBlockRenderer } from '../render/blocks'
+import HtmlFrame from './HtmlFrame.vue'
 
 // 右侧分屏：按宿主给的 kind 渲染，不在这里二次判断扩展名
 const { t } = useI18n()
@@ -118,6 +119,10 @@ function onKeyResize(e: KeyboardEvent) {
         <div v-else-if="doc.kind === 'markdown'" class="prose" v-html="renderMarkdown(doc.text ?? '')" />
 
         <pre v-else-if="doc.kind === 'text'" class="code"><code>{{ doc.text }}</code></pre>
+
+        <HtmlFrame v-else-if="doc.kind === 'html'" :key="preview.file.path" :html="doc.text ?? ''" :title="preview.file.name">
+          <template #source><pre class="code"><code>{{ doc.text }}</code></pre></template>
+        </HtmlFrame>
 
         <div v-else-if="canDrawDiagram" class="diagram" v-html="diagramHtml" />
 

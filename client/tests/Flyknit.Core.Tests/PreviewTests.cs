@@ -43,6 +43,21 @@ public class PreviewTests : IDisposable
     }
 
     [Fact]
+    public async Task HtmlPagesAreTaggedForTheUiToRender()
+    {
+        var page = await _registry.LoadAsync(Write("产品介绍页.html", "<!doctype html><h1>FlyknitBuddy</h1>"));
+        Assert.Equal(PreviewKind.Html, page.Kind);
+        Assert.Equal("html", page.Language);               // 切回源码时照样高亮
+        Assert.Contains("<h1>FlyknitBuddy</h1>", page.Text);
+        Assert.Equal(PreviewKind.Html, (await _registry.LoadAsync(Write("old.HTM", "<p>x</p>"))).Kind);
+
+        // 太大只读了一部分：半张网页渲染出来是坏的，按源码显示
+        var big = await _registry.LoadAsync(Write("big.html", "<p>" + new string('x', TextPreviewProvider.MaxChars + 10) + "</p>"));
+        Assert.Equal(PreviewKind.Text, big.Kind);
+        Assert.NotNull(big.Notice);
+    }
+
+    [Fact]
     public async Task CsvBecomesRowsAndQuotedCommasStayTogether()
     {
         var doc = await _registry.LoadAsync(Write("t.csv", "姓名,备注\n张三,\"北京, 海淀\"\n李四,\"他说\"\"好\"\"\"\n"));
