@@ -727,19 +727,4 @@ const isImage = (mime: string) => mime.startsWith('image/')
   border-left: 3px solid var(--line-strong);
   color: var(--ink-soft);
 }
-.md :deep(.hljs-keyword),
-.md :deep(.hljs-built_in) {
-  color: var(--indigo);
-}
-.md :deep(.hljs-string) {
-  color: var(--thread);
-}
-.md :deep(.hljs-comment) {
-  color: var(--ink-faint);
-  font-style: italic;
-}
-.md :deep(.hljs-number),
-.md :deep(.hljs-variable) {
-  color: var(--amber);
-}
 </style>

@@ -250,3 +250,52 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* 代码高亮（highlight.js 的 token 类名）。聊天代码块、文件预览、资料库共用，颜色跟着主题走 */
+.hljs-keyword,
+.hljs-built_in,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag {
+  color: var(--indigo);
+}
+.hljs-string,
+.hljs-attr,
+.hljs-attribute,
+.hljs-regexp,
+.hljs-addition {
+  color: var(--thread);
+}
+.hljs-comment,
+.hljs-quote,
+.hljs-meta {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+.hljs-number,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--amber);
+}
+.hljs-title,
+.hljs-name,
+.hljs-section,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-type {
+  color: var(--red);
+}
+.hljs-property,
+.hljs-params,
+.hljs-selector-pseudo,
+.hljs-deletion {
+  color: var(--ink-soft);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
