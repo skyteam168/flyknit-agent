@@ -489,6 +489,8 @@ const zh = {
       unsupported: '这种格式不能在这里预览',
       emptySection: '这一节没有内容',
       resize: '拖动调整预览宽度',
+      page: '网页',
+      source: '源码',
     },
     shortcuts: {
       title: '快捷键',
@@ -1393,6 +1395,8 @@ const vi: Messages = {
       unsupported: 'Định dạng này không xem trước được ở đây',
       emptySection: 'Phần này không có nội dung',
       resize: 'Kéo để đổi chiều rộng',
+      page: 'Trang web',
+      source: 'Mã nguồn',
     },
     shortcuts: {
       title: 'Phím tắt',
@@ -2302,6 +2306,8 @@ const en: Messages = {
       unsupported: "This format can't be previewed here",
       emptySection: 'This section is empty',
       resize: 'Drag to resize the preview',
+      page: 'Page',
+      source: 'Source',
     },
     shortcuts: {
       title: 'Keyboard shortcuts',

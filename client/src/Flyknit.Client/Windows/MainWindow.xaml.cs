@@ -14,7 +14,7 @@ namespace Flyknit.Client.Windows;
 
 public partial class MainWindow : Window, IWindowActions
 {
-    private const string VirtualHost = "app.flyknit.local";
+    internal const string VirtualHost = "app.flyknit.local";
 
     private readonly AgentHost _host;
     private readonly AppSettings _settings;

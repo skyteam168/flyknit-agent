@@ -462,15 +462,27 @@ MCP 地址、介绍页（从页面里找 mcpServers 配置、`claude mcp add`、
 | Office | docx/xlsx/pptx | 解 OOXML：Word → Markdown（标题样式转 `#`），Excel → 每张表一个表格，PPT → 每页一节 |
 | Archive | zip | 条目列表，不解压 |
 | Table | csv/tsv | 表格，支持 `""` 转义的引号字段 |
-| Text | 40+ 种文本与代码 | 文本 + 语言提示；md 标为 Markdown，mmd/dot/puml 标为流程图 |
+| Text | 40+ 种文本与代码 | 文本 + 语言提示；md 标为 Markdown，mmd/dot/puml 标为流程图，html/htm 标为网页（太大被截断的按源码） |
 | FileInfo | 其余所有 | 只给文件信息，界面显示「用默认应用打开」 |
 
 Office 三件套本质是 zip 里的 XML，所以直接用 `System.IO.Compression` + `XDocument` 解析，**不引第三方库**——
 工厂电脑上不该为了预览去装东西。只取文字和表格，样式一律不管；要排版还是用 Office 打开。
 Excel 的空单元格在 XML 里会被省略，按 `A1`/`B1` 的列号补齐，否则列会错位。
 
-界面只认宿主返回的 `kind`（text/markdown/table/sections/image/pdf/diagram/listing/none），
+界面只认宿主返回的 `kind`（text/markdown/table/sections/image/pdf/diagram/listing/html/none），
 不自己再判断一次扩展名。**加一种格式 = 加一个 Provider 并注册**，界面和调度逻辑都不用动。
+
+**网页**（`HtmlFrame.vue`）放进 `srcdoc` 的 iframe 渲染，右上角可切回源码。`sandbox` 只开
+`allow-scripts allow-popups allow-forms`，**不开 `allow-same-origin`**：页面里的脚本照常跑（图表、交互），
+但拿到的是一个空白的独立源，碰不到界面、读不到本机文件、调不了宿主桥；宿主那边 `WebBridge` 也只认
+`app.flyknit.local` 发来的消息，再挡一层。`target=_blank` 的链接走 `NewWindowRequested` 用系统浏览器打开。
+iframe 固定白底（网页默认白底，深色主题下否则黑字看不见）。`srcdoc` 没有文件所在目录，用相对路径引用的
+本地图片和样式出不来，要完整效果点右上角用浏览器打开。
+
+**代码高亮**（`client/web/src/highlight.ts`）：聊天代码块、文件预览、资料库查看器共用一份 highlight.js，
+只注册办公场景常见的二十多种语言（HTML/CSS/JS/TS/Python/C#/SQL/PowerShell/bat/YAML…），宿主给的语言名
+（html、tsx、bat、toml…）在这里映射到 highlight.js 的名字。超过 20 万字不高亮，避免大日志卡住界面。
+资料库带行号显示，跨行的注释和字符串按行补齐标签。颜色用主题变量，跟着亮 / 暗主题走。
 
 分屏宽度可拖拽（也支持键盘左右键），存在 localStorage 里，下次打开保持；最小 320px，最宽占窗口 72%。
 产出文件里第一个能预览的会自动打开分屏。

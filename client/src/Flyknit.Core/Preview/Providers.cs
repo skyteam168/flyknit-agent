@@ -186,6 +186,7 @@ public sealed class TextPreviewProvider : ExtensionPreviewProvider
     };
 
     private static readonly HashSet<string> MarkdownExtensions = new(StringComparer.OrdinalIgnoreCase) { "md", "markdown", "mdx" };
+    private static readonly HashSet<string> HtmlExtensions = new(StringComparer.OrdinalIgnoreCase) { "html", "htm" };
     private static readonly HashSet<string> DiagramExtensions = new(StringComparer.OrdinalIgnoreCase) { "mmd", "mermaid", "dot", "gv", "puml", "plantuml" };
 
     protected override IReadOnlySet<string> Extensions { get; } =
@@ -197,6 +198,8 @@ public sealed class TextPreviewProvider : ExtensionPreviewProvider
         var ext = Ext(path);
         var kind = MarkdownExtensions.Contains(ext) ? PreviewKind.Markdown
             : DiagramExtensions.Contains(ext) ? PreviewKind.Diagram
+            // 截断的网页渲染出来是半张页面，不如直接看源码
+            : HtmlExtensions.Contains(ext) && !truncated ? PreviewKind.Html
             : PreviewKind.Text;
         return new PreviewDocument(kind)
         {

@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowUp, Download, ExternalLink, FolderOpen, MoreHorizontal, Pencil, Save, Share2, Star, StarOff, Trash2, X } from '@lucide/vue'
 import Popover from './Popover.vue'
+import HtmlFrame from './HtmlFrame.vue'
+import { highlightLines } from '../highlight'
 import { bridge } from '../bridge'
 import { renderMarkdown } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
@@ -29,7 +31,8 @@ const editing = ref(false)
 const draft = ref('')
 const saving = ref(false)
 
-const lines = computed(() => (doc.value?.text ?? '').split('\n'))
+// 每行一段已转义、已高亮的 HTML（跨行的注释和字符串在行尾闭合、下一行重新打开）
+const lines = computed(() => highlightLines(doc.value?.text ?? '', doc.value?.kind === 'diagram' ? null : doc.value?.language))
 const sections = computed(() => doc.value?.sections ?? [])
 const current = computed(() => sections.value[section.value] ?? null)
 const isMedia = computed(() => ['image', 'audio', 'video', 'pdf'].includes(props.item.kind))
@@ -160,8 +163,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <p v-if="doc.notice" class="notice">{{ doc.notice }}</p>
         <div v-if="doc.kind === 'markdown'" class="prose" v-html="renderMarkdown(doc.text ?? '')" />
         <div v-else-if="doc.kind === 'text' || doc.kind === 'diagram'" class="code">
-          <div v-for="(line, i) in lines" :key="i" class="line"><span class="no">{{ i + 1 }}</span><span class="src">{{ line }}</span></div>
+          <div v-for="(line, i) in lines" :key="i" class="line"><span class="no">{{ i + 1 }}</span><span class="src hljs" v-html="line" /></div>
         </div>
+        <HtmlFrame v-else-if="doc.kind === 'html'" :key="item.id" class="html" :html="doc.text ?? ''" :title="item.name">
+          <template #source>
+            <div class="code">
+              <div v-for="(line, i) in lines" :key="i" class="line"><span class="no">{{ i + 1 }}</span><span class="src hljs" v-html="line" /></div>
+            </div>
+          </template>
+        </HtmlFrame>
         <article v-else-if="doc.kind === 'sections' && current" class="prose">
           <h3>{{ current.title }}</h3>
           <p class="pre">{{ current.text }}</p>
@@ -337,6 +347,9 @@ hr {
 }
 .audio {
   width: min(560px, 100%);
+}
+.html {
+  margin: 12px 24px;
 }
 .pdf {
   width: 100%;

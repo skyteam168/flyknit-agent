@@ -29,6 +29,9 @@ public enum PreviewKind
     /// <summary>压缩包等，只列出条目。</summary>
     Listing,
 
+    /// <summary>网页（.html / .htm），Text 是源码。界面放进沙箱 iframe 渲染，也能切回看源码。</summary>
+    Html,
+
     /// <summary>无法预览，只给文件信息。</summary>
     None,
 }

@@ -185,7 +185,7 @@ export interface OutputFile {
   exists: boolean
 }
 
-export type PreviewKind = 'text' | 'markdown' | 'table' | 'sections' | 'image' | 'pdf' | 'diagram' | 'listing' | 'none'
+export type PreviewKind = 'text' | 'markdown' | 'table' | 'sections' | 'image' | 'pdf' | 'diagram' | 'listing' | 'html' | 'none'
 
 export interface PreviewSection {
   title: string

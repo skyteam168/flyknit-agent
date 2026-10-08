@@ -6,6 +6,8 @@ import { renderMarkdown } from '../markdown'
 import { closePreview, launchFile, revealFile, setPreviewWidth, state } from '../store'
 import { useRichBlocks } from '../render/useRichBlocks'
 import { encodeBlockCode, hasBlockRenderer } from '../render/blocks'
+import HtmlFrame from './HtmlFrame.vue'
+import { highlightCode } from '../highlight'
 
 // 右侧分屏：按宿主给的 kind 渲染，不在这里二次判断扩展名
 const { t } = useI18n()
@@ -33,6 +35,9 @@ const diagramHtml = computed(() =>
     ? `<pre class="rich-block" data-lang="${diagramLang.value}" data-code="${encodeBlockCode(doc.value?.text ?? '')}"></pre>`
     : '',
 )
+
+// 代码和网页源码按宿主给的语言高亮
+const codeHtml = computed(() => highlightCode(doc.value?.text ?? '', doc.value?.language))
 
 // markdown 里也可能有图表和流程图（比如 Word 转出来的，或者 .md 产出文件）
 useRichBlocks(body, () => [state.preview?.file.path, doc.value?.kind, doc.value?.text?.length])
@@ -117,7 +122,11 @@ function onKeyResize(e: KeyboardEvent) {
 
         <div v-else-if="doc.kind === 'markdown'" class="prose" v-html="renderMarkdown(doc.text ?? '')" />
 
-        <pre v-else-if="doc.kind === 'text'" class="code"><code>{{ doc.text }}</code></pre>
+        <pre v-else-if="doc.kind === 'text'" class="code"><code class="hljs" v-html="codeHtml" /></pre>
+
+        <HtmlFrame v-else-if="doc.kind === 'html'" :key="preview.file.path" :html="doc.text ?? ''" :title="preview.file.name">
+          <template #source><pre class="code"><code class="hljs" v-html="codeHtml" /></pre></template>
+        </HtmlFrame>
 
         <div v-else-if="canDrawDiagram" class="diagram" v-html="diagramHtml" />
 
