@@ -29,6 +29,85 @@ public sealed class AgentLoop
 
     private const string UpdatePlanName = "update_plan";
 
+    // ---------- 模型把工具调用写进正文 ----------
+
+    public const string LeakRetryNotice = "模型返回的格式不对，正在重新生成回答…";
+
+    public const string ChatModeFallback = "（AI 想执行操作，但对话模式下不能调用工具。需要它操作电脑的话，请切换到“办事”模式再问一次。）";
+
+    public const string AgentModeFallback = "（模型返回的工具调用格式无法识别，没有执行。请再试一次，或者换一个模型。）";
+
+    private static string LeakNote(bool toolsAvailable, IEnumerable<string> names) => toolsAvailable
+        ? $"（系统提示）你刚才把工具调用（{string.Join("、", names.Distinct())}）写成了正文里的标记，这样不会被执行。请通过函数调用接口调用提供的工具，只能用工具列表里有的工具；不需要工具就直接用文字回答。"
+        : "（系统提示）当前是对话模式，没有可用的工具，不能执行命令或读写文件。请直接用文字回答；如果确实需要操作电脑，告诉用户切换到“办事”模式。";
+
+    private static readonly HashSet<string> ShellAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "bash", "sh", "shell", "cmd", "powershell", "pwsh", "terminal", "execute_command", "run_command", "exec", "command", "run_terminal_cmd",
+    };
+
+    private static readonly HashSet<string> ReadAliases = new(StringComparer.OrdinalIgnoreCase) { "read", "cat", "open_file", "view_file", "readfile" };
+
+    private static readonly HashSet<string> ListAliases = new(StringComparer.OrdinalIgnoreCase) { "ls", "dir", "list_directory", "list_files", "listdir" };
+
+    /// <summary>
+    /// 正文里认出来的调用 → 能执行的工具调用。工具列表里有同名的直接用；模型训练时常用的几个名字
+    /// （bash、cmd、cat、ls…）映射到对应的工具；其余认不出来，返回 null。
+    /// </summary>
+    public static ToolCall? MapLeaked(LeakedToolCall call, ToolRegistry registry)
+    {
+        var id = "call_" + Guid.NewGuid().ToString("N")[..16];
+        if (registry.Get(call.Name) is not null)
+        {
+            return new ToolCall(id, call.Name, call.Arguments.ToJsonString());
+        }
+        string? Arg(params string[] keys) =>
+            keys.Select(k => call.Arguments[k]).OfType<System.Text.Json.Nodes.JsonValue>()
+                .Select(v => v.TryGetValue<string>(out var s) ? s : null).FirstOrDefault(s => !string.IsNullOrWhiteSpace(s));
+        if (ShellAliases.Contains(call.Name) && registry.Get("run_shell") is not null && Arg("command", "cmd", "script", "code", "commandLine") is { } command)
+        {
+            var args = new System.Text.Json.Nodes.JsonObject { ["command"] = command };
+            var shell = call.Name.ToLowerInvariant() switch
+            {
+                "cmd" => "cmd",
+                "powershell" or "pwsh" => "powershell",
+                // 模型常在 bash 的名义下写 cmd 语法（2>nul、&、&&），PowerShell 5 不认这些
+                _ => command.Contains("2>nul", StringComparison.OrdinalIgnoreCase) || command.Contains("&&") || command.Contains(" & ") ? "cmd" : null,
+            };
+            if (shell is not null)
+            {
+                args["shell"] = shell;
+            }
+            if (Arg("cwd", "workdir", "working_directory") is { } cwd)
+            {
+                args["working_directory"] = cwd;
+            }
+            return new ToolCall(id, "run_shell", args.ToJsonString());
+        }
+        if (ReadAliases.Contains(call.Name) && registry.Get("read_file") is not null && Arg("path", "file", "file_path", "filename") is { } file)
+        {
+            return new ToolCall(id, "read_file", new System.Text.Json.Nodes.JsonObject { ["path"] = file }.ToJsonString());
+        }
+        if (ListAliases.Contains(call.Name) && registry.Get("list_dir") is not null && Arg("path", "dir", "directory") is { } dir)
+        {
+            return new ToolCall(id, "list_dir", new System.Text.Json.Nodes.JsonObject { ["path"] = dir }.ToJsonString());
+        }
+        return null;
+    }
+
+    private static ChatTurn WithContent(ChatTurn turn, string content, IReadOnlyList<ToolCall> calls, TokenUsage? usage = null) => new()
+    {
+        Content = content,
+        Reasoning = turn.Reasoning,
+        ToolCalls = calls,
+        FinishReason = turn.FinishReason,
+        ModelName = turn.ModelName,
+        Usage = usage ?? turn.Usage,
+        ContextLength = turn.ContextLength,
+    };
+
+    private static TokenUsage? Sum(TokenUsage? a, TokenUsage? b) => a is null ? b : b is null ? a : a + b;
+
     /// <summary>做了几步还没列计划时的提醒。</summary>
     public static string PlanNudgeText(int actions) => $"""
 
@@ -74,6 +153,7 @@ public sealed class AgentLoop
         TokenUsage? usage = null;
         Context.CompactionInfo? compaction = null;
         var guard = new LoopGuard();
+        var markupRetried = false;      // 正文里的调用标记认不出来时，只提醒重答一次
         var steps = 0;
         var toolCalls = 0;
         var actions = 0;               // 除了更新计划以外的操作次数
@@ -150,6 +230,11 @@ public sealed class AgentLoop
                     Append(failure);
                     observer.OnAssistantMessage(failure);
                     return Result(AgentStopReason.Failed);
+                }
+                if (turn.ToolCalls.Count == 0 && ToolMarkup.Contains(turn.Content))
+                {
+                    // 模型把工具调用写进了正文（上游没解析成 tool_calls）：认得出的拿回来执行，认不出的去掉再要一次
+                    turn = await RecoverLeakedCallsAsync(turn);
                 }
                 modelName ??= turn.ModelName;
                 steps++;
@@ -361,6 +446,54 @@ public sealed class AgentLoop
                 step.Summary = ex.Message;
             }
         }
+
+        async Task<ChatTurn> RecoverLeakedCallsAsync(ChatTurn leaked)
+        {
+            using var step = trace.Begin("recover", "");
+            var (clean, calls) = ToolMarkup.Extract(leaked.Content);
+            var mapped = tools is null ? new List<ToolCall>() : calls.Select(MapLeakedCall).OfType<ToolCall>().ToList();
+            if (calls.Count > 0 && mapped.Count == calls.Count)
+            {
+                step.Summary = $"模型把 {calls.Count} 个工具调用写进了正文，已识别：{string.Join("、", mapped.Select(c => c.Name))}";
+                return WithContent(leaked, clean, mapped);
+            }
+            step.Status = "warning";
+            step.Summary = tools is null ? "对话模式下模型想调用工具，已去掉调用标记" : $"认不出的工具调用：{string.Join("、", calls.Select(c => c.Name).Distinct())}";
+            if (!markupRetried)
+            {
+                // 提醒一次再要一次回答。不往界面流式输出（前面那段已经流出去了），新回答出来后整条替换
+                markupRetried = true;
+                observer.OnNotice(LeakRetryNotice);
+                try
+                {
+                    var retry = await _gateway.CompleteAsync(new ChatRequest
+                    {
+                        Scene = scene,
+                        Messages = history.Append(ChatMessage.User(LeakNote(tools is not null, calls.Select(c => c.Name)))).ToList(),
+                        Tools = tools,
+                        Stream = true,
+                        ModelId = modelId,
+                        ConversationId = ctx.ConversationId,
+                    }, null, ct);
+                    // 两次请求的用量都算上（外面按返回的这一轮累计）
+                    var both = Sum(leaked.Usage, retry.Usage);
+                    if (retry.ToolCalls.Count > 0 || !ToolMarkup.Contains(retry.Content))
+                    {
+                        step.Summary += "；提醒后重新回答";
+                        return WithContent(retry, retry.Content, retry.ToolCalls, both);
+                    }
+                    clean = ToolMarkup.Extract(retry.Content).Text;
+                    leaked = WithContent(leaked, leaked.Content, leaked.ToolCalls, both);
+                }
+                catch (GatewayException ex)
+                {
+                    step.Summary += $"；重试失败：{ex.Message}";
+                }
+            }
+            return WithContent(leaked, clean.Length > 0 ? clean : tools is null ? ChatModeFallback : AgentModeFallback, Array.Empty<ToolCall>());
+        }
+
+        ToolCall? MapLeakedCall(LeakedToolCall c) => MapLeaked(c, _tools);
 
         void AppendTool(ToolCall call, string content)
         {

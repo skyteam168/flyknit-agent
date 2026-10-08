@@ -79,6 +79,15 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             modelName = _host.ModelName,
             department = _host.Department,
             owner = _host.Owner,
+            // IT 在安全中心改了配置，客户端长轮询一两秒内就拿到；界面上跟着变的几项也要一起推过去，
+            // 不然要重启客户端才看得到（比如关了工作区隔离，「完全权限」还是锁着）
+            sandboxed = _host.Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
+            notifications = _settings.EnableNotifications,
+            notificationSound = _host.NotificationSoundChoice(),
+            notificationsLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.Notifications)?.Locked ?? false,
+            soundLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound)?.Locked ?? false,
+            keepAwakeAllowed = _host.KeepAwakeAllowed,
+            keepScreenAllowed = _host.KeepScreenOnAllowed,
         });
     }
 

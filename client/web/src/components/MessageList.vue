@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Activity, Archive, Brain, Info, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { renderMarkdown } from '../markdown'
+import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
 import { current, currentState, editAndResend, openTrace, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
@@ -35,6 +35,7 @@ const orphanTools = computed(() => {
 
 const waiting = computed(() => Object.values(s.value?.tools ?? {}).some((t) => t.state === 'waiting'))
 const busy = computed(() => s.value?.busy ?? false)
+const draftText = computed(() => stripToolMarkup(s.value?.draft?.content ?? ''))
 
 /** 一轮回答的最终消息（有内容、没有工具调用）才显示复制、评价按钮 */
 // 把回答里的 mermaid / dot / chart 代码块画出来；内容变了就重画
@@ -171,7 +172,7 @@ watch(
 )
 
 async function copy(m: UiMessage | { id: string; content: string }) {
-  await navigator.clipboard.writeText(m.content)
+  await navigator.clipboard.writeText(stripToolMarkup(m.content))
   copiedId.value = m.id
   setTimeout(() => (copiedId.value = null), 1500)
 }
@@ -235,7 +236,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
             <summary><Brain :size="14" /> {{ t('message.thinking') }} <ChevronRight :size="14" class="chev" /></summary>
             <p>{{ m.reasoning }}</p>
           </details>
-          <div v-if="m.content.trim()" class="md" v-html="renderMarkdown(m.content)" />
+          <div v-if="stripToolMarkup(m.content).trim()" class="md" v-html="renderMarkdown(stripToolMarkup(m.content))" />
           <ToolCard
             v-for="c in m.toolCalls ?? []"
             v-show="s.tools[c.id]"
@@ -310,7 +311,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
           <summary><Brain :size="14" /> {{ t('message.thinkingLive') }} <ChevronRight :size="14" class="chev" /></summary>
           <p>{{ s.draft.reasoning }}</p>
         </details>
-        <div v-if="s.draft?.content" class="md" v-html="renderMarkdown(s.draft.content)" />
+        <div v-if="draftText" class="md" v-html="renderMarkdown(draftText)" />
         <div v-else-if="!s.draft?.reasoning && orphanTools.length === 0 && !waiting" class="dots" aria-label="…"><i /><i /><i /></div>
         <ToolCard v-for="tool in orphanTools" :key="tool.callId" :tool="tool" :conversation-id="current!.id" />
       </div>
