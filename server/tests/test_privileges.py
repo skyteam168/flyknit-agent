@@ -61,6 +61,23 @@ async def test_an_account_cannot_grant_itself_more_power(client):
     assert r.status_code == 403, "更不该能把自己提成超级管理员"
 
 
+async def test_an_owner_can_grant_itself_the_extra_permissions(client):
+    # 超级管理员本来就能给任何人开这两项（包括新建一个开了的号），挡他给自己开没有意义，
+    # 只会让只有一个 IT 的厂下发不了运维任务。挡的只是停用自己、撤销自己的超级管理员
+    me, headers = await ready(client, "owner")
+    assert me["is_owner"] is True and me["can_dispatch"] is False
+
+    r = await client.patch(f"/api/v1/admin/users/{me['id']}", headers=headers,
+                           json={"can_dispatch": True, "can_read_chats": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["can_dispatch"] is True and r.json()["can_read_chats"] is True
+
+    r = await client.patch(f"/api/v1/admin/users/{me['id']}", headers=headers, json={"is_owner": False})
+    assert r.status_code == 400
+    r = await client.patch(f"/api/v1/admin/users/{me['id']}", headers=headers, json={"disabled": True})
+    assert r.status_code == 400
+
+
 async def test_an_account_cannot_reset_someone_elses_password(client):
     boss, _ = await ready(client, "owner")
     _, headers = await ready(client, "clerk")
