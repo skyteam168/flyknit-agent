@@ -257,7 +257,9 @@
 模型返回的 `usage` 由**服务端**在转发时解析（流式请求边转发边扫 SSE 的 `usage` 行），
 按「设备 + 日期 + 场景」累加到 `usage_daily` 表，客户端改不了这个数字。
 
-- 管理员用 `scripts/setup_quota.py` 设置每台电脑每天的 token 上限（0 = 不限）和额度联系人。
+- 管理员用 `scripts/setup_quota.py` 或后台「配额与用量」设置全局的每台每天 token 上限（0 = 不限）和额度联系人。
+- 单台电脑可以单独设置（`devices.daily_tokens`，`PUT /api/v1/admin/devices/{id}/quota`）：`null` 跟全局走，`0` 不限，其他为这台的上限。
+  网关、员工端用量面板、后台列表都按 `usage_store.limit_for()` 取实际生效的上限。还没用过的电脑也列在后台里，可以提前调。
 - 网关在转发前检查当天用量，超额返回 `429` + `type: quota_exceeded`，消息里带联系人邮箱和电话，客户端直接显示。
 - 客户端「用量」面板读 `GET /api/v1/client/usage`：今天总量与进度条、按模式（办事 / 对话 / 翻译）分布、最近 7 天柱状图。
 

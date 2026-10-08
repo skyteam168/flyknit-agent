@@ -57,9 +57,16 @@ export interface DeviceUsage {
   device_id: number | null
   machine_name: string
   user_name: string
+  owner?: string
+  department?: string
+  disabled?: boolean
   tokens: number
   requests: number
   today_tokens: number
+  /** 单独设置的每日上限；null 表示跟全局走，0 表示不限 */
+  daily_tokens: number | null
+  /** 实际生效的每日上限，0 表示不限 */
+  daily_limit: number
 }
 
 export interface Skill {
@@ -347,6 +354,8 @@ export interface Dashboard {
   disabled_devices: number
   active_today: number
   daily_limit: number
+  /** 单独设置了每日上限的电脑数 */
+  custom_limits?: number
   today: UsageTotals
   yesterday: UsageTotals
   days: string[]

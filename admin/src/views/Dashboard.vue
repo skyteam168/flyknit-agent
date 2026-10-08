@@ -236,7 +236,7 @@ const userShare = (tokens: number) => (rangeTotal.value ? Math.round((tokens / r
           :unit="`/ ${num(data.total_devices)} 台`"
           :icon="DataLine"
           tone="violet"
-          :foot="data.daily_limit ? `每台每天上限 ${short(data.daily_limit)}` : '未设置每日上限'"
+          :foot="(data.daily_limit ? `每台每天上限 ${short(data.daily_limit)}` : '未设置每日上限') + (data.custom_limits ? `，${data.custom_limits} 台单独设置` : '')"
         />
       </div>
 

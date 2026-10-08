@@ -136,6 +136,8 @@ async def dashboard(
         "disabled_devices": sum(1 for d in devices if d.disabled),
         "active_today": sum(1 for s in per_device.values() if s["today_tokens"] > 0),
         "daily_limit": quota["daily_tokens"],
+        # 单独设置了每日上限的电脑（其余跟 daily_limit 走）
+        "custom_limits": sum(1 for d in devices if d.daily_tokens is not None and not d.disabled),
         "today": total(totals["today"]),
         "yesterday": total(totals["yesterday"]),
         "days": day_list,

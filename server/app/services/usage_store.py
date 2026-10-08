@@ -53,6 +53,13 @@ async def set_quota(session: AsyncSession, quota: dict) -> dict:
     return merged
 
 
+def limit_for(quota: dict, device: Device | None) -> int:
+    """这台电脑每天的上限：单独设置过就用它自己的（0 表示不限），否则跟全局配额走。"""
+    if device is not None and device.daily_tokens is not None:
+        return max(0, int(device.daily_tokens))
+    return quota["daily_tokens"]
+
+
 async def used_today(session: AsyncSession, device_id: int, day: str | None = None) -> int:
     day = day or today()
     total = await session.scalar(
@@ -105,6 +112,7 @@ async def device_stats(session: AsyncSession, device_id: int, days: int = 7) -> 
         )
     ).all()
     quota = await get_quota(session)
+    limit = limit_for(quota, await session.get(Device, device_id))
     day = today()
 
     by_scene: dict[str, dict[str, int]] = {}
@@ -124,9 +132,9 @@ async def device_stats(session: AsyncSession, device_id: int, days: int = 7) -> 
     return {
         "day": day,
         "today_tokens": total_today,
-        "daily_limit": quota["daily_tokens"],
-        "remaining": max(0, quota["daily_tokens"] - total_today) if quota["daily_tokens"] else 0,
-        "exceeded": bool(quota["daily_tokens"]) and total_today >= quota["daily_tokens"],
+        "daily_limit": limit,
+        "remaining": max(0, limit - total_today) if limit else 0,
+        "exceeded": bool(limit) and total_today >= limit,
         "by_scene": [{"scene": s, **v} for s, v in sorted(by_scene.items())],
         "by_day": [{"day": d, "tokens": by_day.get(d, 0)} for d in sorted(by_day)],
         "contact_name": quota["contact_name"],
@@ -136,34 +144,57 @@ async def device_stats(session: AsyncSession, device_id: int, days: int = 7) -> 
 
 
 async def all_stats(session: AsyncSession, days: int = 7) -> list[dict]:
-    """管理后台：每台电脑的用量汇总。"""
-    start = (date.fromisoformat(today()) - timedelta(days=days - 1)).isoformat()
+    """管理后台：每台电脑的用量和每日上限。
+
+    没有用量的电脑也列出来（停用的除外）——单独给某台调额度，往往正是在它还没开始用之前。
+    """
+    day = today()
+    start = (date.fromisoformat(day) - timedelta(days=days - 1)).isoformat()
     rows = (
         await session.execute(
             select(
                 UsageDaily.device_id,
-                Device.machine_name,
-                Device.user_name,
+                UsageDaily.day,
                 func.sum(UsageDaily.prompt_tokens + UsageDaily.completion_tokens),
                 func.sum(UsageDaily.requests),
             )
-            .join(Device, Device.id == UsageDaily.device_id, isouter=True)
             .where(UsageDaily.day >= start)
-            .group_by(UsageDaily.device_id, Device.machine_name, Device.user_name)
-            .order_by(func.sum(UsageDaily.prompt_tokens + UsageDaily.completion_tokens).desc())
+            .group_by(UsageDaily.device_id, UsageDaily.day)
         )
     ).all()
+    used: dict[int, dict[str, int]] = {}
+    for device_id, d, tokens, requests in rows:
+        entry = used.setdefault(device_id, {"tokens": 0, "requests": 0, "today_tokens": 0})
+        entry["tokens"] += int(tokens or 0)
+        entry["requests"] += int(requests or 0)
+        if d == day:
+            entry["today_tokens"] += int(tokens or 0)
+
+    quota = await get_quota(session)
+    devices = {d.id: d for d in await session.scalars(select(Device))}
     out = []
-    for device_id, machine, user, tokens, requests in rows:
+    for device_id in set(used) | {i for i, d in devices.items() if not d.disabled or d.daily_tokens is not None}:
+        d = devices.get(device_id)
+        stats = used.get(device_id, {"tokens": 0, "requests": 0, "today_tokens": 0})
         out.append({
             "device_id": device_id,
-            "machine_name": machine or "",
-            "user_name": user or "",
-            "tokens": int(tokens or 0),
-            "requests": int(requests or 0),
-            "today_tokens": await used_today(session, device_id),
+            "machine_name": d.machine_name if d else "",
+            "user_name": d.user_name if d else "",
+            "owner": d.owner if d else "",
+            "department": d.department if d else "",
+            "disabled": d.disabled if d else False,
+            "daily_tokens": d.daily_tokens if d else None,
+            "daily_limit": limit_for(quota, d),
+            **stats,
         })
+    out.sort(key=lambda u: (-u["tokens"], -u["today_tokens"], u["machine_name"]))
     return out
+
+
+async def set_device_limit(session: AsyncSession, device: Device, daily_tokens: int | None) -> None:
+    """单独设置一台电脑的每日上限。None 表示恢复跟全局走。"""
+    device.daily_tokens = None if daily_tokens is None else max(0, int(daily_tokens))
+    await session.commit()
 
 
 def extract_usage(payload: str | bytes) -> tuple[int, int]:

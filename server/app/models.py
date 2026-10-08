@@ -84,6 +84,9 @@ class Device(Base):
     department: Mapped[str] = mapped_column(String(200), default="")
     #: 备注
     note: Mapped[str] = mapped_column(String(500), default="")
+    #: 这台电脑每天的 token 上限。None 跟全局配额走；0 不限制；大于 0 用这个数
+    #: （事情多的人单独调高，基本不用的调低）
+    daily_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
 
 class Setting(Base):

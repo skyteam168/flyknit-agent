@@ -227,6 +227,9 @@ python -m scripts.setup_quota --daily 0          # 不限制（默认）
 python -m scripts.setup_quota                    # 看配额 + 各电脑用量排行
 ```
 
+这是全局默认。事情多的人可以单独调高、基本不用的调低：在管理后台「配额与用量」的列表里点某台电脑的「每日上限」，
+选跟全局 / 单独设置 / 不限制，改完立即生效。
+
 超额后网关直接拒绝（不会白白消耗上游额度），员工界面上会提示联系 IT，默认显示
 `jamesyang@shenzhougroup.com` 和分机 `7815`，要改用 `--email` / `--phone`。
 
