@@ -14,10 +14,15 @@ public sealed class ContextOptions
     public int ReserveOutputTokens { get; init; } = 8192;
 
     /// <summary>超过预算的这个比例时，先裁剪较早的工具输出（微压缩）。</summary>
-    public double PruneRatio { get; init; } = 0.5;
+    public double PruneRatio { get; init; } = 0.35;
 
     /// <summary>超过预算的这个比例时，把较早的对话压缩成摘要（自动压缩）。</summary>
-    public double CompactRatio { get; init; } = 0.75;
+    /// <remarks>
+    /// 参照 Cursor/Claude Code 的设计，200K 上下文在约 187K 时触发（约 93%）。
+    /// 但对于 128K 上下文，如果等到 75% 才压缩（~92K tokens），用户很难看到压缩动画。
+    /// 降低到 50% 可以让压缩更早发生，同时后台 Session Memory 会提前准备好摘要。
+    /// </remarks>
+    public double CompactRatio { get; init; } = 0.50;
 
     /// <summary>压缩时保留原文的最近内容占预算的比例。</summary>
     public double KeepRecentRatio { get; init; } = 0.25;
@@ -51,6 +56,13 @@ public sealed class CompactionInfo
 /// 1. 微压缩：上下文超过预算一半时，较早的大段工具输出只保留开头，需要时让模型重新读取；
 /// 2. 自动压缩：超过 75% 时，用模型把较早的对话整理成结构化摘要，最近几轮保留原文；
 /// 3. 兜底：摘要失败时更激进地裁剪工具输出，保证请求不超长。
+/// 
+/// 优化：后台渐进式 Session Memory
+/// - Session Memory Agent 在后台异步更新摘要，不影响主 Context
+/// - 首次建立：对话达到 10K tokens 后
+/// - 后续更新：距上次提取新增约 5K tokens
+/// - Compact 时优先使用已有的 Session Memory，减少等待
+/// 
 /// 摘要放在系统提示词末尾（部分模型只接受一条开头的 system 消息）。
 /// </summary>
 public sealed class ContextManager
@@ -58,9 +70,13 @@ public sealed class ContextManager
     private readonly IChatGateway _gateway;
     private readonly ContextOptions _options;
     private readonly string _baseSystemPrompt;
+    private readonly SessionMemoryAgent? _sessionMemory;
 
     /// <summary>当前生效的摘要（之前的对话压缩结果）。</summary>
     public string? Summary { get; private set; }
+
+    /// <summary>Session Memory Agent（后台渐进式维护摘要）。</summary>
+    public SessionMemoryAgent? SessionMemory => _sessionMemory;
 
     /// <summary>模型上下文长度，收到服务端响应后更新。</summary>
     public int ContextLength { get; set; }
@@ -77,13 +93,30 @@ public sealed class ContextManager
     /// <summary>压缩过程中的进度（界面上的进度条）。</summary>
     public event Action<CompactionProgress>? Progress;
 
-    public ContextManager(IChatGateway gateway, string baseSystemPrompt, string? existingSummary = null, int contextLength = 0, ContextOptions? options = null)
+    /// <param name="enableSessionMemory">是否启用后台 Session Memory（渐进式更新）。</param>
+    /// <param name="sessionMemoryState">已有的 Session Memory 状态（从上次会话恢复）。</param>
+    public ContextManager(IChatGateway gateway, string baseSystemPrompt, string? existingSummary = null, int contextLength = 0, 
+        ContextOptions? options = null, bool enableSessionMemory = true, SessionMemoryState? sessionMemoryState = null)
     {
         _gateway = gateway;
         _options = options ?? new ContextOptions();
         _baseSystemPrompt = baseSystemPrompt;
         Summary = string.IsNullOrWhiteSpace(existingSummary) ? null : existingSummary;
         ContextLength = contextLength;
+
+        if (enableSessionMemory)
+        {
+            _sessionMemory = new SessionMemoryAgent(gateway);
+            if (sessionMemoryState is not null)
+            {
+                _sessionMemory.LoadState(sessionMemoryState);
+                // 如果有已初始化的 Session Memory，使用它的摘要
+                if (sessionMemoryState.Initialized && !string.IsNullOrWhiteSpace(sessionMemoryState.Summary))
+                {
+                    Summary ??= sessionMemoryState.Summary;
+                }
+            }
+        }
     }
 
     public int Budget => Math.Max(4096, (ContextLength > 0 ? ContextLength : _options.DefaultContextLength) - _options.ReserveOutputTokens);
@@ -138,6 +171,10 @@ public sealed class ContextManager
     public async Task<CompactionInfo?> PrepareAsync(List<ChatMessage> history, CancellationToken ct)
     {
         var before = Measure(history);
+
+        // 后台 Session Memory：检查是否需要触发更新（不阻塞主流程）
+        _sessionMemory?.CheckAndTrigger(history, before);
+
         if (before <= Budget * _options.PruneRatio)
         {
             return null;
@@ -235,7 +272,37 @@ public sealed class ContextManager
         }
 
         Progress?.Invoke(new CompactionProgress("scanning", 5, old.Count));
-        var summary = await SummarizeAsync(old, ct);
+
+        // 优先使用后台 Session Memory（如果已经准备好且覆盖了足够的内容）
+        string? summary = null;
+        var sessionState = _sessionMemory?.State;
+        if (sessionState?.Initialized == true && !string.IsNullOrWhiteSpace(sessionState.Summary))
+        {
+            // 检查 Session Memory 是否覆盖了要压缩的部分
+            var lastSummarizedIdx = old.FindIndex(m => m.Id == sessionState.LastSummarizedMessageId);
+            if (lastSummarizedIdx >= old.Count * 0.5) // 至少覆盖了一半
+            {
+                Progress?.Invoke(new CompactionProgress("summarizing", 50, old.Count));
+                summary = sessionState.Summary;
+                // 只需要补充 Session Memory 之后的部分
+                var remaining = old.Skip(lastSummarizedIdx + 1).ToList();
+                if (remaining.Count > 0)
+                {
+                    var additionalSummary = await SummarizeAsync(remaining, ct);
+                    if (!string.IsNullOrWhiteSpace(additionalSummary))
+                    {
+                        summary += "\n\n【后续进展】\n" + additionalSummary.Trim();
+                    }
+                }
+            }
+        }
+
+        // 没有可用的 Session Memory，同步生成摘要
+        if (string.IsNullOrWhiteSpace(summary))
+        {
+            summary = await SummarizeAsync(old, ct);
+        }
+
         if (string.IsNullOrWhiteSpace(summary))
         {
             Progress?.Invoke(new CompactionProgress("done", 100, 0));

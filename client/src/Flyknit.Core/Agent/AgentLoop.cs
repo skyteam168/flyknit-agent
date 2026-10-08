@@ -21,6 +21,12 @@ public sealed class AgentLoop
     /// <summary>用户授权过的操作（同样的命令确认一次后不再询问）。由宿主提供并持久化，跨对话、跨重启有效。</summary>
     private readonly ApprovalStore _approvals;
 
+    /// <summary>
+    /// 会话级临时授权：本次任务内同类操作不再询问。
+    /// Key 格式："{tool}:{pattern}" 例如 "run_shell:python" 或 "run_shell:npm"
+    /// </summary>
+    private readonly HashSet<string> _sessionApprovals = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>本轮已经报过的产出文件，避免同一个文件反复出现在界面上。</summary>
     private readonly HashSet<string> _outputs = new(StringComparer.OrdinalIgnoreCase);
 
@@ -562,10 +568,15 @@ public sealed class AgentLoop
             var decisionText = "auto";
             if (decision.Level == RiskLevel.Confirm)
             {
-                // 规则只能放行「安全的那一类」：高危和认不出内容的命令拿不到 Rule，永远走人工确认
+                // 1. 检查持久化规则
                 if (_approvals.IsAllowed(decision.Rule))
                 {
                     decisionText = "remembered";
+                }
+                // 2. 检查会话级临时授权（本次任务内同类操作）
+                else if (IsSessionApproved(call.Name, summary))
+                {
+                    decisionText = "session";
                 }
                 else
                 {
@@ -588,9 +599,15 @@ public sealed class AgentLoop
                         AppendTool(call, rejected.Output);
                         return true;
                     }
-                    if ((choice is ConfirmChoice.AllowAlways or ConfirmChoice.AllowForConversation) && decision.Rule is not null)
+                    // 3. 处理持久化规则（AllowAlways）
+                    if (choice == ConfirmChoice.AllowAlways && decision.Rule is not null)
                     {
                         _approvals.Add(decision.Rule);
+                    }
+                    // 4. 处理会话级临时授权（AllowForSession）
+                    else if (choice == ConfirmChoice.AllowForSession)
+                    {
+                        AddSessionApproval(call.Name, summary);
                     }
                     decisionText = "approved";
                 }
@@ -658,6 +675,38 @@ public sealed class AgentLoop
             }
             AppendTool(call, text);
             return result.Ok;
+        }
+
+        // 会话级授权的辅助函数（本地函数，不需要访问修饰符）
+        string SessionApprovalKey(string toolName, string summary)
+        {
+            var prefix = ExtractCommandPrefix(summary);
+            return $"{toolName}:{prefix}".ToLowerInvariant();
+        }
+
+        string ExtractCommandPrefix(string summary)
+        {
+            if (string.IsNullOrWhiteSpace(summary)) return "*";
+            var parts = summary.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return "*";
+            var exe = Path.GetFileNameWithoutExtension(parts[0].Trim('"', '\''));
+            if (parts.Length > 1 && exe is "npm" or "pip" or "git" or "dotnet" or "docker" or "yarn" or "pnpm")
+            {
+                return $"{exe} {parts[1]}";
+            }
+            return exe;
+        }
+
+        bool IsSessionApproved(string toolName, string summary)
+        {
+            var key = SessionApprovalKey(toolName, summary);
+            return _sessionApprovals.Contains(key);
+        }
+
+        void AddSessionApproval(string toolName, string summary)
+        {
+            var key = SessionApprovalKey(toolName, summary);
+            _sessionApprovals.Add(key);
         }
     }
 }

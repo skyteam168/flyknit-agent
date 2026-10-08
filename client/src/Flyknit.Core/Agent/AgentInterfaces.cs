@@ -10,13 +10,17 @@ public enum ConfirmChoice
     /// <summary>只允许这一次。</summary>
     AllowOnce,
 
-    /// <summary>旧版选项，等同于 AllowAlways。</summary>
-    AllowForConversation,
+    /// <summary>本次任务内同类操作不再询问（会话级临时授权，任务结束后失效）。</summary>
+    AllowForSession,
 
-    /// <summary>允许，并且以后完全相同的操作不再询问。</summary>
+    /// <summary>允许，并且以后完全相同的操作不再询问（持久化规则）。</summary>
     AllowAlways,
 
     Reject,
+
+    /// <summary>旧版选项，等同于 AllowAlways。用于兼容旧 UI。</summary>
+    [Obsolete("Use AllowAlways instead")]
+    AllowForConversation = AllowAlways,
 }
 
 public sealed class ConfirmRequest

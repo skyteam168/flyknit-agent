@@ -113,10 +113,11 @@ public static class CommandAnalyzer
         "add-appxpackage", "remove-appxpackage", "dism", "sfc",
     };
 
-    // 带子命令才算高危的程序
+    // 带子命令才算高危的程序（只保留真正危险的：会丢数据、破坏历史、改系统）
     private static readonly Dictionary<string, HashSet<string>> DestructiveSubCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["git"] = new(StringComparer.OrdinalIgnoreCase) { "reset", "clean", "rebase", "push", "rm", "filter-branch", "gc", "prune", "restore", "checkout", "switch", "stash" },
+        // git: 只有会丢失本地修改或破坏历史的才算高危
+        ["git"] = new(StringComparer.OrdinalIgnoreCase) { "reset", "clean", "filter-branch", "gc", "prune", "rm" },
         ["npm"] = new(StringComparer.OrdinalIgnoreCase) { "uninstall", "publish", "unpublish", "link", "adduser", "login" },
         ["pip"] = new(StringComparer.OrdinalIgnoreCase) { "uninstall" },
         ["docker"] = new(StringComparer.OrdinalIgnoreCase) { "rm", "rmi", "prune", "kill", "stop", "system" },
@@ -136,7 +137,8 @@ public static class CommandAnalyzer
 
     private static readonly Dictionary<string, HashSet<string>> WriteSubCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["git"] = new(StringComparer.OrdinalIgnoreCase) { "add", "commit", "init", "clone", "fetch", "pull", "merge", "apply", "cherry-pick" },
+        // git: push/checkout/switch/stash/rebase 等日常操作放到 Write，确认一次后可生成规则
+        ["git"] = new(StringComparer.OrdinalIgnoreCase) { "add", "commit", "init", "clone", "fetch", "pull", "merge", "apply", "cherry-pick", "push", "checkout", "switch", "stash", "rebase", "restore" },
         ["npm"] = new(StringComparer.OrdinalIgnoreCase) { "install", "i", "ci", "run", "run-script", "build", "test", "start", "exec" },
         ["pip"] = new(StringComparer.OrdinalIgnoreCase) { "install", "download", "wheel" },
         ["dotnet"] = new(StringComparer.OrdinalIgnoreCase) { "build", "restore", "publish", "test", "run", "new", "pack", "clean" },

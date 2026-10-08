@@ -48,11 +48,50 @@ const ready = ref(false)
 const initError = ref('')
 const reload = () => window.location.reload()
 
+// 侧边栏宽度调整
+const SIDEBAR_MIN = 240
+const SIDEBAR_MAX = 330
+const SIDEBAR_DEFAULT = 272
+const sidebarWidth = ref(parseInt(localStorage.getItem('flyknit-sidebar-w') || String(SIDEBAR_DEFAULT)))
+const resizingSidebar = ref(false)
+
+function startSidebarResize(e: MouseEvent) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  resizingSidebar.value = true
+  document.addEventListener('mousemove', onSidebarResize)
+  document.addEventListener('mouseup', stopSidebarResize)
+}
+function onSidebarResize(e: MouseEvent) {
+  if (!resizingSidebar.value) return
+  const newWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX))
+  sidebarWidth.value = newWidth
+}
+function stopSidebarResize() {
+  resizingSidebar.value = false
+  document.removeEventListener('mousemove', onSidebarResize)
+  document.removeEventListener('mouseup', stopSidebarResize)
+  localStorage.setItem('flyknit-sidebar-w', String(sidebarWidth.value))
+}
+
 /** 窄窗口（迷你模式）：侧栏改为抽屉 */
 const narrow = computed(() => width.value < 760)
 const showPlan = computed(() => width.value >= 1100 && (currentState.value?.plan.length ?? 0) > 0)
 /** 有当前对话时显示对话视图，否则显示新任务首页 */
 const inConversation = computed(() => current.value !== null)
+
+/** 
+ * 响应式布局：当预览区域打开且聊天区域太窄时，自动收起侧边栏
+ * 聊天区域最小宽度 = 400px，低于此值自动收起侧边栏
+ */
+const CHAT_MIN_WIDTH = 400
+const autoCollapseSidebar = computed(() => {
+  if (narrow.value) return false // 窄窗口模式下不自动收起（已经是抽屉模式）
+  if (!state.preview) return false // 没有打开预览时不收起
+  // 计算聊天区域宽度 = 窗口宽度 - 侧边栏宽度 - 预览区域宽度
+  const chatWidth = width.value - sidebarWidth.value - state.previewWidth
+  return chatWidth < CHAT_MIN_WIDTH
+})
 
 /**
  * 把命令表里的 id 接到实际动作上。
@@ -108,8 +147,16 @@ function togglePreview() {
 }
 
 function toggleSidebar() {
-  if (narrow.value) drawer.value = !drawer.value
-  else sidebarHidden.value = !sidebarHidden.value
+  if (narrow.value) {
+    drawer.value = !drawer.value
+  } else {
+    // 如果侧边栏被自动收起（因为预览区域占用空间），点击展开时关闭预览区域
+    if (autoCollapseSidebar.value && !sidebarHidden.value) {
+      closePreview()
+    } else {
+      sidebarHidden.value = !sidebarHidden.value
+    }
+  }
 }
 
 /** 连接器详情里点了「试试这样用」的例子：放进输入框，用户看一眼再发 */
@@ -197,10 +244,22 @@ onBeforeUnmount(() => {
     @drop="onDrop"
   >
     <div v-if="narrow && drawer" class="drawer-scrim" @click="drawer = false" />
-    <Sidebar v-show="narrow ? drawer : !sidebarHidden" class="side" :class="{ drawer: narrow }" @navigate="drawer = false" />
+    <Sidebar
+      v-show="narrow ? drawer : !sidebarHidden && !autoCollapseSidebar"
+      class="side"
+      :class="{ drawer: narrow }"
+      :style="narrow ? undefined : { width: sidebarWidth + 'px' }"
+      @navigate="drawer = false"
+    />
+    <div
+      v-if="!narrow && !sidebarHidden && !autoCollapseSidebar"
+      class="sidebar-resizer"
+      :class="{ active: resizingSidebar }"
+      @mousedown="startSidebarResize"
+    />
 
     <main class="main">
-      <TopBar :narrow="narrow" :sidebar-hidden="narrow || sidebarHidden" @toggle-sidebar="toggleSidebar" />
+      <TopBar :narrow="narrow" :sidebar-hidden="narrow || sidebarHidden || autoCollapseSidebar" @toggle-sidebar="toggleSidebar" />
       <UpdateBar class="update" />
       <div class="body">
         <LibraryPage v-if="state.view === 'library'" />
@@ -291,6 +350,28 @@ onBeforeUnmount(() => {
 .side {
   width: var(--sidebar-w);
   flex: none;
+}
+.sidebar-resizer {
+  position: relative;
+  flex: none;
+  width: 4px;
+  margin-left: -2px;
+  cursor: col-resize;
+  z-index: 10;
+}
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 1px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer.active::after {
+  background: var(--indigo);
 }
 .side.drawer {
   position: absolute;

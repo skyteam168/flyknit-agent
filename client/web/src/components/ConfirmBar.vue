@@ -20,7 +20,10 @@ const effect = computed(() => tool.value?.confirm?.effect ?? 'unknown')
 const danger = computed(() => effect.value === 'destructive')
 const ruleDisplay = computed(() => tool.value?.confirm?.ruleDisplay ?? '')
 
-function answer(choice: 'allowOnce' | 'allowAlways' | 'reject') {
+// 是否可以使用会话级授权（非高危命令都可以）
+const canSessionApprove = computed(() => effect.value !== 'destructive')
+
+function answer(choice: 'allowOnce' | 'allowForSession' | 'allowAlways' | 'reject') {
   if (tool.value && current.value) void answerConfirm(current.value.id, tool.value.callId, choice)
 }
 </script>
@@ -42,12 +45,16 @@ function answer(choice: 'allowOnce' | 'allowAlways' | 'reject') {
       <button type="button" class="btn primary" @click="answer('allowOnce')">
         <Check :size="15" /> {{ t('tool.allowOnce') }}
       </button>
+      <button v-if="canSessionApprove" type="button" class="btn" @click="answer('allowForSession')">
+        {{ t('tool.allowForSession') }}
+      </button>
       <button v-if="tool.confirm.rememberable" type="button" class="btn" @click="answer('allowAlways')">
         {{ t('tool.allowAlways') }}
       </button>
       <button type="button" class="btn" @click="answer('reject')"><X :size="15" /> {{ t('tool.reject') }}</button>
     </div>
-    <p v-if="tool.confirm.rememberable && ruleDisplay" class="note">{{ t('tool.ruleNote', { rule: ruleDisplay }) }}</p>
+    <p v-if="canSessionApprove && !tool.confirm.rememberable" class="note">{{ t('tool.sessionNote') }}</p>
+    <p v-else-if="tool.confirm.rememberable && ruleDisplay" class="note">{{ t('tool.ruleNote', { rule: ruleDisplay }) }}</p>
     <p v-else-if="danger" class="note">{{ t('tool.dangerNote') }}</p>
   </div>
 </template>

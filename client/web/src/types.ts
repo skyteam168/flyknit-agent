@@ -643,7 +643,7 @@ export interface ConfirmPrompt {
   effect?: string
 }
 
-export type ConfirmChoice = 'allowOnce' | 'allowAlways' | 'reject'
+export type ConfirmChoice = 'allowOnce' | 'allowForSession' | 'allowAlways' | 'reject'
 
 // ---------- 宿主推送的事件 ----------
 export type HostEvent =

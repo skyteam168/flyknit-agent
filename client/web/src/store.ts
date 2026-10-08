@@ -179,7 +179,8 @@ export function openTrace(json: string | null | undefined) {
 
 const PreviewWidthKey = 'flyknit.previewWidth'
 export const MinPreviewWidth = 320
-export const MaxPreviewRatio = 0.72
+export const MaxPreviewWidth = 680
+export const MaxPreviewRatio = 0.50
 
 function readPreviewWidth(): number {
   try {
@@ -188,11 +189,12 @@ function readPreviewWidth(): number {
   } catch {
     // 隐私模式下读不到，用默认值就好
   }
-  return 520
+  return 480
 }
 
 export function setPreviewWidth(px: number) {
-  const max = Math.max(MinPreviewWidth, window.innerWidth * MaxPreviewRatio)
+  // 取窗口比例和绝对最大值中较小的一个
+  const max = Math.min(MaxPreviewWidth, Math.max(MinPreviewWidth, window.innerWidth * MaxPreviewRatio))
   state.previewWidth = Math.round(Math.min(Math.max(px, MinPreviewWidth), max))
   try {
     localStorage.setItem(PreviewWidthKey, String(state.previewWidth))

@@ -168,23 +168,23 @@ const close = () => (state.memoryOpen = false)
 
       <!-- 记忆指标：注入量、利用率、新鲜度 -->
       <dl v-if="metrics && metrics.active" class="metrics">
-        <div :title="t('ui.memory.metrics.injectHint', { days: metrics.days, answers: metrics.answers, max: metrics.maxTokens }) + ' ' + t(metrics.semantic ? 'ui.memory.metrics.semanticOn' : 'ui.memory.metrics.semanticOff')">
+        <div :data-tip="t('ui.memory.metrics.injectHint', { days: metrics.days, answers: metrics.answers, max: metrics.maxTokens }) + ' ' + t(metrics.semantic ? 'ui.memory.metrics.semanticOn' : 'ui.memory.metrics.semanticOff')">
           <dt>{{ t('ui.memory.metrics.inject') }}</dt>
           <dd>{{ t('ui.memory.metrics.injectValue', { items: metrics.avgItems, tokens: metrics.avgTokens }) }}</dd>
         </div>
-        <div :title="t('ui.memory.metrics.usageHint', { days: metrics.days, never: metrics.neverUsed, liked: metrics.liked, disliked: metrics.disliked })">
+        <div :data-tip="t('ui.memory.metrics.usageHint', { days: metrics.days, never: metrics.neverUsed, liked: metrics.liked, disliked: metrics.disliked })">
           <dt>{{ t('ui.memory.metrics.usage') }}</dt>
           <dd>{{ pct(metrics.usedShare) }}<small>{{ metrics.usedRecently }}/{{ metrics.active }}</small></dd>
         </div>
-        <div :title="t('ui.memory.metrics.freshHint', { fresh90: metrics.fresh90, median: metrics.medianAgeDays })">
+        <div :data-tip="t('ui.memory.metrics.freshHint', { fresh90: metrics.fresh90, median: metrics.medianAgeDays })">
           <dt>{{ t('ui.memory.metrics.fresh') }}</dt>
           <dd>{{ metrics.fresh30 }}/{{ metrics.active }}<small>{{ metrics.expired ? t('ui.memory.metrics.expired', { n: metrics.expired }) : t('ui.memory.metrics.stale', { n: metrics.stale }) }}</small></dd>
         </div>
-        <div v-if="metrics.runs?.total" :title="t('ui.memory.metrics.runsHint', { ...metrics.runs, days: metrics.days })">
+        <div v-if="metrics.runs?.total" :data-tip="t('ui.memory.metrics.runsHint', { ...metrics.runs, days: metrics.days })">
           <dt>{{ t('ui.memory.metrics.runs') }}</dt>
           <dd>{{ pct(metrics.runs.completionRate) }}<small>{{ t('ui.memory.metrics.runsValue', { n: metrics.runs.total, steps: metrics.runs.avgSteps }) }}</small></dd>
         </div>
-        <div :title="t('ui.memory.metrics.reuseHint', { recent: metrics.episodesRecent, active: metrics.skillsActive, candidate: metrics.skillsCandidate, retired: metrics.skillsRetired })">
+        <div :data-tip="t('ui.memory.metrics.reuseHint', { recent: metrics.episodesRecent, active: metrics.skillsActive, candidate: metrics.skillsCandidate, retired: metrics.skillsRetired })">
           <dt>{{ t('ui.memory.metrics.reuse') }}</dt>
           <dd>{{ metrics.episodesReused }}/{{ metrics.episodes }}</dd>
         </div>
@@ -523,11 +523,38 @@ h2 {
   margin: 0 0 12px;
 }
 .metrics div {
+  position: relative;
   min-width: 0;
   padding: 8px 10px;
   border-radius: var(--r-md);
   background: var(--cloth-sunk);
   cursor: default;
+}
+/* 自定义 tooltip：限制最大宽度，自动换行，向下显示 */
+.metrics div[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 100;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--ink);
+  color: var(--loom);
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.5;
+  white-space: normal;
+  word-wrap: break-word;
+  text-align: left;
+  box-shadow: var(--shadow-pop);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.metrics div[data-tip]:hover::after {
+  opacity: 1;
 }
 .metrics dt {
   color: var(--ink-faint);

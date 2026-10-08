@@ -20,7 +20,7 @@ const label = computed(() => {
 <template>
   <div v-if="info" class="compacting" role="status" aria-live="polite">
     <div class="line">
-      <Archive :size="15" />
+      <Archive :size="13" />
       <span>{{ label }}</span>
       <span class="pct">{{ info.percent }}%</span>
     </div>
@@ -32,37 +32,41 @@ const label = computed(() => {
 
 <style scoped>
 .compacting {
-  max-width: var(--column);
-  margin: 10px auto;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--cloth-soft, var(--cloth));
+  width: 220px;
+  margin: 12px auto;
+  padding: 8px 12px;
+  border-radius: var(--r-md, 8px);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 .line {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  font-size: calc(13px * var(--font-scale));
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--ink-soft);
 }
 .line span:first-of-type {
   flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pct {
+  font-size: calc(11px * var(--font-scale, 1));
   font-variant-numeric: tabular-nums;
+  opacity: 0.7;
 }
 .track {
-  margin-top: 8px;
-  height: 4px;
+  margin-top: 6px;
+  height: 3px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
   overflow: hidden;
 }
 .fill {
   height: 100%;
   border-radius: 999px;
   background: var(--indigo);
-  transition: width 0.25s ease-out;
+  transition: width 0.2s ease-out;
 }
 </style>

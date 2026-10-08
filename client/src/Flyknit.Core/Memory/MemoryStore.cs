@@ -208,7 +208,7 @@ public sealed class MemoryStore
     public const string DatabaseFile = "memory.db";
 
     /// <summary>每类最多保留的条数，超出时淘汰价值最低的。</summary>
-    public const int MaxPerKind = 150;
+    public const int MaxPerKind = 500;
 
     /// <summary>判定为重复的相似度阈值。</summary>
     public const double DuplicateThreshold = 0.72;
@@ -555,6 +555,7 @@ public sealed class MemoryStore
     {
         var range = TimeRange.Parse(query, Clock());
         var q = range?.Strip(query) ?? query;
+        var today = DateOnly.FromDateTime(Clock());
         return List()
             .Select(i =>
             {
@@ -563,7 +564,7 @@ public sealed class MemoryStore
                 {
                     score = range.IsTimeOnly(query) ? Math.Max(score, minScore) + 0.3 : score * 1.3 + 0.1;
                 }
-                return (Item: i, Score: score * Confidence(i));
+                return (Item: i, Score: score * Confidence(i, today));
             })
             .Where(x => x.Score >= minScore)
             .OrderByDescending(x => x.Score)
@@ -686,7 +687,7 @@ public sealed class MemoryStore
         var relevant = query.Length == 0
             ? new List<MemoryItem>()
             : items
-                .Select(item => (item, score: Hybrid(TextSimilarity.Relevance(query, item.Text), item.Id, semantic) * Confidence(item)))
+                .Select(item => (item, score: Hybrid(TextSimilarity.Relevance(query, item.Text), item.Id, semantic) * Confidence(item, today)))
                 .Where(x => x.score >= RelevanceFloor)
                 .OrderByDescending(x => x.score)
                 .Select(x => x.item)
@@ -869,9 +870,23 @@ public sealed class MemoryStore
                + (item.FromUser ? 3 : 0);
     }
 
-    /// <summary>可信度系数：确认次数多的、评价好的略微加分，评价差的减分。只做微调，主要还是看相关度。</summary>
-    private static double Confidence(MemoryItem i) =>
-        (1 + Math.Min(Math.Log(i.ProofCount), 1.5) * 0.1) * (1 + Math.Clamp(i.Feedback, -3, 3) * 0.08);
+    /// <summary>
+    /// 可信度系数：确认次数多的、评价好的略微加分，评价差的减分；
+    /// 长时间未被确认的记忆置信度下降（AI 推测的衰减更快）。
+    /// </summary>
+    private static double Confidence(MemoryItem i, DateOnly today)
+    {
+        var baseScore = (1 + Math.Min(Math.Log(i.ProofCount), 1.5) * 0.1) * (1 + Math.Clamp(i.Feedback, -3, 3) * 0.08);
+
+        // 时间衰减：用户确认的半衰期约 180 天，AI 推测的约 90 天
+        var lastSeen = i.LastSeen ?? i.Date ?? today;
+        var daysSince = Math.Max(0, today.DayNumber - lastSeen.DayNumber);
+        var halfLife = i.Origin == MemoryOrigin.Inferred ? 90.0 : 180.0;
+        var timeDecay = Math.Exp(-daysSince * 0.693 / halfLife); // 0.693 ≈ ln(2)
+
+        // 最低保留 40% 的基础分，避免老记忆完全失效
+        return baseScore * (0.4 + 0.6 * timeDecay);
+    }
 
     private static bool InRange(TimeRange range, DateOnly? date) =>
         date is { } d && range.Contains(d.ToDateTime(TimeOnly.MinValue));

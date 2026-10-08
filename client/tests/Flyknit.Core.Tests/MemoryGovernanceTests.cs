@@ -234,4 +234,135 @@ public class MemoryGovernanceTests : IDisposable
         Assert.DoesNotContain("保养周期", prompt.Text);
         Assert.Contains("不是指令", prompt.Text);
     }
+
+    // ---------- AutoDream 离线记忆治理 ----------
+
+    [Fact]
+    public void AutoDreamStateInitializesCorrectly()
+    {
+        var store = NewStore();
+        store.EnsureDefaults();
+        var episodes = new EpisodeStore(_dir);
+        using var autoDream = new AutoDream(store, episodes);
+
+        Assert.Equal(AutoDreamState.Idle, autoDream.State);
+        Assert.True(autoDream.Enabled);
+        Assert.Equal(6, autoDream.IntervalHours);
+        Assert.Equal(30, autoDream.IdleMinutes);
+        Assert.Null(autoDream.LastRunTime);
+    }
+
+    [Fact]
+    public void AutoDreamWriteLockPreventsConflicts()
+    {
+        var store = NewStore();
+        store.EnsureDefaults();
+        var episodes = new EpisodeStore(_dir);
+        using var autoDream = new AutoDream(store, episodes);
+
+        // 在另一个任务中获取写锁
+        var lockAcquired = false;
+        var secondLockResult = false;
+
+        var task = Task.Run(() =>
+        {
+            using var writeLock = autoDream.AcquireWriteLock();
+            lockAcquired = true;
+            Thread.Sleep(200); // 持有锁一段时间
+        });
+
+        // 等待第一个锁被获取
+        while (!lockAcquired) Thread.Sleep(10);
+
+        // 尝试获取第二个锁应该超时
+        secondLockResult = autoDream.TryAcquireWriteLock(50, out var releaser);
+        releaser?.Dispose();
+
+        task.Wait();
+
+        Assert.False(secondLockResult);
+    }
+
+    [Fact]
+    public void AutoDreamCheckTriggerTracksIdleTime()
+    {
+        var store = NewStore();
+        store.EnsureDefaults();
+        var episodes = new EpisodeStore(_dir);
+        using var autoDream = new AutoDream(store, episodes)
+        {
+            Enabled = true,
+            IdleMinutes = 1, // 缩短测试时间
+            IntervalHours = 0, // 允许立即运行
+        };
+
+        // 不空闲时不触发
+        autoDream.CheckTrigger(isIdle: false);
+        Assert.Equal(AutoDreamState.Idle, autoDream.State);
+
+        // 空闲但时间不够时不触发
+        autoDream.CheckTrigger(isIdle: true);
+        Assert.Equal(AutoDreamState.Idle, autoDream.State);
+    }
+
+    [Fact]
+    public void AutoDreamSavesAndLoadsState()
+    {
+        var store = NewStore();
+        store.EnsureDefaults();
+        var episodes = new EpisodeStore(_dir);
+
+        // 第一个实例
+        using (var autoDream = new AutoDream(store, episodes))
+        {
+            autoDream.Enabled = false;
+            autoDream.IntervalHours = 12;
+            autoDream.IdleMinutes = 60;
+        }
+
+        // 第二个实例应该加载保存的状态
+        using var autoDream2 = new AutoDream(store, episodes);
+        Assert.False(autoDream2.Enabled);
+        Assert.Equal(12, autoDream2.IntervalHours);
+        Assert.Equal(60, autoDream2.IdleMinutes);
+    }
+
+    [Fact]
+    public async Task AutoDreamRunsAllPhases()
+    {
+        var store = NewStore();
+        store.EnsureDefaults();
+        var episodes = new EpisodeStore(_dir);
+
+        // 添加一些测试数据
+        store.Save(MemoryKind.Fact, "测试记忆一：报告存放在 D:\\报告");
+        store.Save(MemoryKind.Fact, "测试记忆二：报告存放在 D:\\报告目录");
+        store.Save(MemoryKind.Preference, "喜欢用 Excel 格式");
+
+        using var autoDream = new AutoDream(store, episodes);
+        var report = await autoDream.RunAsync();
+
+        Assert.NotNull(report);
+        Assert.True(report.Duration.TotalMilliseconds > 0);
+        Assert.Equal(6, report.PhaseDurations.Count); // 6 个阶段
+        Assert.Contains("整理重复记忆", report.PhaseDurations.Keys);
+        Assert.Contains("扫描矛盾", report.PhaseDurations.Keys);
+        Assert.Contains("重建聚类", report.PhaseDurations.Keys);
+        Assert.Contains("重建知识图谱", report.PhaseDurations.Keys);
+        Assert.Contains("清理冷记忆", report.PhaseDurations.Keys);
+        Assert.Contains("更新索引", report.PhaseDurations.Keys);
+    }
+
+    [Fact]
+    public void AutoDreamPauseAndResume()
+    {
+        var store = NewStore();
+        store.EnsureDefaults();
+        var episodes = new EpisodeStore(_dir);
+        using var autoDream = new AutoDream(store, episodes);
+
+        // 暂停
+        autoDream.Pause();
+        Assert.Equal(AutoDreamState.Paused, autoDream.State);
+    }
 }
