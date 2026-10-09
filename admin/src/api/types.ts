@@ -448,3 +448,17 @@ export interface EnrollmentTicket {
   uses: number
   last_used_at: string | null
 }
+
+export type LegalKind = 'terms' | 'privacy'
+
+/** 用户协议 / 隐私政策（Markdown） */
+export interface LegalDoc {
+  kind: LegalKind
+  title: string
+  content: string
+  version: string
+  updated_at: string | null
+  updated_by: string
+  /** 改过（不是默认文本） */
+  customized: boolean
+}

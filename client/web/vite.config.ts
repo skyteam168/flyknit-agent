@@ -10,6 +10,13 @@ export default defineConfig({
     outDir: fileURLToPath(new URL('../src/Flyknit.Client/wwwroot', import.meta.url)),
     emptyOutDir: true,
     chunkSizeWarningLimit: 1500,
+    // 登录窗口单独一个页面：没登录时宿主还没有完整的 AgentHost，主界面跑不起来
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        login: fileURLToPath(new URL('./login.html', import.meta.url)),
+      },
+    },
   },
   server: { port: 5173 },
 })

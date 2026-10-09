@@ -53,6 +53,27 @@ public class ProvisioningTests : IDisposable
         Assert.Equal("new", Provisioning.Load(program, data)!.Ticket);
     }
 
+    [Theory]
+    [InlineData("SHENZHOU\\nguyen.van.a", "nguyen.van.a", "SHENZHOU", "Domain", "SHENZHOU\\nguyen.van.a")]
+    [InlineData(" worker ", "worker", ".", "Local", "PC-QC-01\\worker")]
+    [InlineData(".\\worker", "worker", ".", "Local", "PC-QC-01\\worker")]
+    [InlineData("pc-qc-01\\worker", "worker", ".", "Local", "PC-QC-01\\worker")]
+    [InlineData("nguyen@shenzhou.com", "nguyen@shenzhou.com", null, "Domain", "shenzhou.com\\nguyen")]
+    public void TypedAccountsAreHandedToWindowsCorrectly(string input, string logonUser, string? logonDomain, string kind, string display)
+    {
+        var parsed = AccountInput.Parse(input, "PC-QC-01")!;
+        Assert.Equal(logonUser, parsed.LogonUser);
+        Assert.Equal(logonDomain, parsed.LogonDomain);
+        Assert.Equal(kind, parsed.Account.Kind.ToString());
+        Assert.Equal(display, parsed.Account.Display);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("SHENZHOU\\")]
+    public void EmptyAccountsAreRejected(string input) => Assert.Null(AccountInput.Parse(input, "PC-QC-01"));
+
     [Fact]
     public void DomainAccountsAreThoseNotOwnedByThisMachine()
     {

@@ -37,10 +37,11 @@ async def package(client, headers, **body) -> dict:
         return {"names": names, "provision_name": provision_name, "provision": json.loads(z.read(provision_name))}
 
 
-def register(client, ticket, method="domain", **extra):
-    return client.post("/api/v1/devices/register", json={
+async def register(client, ticket, method="domain", **extra):
+    versions = (await client.get("/api/v1/legal")).json()["versions"]
+    return await client.post("/api/v1/devices/register", json={
         "ticket": ticket, "login_method": method, "machine_name": "PC-QC-01",
-        "user_name": "CORP\\nguyen.van.a", "domain": "CORP", **extra,
+        "user_name": "CORP\\nguyen.van.a", "domain": "CORP", "agreed_legal": versions, **extra,
     })
 
 

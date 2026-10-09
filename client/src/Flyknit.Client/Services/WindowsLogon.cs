@@ -27,18 +27,19 @@ public static class WindowsLogon
     private const int ErrorLogonTypeNotGranted = 1385;
 
     [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern bool LogonUser(string user, string domain, string password, int logonType, int provider, out IntPtr token);
+    private static extern bool LogonUser(string user, string? domain, string password, int logonType, int provider, out IntPtr token);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
 
-    public static (Result Result, string Message) Verify(string user, string password)
+    /// <param name="domain">本机账号传 "."；域账号传域名；UPN（user@corp.com）传 null。</param>
+    public static (Result Result, string Message) Verify(string user, string? domain, string password)
     {
-        var (ok, error) = TryLogon(user, password, Logon32LogonInteractive);
+        var (ok, error) = TryLogon(user, domain, password, Logon32LogonInteractive);
         if (!ok && error == ErrorLogonTypeNotGranted)
         {
             // 有的电脑策略不许“交互式登录”这种方式（比如共享机），换成网络登录再验一次，意思一样：密码对不对
-            (ok, error) = TryLogon(user, password, Logon32LogonNetwork);
+            (ok, error) = TryLogon(user, domain, password, Logon32LogonNetwork);
         }
         if (ok)
         {
@@ -53,9 +54,9 @@ public static class WindowsLogon
         };
     }
 
-    private static (bool Ok, int Error) TryLogon(string user, string password, int type)
+    private static (bool Ok, int Error) TryLogon(string user, string? domain, string password, int type)
     {
-        if (LogonUser(user, ".", password, type, Logon32ProviderDefault, out var token))
+        if (LogonUser(user, domain!, password, type, Logon32ProviderDefault, out var token))
         {
             CloseHandle(token);
             return (true, 0);

@@ -79,3 +79,37 @@ public sealed record WindowsAccount(string Domain, string User, string MachineNa
 
     public static WindowsAccount Current() => new(Environment.UserDomainName, Environment.UserName, Environment.MachineName);
 }
+
+/// <summary>登录界面「账号密码」里填的账号怎么交给 Windows 校验。</summary>
+public sealed record AccountInput(WindowsAccount Account, string LogonUser, string? LogonDomain)
+{
+    /// <summary>
+    /// 支持三种写法：DOMAIN\user（域账号，“.\user” 表示本机）、user@corp.com（UPN）、只写 user（本机账号）。
+    /// 填不出账号返回 null。
+    /// </summary>
+    public static AccountInput? Parse(string input, string machineName)
+    {
+        input = input.Trim();
+        var slash = input.IndexOf('\\');
+        if (slash >= 0)
+        {
+            var domain = input[..slash].Trim();
+            var user = input[(slash + 1)..].Trim();
+            if (user.Length == 0)
+            {
+                return null;
+            }
+            var local = domain.Length == 0 || domain == "." || domain.Equals(machineName, StringComparison.OrdinalIgnoreCase);
+            return local
+                ? new AccountInput(new WindowsAccount(machineName, user, machineName), user, ".")
+                : new AccountInput(new WindowsAccount(domain, user, machineName), user, domain);
+        }
+        var at = input.IndexOf('@');
+        if (at > 0 && at < input.Length - 1)
+        {
+            // UPN：交给 Windows 时域名传空，它自己按 @ 后面找域
+            return new AccountInput(new WindowsAccount(input[(at + 1)..], input[..at], machineName), input, null);
+        }
+        return input.Length == 0 ? null : new AccountInput(new WindowsAccount(machineName, input, machineName), input, ".");
+    }
+}

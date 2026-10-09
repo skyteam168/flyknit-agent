@@ -1,6 +1,8 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
 import type {
   EnrollmentTicket,
+  LegalDoc,
+  LegalKind,
   AdminUser,
   Release,
   AgentJob,
@@ -117,6 +119,11 @@ export const api = {
   downloadClientPackage: (server_url: string, label: string) =>
     downloadPost('/client-package', { server_url, label }, 'FlyknitBuddy.zip'),
   tickets: () => get<EnrollmentTicket[]>('/tickets'),
+
+  // 用户协议与隐私政策（员工端登录界面上显示）
+  legal: (kind: LegalKind) => get<LegalDoc>(`/legal/${kind}`),
+  saveLegal: (kind: LegalKind, content: string) => put<LegalDoc>(`/legal/${kind}`, { content }),
+  resetLegal: (kind: LegalKind) => del<LegalDoc>(`/legal/${kind}`),
   revokeTicket: (id: number) => post<EnrollmentTicket>(`/tickets/${id}/revoke`),
 
   // 语音

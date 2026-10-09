@@ -91,6 +91,9 @@ class Device(Base):
     login_method: Mapped[str] = mapped_column(String(20), default="")
     #: 用哪张安装凭证注册的（安装包里带的）。凭证被吊销不影响已注册的电脑
     ticket_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    #: 登录时同意的用户协议和隐私政策版本（terms@v;privacy@v）。老办法注册的为空
+    legal_agreed: Mapped[str] = mapped_column(String(200), default="")
+    legal_agreed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Setting(Base):

@@ -97,6 +97,8 @@ class DeviceRegisterIn(BaseModel):
     login_method: str = Field(default="", max_length=20)
     #: 域名（域账号登录时）
     domain: str = Field(default="", max_length=200)
+    #: 同意的协议版本，原样回传 GET /legal 给的 versions
+    agreed_legal: str = Field(default="", max_length=200)
     machine_name: str = Field(min_length=1, max_length=200)
     user_name: str = ""
     os_version: str = ""
@@ -121,6 +123,26 @@ class MachineInfoIn(BaseModel):
 class DeviceRegisterOut(BaseModel):
     device_id: int
     token: str
+
+
+class LegalDocOut(BaseModel):
+    kind: str
+    title: str
+    content: str
+    version: str
+    updated_at: str | None = None
+    updated_by: str = ""
+    customized: bool = False
+
+
+class LegalIndexOut(BaseModel):
+    #: 当前版本，登录时带回 agreed_legal
+    versions: str
+    docs: list[LegalDocOut]
+
+
+class LegalIn(BaseModel):
+    content: str = Field(min_length=20, max_length=100_000)
 
 
 class TicketIn(BaseModel):
@@ -164,6 +186,7 @@ class DeviceOut(BaseModel):
     note: str = ""
     #: domain / local / key：这台电脑是怎么登录注册的
     login_method: str = ""
+    legal_agreed: str = ""
 
 
 class DevicePatch(BaseModel):
