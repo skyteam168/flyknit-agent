@@ -125,7 +125,15 @@ export function upload<T>(path: string, form: FormData, onProgress?: (percent: n
 
 /** 下载文件（审计导出等），带上登录令牌 */
 export async function download(path: string, query: RequestOptions['query'], fallbackName: string) {
-  const resp = await request<Response>(path, { query, raw: true })
+  await save(await request<Response>(path, { query, raw: true }), fallbackName)
+}
+
+/** POST 之后下载返回的文件（比如生成员工端安装包） */
+export async function downloadPost(path: string, body: unknown, fallbackName: string) {
+  await save(await request<Response>(path, { method: 'POST', body, raw: true }), fallbackName)
+}
+
+async function save(resp: Response, fallbackName: string) {
   const blob = await resp.blob()
   const match = /filename="?([^"]+)"?/.exec(resp.headers.get('Content-Disposition') ?? '')
   const a = document.createElement('a')

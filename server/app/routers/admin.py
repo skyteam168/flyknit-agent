@@ -31,6 +31,8 @@ from ..models import (
     SkillPackage,
 )
 from ..schemas import (
+    LegalDocOut,
+    LegalIn,
     SCENES,
     AuditOut,
     DeviceOut,
@@ -57,7 +59,7 @@ from ..schemas import (
     SmbOut,
     SyncResult,
 )
-from ..services import config_events, security_settings, settings_store, skill_library, usage_store
+from ..services import config_events, legal_store, security_settings, settings_store, skill_library, usage_store
 from ..services.model_router import NON_CHAT_MODEL, Target, build_body, headers_for
 
 log = logging.getLogger("flyknit.admin")
@@ -719,3 +721,39 @@ async def clear_device_policy(
         await session.delete(row)
         await session.commit()
         config_events.bump()
+
+
+# ---------- 用户协议与隐私政策 ----------
+@router.get("/legal/{kind}", response_model=LegalDocOut)
+async def get_legal(kind: str, session: AsyncSession = Depends(get_session)):
+    if kind not in legal_store.KINDS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "没有这个文件")
+    return await legal_store.get(session, kind)
+
+
+@router.put("/legal/{kind}", response_model=LegalDocOut)
+async def put_legal(
+    kind: str,
+    data: LegalIn,
+    owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    """改协议。改完版本号就变了：之后登录的电脑要同意新版本，已登录的不受影响（能查到他们同意的是哪一版）。"""
+    if kind not in legal_store.KINDS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "没有这个文件")
+    who = owner.username if owner else "admin_token"
+    log.warning("%s 修改了%s", who, legal_store.KINDS[kind])
+    return await legal_store.save(session, kind, data.content, who)
+
+
+@router.delete("/legal/{kind}", response_model=LegalDocOut)
+async def reset_legal(
+    kind: str,
+    owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    """恢复默认文本。"""
+    if kind not in legal_store.KINDS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "没有这个文件")
+    log.warning("%s 把%s恢复为默认", owner.username if owner else "admin_token", legal_store.KINDS[kind])
+    return await legal_store.reset(session, kind)

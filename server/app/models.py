@@ -87,6 +87,13 @@ class Device(Base):
     #: 这台电脑每天的 token 上限。None 跟全局配额走；0 不限制；大于 0 用这个数
     #: （事情多的人单独调高，基本不用的调低）
     daily_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    #: 怎么登录的：domain（域账号，Windows 已验证）/ local（输入了本机账号密码）/ key（老办法：注册密钥）
+    login_method: Mapped[str] = mapped_column(String(20), default="")
+    #: 用哪张安装凭证注册的（安装包里带的）。凭证被吊销不影响已注册的电脑
+    ticket_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    #: 登录时同意的用户协议和隐私政策版本（terms@v;privacy@v）。老办法注册的为空
+    legal_agreed: Mapped[str] = mapped_column(String(200), default="")
+    legal_agreed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Setting(Base):
@@ -323,6 +330,28 @@ class ClientRelease(Base):
     published: Mapped[bool] = mapped_column(Boolean, default=False)
     uploaded_by: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EnrollmentTicket(Base):
+    """
+    安装凭证：IT 在后台下载员工端安装包时生成一张，写进包里的 flyknit.provision.json。
+    员工装完直接点「登录」，客户端拿它向服务端注册，不用再问员工服务器地址和注册密钥。
+
+    只存哈希。包泄露了就在后台吊销这一张：已经注册的电脑不受影响，用这个包新装的注册不上。
+    """
+
+    __tablename__ = "enrollment_tickets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    #: 写进包里的服务器地址（员工电脑访问服务端用的那个）
+    server_url: Mapped[str] = mapped_column(String(500), default="")
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    uses: Mapped[int] = mapped_column(Integer, default=0)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AgentJob(Base):

@@ -73,7 +73,7 @@ public partial class App : Application
 
         if (!_settings.IsRegistered)
         {
-            var setup = new SetupWindow(_settings);
+            var setup = new LoginWindow(_settings);
             if (setup.ShowDialog() != true)
             {
                 Shutdown();
@@ -511,7 +511,7 @@ public partial class App : Application
                 _settings.DeviceToken = "";
                 _settings.Save();
 
-                if (new SetupWindow(_settings).ShowDialog() == true)
+                if (new LoginWindow(_settings).ShowDialog() == true)
                 {
                     // 重启而不是热切换：换服务器时连接的基地址是构造时定的，
                     // 就地改要动一串状态，重启是确定正确的那条路。

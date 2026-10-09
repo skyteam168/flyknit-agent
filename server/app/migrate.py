@@ -11,6 +11,7 @@ SQLAlchemy 的 `create_all` 只会建缺失的表，不会给已有的表加字�
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection
@@ -57,7 +58,35 @@ def ensure_schema(connection: Connection) -> list[str]:
                 log.warning("建立索引 %s 失败：%s", index.name, exc)
 
     changes.extend(_ensure_one_owner(connection))
+    changes.extend(_repair_daily_tokens(connection))
     return changes
+
+
+_DAILY_TOKENS_REPAIRED = "migration.daily_tokens_null_v1"
+
+
+def _repair_daily_tokens(connection: Connection) -> list[str]:
+    """
+    一次性修复：按设备配额（devices.daily_tokens）刚上线时，老库加这一列用了 DEFAULT 0，
+    所有已有电脑都被记成「不限制」，绕过了全局每日配额。这里把 0 改回 NULL（跟全局走），只做一次。
+
+    代价：那期间管理员特意给某台设的「不限制」也会回到跟全局，需要再设一次——比全厂电脑都不受配额管好得多。
+    """
+    settings = sa.table("settings", sa.column("key"), sa.column("value", sa.JSON), sa.column("updated_at"))
+    devices = sa.table("devices", sa.column("daily_tokens"))
+    try:
+        if connection.execute(sa.select(settings.c.key).where(settings.c.key == _DAILY_TOKENS_REPAIRED)).first():
+            return []
+        fixed = connection.execute(sa.update(devices).where(devices.c.daily_tokens == 0).values(daily_tokens=None)).rowcount
+        connection.execute(sa.insert(settings).values(
+            key=_DAILY_TOKENS_REPAIRED, value={"fixed": fixed}, updated_at=sa.func.current_timestamp()))
+    except sa.exc.SQLAlchemyError as exc:
+        log.warning("修复设备每日配额时出错：%s", exc)
+        return []
+    if fixed:
+        log.warning("已把 %s 台电脑误设的「不限制」每日配额恢复为跟全局配额", fixed)
+        return [f"devices.daily_tokens reset={fixed}"]
+    return []
 
 
 def _ensure_one_owner(connection: Connection) -> list[str]:
@@ -98,7 +127,10 @@ def _add_column_ddl(connection: Connection, table: sa.Table, column: sa.Column, 
 
     parts = [f"ALTER TABLE {preparer.format_table(table)} ADD COLUMN {preparer.format_column(column)} {type_sql}"]
 
-    default_sql = _default_literal(column)
+    # 可空的列只用显式写的默认值，没写就是 NULL。以前也给它们补「零值」：
+    # 可空时间列补成 CURRENT_TIMESTAMP（SQLite 加列时拒绝非常量默认值，升级直接失败），
+    # devices.daily_tokens（NULL = 跟全局配额）补成 0（= 不限制），老电脑全都绕过了每日配额
+    default_sql = _default_literal(column, zero_fallback=not column.nullable)
     if not column.nullable:
         if default_sql is None:
             # 不知道填什么，就先允许为空，至少不会卡住启动
@@ -111,7 +143,7 @@ def _add_column_ddl(connection: Connection, table: sa.Table, column: sa.Column, 
     return " ".join(parts)
 
 
-def _default_literal(column: sa.Column) -> str | None:
+def _default_literal(column: sa.Column, zero_fallback: bool = True) -> str | None:
     """把列的默认值转成 SQL 字面量。只处理常量，函数默认值（如 utcnow）交给应用层。"""
     if column.server_default is not None and hasattr(column.server_default, "arg"):
         return str(column.server_default.arg)
@@ -119,6 +151,8 @@ def _default_literal(column: sa.Column) -> str | None:
     default = column.default
     value = default.arg if default is not None and not default.is_callable and not default.is_sequence else None
     if value is None:
+        if not zero_fallback:
+            return None
         # 没有显式默认值时，按类型给一个安全的零值
         if isinstance(column.type, (sa.String, sa.Text)):
             return "''"
@@ -127,7 +161,8 @@ def _default_literal(column: sa.Column) -> str | None:
         if isinstance(column.type, sa.Boolean):
             return "0"
         if isinstance(column.type, (sa.DateTime, sa.Date)):
-            return "CURRENT_TIMESTAMP"
+            # 用升级这一刻的常量，不用 CURRENT_TIMESTAMP：表里已经有数据时，SQLite 拒绝加非常量默认值的列
+            return "'" + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") + "'"
         return None
 
     if isinstance(value, bool):

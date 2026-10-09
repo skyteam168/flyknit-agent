@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type UploadRawFile } from 'element-plus'
-import { Refresh, Upload } from '@element-plus/icons-vue'
+import { Download, Refresh, Upload } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { Release } from '@/api/types'
+import type { EnrollmentTicket, Release } from '@/api/types'
 import { auth } from '@/store/auth'
 import { bytes, dateTime, relative } from '@/utils/format'
 
@@ -20,9 +20,47 @@ async function load() {
   loading.value = true
   try {
     releases.value = await api.releases()
+    if (canPublish.value) tickets.value = await api.tickets()
   } finally {
     loading.value = false
   }
+}
+
+// ---------- 员工端安装包（带服务器地址和安装凭证） ----------
+// 员工解压运行后直接点「登录」：域账号一键，本机账号输入 Windows 密码。不用再告诉他们服务器地址和注册密钥
+const tickets = ref<EnrollmentTicket[]>([])
+const packageDialog = ref(false)
+const packageForm = reactive({ server_url: '', label: '' })
+const downloading = ref(false)
+
+function openPackage() {
+  // 管理后台和接口同源，这个地址员工电脑一般也能访问；开发时（vite 端口）或走了反向代理的要手动改
+  packageForm.server_url = packageForm.server_url || window.location.origin
+  packageForm.label = ''
+  packageDialog.value = true
+}
+async function downloadPackage() {
+  if (!/^https?:\/\/[^\s/]+/.test(packageForm.server_url.trim())) {
+    ElMessage.warning('服务器地址要写成 http://10.0.0.5:8000 这样的完整地址')
+    return
+  }
+  downloading.value = true
+  try {
+    await api.downloadClientPackage(packageForm.server_url.trim(), packageForm.label.trim())
+    packageDialog.value = false
+    ElMessage.success('已开始下载。解压后把文件夹发给员工，运行 FlyknitBuddy.exe 点「登录」即可')
+    tickets.value = await api.tickets()
+  } finally {
+    downloading.value = false
+  }
+}
+async function revoke(t: EnrollmentTicket) {
+  await ElMessageBox.confirm(
+    `停用「${t.label}」？用这个安装包新装的电脑将无法登录；已经登录的 ${t.uses} 台不受影响。`,
+    '停用安装包',
+    { type: 'warning', confirmButtonText: '停用' },
+  )
+  Object.assign(t, await api.revokeTicket(t.id))
 }
 onMounted(load)
 
@@ -114,6 +152,7 @@ async function remove(r: Release) {
       </div>
       <div class="toolbar">
         <el-button :icon="Refresh" :loading="loading" @click="load" />
+        <el-button :icon="Download" :disabled="!canPublish || !current" @click="openPackage">下载员工端安装包</el-button>
         <el-button type="primary" :icon="Upload" :disabled="!canPublish" @click="openUpload">上传新版本</el-button>
       </div>
     </div>
@@ -157,6 +196,57 @@ async function remove(r: Release) {
         </el-table-column>
       </el-table>
     </div>
+
+    <div v-if="canPublish && tickets.length" class="panel tickets">
+      <div class="panel-title">
+        <h3>已下载的安装包<small>每下载一次生成一张安装凭证。包外泄了就停用那一张：已登录的电脑不受影响，用它新装的登录不上</small></h3>
+      </div>
+      <el-table :data="tickets">
+        <el-table-column label="名称" min-width="160">
+          <template #default="{ row }"><strong>{{ row.label }}</strong></template>
+        </el-table-column>
+        <el-table-column label="服务器地址" min-width="180" prop="server_url" />
+        <el-table-column label="已登录" width="90" align="right">
+          <template #default="{ row }">{{ row.uses }} 台</template>
+        </el-table-column>
+        <el-table-column label="最近一次" width="120">
+          <template #default="{ row }">{{ row.last_used_at ? relative(row.last_used_at) : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="下载" width="150">
+          <template #default="{ row }">
+            <el-tooltip :content="dateTime(row.created_at)" placement="top">
+              <span>{{ relative(row.created_at) }}<small> · {{ row.created_by }}</small></span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+        <el-table-column width="110" align="right">
+          <template #default="{ row }">
+            <el-tag v-if="row.revoked" type="info" size="small">已停用</el-tag>
+            <el-button v-else link type="danger" @click="revoke(row as EnrollmentTicket)">停用</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <el-dialog v-model="packageDialog" title="下载员工端安装包" width="560px">
+      <el-alert type="info" :closable="false" show-icon class="notice"
+                :title="`打包当前下发中的版本 ${current?.version ?? ''}，带上服务器地址和一张安装凭证`"
+                description="员工解压后运行 FlyknitBuddy.exe，直接点「登录」：加了域的电脑一键登录，没加域的输入这台电脑的 Windows 密码。不用再告诉员工服务器地址和注册密钥。" />
+      <el-form label-position="top">
+        <el-form-item label="员工电脑访问服务器的地址">
+          <el-input v-model="packageForm.server_url" placeholder="http://10.0.0.5:8000" />
+          <p class="hint">默认是你现在打开后台用的地址。员工电脑要能访问到它；走了反向代理或域名的请改成员工那边用的地址。</p>
+        </el-form-item>
+        <el-form-item label="名称（可选）">
+          <el-input v-model="packageForm.label" maxlength="200" placeholder="比如：三车间、财务部、2026 年 10 月" />
+          <p class="hint">用来区分不同批次的安装包，下面列表里能看到每个包登录了几台电脑。</p>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="packageDialog = false">取消</el-button>
+        <el-button type="primary" :loading="downloading" @click="downloadPackage">下载</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="dialog" title="上传新版本" width="560px" :close-on-click-modal="false">
       <el-alert type="info" :closable="false" show-icon class="notice"
@@ -209,5 +299,14 @@ async function remove(r: Release) {
 }
 .form {
   margin-top: 16px;
+}
+.tickets {
+  margin-top: 16px;
+}
+.tickets h3 small {
+  margin-left: 10px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: normal;
 }
 </style>

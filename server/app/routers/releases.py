@@ -9,22 +9,26 @@
 """
 
 import hashlib
+import json
 import logging
 import re
+import shutil
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
-from ..crypto import new_token
+from ..crypto import hash_token, new_token
 from ..db import get_session
 from ..deps import require_admin, require_device, require_owner
-from ..models import AdminUser, ClientRelease, Device
-from ..schemas import ClientUpdateOut, ReleaseOut, ReleasePatch
+from ..models import AdminUser, ClientRelease, Device, EnrollmentTicket
+from ..schemas import ClientUpdateOut, ReleaseOut, ReleasePatch, TicketIn, TicketOut
 from ..services import versions
 
 log = logging.getLogger("flyknit.releases")
@@ -158,6 +162,99 @@ async def delete_release(
     # 同一份内容可能被别的版本记录引用着，没人引用了才删文件
     if not await session.scalar(select(ClientRelease).where(ClientRelease.sha256 == release.sha256)):
         path.unlink(missing_ok=True)
+
+
+# ---------- 员工端安装包（带服务器地址和安装凭证） ----------
+
+#: 安装包里的开通文件，放在 FlyknitBuddy.exe 旁边。客户端首次启动读它，员工只需要点「登录」
+PROVISION_FILE = "flyknit.provision.json"
+_MAIN_EXE = "flyknitbuddy.exe"
+
+
+def _exe_folder(zf: zipfile.ZipFile) -> str | None:
+    """zip 里 FlyknitBuddy.exe 所在的目录（可能在根目录，也可能套了一层文件夹）。没有就返回 None。"""
+    for name in zf.namelist():
+        if name.replace("\\", "/").rsplit("/", 1)[-1].lower() == _MAIN_EXE:
+            return name.replace("\\", "/").rsplit("/", 1)[0] + "/" if "/" in name.replace("\\", "/") else ""
+    return None
+
+
+@router.post("/admin/client-package")
+async def download_client_package(
+    data: TicketIn,
+    owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    下载员工端安装包：最新发布的版本 + 一张新的安装凭证和服务器地址（flyknit.provision.json）。
+    员工解压运行后直接点「登录」，不用填服务器地址和注册密钥。
+
+    每下载一次生成一张凭证，在「安装凭证」里能看到用它注册了几台，包外泄就吊销那一张。
+    限超级管理员：这个包能让任何人往系统里注册电脑。
+    """
+    server_url = data.server_url.strip().rstrip("/")
+    if not re.match(r"^https?://[^\s/]+", server_url):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "服务器地址要写成 http://10.0.0.5:8000 这样的完整地址")
+    latest = await _latest(session)
+    if latest is None or not _release_path(latest).exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "还没有已发布的员工端版本：先在下面上传一个版本并发布")
+
+    with zipfile.ZipFile(_release_path(latest)) as zf:
+        folder = _exe_folder(zf)
+    if folder is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"版本 {latest.version} 的 zip 里找不到 FlyknitBuddy.exe")
+
+    who = owner.username if owner else "admin_token"
+    token = new_token()
+    ticket = EnrollmentTicket(
+        token_hash=hash_token(token),
+        label=data.label.strip()[:200] or f"{latest.version} 安装包",
+        server_url=server_url,
+        created_by=who,
+    )
+    session.add(ticket)
+    await session.commit()
+
+    # 复制一份再追加一个文件：不用把 100 多 MB 重新压一遍
+    out = _release_dir() / f".package-{new_token()[:16]}.zip"
+    shutil.copyfile(_release_path(latest), out)
+    provision = {
+        "server_url": server_url,
+        "ticket": token,
+        "label": ticket.label,
+        "version": latest.version,
+        "issued_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with zipfile.ZipFile(out, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(folder + PROVISION_FILE, json.dumps(provision, ensure_ascii=False, indent=2))
+    log.warning("%s 下载了员工端安装包 %s（凭证 #%s，服务器 %s）", who, latest.version, ticket.id, server_url)
+    return FileResponse(
+        out,
+        media_type="application/zip",
+        filename=f"FlyknitBuddy-{latest.version}.zip",
+        background=BackgroundTask(out.unlink, missing_ok=True),
+    )
+
+
+@router.get("/admin/tickets", response_model=list[TicketOut])
+async def list_tickets(_owner: AdminUser | None = Depends(require_owner), session: AsyncSession = Depends(get_session)):
+    return list(await session.scalars(select(EnrollmentTicket).order_by(EnrollmentTicket.id.desc())))
+
+
+@router.post("/admin/tickets/{ticket_id}/revoke", response_model=TicketOut)
+async def revoke_ticket(
+    ticket_id: int,
+    owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    """吊销一张安装凭证：用这个包新装的电脑注册不上，已经注册的不受影响。"""
+    ticket = await session.get(EnrollmentTicket, ticket_id)
+    if ticket is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "凭证不存在")
+    ticket.revoked = True
+    await session.commit()
+    log.warning("%s 吊销了安装凭证 #%s（%s）", owner.username if owner else "admin_token", ticket.id, ticket.label)
+    return ticket
 
 
 # ---------- 客户端 ----------

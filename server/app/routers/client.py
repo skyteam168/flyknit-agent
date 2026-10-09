@@ -1,6 +1,7 @@
 """客户端使用的接口：设备注册、拉取配置、上报审计。"""
 
 import hmac
+from datetime import datetime, timezone
 import logging
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from ..deps import require_device
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from ..models import AuditLog, Device, DevicePolicy, ModelConfig, SkillPackage
+from ..models import AuditLog, Device, DevicePolicy, EnrollmentTicket, ModelConfig, SkillPackage
 from ..schemas import (
     SCENES,
     SkillOut,
@@ -26,10 +27,12 @@ from ..schemas import (
     ClientModelOut,
     DeviceRegisterIn,
     DeviceRegisterOut,
+    LegalDocOut,
+    LegalIndexOut,
     MachineInfoIn,
     SceneInfo,
 )
-from ..services import config_events, model_router, security_settings, settings_store, skill_library, usage_store
+from ..services import config_events, legal_store, model_router, security_settings, settings_store, skill_library, usage_store
 from ..services.settings_store import get_policy
 
 log = logging.getLogger("flyknit.audit")
@@ -38,8 +41,31 @@ router = APIRouter(prefix="/api/v1", tags=["client"])
 
 @router.post("/devices/register", response_model=DeviceRegisterOut)
 async def register_device(data: DeviceRegisterIn, session: AsyncSession = Depends(get_session)):
-    if not hmac.compare_digest(data.enrollment_key, get_settings().enrollment_key):
+    """
+    新电脑注册。两种凭据：
+    - ticket：IT 下载的员工端安装包里自带的安装凭证（员工点「登录」就行）；
+    - enrollment_key：老办法，员工手填服务器地址和注册密钥。
+    员工身份（域账号 / 本机账号）由客户端确认：域账号是 Windows 开机时已经验证过的，本机账号要员工输入密码、
+    由本机校验。服务端校验不了本机账号的密码，所以信任来自安装凭证——吊销凭证就挡住用这个包的新注册。
+    """
+    ticket: EnrollmentTicket | None = None
+    if data.ticket:
+        ticket = await session.scalar(select(EnrollmentTicket).where(EnrollmentTicket.token_hash == hash_token(data.ticket)))
+        if ticket is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "安装包里的凭证无效，请向 IT 重新要一个员工端安装包")
+        if ticket.revoked:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "这个员工端安装包已被 IT 停用，请向 IT 要一个新的")
+    elif not data.enrollment_key or not hmac.compare_digest(data.enrollment_key, get_settings().enrollment_key):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "注册密钥错误")
+
+    method = data.login_method if data.login_method in ("domain", "local") else ""
+    if ticket is not None and not method:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "缺少登录方式")
+    if ticket is not None:
+        # 登录界面上要勾选同意；同意的必须是现在这一版（管理员刚改过协议，界面上看的是旧的，就让他重看）
+        current = await legal_store.versions(session)
+        if data.agreed_legal != current:
+            raise HTTPException(status.HTTP_409_CONFLICT, "用户协议或隐私政策已更新，请重新阅读并同意后再登录")
     token = new_token()
     device = Device(
         token_hash=hash_token(token),
@@ -48,10 +74,34 @@ async def register_device(data: DeviceRegisterIn, session: AsyncSession = Depend
         os_version=data.os_version,
         client_version=data.client_version,
         ui_language=data.ui_language,
+        domain=data.domain.strip()[:200] if method == "domain" else "",
+        login_method=method or "key",
+        ticket_id=ticket.id if ticket else None,
+        legal_agreed=data.agreed_legal if ticket else "",
+        legal_agreed_at=datetime.now(timezone.utc) if ticket else None,
     )
     session.add(device)
+    if ticket is not None:
+        ticket.uses += 1
+        ticket.last_used_at = datetime.now(timezone.utc)
     await session.commit()
+    log.info("设备注册 device=%s machine=%s user=%s method=%s ticket=%s",
+             device.id, device.machine_name, device.user_name, device.login_method, device.ticket_id)
     return DeviceRegisterOut(device_id=device.id, token=token)
+
+
+@router.get("/legal", response_model=LegalIndexOut)
+async def legal_index(session: AsyncSession = Depends(get_session)):
+    """登录界面用：用户协议和隐私政策的全文与当前版本。还没登录，所以不要认证。"""
+    docs = [await legal_store.get(session, kind) for kind in legal_store.KINDS]
+    return LegalIndexOut(versions=await legal_store.versions(session), docs=docs)
+
+
+@router.get("/legal/{kind}", response_model=LegalDocOut)
+async def legal_doc(kind: str, session: AsyncSession = Depends(get_session)):
+    if kind not in legal_store.KINDS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "没有这个文件")
+    return await legal_store.get(session, kind)
 
 
 def _client_ip(request: Request) -> str:
