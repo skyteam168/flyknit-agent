@@ -436,3 +436,15 @@ export interface Release {
   uploaded_by: string
   created_at: string
 }
+
+/** 安装凭证：每下载一次员工端安装包生成一张，吊销后用那个包新装的电脑注册不上 */
+export interface EnrollmentTicket {
+  id: number
+  label: string
+  server_url: string
+  created_by: string
+  created_at: string
+  revoked: boolean
+  uses: number
+  last_used_at: string | null
+}

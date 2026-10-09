@@ -182,9 +182,8 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
 
     public bool IsRegistered => !string.IsNullOrEmpty(_token);
 
-    public async Task<DeviceRegistration> RegisterAsync(string enrollmentKey, string uiLanguage, string clientVersion, CancellationToken ct)
-    {
-        var body = new
+    public Task<DeviceRegistration> RegisterAsync(string enrollmentKey, string uiLanguage, string clientVersion, CancellationToken ct) =>
+        PostRegistrationAsync(new
         {
             enrollment_key = enrollmentKey,
             machine_name = Environment.MachineName,
@@ -192,7 +191,26 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
             os_version = Environment.OSVersion.VersionString,
             client_version = clientVersion,
             ui_language = uiLanguage,
-        };
+        }, ct);
+
+    /// <summary>
+    /// 用安装包里的安装凭证注册（员工点了「登录」）。员工身份由本机确认过：域账号是 Windows 已验证的，本机账号刚校验过密码。
+    /// </summary>
+    public Task<DeviceRegistration> RegisterWithTicketAsync(string ticket, Setup.WindowsAccount account, string uiLanguage, string clientVersion, CancellationToken ct) =>
+        PostRegistrationAsync(new
+        {
+            ticket,
+            login_method = account.Kind == Setup.LoginKind.Domain ? "domain" : "local",
+            domain = account.Kind == Setup.LoginKind.Domain ? account.Domain : "",
+            machine_name = account.MachineName,
+            user_name = account.Display,
+            os_version = Environment.OSVersion.VersionString,
+            client_version = clientVersion,
+            ui_language = uiLanguage,
+        }, ct);
+
+    private async Task<DeviceRegistration> PostRegistrationAsync(object body, CancellationToken ct)
+    {
         using var resp = await _http.PostAsJsonAsync("api/v1/devices/register", body, ct);
         await EnsureOk(resp, ct);
         var reg = await resp.Content.ReadFromJsonAsync<DeviceRegistration>(cancellationToken: ct)

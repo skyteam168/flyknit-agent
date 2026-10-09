@@ -89,7 +89,14 @@ class RouteOut(BaseModel):
 
 # ---------- 设备 ----------
 class DeviceRegisterIn(BaseModel):
-    enrollment_key: str
+    #: 老办法：手填的注册密钥。和 ticket 二选一
+    enrollment_key: str = ""
+    #: 安装包里带的安装凭证
+    ticket: str = ""
+    #: domain / local：客户端怎么确认的员工身份（见 EnrollmentTicket）
+    login_method: str = Field(default="", max_length=20)
+    #: 域名（域账号登录时）
+    domain: str = Field(default="", max_length=200)
     machine_name: str = Field(min_length=1, max_length=200)
     user_name: str = ""
     os_version: str = ""
@@ -116,6 +123,25 @@ class DeviceRegisterOut(BaseModel):
     token: str
 
 
+class TicketIn(BaseModel):
+    #: 员工电脑访问服务端用的地址，写进安装包
+    server_url: str = Field(min_length=8, max_length=500)
+    label: str = Field(default="", max_length=200)
+
+
+class TicketOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    label: str
+    server_url: str
+    created_by: str
+    created_at: datetime
+    revoked: bool
+    uses: int
+    last_used_at: datetime | None = None
+
+
 class DeviceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -136,6 +162,8 @@ class DeviceOut(BaseModel):
     owner: str = ""
     department: str = ""
     note: str = ""
+    #: domain / local / key：这台电脑是怎么登录注册的
+    login_method: str = ""
 
 
 class DevicePatch(BaseModel):
