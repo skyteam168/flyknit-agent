@@ -177,3 +177,63 @@ def test_an_existing_owner_is_left_alone(tmp_path):
     with engine.connect() as conn:
         rows = dict(conn.exec_driver_sql("SELECT username, is_owner FROM admin_users").all())
     assert rows == {"it.yang": 0, "it.li": 1}, "已经有主人了就别再认领一个"
+
+
+# 按设备配额上线之前的 devices 表（没有 daily_tokens 和登录相关的列）
+OLD_DEVICES = """
+CREATE TABLE devices (
+    id INTEGER NOT NULL PRIMARY KEY,
+    token_hash VARCHAR(64) NOT NULL,
+    machine_name VARCHAR(200) NOT NULL,
+    user_name VARCHAR(200) NOT NULL,
+    os_version VARCHAR(200) NOT NULL,
+    client_version VARCHAR(50) NOT NULL,
+    ui_language VARCHAR(10) NOT NULL,
+    disabled BOOLEAN NOT NULL,
+    created_at DATETIME NOT NULL,
+    last_seen DATETIME
+)
+"""
+
+
+def test_new_nullable_columns_start_empty_on_an_old_database(tmp_path):
+    """
+    可空的新列不能被补成「零值」：daily_tokens 补成 0 就是「不限制」，老电脑全都绕过了每日配额；
+    可空的时间列补成 CURRENT_TIMESTAMP，SQLite 直接拒绝，升级失败。
+    """
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as conn:
+        conn.exec_driver_sql(OLD_DEVICES)
+        conn.exec_driver_sql(
+            "INSERT INTO devices (token_hash, machine_name, user_name, os_version, client_version, ui_language, disabled, created_at)"
+            " VALUES ('h', 'PC-001', 'nguyen', '', '', 'zh-CN', 0, '2026-10-01 10:00:00')"
+        )
+    with engine.begin() as conn:
+        changes = ensure_schema(conn)
+    assert "devices.daily_tokens" in changes and "devices.legal_agreed_at" in changes
+    with engine.connect() as conn:
+        row = conn.exec_driver_sql("SELECT daily_tokens, legal_agreed_at, login_method FROM devices").one()
+    assert row == (None, None, "")
+
+
+def test_devices_wrongly_set_to_unlimited_are_repaired_once(tmp_path):
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as conn:
+        Base.metadata.create_all(conn)
+        conn.exec_driver_sql(
+            "INSERT INTO devices (token_hash, machine_name, user_name, os_version, client_version, ui_language, disabled, created_at,"
+            " domain, ip_addresses, observed_ip, mac_address, machine_guid, owner, department, note, daily_tokens, login_method, legal_agreed)"
+            " VALUES ('h1', 'PC-001', 'a', '', '', 'zh-CN', 0, '2026-10-01', '', '', '', '', '', '', '', '', 0, '', ''),"
+            "        ('h2', 'PC-002', 'b', '', '', 'zh-CN', 0, '2026-10-01', '', '', '', '', '', '', '', '', 500000, '', '')"
+        )
+    with engine.begin() as conn:
+        assert "devices.daily_tokens reset=1" in ensure_schema(conn)
+    with engine.connect() as conn:
+        assert [r[0] for r in conn.exec_driver_sql("SELECT daily_tokens FROM devices ORDER BY id")] == [None, 500000]
+
+    # 只修一次：之后管理员特意设的「不限制」（0）不再被动
+    with engine.begin() as conn:
+        conn.exec_driver_sql("UPDATE devices SET daily_tokens = 0 WHERE id = 1")
+        assert not any("daily_tokens" in c for c in ensure_schema(conn))
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT daily_tokens FROM devices WHERE id = 1").scalar() == 0
