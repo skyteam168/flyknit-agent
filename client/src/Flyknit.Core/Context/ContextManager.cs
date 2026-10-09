@@ -172,19 +172,21 @@ public sealed class ContextManager
     {
         var before = Measure(history);
 
-        // 后台 Session Memory：检查是否需要触发更新（不阻塞主流程）
-        _sessionMemory?.CheckAndTrigger(history, before);
-
         if (before <= Budget * _options.PruneRatio)
         {
+            // 后台 Session Memory：检查是否需要触发更新（不阻塞主流程）
+            _sessionMemory?.CheckAndTrigger(history, before);
             return null;
         }
 
         PruneToolOutputs(history, _options.KeepRecentToolResults, _options.PrunedToolChars);
         if (Measure(history) <= Budget * _options.CompactRatio)
         {
+            _sessionMemory?.CheckAndTrigger(history, before);
             return null;
         }
+        // 这一轮马上要同步压缩：不再另起后台摘要。否则同一段对话会被摘要两次（多花一次模型调用），
+        // 而后台那份这次压缩又用不上
 
         CompactionInfo? info = null;
         try

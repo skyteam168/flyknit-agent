@@ -275,10 +275,36 @@ public class MemorySystemTests : IDisposable
         Assert.Contains(info.UptoMessageId, history.Select(m => m.Id).Append(info.UptoMessageId)); // ID 有效
         Assert.DoesNotContain(history, m => m.Id == info.UptoMessageId);
 
+        // 这一轮已经同步压缩了，不另起后台摘要（以前会把同一段对话摘要两次）
+        Assert.False(manager.SessionMemory?.IsUpdating ?? false);
+
         // 摘要请求使用对话的模型、不带工具
         var request = Assert.Single(gateway.Requests);
         Assert.Null(request.Tools);
         Assert.Contains("第 0 个问题", request.Messages[1].Content);
+    }
+
+    [Fact]
+    public async Task BackgroundSessionMemoryStillRunsWhenNoCompactionIsNeeded()
+    {
+        var gateway = new FakeGateway(_ => new ChatTurn { Content = "## 当前任务\n整理日报" });
+        // 上下文很大：1.2 万 token 远没到压缩线，但已经过了后台摘要的起始阈值
+        var manager = new ContextManager(gateway, "系统提示", contextLength: 200_000);
+        var history = new List<ChatMessage> { ChatMessage.System("系统提示") };
+        for (var i = 0; i < 12; i++)
+        {
+            history.Add(ChatMessage.User($"第 {i} 个问题 " + new string('问', 700)));
+            history.Add(ChatMessage.Assistant($"第 {i} 个回答 " + new string('答', 700)));
+        }
+        Assert.True(manager.Measure(history) >= SessionMemoryAgent.InitialThreshold);
+
+        Assert.Null(await manager.PrepareAsync(history, CancellationToken.None));
+        for (var n = 0; n < 100 && manager.SessionMemory!.IsUpdating; n++)
+        {
+            await Task.Delay(20);
+        }
+        Assert.NotEmpty(gateway.Requests);           // 后台摘要照常跑了
+        Assert.True(manager.SessionMemory!.State.Initialized);
     }
 
     [Fact]
