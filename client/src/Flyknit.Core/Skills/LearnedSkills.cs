@@ -95,10 +95,11 @@ public sealed class LearnedSkills
     /// <summary>
     /// 复盘给出的技能：按上面的规则新建、修订或写成新版本。没有改动（已启用且一直好用）或不能写（同名的是用户自己的技能）时返回 null。
     /// </summary>
-    public string? Propose(string rawName, string description, string body)
+    public string? Propose(string rawName, string description, string body, string? keywords = null)
     {
         var name = NormalizeName(rawName);
         description = description.Replace('\n', ' ').Replace("\"", "'").Trim();
+        keywords = CleanKeywords(keywords);
         if (name is null || description.Length == 0 || body.Trim().Length < 20)
         {
             return null;
@@ -123,7 +124,7 @@ public sealed class LearnedSkills
             version = current + 1;
         }
         System.IO.Directory.CreateDirectory(dir);
-        Write(file, name, description, body.Trim(), LearnedSkillStatus.Candidate, version);
+        Write(file, name, description, body.Trim(), LearnedSkillStatus.Candidate, version, keywords);
         return name;
     }
 
@@ -247,6 +248,20 @@ public sealed class LearnedSkills
         return new(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2));
     }
 
+    /// <summary>最近一次被用上（模型加载或自动匹配给出全文）是什么时候，不分版本。从没用过返回 null。</summary>
+    public DateTime? LastUsed(string name)
+    {
+        if (_connectionString is null)
+        {
+            return null;
+        }
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT MAX(created_at) FROM skill_usage WHERE skill = $s";
+        cmd.Parameters.AddWithValue("$s", name);
+        return cmd.ExecuteScalar() is string s && DateTime.TryParse(s, null, System.Globalization.DateTimeStyles.RoundtripKind, out var t) ? t : null;
+    }
+
     /// <summary>
     /// 手动改状态（界面上“重新启用”）。重新启用时清掉这个版本以前的失败记录，给它一次重新证明的机会，
     /// 不然下一次失败就又被退役。
@@ -270,12 +285,21 @@ public sealed class LearnedSkills
         return true;
     }
 
-    private void Write(string file, string name, string description, string body, string status, int version)
+    /// <summary>关键词整理成一行：逗号分隔、去重、去掉会破坏 frontmatter 的字符，最多 12 个。</summary>
+    public static string CleanKeywords(string? keywords) => string.Join(", ",
+        (keywords ?? "").Split(new[] { ',', '，', '、', ';', '；', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(k => new string(k.Where(ch => ch is not ('"' or ':' or '[' or ']' or '#')).ToArray()).Trim())
+            .Where(k => k.Length is > 0 and <= 20)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(12));
+
+    private void Write(string file, string name, string description, string body, string status, int version, string keywords = "")
     {
+        var keywordLine = keywords.Length > 0 ? $"\nkeywords: {keywords}" : "";
         var content = $"""
             ---
             name: {name}
-            description: "{description}"
+            description: "{description}"{keywordLine}
             source: learned
             status: {status}
             version: {version}

@@ -178,6 +178,9 @@ public sealed class LearnedSkill
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
     public string Body { get; set; } = "";
+
+    /// <summary>用户可能的说法和同义词，帮技能被匹配上（写进 SKILL.md 的 keywords）。</summary>
+    public string Keywords { get; set; } = "";
 }
 
 /// <summary>复盘后实际写入的内容，界面据此提示“学到了什么”。</summary>
@@ -421,7 +424,7 @@ public sealed class Reflector
     private LearnedSkills? _learned;
 
     /// <summary>写入 learned/&lt;name&gt;/SKILL.md（先作为候选）。用户自己写的同名技能不会被覆盖；已启用且好用的不改。</summary>
-    public string? SaveSkill(LearnedSkill skill) => Learned?.Propose(skill.Name, skill.Description, skill.Body);
+    public string? SaveSkill(LearnedSkill skill) => Learned?.Propose(skill.Name, skill.Description, skill.Body, skill.Keywords);
 
     public static string BuildTranscript(ReflectionInput input, IReadOnlyList<(string Alias, MemoryItem Item)>? existing = null)
     {
@@ -494,7 +497,7 @@ public sealed class Reflector
             };
             if (root.TryGetProperty("skill", out var s) && s.ValueKind == JsonValueKind.Object)
             {
-                r.Skill = new LearnedSkill { Name = Str(s, "name"), Description = Str(s, "description"), Body = Str(s, "body") };
+                r.Skill = new LearnedSkill { Name = Str(s, "name"), Description = Str(s, "description"), Body = Str(s, "body"), Keywords = Str(s, "keywords") };
             }
             return r;
         }
@@ -574,7 +577,10 @@ public sealed class Reflector
           //  "valid_days": null,          // 容易变的信息（系统地址、软件版本、负责人、临时规定）过多少天要重新确认，如 90；长期不变的不填
           //  "same": "m1" 或 "replaces": "m2"   // 可选：和【已有的相关记忆】是同一件事 / 取代它（用户改了主意、信息变了）
           // }
-          "skill": null                  // 仅当这是会反复出现的标准流程且已成功时，给出 {"name":"英文短横线名称","description":"什么时候用","body":"Markdown 步骤说明"}
+          "skill": null                  // 仅当这是会反复出现的标准流程且已成功时，给出 {"name":"英文短横线名称","description":"什么时候用","keywords":"用户可能的说法和同义词，逗号分隔","body":"Markdown 步骤说明"}
+          //  description 用“当用户要……时使用”的句式，写清楚适用的场景和对象（用到的软件、文件类型）；
+          //  keywords 写 5~10 个用户下次提这类要求时可能用的词，包括同义词和口语说法，如“邮件, 发邮件, 发送, Outlook, 收件人, 抄送”。
+          //  技能会按这两项和用户的话自动匹配，写得太抽象就匹配不上、学了也用不上
         }
         要求：
         - 只记录长期有效的内容，不记录一次性的具体数值、临时文件名、本次的数据结论。

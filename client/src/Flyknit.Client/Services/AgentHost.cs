@@ -671,7 +671,7 @@ public sealed class AgentHost : IDisposable
                 {
                     Log.Warn("记录记忆使用情况失败", ex);
                 }
-                RecordSkillRun(id, answer.Id, result.NewMessages, result.StopReason == AgentStopReason.Completed);
+                RecordSkillRun(id, answer.Id, result.NewMessages, result.StopReason == AgentStopReason.Completed, promptBuilder.SkillsPreloaded);
                 if (conv.Mode == ConversationMode.Agent)
                 {
                     RecordRunStats(id, answer.Id, result);
@@ -732,7 +732,8 @@ public sealed class AgentHost : IDisposable
         }
         try
         {
-            var scores = await index.ScoreAsync(query, ct);
+            // 技能也一起比：和记忆共用这一次把用户的话向量化
+            var scores = await index.ScoreAsync(query, ct, Skills.SemanticTexts());
             if (scores is null && index.LastError is { } error)
             {
                 Log.Info($"语义检索暂不可用，按字面匹配：{error}");
@@ -776,11 +777,13 @@ public sealed class AgentHost : IDisposable
     }
 
     /// <summary>这一轮加载过的学习技能：记下用得怎么样，该转正的转正、该退役的退役。</summary>
-    private void RecordSkillRun(string conversationId, string messageId, IReadOnlyList<ChatMessage> messages, bool ok)
+    /// <param name="preloaded">提示词里直接给出全文的技能（自动匹配上的），和模型自己 load_skill 的一样算用过。</param>
+    private void RecordSkillRun(string conversationId, string messageId, IReadOnlyList<ChatMessage> messages, bool ok, IReadOnlyList<string> preloaded)
     {
         try
         {
-            var used = Flyknit.Core.Skills.LearnedSkills.LoadedIn(messages).Select(Skills.FindAny).OfType<SkillInfo>().Where(s => s.IsLearned).ToList();
+            var used = Flyknit.Core.Skills.LearnedSkills.LoadedIn(messages).Concat(preloaded)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Select(Skills.FindAny).OfType<SkillInfo>().Where(s => s.IsLearned).ToList();
             var changed = LearnedSkillLedger.RecordRun(conversationId, messageId, used, ok);
             ApplySkillChanges(changed);
         }
@@ -1066,7 +1069,8 @@ public sealed class AgentHost : IDisposable
 
             var workspace = _settings.ResolveWorkspace(conv.Workspace);
             var persona = PersonaForPrompt();
-            var systemPrompt = new PromptBuilder(Memory, Skills, Episodes).Build(new PromptContext
+            var scheduledPrompt = new PromptBuilder(Memory, Skills, Episodes);
+            var systemPrompt = scheduledPrompt.Build(new PromptContext
             {
                 Tone = persona.Tone,
                 CallName = persona.CallName,
@@ -1107,7 +1111,7 @@ public sealed class AgentHost : IDisposable
             Store.AddMessages(conv.Id, result.NewMessages);
             if (result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant) is { } done)
             {
-                RecordSkillRun(conv.Id, done.Id, result.NewMessages, result.StopReason == AgentStopReason.Completed);
+                RecordSkillRun(conv.Id, done.Id, result.NewMessages, result.StopReason == AgentStopReason.Completed, scheduledPrompt.SkillsPreloaded);
                 RecordRunStats(conv.Id, done.Id, result);
             }
             if (context.ContextLength > 0)

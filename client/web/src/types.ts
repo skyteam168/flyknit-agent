@@ -92,6 +92,8 @@ export interface LearnedSkillInfo {
   uses: number
   successes: number
   failures: number
+  /** 最近一次被用上的时间（ISO），从没用过为 null */
+  lastUsed?: string | null
 }
 
 /** 记忆指标：注入量、利用率、新鲜度（最近 days 天） */

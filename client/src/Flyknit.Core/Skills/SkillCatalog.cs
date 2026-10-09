@@ -244,44 +244,118 @@ public sealed class SkillCatalog : IDisposable
             .ToList();
     }
 
+    /// <summary>提示词里直接给出全文的技能最多几个。</summary>
+    public const int PreloadLimit = 2;
+
+    /// <summary>直接给出全文的技能正文最多这么多字，免得一个长技能挤掉别的上下文。</summary>
+    public const int PreloadMaxChars = 6000;
+
+    /// <summary>字面相关度达到这个值就算“明显相关”。按实际的技能描述和用户说法试出来的：对得上的一般在 0.1 以上，对不上的在 0.05 以下。</summary>
+    public const double PreloadLexical = 0.09;
+
+    /// <summary>语义相似度（余弦）达到这个值就算“明显相关”。</summary>
+    public const double PreloadSemantic = 0.55;
+
+    /// <summary>参与语义匹配的文字：已启用技能的名称、描述和关键词（ID 以 skill: 开头）。</summary>
+    public IReadOnlyDictionary<string, string> SemanticTexts() =>
+        _skills.Where(s => s.Enabled).ToDictionary(s => Memory.SemanticIndex.SkillPrefix + s.Name, s => s.SearchText);
+
+    /// <summary>
+    /// 按和任务的相关度给已启用的技能排序：字面匹配和语义相似度（有的话）取较强的那个。
+    /// Strong = 达到了直接给出全文的门槛。
+    /// </summary>
+    public List<(SkillInfo Skill, double Score, bool Strong)> Rank(string query, IReadOnlyDictionary<string, double>? semantic = null)
+    {
+        return _skills.Where(s => s.Enabled).Select(s =>
+        {
+            var lexical = Math.Max(TextSimilarity.Relevance(query, s.Name) * 1.2, TextSimilarity.Relevance(query, s.SearchText));
+            // 关键词是专门写来匹配用户说法的，命中一个算一点，两个以上就够“明显相关”（混在整段文字里算会被稀释）
+            var hits = s.Keywords.Count(k => k.Length >= 2 && query.Contains(k, StringComparison.OrdinalIgnoreCase));
+            lexical = Math.Max(lexical, hits * PreloadLexical / 2);
+            var cosine = semantic is not null && semantic.TryGetValue(Memory.SemanticIndex.SkillPrefix + s.Name, out var c) ? c : (double?)null;
+            var strong = lexical >= PreloadLexical || cosine >= PreloadSemantic;
+            // 两种分数不在一个尺度上，排序时把余弦挪到和字面分数差不多的范围（0.3 以下基本是不相关）
+            var score = Math.Max(lexical, cosine is { } v ? (v - 0.3) / 2.5 : 0);
+            return (Skill: s, Score: score, Strong: strong);
+        }).OrderByDescending(x => x.Strong).ThenByDescending(x => x.Score).ToList();
+    }
+
     /// <summary>
     /// 系统提示词中的技能清单（只含名称和描述，模型需要时再用 load_skill 读全文）。
     /// 技能较多时只列出与当前任务相关的，其余让模型用 search_skills 检索。
     /// </summary>
-    public string BuildPromptSection(string? query = null)
+    public string BuildPromptSection(string? query = null) => BuildPrompt(query, null).Text;
+
+    /// <summary>
+    /// 技能段落。和任务明显相关的技能（最多 <see cref="PreloadLimit"/> 个）直接给出全文——
+    /// 只列名字的话，模型常常觉得“这个我会”就直接动手，学到的技能永远用不上。
+    /// 返回提示词和直接给出全文的技能名（调用方把它们算作这一轮用过）。
+    /// </summary>
+    public (string Text, List<string> Preloaded) BuildPrompt(string? query, IReadOnlyDictionary<string, double>? semantic)
     {
         var enabled = _skills.Where(s => s.Enabled).ToList();
         if (enabled.Count == 0)
         {
-            return "";
+            return ("", new());
         }
+
+        var ranked = string.IsNullOrWhiteSpace(query) ? null : Rank(query!, semantic);
+        var preload = ranked?.Where(x => x.Strong).Take(PreloadLimit).Select(x => x.Skill).ToList() ?? new();
 
         var listed = enabled;
         var truncated = false;
-        if (enabled.Count > PromptListLimit && !string.IsNullOrWhiteSpace(query))
+        if (enabled.Count > PromptListLimit && ranked is not null)
         {
-            var ranked = enabled
-                .Select(s => (Skill: s, Score: Math.Max(
-                    TextSimilarity.Relevance(query!, s.Name) * 1.2,
-                    TextSimilarity.Relevance(query!, s.SearchText))))
-                .OrderByDescending(x => x.Score)
-                .Take(PromptListLimit)
-                .Select(x => x.Skill)
-                .ToHashSet();
+            var top = ranked.Take(PromptListLimit).Select(x => x.Skill).ToHashSet();
             // 企业必装的技能始终列出
             foreach (var s in enabled.Where(s => s.Required))
             {
-                ranked.Add(s);
+                top.Add(s);
             }
-            listed = enabled.Where(ranked.Contains).ToList();
+            listed = enabled.Where(top.Contains).ToList();
             truncated = listed.Count < enabled.Count;
         }
 
         var sb = new StringBuilder();
+        var loaded = new List<string>();
+        foreach (var s in preload)
+        {
+            string body;
+            try
+            {
+                body = s.LoadBody();
+            }
+            catch (IOException)
+            {
+                continue; // 文件刚被删或被占用：这次只列名字
+            }
+            if (body.Length > PreloadMaxChars)
+            {
+                body = body[..PreloadMaxChars] + "\n…（内容较长，完整说明用 load_skill 读取）";
+            }
+            sb.AppendLine($"<推荐技能 名称=\"{s.Name}\">");
+            sb.AppendLine($"按用户这次的要求自动匹配到的技能：{s.Description}");
+            sb.AppendLine("这次任务适用的话就按下面的步骤执行（不用再 load_skill）；看完发现不适用就忽略它，按实际情况做。");
+            if (s.LearnedStatus == LearnedSkillStatus.Candidate)
+            {
+                sb.AppendLine("这是自动总结、还在试用的技能：照做时留意每一步的结果，不对就按实际情况调整。");
+            }
+            sb.AppendLine();
+            sb.AppendLine(body);
+            sb.AppendLine("</推荐技能>");
+            sb.AppendLine();
+            loaded.Add(s.Name);
+        }
+
         sb.AppendLine("<可用技能>");
         sb.AppendLine("技能是针对某类任务写好的工作说明。判断某个技能与当前任务相关时，先调用 load_skill 读取完整说明，再按说明操作；不相关就不要加载。");
         foreach (var s in listed)
         {
+            if (loaded.Contains(s.Name))
+            {
+                sb.AppendLine($"- {s.Name}：{s.Description}（已在上面给出全文）");
+                continue;
+            }
             var trial = s.LearnedStatus == LearnedSkillStatus.Candidate ? "（自动总结、试用中：照做时留意每一步的结果，不对就按实际情况调整）" : "";
             sb.AppendLine($"- {s.Name}：{s.Description}{trial}");
         }
@@ -290,7 +364,7 @@ public sealed class SkillCatalog : IDisposable
             sb.AppendLine($"（以上是与当前任务最相关的 {listed.Count} 个，共有 {enabled.Count} 个技能。没有合适的就用 search_skills 按关键词检索。）");
         }
         sb.AppendLine("</可用技能>");
-        return sb.ToString();
+        return (sb.ToString(), loaded);
     }
 
     public static SkillInfo? TryParse(string skillFile, SkillSource source)
