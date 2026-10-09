@@ -699,6 +699,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                             uses = stats.Uses,
                             successes = stats.Successes,
                             failures = stats.Failures,
+                            lastUsed = _host.LearnedSkillLedger.LastUsed(k.Name)?.ToString("O"),
                         };
                     }).ToList(),
                     learning = _settings.EnableLearning,
@@ -1333,6 +1334,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 var choice = Str("choice") switch
                 {
                     "allowOnce" => ConfirmChoice.AllowOnce,
+                    // 「本任务内不再询问」：之前没映射，落到下面的 Reject——用户点了允许，操作却被拒绝
+                    "allowForSession" => ConfirmChoice.AllowForSession,
                     "allowAlways" => ConfirmChoice.AllowAlways,
                     "allowForConversation" => ConfirmChoice.AllowAlways,
                     _ => ConfirmChoice.Reject,

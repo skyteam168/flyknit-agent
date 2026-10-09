@@ -573,8 +573,9 @@ public sealed class AgentLoop
                 {
                     decisionText = "remembered";
                 }
-                // 2. 检查会话级临时授权（本次任务内同类操作）
-                else if (IsSessionApproved(call.Name, summary))
+                // 2. 检查会话级临时授权（本次任务内同类操作）。高危的从不自动放行：
+                //    授权按程序名记（"python"、"git status"），同一个程序的删除、改系统设置照样要问
+                else if (decision.Effect != CommandEffect.Destructive && IsSessionApproved(call.Name, summary))
                 {
                     decisionText = "session";
                 }
@@ -605,7 +606,7 @@ public sealed class AgentLoop
                         _approvals.Add(decision.Rule);
                     }
                     // 4. 处理会话级临时授权（AllowForSession）
-                    else if (choice == ConfirmChoice.AllowForSession)
+                    else if (choice == ConfirmChoice.AllowForSession && decision.Effect != CommandEffect.Destructive)
                     {
                         AddSessionApproval(call.Name, summary);
                     }

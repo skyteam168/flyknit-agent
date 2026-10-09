@@ -133,6 +133,9 @@ public sealed class PromptBuilder
     /// <summary>本次提示词放进去的记忆条目。回答结束后记到这条回答上，用户的评价会算到这些记忆头上。</summary>
     public IReadOnlyList<string> MemoryIdsUsed { get; private set; } = Array.Empty<string>();
 
+    /// <summary>上一次 Build 直接给出全文的技能（和任务明显相关、自动匹配上的）。宿主把它们算作这一轮用过。</summary>
+    public IReadOnlyList<string> SkillsPreloaded { get; private set; } = Array.Empty<string>();
+
     /// <summary>本次提示词里记忆和历史任务占的 token（估算），用于统计注入量。</summary>
     public int MemoryTokens { get; private set; }
 
@@ -221,7 +224,10 @@ public sealed class PromptBuilder
             }
             if (_skills is not null)
             {
-                sb.Append(_skills.BuildPromptSection(ctx.Query));
+                // 语义分数里也有技能的（ID 以 skill: 开头），和记忆共用同一次向量化
+                var (skills, preloaded) = _skills.BuildPrompt(ctx.Query, ctx.SemanticScores);
+                SkillsPreloaded = preloaded;
+                sb.Append(skills);
             }
             // MCP 连接器单独成段，放在技能后面：两者各说各的，互不改写
             sb.Append(BuildMcpSection(ctx.McpServers));

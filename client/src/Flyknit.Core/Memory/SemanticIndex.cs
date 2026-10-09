@@ -25,6 +25,9 @@ public sealed class SemanticIndex
 
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(4);
 
+    /// <summary>技能的向量 ID 前缀（记忆条目的 ID 不会以它开头）。</summary>
+    public const string SkillPrefix = "skill:";
+
     private readonly MemoryStore _store;
     private readonly IEmbeddingGateway _gateway;
     private readonly string _connectionString;
@@ -54,14 +57,18 @@ public sealed class SemanticIndex
     /// 和 <paramref name="query"/> 的语义相似度（记忆条目 ID → 余弦，-1..1）。不可用、超时、出错时返回 null，调用方只用字面匹配。
     /// 置顶的不需要（每次都放），不算。
     /// </summary>
-    public async Task<IReadOnlyDictionary<string, double>?> ScoreAsync(string query, CancellationToken ct)
+    /// <param name="extra">记忆以外也要比一比的文字（ID → 文字），比如技能的名称和描述。ID 用 <see cref="SkillPrefix"/> 开头，
+    /// 向量和记忆存在同一张表里，用同一次“把用户这句话向量化”，不多花一次请求。</param>
+    public async Task<IReadOnlyDictionary<string, double>?> ScoreAsync(string query, CancellationToken ct, IReadOnlyDictionary<string, string>? extra = null)
     {
         query = query.Trim();
         if (query.Length == 0 || Paused)
         {
             return null;
         }
-        var items = _store.List().Where(i => !i.Pinned).ToList();
+        var items = _store.List().Where(i => !i.Pinned).Select(i => (i.Id, i.Text))
+            .Concat((extra ?? new Dictionary<string, string>()).Where(e => e.Key.StartsWith(SkillPrefix, StringComparison.Ordinal)).Select(e => (Id: e.Key, Text: e.Value)))
+            .ToList();
         if (items.Count == 0)
         {
             return null;
@@ -166,7 +173,7 @@ public sealed class SemanticIndex
                 cmd.Transaction = tx;
                 cmd.CommandText = """
                     INSERT OR REPLACE INTO memory_vectors(item_id, model, text_hash, vector)
-                    SELECT $id, $m, $h, $v WHERE EXISTS (SELECT 1 FROM memory_items WHERE id = $id AND status = 'active')
+                    SELECT $id, $m, $h, $v WHERE substr($id, 1, 6) = 'skill:' OR EXISTS (SELECT 1 FROM memory_items WHERE id = $id AND status = 'active')
                     """;
                 cmd.Parameters.AddWithValue("$id", id);
                 cmd.Parameters.AddWithValue("$m", model);

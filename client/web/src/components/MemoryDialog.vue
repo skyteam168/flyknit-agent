@@ -283,7 +283,7 @@ const close = () => (state.memoryOpen = false)
               <BookOpenCheck :size="16" class="skill-ico" />
               <span class="text">
                 <b>{{ k.name }}</b><small>{{ k.description }}</small>
-                <small class="skill-stats">v{{ k.version }} · {{ t('ui.memory.skillStats', { uses: k.uses, ok: k.successes, bad: k.failures }) }}</small>
+                <small class="skill-stats">v{{ k.version }} · {{ t('ui.memory.skillStats', { uses: k.uses, ok: k.successes, bad: k.failures }) }}<template v-if="k.lastUsed"> · {{ t('ui.memory.skillLastUsed', { date: new Date(k.lastUsed).toLocaleDateString() }) }}</template></small>
               </span>
               <span class="status" :class="k.status" :title="t(`ui.memory.skillStatusHint.${k.status}`)">{{ t(`ui.memory.skillStatus.${k.status}`) }}</span>
               <button v-if="k.status === 'retired'" type="button" class="mini keep" :title="t('ui.memory.skillRevive')" @click="reviveSkill(k.name)"><RotateCcw :size="14" /></button>

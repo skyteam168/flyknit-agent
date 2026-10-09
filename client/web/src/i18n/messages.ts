@@ -770,6 +770,7 @@ const zh = {
       skillRevive: '重新启用（清掉这个版本的失败记录，重新试用）',
       skillRevived: '已重新启用',
       skillStats: '用了 {uses} 次，成功 {ok} 次，失败 {bad} 次',
+      skillLastUsed: '最近一次 {date}',
       skillStatus: { candidate: '试用中', active: '已启用', retired: '已退役' },
       skillStatusHint: {
         candidate: '刚总结出来，还没实际用成功过。AI 会参考它，但会留意每一步的结果；用成功一次后正式启用',
@@ -1685,6 +1686,7 @@ const vi: Messages = {
       skillRevive: 'Bật lại (xóa số lần thất bại của phiên bản này, dùng thử lại)',
       skillRevived: 'Đã bật lại',
       skillStats: 'Dùng {uses} lần, thành công {ok}, thất bại {bad}',
+      skillLastUsed: 'Lần gần nhất {date}',
       skillStatus: { candidate: 'Đang thử', active: 'Đang dùng', retired: 'Đã ngừng' },
       skillStatusHint: {
         candidate: 'Mới được tổng kết, chưa dùng thành công lần nào. AI sẽ tham khảo nhưng theo dõi kết quả từng bước; dùng thành công một lần sẽ chính thức bật',
@@ -2598,6 +2600,7 @@ const en: Messages = {
       skillRevive: 'Re-enable (clears this version\'s failures and puts it back on trial)',
       skillRevived: 'Re-enabled',
       skillStats: 'Used {uses} times, {ok} succeeded, {bad} failed',
+      skillLastUsed: 'last used {date}',
       skillStatus: { candidate: 'On trial', active: 'Active', retired: 'Retired' },
       skillStatusHint: {
         candidate: 'Just summarized and not yet used successfully. The AI may follow it but checks each step; it becomes active after one successful use',
