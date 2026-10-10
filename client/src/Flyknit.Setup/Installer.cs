@@ -44,7 +44,12 @@ public sealed class Installer(Action<string> say)
             var zip = Path.Combine(temp, "payload.zip");
             if (!Payload.Extract(selfPath, zip))
             {
-                throw new SetupException("这个安装程序里没有员工端文件。请在管理后台「员工端版本」→「下载员工端安装包」重新下载。");
+                // 员工端文件夹里这份是不带安装文件的外壳（装好后当卸载程序用），从解压出来的 zip 里点到它就会走到这里
+                throw new SetupException(
+                    "这是安装程序的外壳，不能单独安装（员工端文件夹里这份是装好后卸载用的）。\n\n" +
+                    "请在管理后台「员工端版本」→「下载员工端安装包」，格式选「安装程序 .exe」，" +
+                    "下载到的是一个文件 FlyknitBuddy-Setup-版本号.exe，直接双击它，不用解压。\n\n" +
+                    "如果选了 .exe 下载到的却是 zip，说明服务端更新代码后还没重启，重启服务端再下载。");
             }
             var unpacked = Path.Combine(temp, "files");
             ZipFile.ExtractToDirectory(zip, unpacked);

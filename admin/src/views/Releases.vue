@@ -46,8 +46,14 @@ async function downloadPackage() {
   }
   downloading.value = true
   try {
-    await api.downloadClientPackage(packageForm.server_url.trim(), packageForm.label.trim(), packageForm.format)
+    const saved = await api.downloadClientPackage(packageForm.server_url.trim(), packageForm.label.trim(), packageForm.format)
     packageDialog.value = false
+    if (packageForm.format === 'exe' && !saved.toLowerCase().endsWith('.exe')) {
+      // 后台网页是新的、服务端代码还是旧的（更新后没重启）：旧接口不认 format，照旧给了 zip
+      ElMessageBox.alert('选的是安装程序 .exe，服务端却返回了 zip：服务端更新代码后还没重启。请重启服务端后重新下载。', '服务端需要重启', { type: 'warning' })
+      tickets.value = await api.tickets()
+      return
+    }
     ElMessage.success(packageForm.format === 'exe'
       ? '已开始下载。在员工电脑上双击它（会要求管理员密码），员工端和运维代理一起装好'
       : '已开始下载。解压后把文件夹发给员工，运行 FlyknitBuddy.exe 点「登录」即可')
