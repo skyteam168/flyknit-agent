@@ -19,6 +19,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 安装程序里不碰 Windows 的那几块逻辑（安装包格式、代理配置），直接拿源文件来测 -->
+    <Compile Include="..\..\src\Flyknit.Setup\Payload.cs" Link="Setup\Payload.cs" />
+    <Compile Include="..\..\src\Flyknit.Setup\AgentSettings.cs" Link="Setup\AgentSettings.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Flyknit.Core\Flyknit.Core.csproj" />
   </ItemGroup>
 

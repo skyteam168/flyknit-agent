@@ -21,6 +21,14 @@ internal sealed class RegisterResult
     [JsonPropertyName("token")] public string Token { get; set; } = "";
 }
 
+public sealed class ClientUpdateInfo
+{
+    [JsonPropertyName("available")] public bool Available { get; set; }
+    [JsonPropertyName("version")] public string Version { get; set; } = "";
+    [JsonPropertyName("notes")] public string Notes { get; set; } = "";
+    [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
+}
+
 internal sealed class PollResult
 {
     [JsonPropertyName("runs")] public List<AgentRun> Runs { get; set; } = new();
@@ -54,7 +62,10 @@ public sealed class ServerApi
     private readonly HttpClient _http;
     private readonly AgentConfig _config;
 
-    public const string Version = "0.1.0";
+    /// <summary>编译时写进程序的版本号（publish -p:Version=...）。</summary>
+    public static readonly string Version =
+        (typeof(ServerApi).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .FirstOrDefault() as System.Reflection.AssemblyInformationalVersionAttribute)?.InformationalVersion.Split('+')[0] ?? "0.1.0";
 
     public ServerApi(AgentConfig config)
     {
@@ -72,6 +83,7 @@ public sealed class ServerApi
         var body = new
         {
             enrollment_key = _config.EnrollmentKey,
+            ticket = _config.Ticket,
             machine_guid = MachineIdentity.MachineGuid(),
             machine_name = MachineIdentity.MachineName,
             os_version = MachineIdentity.OsVersion,
@@ -146,6 +158,24 @@ public sealed class ServerApi
     public async Task DownloadPackageAsync(int packageId, string destination, CancellationToken ct)
     {
         using var resp = await _http.GetAsync($"api/v1/agent/packages/{packageId}/download",
+            HttpCompletionOption.ResponseHeadersRead, ct);
+        resp.EnsureSuccessStatusCode();
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        await using var file = File.Create(destination);
+        await stream.CopyToAsync(file, ct);
+    }
+
+    /// <summary>员工端有没有新版本（替 Program Files 里的员工端问）。</summary>
+    public async Task<ClientUpdateInfo> CheckClientUpdateAsync(string currentVersion, CancellationToken ct)
+    {
+        using var resp = await _http.GetAsync($"api/v1/agent/client-update?version={Uri.EscapeDataString(currentVersion)}", ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ClientUpdateInfo>(cancellationToken: ct) ?? new ClientUpdateInfo();
+    }
+
+    public async Task DownloadClientUpdateAsync(string version, string destination, CancellationToken ct)
+    {
+        using var resp = await _http.GetAsync($"api/v1/agent/client-update/download?version={Uri.EscapeDataString(version)}",
             HttpCompletionOption.ResponseHeadersRead, ct);
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);

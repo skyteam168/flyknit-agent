@@ -119,8 +119,9 @@ export const api = {
     patch<Release>(`/releases/${id}`, body),
   deleteRelease: (id: number) => del(`/releases/${id}`),
   /** 员工端安装包：最新发布的版本 + 服务器地址 + 一张新的安装凭证，员工装完点「登录」就行 */
-  downloadClientPackage: (server_url: string, label: string) =>
-    downloadPost('/client-package', { server_url, label }, 'FlyknitBuddy.zip'),
+  /** exe：安装程序（员工端 + 运维代理，IT 双击一次装好）；zip：解压即用（只有员工端） */
+  downloadClientPackage: (server_url: string, label: string, format: 'exe' | 'zip') =>
+    downloadPost('/client-package', { server_url, label, format }, format === 'exe' ? 'FlyknitBuddy-Setup.exe' : 'FlyknitBuddy.zip'),
   tickets: () => get<EnrollmentTicket[]>('/tickets'),
 
   // 用户协议与隐私政策（员工端登录界面上显示）

@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Flyknit.Setup</RootNamespace>
+    <AssemblyName>FlyknitSetup</AssemblyName>
+    <Version>0.1.0</Version>
+    <Product>FlyknitBuddy</Product>
+    <AssemblyTitle>FlyknitBuddy 安装程序</AssemblyTitle>
+    <Company>Flyknit</Company>
+    <ApplicationIcon>..\Flyknit.Client\Assets\flyknitbuddy.ico</ApplicationIcon>
+    <!-- 要装服务、写 Program Files：一打开就弹 UAC，让 IT 输一次管理员密码 -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!--
+      安装程序外壳：员工电脑上什么都没有，所以自包含、单文件、压缩。
+      后台下载安装包时，服务端把「这个 exe + 员工端 zip + 结尾标记」拼成 FlyknitBuddy-Setup-x.y.z.exe。
+    -->
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 和员工端的更新器用同一份「整目录替换、失败回滚」 -->
+    <Compile Include="..\Flyknit.Updater\Swap.cs" Link="Swap.cs" />
+  </ItemGroup>
+
+</Project>

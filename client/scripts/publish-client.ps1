@@ -7,7 +7,7 @@
   用法（在 client 目录或任意位置）：
     powershell -ExecutionPolicy Bypass -File scripts\publish-client.ps1 -Version 0.2.0
 
-  产物：client\dist\FlyknitBuddy-0.2.0.zip（里面是 FlyknitBuddy 文件夹）
+  产物：client\dist\FlyknitBuddy-0.2.0.zip（里面是 FlyknitBuddy 文件夹，含员工端、更新器、运维代理和安装程序外壳）
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -58,10 +58,26 @@ Run "发布 FlyknitUpdater $Version" {
         "-p:Version=$Version" -o $publish
 }
 
+# 运维代理和安装程序也放进同一个文件夹：后台「下载员工端安装包」选 exe 时，
+# 服务端拿 FlyknitSetup.exe 当外壳拼出 FlyknitBuddy-Setup-x.y.z.exe，IT 双击一次员工端和代理一起装好
+Run "发布运维代理 FlyknitAgent $Version" {
+    dotnet publish (Join-Path $root "src\Flyknit.Agent") -c Release -r win-x64 `
+        "-p:Version=$Version" -p:EnableCompressionInSingleFile=true -o (Join-Path $publish "agent")
+}
+Run "发布安装程序 FlyknitSetup $Version" {
+    dotnet publish (Join-Path $root "src\Flyknit.Setup") -c Release -r win-x64 `
+        "-p:Version=$Version" -o (Join-Path $root "publish\setup")
+}
+Copy-Item (Join-Path $root "publish\setup\FlyknitSetup.exe") $publish -Force
+# 发布目录里的 pdb 用不上，不打进包
+Get-ChildItem $publish -Recurse -Filter *.pdb | Remove-Item -Force
+
 # 3) 核对：编进程序的版本号确实是这次的
 $exe = Join-Path $publish "FlyknitBuddy.exe"
 if (-not (Test-Path $exe)) { throw "没有生成 FlyknitBuddy.exe" }
 if (-not (Test-Path (Join-Path $publish "FlyknitUpdater.exe"))) { throw "没有生成 FlyknitUpdater.exe（缺了它员工端装不上更新）" }
+if (-not (Test-Path (Join-Path $publish "agent\FlyknitAgent.exe"))) { throw "没有生成 agent\FlyknitAgent.exe" }
+if (-not (Test-Path (Join-Path $publish "FlyknitSetup.exe"))) { throw "没有生成 FlyknitSetup.exe（后台就下载不了 exe 安装程序）" }
 $built = (Get-Item $exe).VersionInfo.ProductVersion -replace '\+.*$', ''
 if ($built -ne $Version) { throw "FlyknitBuddy.exe 里的版本是 $built，不是 $Version" }
 
@@ -73,3 +89,4 @@ $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host ""
 Write-Host "完成：$zip（$size MB，版本 $Version）" -ForegroundColor Green
 Write-Host "下一步：管理后台「员工端版本」→ 上传新版本，版本号填 $Version，确认无误后点「发布」。"
+Write-Host "装新电脑：同一页「下载员工端安装包」选「安装程序 .exe」，IT 在员工电脑上双击一次，员工端和运维代理一起装好。"

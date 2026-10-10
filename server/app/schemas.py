@@ -149,6 +149,8 @@ class TicketIn(BaseModel):
     #: 员工电脑访问服务端用的地址，写进安装包
     server_url: str = Field(min_length=8, max_length=500)
     label: str = Field(default="", max_length=200)
+    #: exe：安装程序（IT 双击一次，员工端和运维代理一起装好）；zip：解压即用（只有员工端）
+    format: Literal["zip", "exe"] = "zip"
 
 
 class TicketOut(BaseModel):

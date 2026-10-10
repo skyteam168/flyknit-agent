@@ -145,3 +145,88 @@ async def test_a_package_needs_a_published_release_and_a_real_address(client):
     await released(client, headers)
     r = await client.post("/api/v1/admin/client-package", headers=headers, json={"server_url": "10.0.0.5:8000"})
     assert r.status_code == 400
+
+
+STUB = b"MZ" + b"\x90" * 64  # 安装程序外壳（真的是个 exe，这里只要字节）
+
+
+def with_setup(version: str) -> bytes:
+    """新版打包脚本出来的：FlyknitBuddy 文件夹里还有安装程序外壳和运维代理。"""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as z:
+        for name, data in (("FlyknitBuddy.exe", version), ("FlyknitUpdater.exe", "u"),
+                           ("FlyknitSetup.exe", STUB), ("agent/FlyknitAgent.exe", "agent")):
+            z.writestr(zipfile.ZipInfo(f"FlyknitBuddy/{name}", date_time=(2026, 1, 1, 0, 0, 0)), data)
+    return buffer.getvalue()
+
+
+def split_setup(exe: bytes) -> tuple[bytes, bytes]:
+    """按结尾 32 字节的标记把安装程序拆回 外壳 + zip。"""
+    trailer = exe[-32:]
+    assert trailer[:16] == b"FLYKNIT-SETUP-01"
+    offset = int.from_bytes(trailer[16:24], "little")
+    length = int.from_bytes(trailer[24:32], "little")
+    assert offset + length + 32 == len(exe)
+    return exe[:offset], exe[offset:offset + length]
+
+
+async def test_the_setup_exe_is_the_stub_plus_the_provisioned_package(client):
+    headers = await owner_headers(client)
+    await released(client, headers, body=with_setup("0.3.0"))
+
+    r = await client.post("/api/v1/admin/client-package", headers=headers,
+                          json={"server_url": SERVER, "label": "三车间", "format": "exe"})
+    assert r.status_code == 200, r.text
+    assert 'FlyknitBuddy-Setup-0.3.0.exe' in r.headers["content-disposition"]
+    stub, payload = split_setup(r.content)
+    assert stub == STUB
+    with zipfile.ZipFile(io.BytesIO(payload)) as z:
+        assert "FlyknitBuddy/agent/FlyknitAgent.exe" in z.namelist()
+        provision = json.loads(z.read("FlyknitBuddy/flyknit.provision.json"))
+    assert provision["server_url"] == SERVER and len(provision["ticket"]) > 20
+
+    # 安装程序里的凭证和 zip 里的一样能登录
+    assert (await register(client, provision["ticket"])).status_code == 200
+
+
+async def test_an_old_package_without_the_setup_stub_cannot_be_an_exe(client):
+    headers = await owner_headers(client)
+    await released(client, headers, body=nested_zip("0.3.0"))
+    r = await client.post("/api/v1/admin/client-package", headers=headers, json={"server_url": SERVER, "format": "exe"})
+    assert r.status_code == 400 and "FlyknitSetup.exe" in r.json()["detail"]
+    # zip 照常
+    assert (await client.post("/api/v1/admin/client-package", headers=headers, json={"server_url": SERVER})).status_code == 200
+
+
+async def test_the_agent_registers_with_the_setup_ticket_and_updates_the_client(client):
+    headers = await owner_headers(client)
+    await released(client, headers, body=with_setup("0.3.0"))
+    ticket = (await package(client, headers))["provision"]["ticket"]
+
+    r = await client.post("/api/v1/agent/register", json={"ticket": ticket, "machine_guid": "abcd-1234-efgh"})
+    assert r.status_code == 200, r.text
+    agent = {"Authorization": f"Bearer {r.json()['token']}"}
+
+    # 代理替 Program Files 里的员工端查更新、下载
+    upd = (await client.get("/api/v1/agent/client-update", headers=agent, params={"version": "0.2.0"})).json()
+    assert upd["available"] and upd["version"] == "0.3.0" and len(upd["sha256"]) == 64
+    assert not (await client.get("/api/v1/agent/client-update", headers=agent, params={"version": "0.3.0"})).json()["available"]
+    dl = await client.get("/api/v1/agent/client-update/download", headers=agent, params={"version": "0.3.0"})
+    assert dl.status_code == 200 and dl.content == with_setup("0.3.0")
+    # 没有代理令牌不行
+    assert (await client.get("/api/v1/agent/client-update")).status_code == 401
+
+    # 吊销了凭证，用它的新代理注册不上
+    tid = (await client.get("/api/v1/admin/tickets", headers=headers)).json()[0]["id"]
+    await client.post(f"/api/v1/admin/tickets/{tid}/revoke", headers=headers)
+    r = await client.post("/api/v1/agent/register", json={"ticket": ticket, "machine_guid": "zzzz-9999-yyyy"})
+    assert r.status_code == 403
+    # 什么凭据都没有也不行
+    assert (await client.post("/api/v1/agent/register", json={"machine_guid": "zzzz-9999-yyyy"})).status_code == 403
+
+
+async def test_a_failed_exe_request_issues_no_ticket(client):
+    headers = await owner_headers(client)
+    await released(client, headers, body=nested_zip("0.3.0"))
+    await client.post("/api/v1/admin/client-package", headers=headers, json={"server_url": SERVER, "format": "exe"})
+    assert (await client.get("/api/v1/admin/tickets", headers=headers)).json() == []

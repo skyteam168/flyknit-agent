@@ -36,6 +36,11 @@ jobs:
           dotnet-version: 8.0.x
       - name: Test core library
         run: dotnet test client/tests/Flyknit.Core.Tests -c Release
+      - name: Build installer, ops agent and updater
+        run: |
+          dotnet build client/src/Flyknit.Setup -c Release
+          dotnet build client/src/Flyknit.Agent -c Release
+          dotnet build client/src/Flyknit.Updater -c Release
       - name: Build Windows client
         run: dotnet publish client/src/Flyknit.Client -c Release -r win-x64 --self-contained false -o artifacts/FlyknitBuddy
       - uses: actions/upload-artifact@v4

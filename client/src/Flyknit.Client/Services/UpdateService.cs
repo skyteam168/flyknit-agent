@@ -82,6 +82,18 @@ public sealed class UpdateService : IDisposable
     public static string InstallDirectory =>
         Path.GetDirectoryName(Environment.ProcessPath ?? AppContext.BaseDirectory)!.TrimEnd(Path.DirectorySeparatorChar);
 
+    /// <summary>
+    /// 用安装程序（Setup.exe）装在 Program Files 里的：员工账号换不了程序目录，升级由运维代理（SYSTEM）负责。
+    /// 安装程序在程序目录里放了这个标记文件。
+    /// </summary>
+    public static bool Managed => File.Exists(Path.Combine(InstallDirectory, "flyknit.managed"));
+
+    /// <summary>代理写的升级状态：version、notes、stage（downloading / ready / installed / failed）。</summary>
+    private static string AgentStatusFile =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Flyknit", "client-update.json");
+
+    private static readonly TimeSpan ManagedPoll = TimeSpan.FromMinutes(1);
+
     private static string StagingRoot =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Flyknit", "updates");
 
@@ -92,6 +104,11 @@ public sealed class UpdateService : IDisposable
 
     private async Task LoopAsync(CancellationToken ct)
     {
+        if (Managed)
+        {
+            await ManagedLoopAsync(ct);
+            return;
+        }
         // 上次下好了没装上的，开机先装——用户说的「下次开机自动更新」就是这里
         TryApplyStaged(silent: false);
 
@@ -113,9 +130,80 @@ public sealed class UpdateService : IDisposable
         }
     }
 
+    /// <summary>代理管升级：只看代理写的状态文件，新版本下好了就显示「新版本就绪」。</summary>
+    private async Task ManagedLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10), ct);
+            while (!ct.IsCancellationRequested)
+            {
+                RefreshFromAgent();
+                await Task.Delay(ManagedPoll, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void RefreshFromAgent()
+    {
+        var status = ReadAgentStatus();
+        if (status is null || !IsNewer(status.Value.Version, _currentVersion))
+        {
+            if (State.Stage != UpdateStage.None)
+            {
+                Publish(UpdateState.Idle);
+            }
+            return;
+        }
+        var next = status.Value.Stage switch
+        {
+            "ready" => new UpdateState(UpdateStage.Ready, status.Value.Version, status.Value.Notes, 1, ""),
+            "downloading" => new UpdateState(UpdateStage.Downloading, status.Value.Version, status.Value.Notes, 0, ""),
+            _ => UpdateState.Idle,
+        };
+        if (next != State)
+        {
+            Publish(next);
+        }
+    }
+
+    private static (string Version, string Notes, string Stage)? ReadAgentStatus()
+    {
+        try
+        {
+            if (!File.Exists(AgentStatusFile))
+            {
+                return null;
+            }
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(AgentStatusFile));
+            string Str(string name) => doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() ?? "" : "";
+            return (Str("version"), Str("notes"), Str("stage"));
+        }
+        catch (Exception)
+        {
+            return null;  // 代理正在写，下一分钟再看
+        }
+    }
+
+    /// <summary>只比较数字段（0.10.0 比 0.9.0 新）。认不出来就当不是更新。</summary>
+    public static bool IsNewer(string candidate, string current)
+    {
+        static Version? Parse(string v) => Version.TryParse(v.Split('-', '+')[0].Trim().TrimStart('v', 'V'), out var r) ? r : null;
+        var (a, b) = (Parse(candidate), Parse(current));
+        return a is not null && b is not null && a > b;
+    }
+
     /// <summary>查一次。有新版本就在后台下好、校验、解开，然后把状态置为 Ready。</summary>
     public async Task CheckAsync(CancellationToken ct)
     {
+        if (Managed)
+        {
+            RefreshFromAgent();
+            return;
+        }
         if (!await _gate.WaitAsync(0, ct))
         {
             return;  // 上一次还在跑
@@ -151,6 +239,27 @@ public sealed class UpdateService : IDisposable
     /// </summary>
     public async Task<UpdateCheckResult> CheckNowAsync(CancellationToken ct)
     {
+        if (Managed)
+        {
+            // 代理管升级：已经下好就说就绪；没有就问服务端，有新版本告诉员工代理会在后台装
+            RefreshFromAgent();
+            if (Known() is { } ready)
+            {
+                return ready;
+            }
+            try
+            {
+                var update = await _server.CheckUpdateAsync(_currentVersion, ct);
+                return update.Available && update.Version.Length > 0
+                    ? new UpdateCheckResult(UpdateCheckOutcome.Downloading, update.Version, "")
+                    : new UpdateCheckResult(UpdateCheckOutcome.UpToDate, _currentVersion, "");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("手动检查更新失败", ex);
+                return new UpdateCheckResult(UpdateCheckOutcome.Failed, "", ex is OperationCanceledException ? "timeout" : ex.Message);
+            }
+        }
         if (Known() is { } known)
         {
             return known;
@@ -294,14 +403,58 @@ public sealed class UpdateService : IDisposable
     }
 
     /// <summary>立刻装：启动更新器，然后调用方让程序退出。</summary>
-    public bool ApplyNow() => Launch(silent: false);
+    public bool ApplyNow() => Managed ? WaitForAgent() : Launch(silent: false);
 
-    /// <summary>退出时装。用户点了「稍后」，那就在他关掉程序的时候悄悄换上。</summary>
-    public bool ApplyOnExit() => State.Stage == UpdateStage.Ready && Launch(silent: true);
+    /// <summary>退出时装。用户点了「稍后」，那就在他关掉程序的时候悄悄换上。代理管升级的不用管：程序一退代理就换。</summary>
+    public bool ApplyOnExit() => !Managed && State.Stage == UpdateStage.Ready && Launch(silent: true);
+
+    /// <summary>
+    /// 代理管升级时点「重启升级」：程序退出后代理几秒内就换好。起一个更新器在旁边等，
+    /// 看到程序目录里换成了新版本就把它重新打开（等不到也打开旧的，不让员工以为程序没了）。
+    /// </summary>
+    private bool WaitForAgent()
+    {
+        if (State.Stage != UpdateStage.Ready)
+        {
+            return false;
+        }
+        try
+        {
+            var source = Path.Combine(InstallDirectory, "FlyknitUpdater.exe");
+            if (!File.Exists(source))
+            {
+                return false;
+            }
+            var runner = Path.Combine(Path.GetTempPath(), $"FlyknitUpdater-{Guid.NewGuid():N}.exe");
+            File.Copy(source, runner, overwrite: true);
+            var info = new ProcessStartInfo(runner) { UseShellExecute = false, CreateNoWindow = true };
+            foreach (var a in new[]
+            {
+                "--wait-version", State.Version,
+                "--exe", Environment.ProcessPath ?? Path.Combine(InstallDirectory, "FlyknitBuddy.exe"),
+                "--log", Path.Combine(AppPaths.Logs, "update.log"),
+            })
+            {
+                info.ArgumentList.Add(a);
+            }
+            Process.Start(info);
+            Log.Info($"等运维代理装上 {State.Version}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("启动等待升级的程序失败", ex);
+            return false;
+        }
+    }
 
     /// <summary>开机时发现上次下好没装的，直接装上。</summary>
     private void TryApplyStaged(bool silent)
     {
+        if (Managed)
+        {
+            return;
+        }
         var staged = StagedUpdate.Read();
         if (staged is null)
         {

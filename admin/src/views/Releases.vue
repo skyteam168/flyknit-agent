@@ -30,7 +30,7 @@ async function load() {
 // 员工解压运行后直接点「登录」：域账号一键，本机账号输入 Windows 密码。不用再告诉他们服务器地址和注册密钥
 const tickets = ref<EnrollmentTicket[]>([])
 const packageDialog = ref(false)
-const packageForm = reactive({ server_url: '', label: '' })
+const packageForm = reactive({ server_url: '', label: '', format: 'exe' as 'exe' | 'zip' })
 const downloading = ref(false)
 
 function openPackage() {
@@ -46,9 +46,11 @@ async function downloadPackage() {
   }
   downloading.value = true
   try {
-    await api.downloadClientPackage(packageForm.server_url.trim(), packageForm.label.trim())
+    await api.downloadClientPackage(packageForm.server_url.trim(), packageForm.label.trim(), packageForm.format)
     packageDialog.value = false
-    ElMessage.success('已开始下载。解压后把文件夹发给员工，运行 FlyknitBuddy.exe 点「登录」即可')
+    ElMessage.success(packageForm.format === 'exe'
+      ? '已开始下载。在员工电脑上双击它（会要求管理员密码），员工端和运维代理一起装好'
+      : '已开始下载。解压后把文件夹发给员工，运行 FlyknitBuddy.exe 点「登录」即可')
     tickets.value = await api.tickets()
   } finally {
     downloading.value = false
@@ -237,8 +239,20 @@ async function remove(r: Release) {
     <el-dialog v-model="packageDialog" title="下载员工端安装包" width="560px">
       <el-alert type="info" :closable="false" show-icon class="notice"
                 :title="`打包当前下发中的版本 ${current?.version ?? ''}，带上服务器地址和一张安装凭证`"
-                description="员工解压后运行 FlyknitBuddy.exe，直接点「登录」：加了域的电脑一键登录，没加域的输入这台电脑的 Windows 密码。不用再告诉员工服务器地址和注册密钥。" />
+                description="员工打开后直接点「登录」：加了域的电脑一键登录，没加域的输入这台电脑的 Windows 密码。不用再告诉员工服务器地址和注册密钥。" />
       <el-form label-position="top">
+        <el-form-item label="格式">
+          <el-radio-group v-model="packageForm.format" class="formats">
+            <el-radio value="exe" border>
+              <strong>安装程序 .exe（推荐）</strong>
+              <small>IT 在员工电脑上双击，输一次管理员密码，员工端和运维代理一起装好；以后员工端由运维代理自动升级</small>
+            </el-radio>
+            <el-radio value="zip" border>
+              <strong>压缩包 .zip</strong>
+              <small>解压即用，只有员工端，装在员工自己的目录里；运维代理要另外装</small>
+            </el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="员工电脑访问服务器的地址">
           <el-input v-model="packageForm.server_url" placeholder="http://10.0.0.5:8000" />
           <p class="hint">默认是你现在打开后台用的地址。员工电脑要能访问到它；走了反向代理或域名的请改成员工那边用的地址。</p>
@@ -284,6 +298,31 @@ async function remove(r: Release) {
 </template>
 
 <style scoped>
+.formats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.formats :deep(.el-radio) {
+  box-sizing: border-box;
+  width: 100%;
+  height: auto;
+  margin: 0 !important;
+  padding: 10px 12px;
+  align-items: flex-start;
+  white-space: normal;
+}
+.formats :deep(.el-radio__label) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.formats small {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .notice {
   margin-bottom: 16px;
 }

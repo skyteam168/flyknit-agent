@@ -682,6 +682,20 @@ iframe 固定白底（网页默认白底，深色主题下否则黑字看不见�
 401/403 分别提示重新登录 / 被停用）、TCP 直连、ICMP 丢包（全丢只算「注意」：很多公司挡 ping）。走代理时 DNS、TCP 直连失败
 也只算「注意」。每次检测写一份文本报告到 `%APPDATA%\Flyknit\logs\network\`，界面上可打开目录、导出、定位文件。
 
+**安装程序**（`client/src/Flyknit.Setup`）：员工没有管理员权限、IT 现场装机，所以做成一次装好两样东西。
+`publish-client.ps1` 把员工端、更新器、运维代理（`agent\FlyknitAgent.exe`）和安装程序外壳（`FlyknitSetup.exe`，自包含单文件，约 11 MB）
+发布进同一个文件夹打成 zip。后台「下载员工端安装包」选 exe 时，服务端在下载时拼出
+`[FlyknitSetup.exe][带开通文件的 zip][32 字节结尾：FLYKNIT-SETUP-01 + zip 偏移 + 长度]`（`Payload.cs` / `releases.setup_trailer`），
+每次带一张新安装凭证。外壳要求管理员权限，安装：员工端 → `Program Files\FlyknitBuddy`（写 `flyknit.managed` 标记），
+代理 → `Program Files\FlyknitAgent` 注册成服务，`agent.json` 写服务器地址、安装凭证（代理用它注册，`/agent/register` 收 `ticket`）
+和员工端目录；快捷方式、「应用和功能」卸载项（卸载程序放在只有管理员能改的代理目录）。`/S` 静默，`/uninstall` 卸载。
+
+**代理替员工端升级**：员工账号写不了 Program Files，员工端看到 `flyknit.managed` 就不自己换目录，改读代理写的
+`%ProgramData%\Flyknit\client-update.json`（downloading / ready / installed）显示「新版本就绪」。代理每 30 分钟问
+`/agent/client-update`，下载到代理自己的程序目录（`Program Files\\FlyknitAgent\\client-updates`，员工建不了也改不了；放 ProgramData 的话员工可能事先占好目录，借代理的手把自己的文件放进所有人都运行的目录）、
+校验 sha256、解开；员工端全部退出后用和更新器同一份 `Swap`（整目录改名、失败回滚）换上。员工点「重启升级」时员工端
+起一个更新器副本 `--wait-version`，等程序目录换成新版本再把员工端打开。
+
 **检查更新**：设置里的「检查更新」调 `UpdateService.CheckNowAsync`，马上问服务端并告诉用户结果（已是最新 / 正在后台下载 /
 已就绪 / 需要 IT 协助 / 失败）；发现新版本照旧在后台下载，顶上的更新条跟着变。
    登录成功后把开通文件复制一份到 `%APPDATA%\Flyknit`：自动升级会换掉程序目录，以后令牌失效要重新登录时还能直接点「登录」。
