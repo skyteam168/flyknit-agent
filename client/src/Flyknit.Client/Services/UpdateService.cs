@@ -433,6 +433,7 @@ public sealed class UpdateService : IDisposable
                 "--wait-version", State.Version,
                 "--exe", Environment.ProcessPath ?? Path.Combine(InstallDirectory, "FlyknitBuddy.exe"),
                 "--log", Path.Combine(AppPaths.Logs, "update.log"),
+                "--title", NativeStrings.T("update.applying").Replace("{0}", State.Version),
             })
             {
                 info.ArgumentList.Add(a);
@@ -498,6 +499,7 @@ public sealed class UpdateService : IDisposable
                 "--exe", exe,
                 "--zip", staged.Zip,
                 "--log", Path.Combine(AppPaths.Logs, "update.log"),
+                "--title", NativeStrings.T("update.applying").Replace("{0}", staged.Version),
             }.ToList();
             if (silent)
             {

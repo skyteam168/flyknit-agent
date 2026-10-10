@@ -33,9 +33,32 @@ const packageDialog = ref(false)
 const packageForm = reactive({ server_url: '', label: '', format: 'exe' as 'exe' | 'zip' })
 const downloading = ref(false)
 
+/**
+ * 员工电脑连不上的地址：localhost / 127.x 在员工电脑上指的是它自己；5180 是后台开发服务器（npm run dev）的端口，
+ * 关掉它代理和员工端就都断了。安装包里写的就是这个地址，写错了装好的电脑全都连不上服务器。
+ */
+function unreachableReason(url: string): string {
+  let u: URL
+  try {
+    u = new URL(url.trim())
+  } catch {
+    return ''
+  }
+  const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || host.startsWith('127.') || host === '::1' || host === '0.0.0.0') {
+    return `「${u.host}」在员工电脑上指的是员工电脑自己，不是服务器`
+  }
+  if (u.port === '5180') return '5180 是后台开发服务器（npm run dev）的端口，不是服务端的端口'
+  return ''
+}
+
 function openPackage() {
-  // 管理后台和接口同源，这个地址员工电脑一般也能访问；开发时（vite 端口）或走了反向代理的要手动改
-  packageForm.server_url = packageForm.server_url || window.location.origin
+  // 默认用上次下载时填的地址；没有就用打开后台的地址——但本机地址（localhost）和开发端口员工电脑连不上，不填，让 IT 自己写
+  if (!packageForm.server_url) {
+    const last = tickets.value.find((t) => !unreachableReason(t.server_url))
+    const origin = window.location.origin
+    packageForm.server_url = last?.server_url ?? (unreachableReason(origin) ? '' : origin)
+  }
   packageForm.label = ''
   packageDialog.value = true
 }
@@ -43,6 +66,18 @@ async function downloadPackage() {
   if (!/^https?:\/\/[^\s/]+/.test(packageForm.server_url.trim())) {
     ElMessage.warning('服务器地址要写成 http://10.0.0.5:8000 这样的完整地址')
     return
+  }
+  const reason = unreachableReason(packageForm.server_url)
+  if (reason) {
+    try {
+      await ElMessageBox.confirm(
+        `${reason}。安装包会把这个地址写进员工端和运维代理，装好后它们都连不上服务器（后台看不到代理、员工端登录失败）。\n\n请改成员工电脑能访问的地址，比如服务器的局域网 IP 加服务端端口：http://10.0.0.5:8000。只在服务器这台电脑上自己测试才用它。`,
+        '这个地址员工电脑连不上',
+        { type: 'warning', confirmButtonText: '仍然下载', cancelButtonText: '回去修改' },
+      )
+    } catch {
+      return
+    }
   }
   downloading.value = true
   try {
@@ -219,7 +254,14 @@ async function remove(r: Release) {
         <el-table-column label="名称" min-width="160">
           <template #default="{ row }"><strong>{{ row.label }}</strong></template>
         </el-table-column>
-        <el-table-column label="服务器地址" min-width="180" prop="server_url" />
+        <el-table-column label="服务器地址" min-width="180">
+          <template #default="{ row }">
+            {{ row.server_url }}
+            <el-tooltip v-if="unreachableReason(row.server_url)" :content="`${unreachableReason(row.server_url)}，用这个包装的电脑连不上服务器，请停用后重新下载`" placement="top">
+              <el-tag type="danger" size="small" class="bad-url">员工连不上</el-tag>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="已登录" width="90" align="right">
           <template #default="{ row }">{{ row.uses }} 台</template>
         </el-table-column>
@@ -261,7 +303,8 @@ async function remove(r: Release) {
         </el-form-item>
         <el-form-item label="员工电脑访问服务器的地址">
           <el-input v-model="packageForm.server_url" placeholder="http://10.0.0.5:8000" />
-          <p class="hint">默认是你现在打开后台用的地址。员工电脑要能访问到它；走了反向代理或域名的请改成员工那边用的地址。</p>
+          <p class="hint">员工电脑要能访问到它，一般是服务器的局域网 IP 加服务端端口（默认 8000），或者公司给服务器配的域名。不要填 localhost、127.0.0.1，也不要填后台开发服务器的 5180 端口。</p>
+          <el-alert v-if="unreachableReason(packageForm.server_url)" type="error" :closable="false" show-icon :title="unreachableReason(packageForm.server_url)" class="url-alert" />
         </el-form-item>
         <el-form-item label="名称（可选）">
           <el-input v-model="packageForm.label" maxlength="200" placeholder="比如：三车间、财务部、2026 年 10 月" />
@@ -304,6 +347,12 @@ async function remove(r: Release) {
 </template>
 
 <style scoped>
+.bad-url {
+  margin-left: 6px;
+}
+.url-alert {
+  margin-top: 8px;
+}
 .formats {
   display: flex;
   flex-direction: column;

@@ -35,6 +35,33 @@ public class ProvisioningTests : IDisposable
         Assert.Null(Provisioning.Load(_dir));
     }
 
+    [Theory]
+    // IT 第一次下载时填成了 localhost，重新下载正确地址的安装程序重装：员工要按新地址重新登录
+    [InlineData("http://localhost:5180", "http://10.0.0.5:8000", "http://localhost:5180", true)]
+    [InlineData("http://localhost:5180", "http://10.0.0.5:8000", "http://localhost:5180/", true)]
+    // 没换过地址
+    [InlineData("http://10.0.0.5:8000", "http://10.0.0.5:8000", "http://10.0.0.5:8000", false)]
+    // 员工自己用「连接其他服务器」登录的，不去动它
+    [InlineData("http://10.0.0.5:8000", "http://10.0.0.6:8000", "http://192.168.1.9:8000", false)]
+    // 已经按新地址登录过了
+    [InlineData("http://localhost:5180", "http://10.0.0.5:8000", "http://10.0.0.5:8000", false)]
+    public void ReinstallingWithANewServerAsksToLogInAgain(string kept, string installed, string current, bool expected)
+    {
+        var program = Directory.CreateDirectory(Path.Combine(_dir, "program")).FullName;
+        var data = Directory.CreateDirectory(Path.Combine(_dir, "data")).FullName;
+        File.WriteAllText(Path.Combine(data, Provisioning.FileName), $$"""{"server_url": "{{kept}}", "ticket": "old"}""");
+        File.WriteAllText(Path.Combine(program, Provisioning.FileName), $$"""{"server_url": "{{installed}}", "ticket": "new"}""");
+        Assert.Equal(expected, Provisioning.ServerReplaced(program, data, current));
+    }
+
+    [Fact]
+    public void WithoutBothFilesNothingIsReplaced()
+    {
+        var program = Directory.CreateDirectory(Path.Combine(_dir, "program")).FullName;
+        Write("""{"server_url": "http://localhost:5180", "ticket": "old"}""");
+        Assert.False(Provisioning.ServerReplaced(program, _dir, "http://localhost:5180"));
+    }
+
     [Fact]
     public void ACopyIsKeptForAfterTheProgramFolderIsReplaced()
     {

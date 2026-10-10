@@ -354,7 +354,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 {
                     return new { ok = false, message = "更新没能启动，请联系 IT" };
                 }
-                _dispatcher.InvokeAsync(() => System.Windows.Application.Current.Shutdown());
+                _host.RequestExit();
                 return new { ok = true, message = "" };
             }
 

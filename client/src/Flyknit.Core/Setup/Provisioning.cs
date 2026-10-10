@@ -30,6 +30,21 @@ public static class Provisioning
         }
     }
 
+    /// <summary>
+    /// IT 用新的安装程序重装过（比如第一次下载时服务器地址填错了）：程序目录里的开通文件换了服务器，
+    /// 而员工还登录在旧开通文件的那台服务器上。这时该让员工按新的重新登录，不然员工端永远连着旧地址。
+    /// 员工自己用「连接其他服务器」登录的不算（那时登录的服务器和留下的开通文件对不上）。
+    /// </summary>
+    public static bool ServerReplaced(string programDirectory, string dataDirectory, string currentServer)
+    {
+        var installed = LoadFrom(programDirectory);
+        var kept = LoadFrom(dataDirectory);
+        static bool Same(string a, string b) => string.Equals(a.TrimEnd('/'), b.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+        return installed is not null && kept is not null
+            && Same(kept.ServerUrl, currentServer)
+            && !Same(installed.ServerUrl, currentServer);
+    }
+
     private static Provision? LoadFrom(string directory)
     {
         var path = Path.Combine(directory, FileName);

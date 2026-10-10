@@ -22,11 +22,24 @@ internal static class Program
 {
     private static string _log = "";
 
+    [STAThread]
     private static int Main(string[] args)
     {
         var options = Options.Parse(args);
         _log = options.LogFile;
+        if (options.Silent)
+        {
+            return Run(options);
+        }
+        // 员工点了「重启升级」：程序窗口没了，换文件这几秒得让他看到在升级，不然以为程序崩了
+        var title = options.Title.Length > 0
+            ? options.Title
+            : $"正在升级 FlyknitBuddy{(options.WaitVersion.Length > 0 ? " " + options.WaitVersion : "")}，完成后会自动打开…";
+        return ProgressWindow.Run(title, () => Run(options));
+    }
 
+    private static int Run(Options options)
+    {
         if (options.WaitVersion.Length > 0)
         {
             // 装在 Program Files 里的员工端由运维代理替换：这里只等它换好，再把程序打开
@@ -194,6 +207,7 @@ internal static class Program
         public string LogFile = "";
         public bool Silent;
         public string WaitVersion = "";
+        public string Title = "";
 
         public static Options Parse(string[] args)
         {
@@ -211,6 +225,7 @@ internal static class Program
                     case "--log": o.LogFile = next; i++; break;
                     case "--silent": o.Silent = true; break;
                     case "--wait-version": o.WaitVersion = next; i++; break;
+                    case "--title": o.Title = next; i++; break;
                 }
             }
             return o;
