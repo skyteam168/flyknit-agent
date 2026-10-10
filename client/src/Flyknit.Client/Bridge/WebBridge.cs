@@ -29,6 +29,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     private readonly AgentHost _host;
     private readonly AppSettings _settings;
     private readonly IWindowActions _window;
+
+    /// <summary>最近一次网络检测（设置 → 网络 再打开时直接显示，不用重测）。</summary>
+    private (Flyknit.Core.Diagnostics.NetworkReport Report, string Path)? _lastNetwork;
     private readonly ConcurrentDictionary<string, PendingConfirm> _confirms = new();
 
     /// <summary>界面当前打开的任务。用户在看别的任务时，这个任务的通知照常弹。</summary>
@@ -308,6 +311,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     theme = _settings.Theme,
                     userName = Environment.UserName,
                     machineName = Environment.MachineName,
+                    serverUrl = _settings.ServerUrl,
                     department = _host.Department,
                     owner = _host.Owner,
                     connected = _host.Connected,
@@ -661,6 +665,77 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     Log.Warn("提交反馈失败", ex);
                     return new { ok = false, message = ex is OperationCanceledException ? "timeout" : ex.Message };
                 }
+            }
+
+            case "account.logout":
+                // 界面已经确认过。服务端作废令牌，App 清掉本机令牌后重启到登录窗口
+                await _host.LogoutAsync();
+                return null;
+
+            case "network.last":
+                return _lastNetwork is { } last ? NetworkInfo(last.Report, last.Path) : null;
+
+            case "network.diagnose":
+            {
+                var server = _host.Server;
+                var proxy = Uri.TryCreate(server.ServerUrl, UriKind.Absolute, out var target)
+                    ? ProxyFactory.Describe(_settings, target)
+                    : new Flyknit.Core.Diagnostics.ProxyInfo(_settings.ProxyMode ?? "", "");
+                var probe = new Flyknit.Core.Diagnostics.SystemNetworkProbe(server.HealthStatusAsync, server.AuthStatusAsync);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                var report = await Task.Run(() => Flyknit.Core.Diagnostics.NetworkDiagnostics.RunAsync(server.ServerUrl, proxy, probe, cts.Token));
+                var dir = Path.Combine(AppPaths.Logs, "network");
+                var file = Path.Combine(dir, $"network-diagnostics-{report.At:yyyyMMdd-HHmmss-fff}.txt");
+                try
+                {
+                    Directory.CreateDirectory(dir);
+                    var text = Flyknit.Core.Diagnostics.NetworkDiagnostics.FormatReport(report, new Dictionary<string, string>
+                    {
+                        ["version"] = typeof(WebBridge).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
+                        ["machine"] = Environment.MachineName,
+                        ["user"] = $"{Environment.UserDomainName}\\{Environment.UserName}",
+                        ["os"] = Environment.OSVersion.VersionString,
+                    });
+                    await File.WriteAllTextAsync(file, text);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Log.Warn("写网络检测报告失败", ex);
+                    file = "";
+                }
+                Log.Info($"网络检测：{report.Overall}，{string.Join(" ", report.Checks.Select(c => $"{c.Id}={c.Status}"))}");
+                _lastNetwork = (report, file);
+                return NetworkInfo(report, file);
+            }
+
+            case "network.openReports":
+            {
+                var dir = Path.Combine(AppPaths.Logs, "network");
+                Directory.CreateDirectory(dir);
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
+                return null;
+            }
+
+            case "network.revealReport":
+                if (_lastNetwork is { Path.Length: > 0 } shown && File.Exists(shown.Path))
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{shown.Path}\"") { UseShellExecute = true });
+                }
+                return null;
+
+            case "network.exportReport":
+            {
+                if (_lastNetwork is not { Path.Length: > 0 } latest || !File.Exists(latest.Path))
+                {
+                    return new { ok = false, path = "" };
+                }
+                var dest = _window.PickSaveFile(Path.GetFileName(latest.Path), "文本文件 (*.txt)|*.txt");
+                if (dest is null)
+                {
+                    return new { ok = false, path = "" };
+                }
+                File.Copy(latest.Path, dest, overwrite: true);
+                return new { ok = true, path = dest };
             }
 
             case "storage.info":
@@ -1813,6 +1888,29 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             return "";
         }
     }
+
+    private static object NetworkInfo(Flyknit.Core.Diagnostics.NetworkReport r, string path) => new
+    {
+        at = r.At.ToString("O"),
+        endpoint = r.Endpoint,
+        host = r.Host,
+        port = r.Port,
+        scheme = r.Scheme,
+        proxyMode = r.Proxy.Mode,
+        proxyUrl = r.Proxy.Url,
+        overall = r.Overall.ToString().ToLowerInvariant(),
+        checks = r.Checks.Select(c => new
+        {
+            id = c.Id,
+            status = c.Status.ToString().ToLowerInvariant(),
+            code = c.Code,
+            value = c.Value,
+            ms = c.Ms,
+            error = c.Error,
+        }).ToList(),
+        reportPath = path,
+        reportDir = Path.Combine(AppPaths.Logs, "network"),
+    };
 }
 
 /// <summary>主窗口提供给桥接层的操作。</summary>

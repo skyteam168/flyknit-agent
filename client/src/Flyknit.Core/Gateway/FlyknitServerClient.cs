@@ -182,6 +182,31 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
 
     public bool IsRegistered => !string.IsNullOrEmpty(_token);
 
+    public string ServerUrl => _serverUrl.TrimEnd('/');
+
+    /// <summary>网络检测：服务端健康检查（不带令牌）。返回 HTTP 状态码，连不上就抛异常。</summary>
+    public async Task<int> HealthStatusAsync(CancellationToken ct)
+    {
+        using var resp = await _http.GetAsync("healthz", ct);
+        return (int)resp.StatusCode;
+    }
+
+    /// <summary>网络检测：带设备令牌访问一次，看服务端还认不认这台电脑。返回 HTTP 状态码。</summary>
+    public async Task<int> AuthStatusAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/usage?days=1");
+        using var resp = await _http.SendAsync(req, ct);
+        return (int)resp.StatusCode;
+    }
+
+    /// <summary>退出登录：让服务端作废这台电脑的设备令牌。</summary>
+    public async Task LogoutAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/devices/logout");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
     public Task<DeviceRegistration> RegisterAsync(string enrollmentKey, string uiLanguage, string clientVersion, CancellationToken ct) =>
         PostRegistrationAsync(new
         {

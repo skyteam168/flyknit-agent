@@ -547,6 +547,8 @@ export interface AppInfo {
   theme: Theme
   userName: string
   machineName: string
+  /** 连接的服务器地址 */
+  serverUrl?: string
   department?: string
   owner?: string
   connected: boolean
@@ -748,4 +750,31 @@ export interface UpdateCheckResult {
   version: string
   current: string
   message: string
+}
+
+export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skip'
+
+/** 设置 → 网络检测的一项结果。code 是结果代号，界面按它翻译 */
+export interface NetworkCheck {
+  id: 'proxy' | 'hosts' | 'dns' | 'http' | 'auth' | 'tcp' | 'loss' | 'endpoint'
+  status: CheckStatus
+  code: string
+  value: string
+  ms: number | null
+  error: string
+}
+
+export interface NetworkReport {
+  at: string
+  endpoint: string
+  host: string
+  port: number
+  scheme: string
+  proxyMode: string
+  proxyUrl: string
+  overall: CheckStatus
+  checks: NetworkCheck[]
+  /** 本机报告文件，写失败时为空 */
+  reportPath: string
+  reportDir: string
 }

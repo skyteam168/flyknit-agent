@@ -161,6 +161,7 @@ export interface Device {
   disabled: boolean
   created_at: string
   last_seen: string | null
+  signed_out_at?: string | null
   domain: string
   ip_addresses: string
   observed_ip: string

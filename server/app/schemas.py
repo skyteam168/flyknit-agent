@@ -187,6 +187,8 @@ class DeviceOut(BaseModel):
     #: domain / local / key：这台电脑是怎么登录注册的
     login_method: str = ""
     legal_agreed: str = ""
+    #: 员工在客户端退出了登录（这条设备记录不会再上线）
+    signed_out_at: datetime | None = None
 
 
 class DevicePatch(BaseModel):

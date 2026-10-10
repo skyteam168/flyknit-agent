@@ -263,6 +263,9 @@ function summaryText(): string {
               <span class="dot" :class="row.disabled ? 'off' : isOnline(row.last_seen) ? 'on' : ''" />
               <div>
                 <strong>{{ row.machine_name }}</strong>
+                <el-tooltip v-if="row.signed_out_at" :content="`员工于 ${dateTime(row.signed_out_at)} 退出登录，这条记录不会再上线`" placement="top">
+                  <el-tag size="small" type="info" class="signed-out">已退出登录</el-tag>
+                </el-tooltip>
                 <small>{{ row.owner || row.user_name || '—' }}<template v-if="row.department"> · {{ row.department }}</template><template v-if="row.domain"> @ {{ row.domain }}</template></small>
               </div>
             </div>
@@ -408,6 +411,10 @@ function summaryText(): string {
 </template>
 
 <style scoped>
+.signed-out {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
 .filter {
   margin-bottom: 14px;
 }
