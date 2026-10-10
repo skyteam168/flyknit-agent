@@ -8,7 +8,7 @@ public sealed record TraceStep
     /// <summary>在这次任务里的序号，从 1 开始。</summary>
     public int Index { get; init; }
 
-    /// <summary>model（调用模型）/ tool（执行工具）/ compact（压缩上下文）/ error。</summary>
+    /// <summary>model（调用模型）/ tool（执行工具）/ compact（压缩上下文）/ verify（检查产出）/ guard（空转、预算提醒和暂停）/ error。</summary>
     public string Kind { get; init; } = "";
 
     /// <summary>工具名、或模型名。</summary>
@@ -16,6 +16,9 @@ public sealed record TraceStep
 
     /// <summary>给人看的一句话。</summary>
     public string Summary { get; init; } = "";
+
+    /// <summary>补充说明（模型调用：这次输入的 token 都花在哪了——系统提示、工具定义、对话、工具输出）。</summary>
+    public string Detail { get; init; } = "";
 
     /// <summary>ok / error / blocked / rejected / stopped。</summary>
     public string Status { get; init; } = "ok";
@@ -127,6 +130,7 @@ public sealed class Trace
         private bool _written;
 
         public string Summary { get; set; }
+        public string Detail { get; set; } = "";
         public string Status { get; set; } = "ok";
         public int PromptTokens { get; set; }
         public int CompletionTokens { get; set; }
@@ -151,6 +155,7 @@ public sealed class Trace
                 Kind = _kind,
                 Name = _name,
                 Summary = Summary.Length > 300 ? Summary[..300] : Summary,
+                Detail = Detail.Length > 300 ? Detail[..300] : Detail,
                 Status = Status,
                 StartedAt = _startedAt,
                 DurationMs = _watch.ElapsedMilliseconds,

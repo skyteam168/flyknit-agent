@@ -84,6 +84,18 @@ public sealed class ContextManager
     /// <summary>最近一次请求模型返回的真实输入 token 数。</summary>
     public int? LastPromptTokens { get; private set; }
 
+    /// <summary>
+    /// 每次请求都要带上的工具定义占多少 token。它不在 history 里，以前不算进去：几十个工具几万 token，
+    /// 估算出来的上下文远小于实际发出去的，压缩一直「跳过」，每次调用都把七八万 token 原样再发一遍。
+    /// </summary>
+    public int ToolTokens { get; set; }
+
+    /// <summary>上次发出去时估算的大小（history + 工具定义），和模型返回的真实值一比就知道估算偏了多少。</summary>
+    private int _lastEstimate;
+
+    /// <summary>真实 / 估算。估算器按字符数粗算，中文、JSON、代码的实际 token 往往更多；用真实值把它拉回来。</summary>
+    private double _calibration = 1.0;
+
     /// <summary>压缩时使用的场景与模型（与对话一致）。</summary>
     public string Scene { get; init; } = Scenes.Agent;
     public int? ModelId { get; init; }
@@ -161,14 +173,31 @@ public sealed class ContextManager
         if (turn.Usage is { PromptTokens: > 0 } usage)
         {
             LastPromptTokens = usage.PromptTokens;
+            if (_lastEstimate > 0)
+            {
+                // 只往大了校：估少了会让压缩迟迟不触发；估多了顶多早一点裁剪，不往回调
+                _calibration = Math.Clamp((double)usage.PromptTokens / _lastEstimate, 1.0, 3.0);
+            }
         }
     }
 
-    /// <summary>当前上下文的 token 数：估算值与上次真实值取较大者（真实值更准，但新增内容只能估算）。</summary>
-    public int Measure(IReadOnlyList<ChatMessage> history) => TokenEstimator.Estimate(history);
+    /// <summary>
+    /// 这次请求实际要发的 token 数：history + 工具定义的估算，再按上次真实用量校准
+    /// （真实值更准，但新增的内容只能估算）。
+    /// </summary>
+    public int Measure(IReadOnlyList<ChatMessage> history) =>
+        (int)Math.Ceiling((TokenEstimator.Estimate(history) + ToolTokens) * _calibration);
 
     /// <summary>每次调用模型前执行：必要时裁剪或压缩 history（原地替换元素，不修改消息对象本身）。</summary>
     public async Task<CompactionInfo?> PrepareAsync(List<ChatMessage> history, CancellationToken ct)
+    {
+        var info = await PrepareCoreAsync(history, ct);
+        // 记下这次要发出去的估算值（未校准），模型返回真实用量后据此校准
+        _lastEstimate = TokenEstimator.Estimate(history) + ToolTokens;
+        return info;
+    }
+
+    private async Task<CompactionInfo?> PrepareCoreAsync(List<ChatMessage> history, CancellationToken ct)
     {
         var before = Measure(history);
 

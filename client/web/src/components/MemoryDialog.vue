@@ -6,7 +6,7 @@ import { bridge } from '../bridge'
 import { setLearning, state, toast } from '../store'
 import type { MemoryKind, MemoryMetrics, MemoryOverview } from '../types'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 type Tab = 'preference' | 'fact' | 'experience' | 'episodes' | 'skills'
 const tab = ref<Tab>('preference')
 const data = ref<MemoryOverview | null>(null)
@@ -35,6 +35,8 @@ async function load() {
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`
+/** 12345 → 1.2万 / 12.3k，按界面语言 */
+const compact = (x: number) => new Intl.NumberFormat(locale.value, { notation: 'compact', maximumFractionDigits: 1 }).format(x)
 
 async function reviveSkill(name: string) {
   const k = data.value?.skills.find((s) => s.name === name)
@@ -183,6 +185,10 @@ const close = () => (state.memoryOpen = false)
         <div v-if="metrics.runs?.total" :data-tip="t('ui.memory.metrics.runsHint', { ...metrics.runs, days: metrics.days })">
           <dt>{{ t('ui.memory.metrics.runs') }}</dt>
           <dd>{{ pct(metrics.runs.completionRate) }}<small>{{ t('ui.memory.metrics.runsValue', { n: metrics.runs.total, steps: metrics.runs.avgSteps }) }}</small></dd>
+        </div>
+        <div v-if="metrics.runs?.avgTokens" :data-tip="t('ui.memory.metrics.tokensHint', { days: metrics.days, max: (metrics.runs.maxTokens ?? 0).toLocaleString(), budget: metrics.runs.budgetStops ?? 0, stuck: metrics.runs.stuckStops ?? 0, nudged: metrics.runs.guardNudgeRuns ?? 0, paused: metrics.runs.paused, disliked: metrics.runs.disliked })">
+          <dt>{{ t('ui.memory.metrics.tokens') }}</dt>
+          <dd>{{ compact(metrics.runs.avgTokens) }}<small>{{ t('ui.memory.metrics.tokensValue', { paused: metrics.runs.paused, n: metrics.runs.total }) }}</small></dd>
         </div>
         <div :data-tip="t('ui.memory.metrics.reuseHint', { recent: metrics.episodesRecent, active: metrics.skillsActive, candidate: metrics.skillsCandidate, retired: metrics.skillsRetired })">
           <dt>{{ t('ui.memory.metrics.reuse') }}</dt>

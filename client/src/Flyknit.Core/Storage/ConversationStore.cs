@@ -64,11 +64,13 @@ public sealed class SecurityEvent
 /// <summary>会话与消息的本地存储（SQLite）。删除为软删除，回收站保留 30 天。</summary>
 /// <summary>一轮办事任务的结果（只有数字）。</summary>
 public sealed record RunStatsRecord(string MessageId, string ConversationId, string StopReason, int Steps, int ToolCalls,
-    int OutputProblems, int OutputProblemsAtEnd, bool PlanGuidance, bool VerifyOutputs, bool PlanNudged, DateTimeOffset? At = null);
+    int OutputProblems, int OutputProblemsAtEnd, bool PlanGuidance, bool VerifyOutputs, bool PlanNudged, DateTimeOffset? At = null,
+    long PromptTokens = 0, long CompletionTokens = 0, int Replans = 0, int GuardNudges = 0);
 
 /// <summary>任务效果统计，见 <see cref="ConversationStore.RunStats"/>。</summary>
 public sealed record RunStatsSummary(int Days, int Runs, int Completed, int Paused, int Cancelled, int Errors, double AvgSteps,
-    int Disliked, int Liked, int RunsWithOutputProblems, int RunsWithProblemsAtEnd, int PlanNudges)
+    int Disliked, int Liked, int RunsWithOutputProblems, int RunsWithProblemsAtEnd, int PlanNudges,
+    long AvgTokens = 0, long MaxTokens = 0, int BudgetStops = 0, int StuckStops = 0, int RunsWithGuardNudges = 0)
 {
     public double CompletionRate => Runs == 0 ? 0 : Math.Round((double)Completed / Runs, 2);
 }
@@ -192,6 +194,11 @@ public sealed class ConversationStore
             CREATE INDEX IF NOT EXISTS ix_run_stats_created ON run_stats(created_at);
             """;
         runs.ExecuteNonQuery();
+        // v0.9：每轮用了多少 token、改了几次计划、空转/预算提醒了几次——优化 token 用量前后对比用
+        AddColumn(c, "run_stats", "prompt_tokens", "INTEGER NOT NULL DEFAULT 0");
+        AddColumn(c, "run_stats", "completion_tokens", "INTEGER NOT NULL DEFAULT 0");
+        AddColumn(c, "run_stats", "replans", "INTEGER NOT NULL DEFAULT 0");
+        AddColumn(c, "run_stats", "guard_nudges", "INTEGER NOT NULL DEFAULT 0");
     }
 
     /// <summary>记一轮办事任务的结果。只记数字，不记内容。</summary>
@@ -201,9 +208,14 @@ public sealed class ConversationStore
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
             INSERT OR REPLACE INTO run_stats(message_id, conversation_id, stop_reason, steps, tool_calls, output_problems,
-                output_problems_at_end, plan_guidance, verify_outputs, plan_nudged, created_at)
-            VALUES ($m, $c, $r, $s, $t, $p, $pe, $pg, $vo, $pn, $at)
+                output_problems_at_end, plan_guidance, verify_outputs, plan_nudged, created_at,
+                prompt_tokens, completion_tokens, replans, guard_nudges)
+            VALUES ($m, $c, $r, $s, $t, $p, $pe, $pg, $vo, $pn, $at, $ptk, $ctk, $rp, $gn)
             """;
+        cmd.Parameters.AddWithValue("$ptk", r.PromptTokens);
+        cmd.Parameters.AddWithValue("$ctk", r.CompletionTokens);
+        cmd.Parameters.AddWithValue("$rp", r.Replans);
+        cmd.Parameters.AddWithValue("$gn", r.GuardNudges);
         cmd.Parameters.AddWithValue("$m", r.MessageId);
         cmd.Parameters.AddWithValue("$c", r.ConversationId);
         cmd.Parameters.AddWithValue("$r", r.StopReason);
@@ -229,7 +241,7 @@ public sealed class ConversationStore
         cmd.CommandText = """
             SELECT COUNT(*),
                    COALESCE(SUM(CASE WHEN r.stop_reason = 'Completed' THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN r.stop_reason IN ('MaxSteps', 'TooManyFailures', 'Stuck') THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN r.stop_reason IN ('MaxSteps', 'TooManyFailures', 'Stuck', 'Budget') THEN 1 ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN r.stop_reason = 'Cancelled' THEN 1 ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN r.stop_reason = 'Failed' THEN 1 ELSE 0 END), 0),
                    COALESCE(AVG(r.steps), 0),
@@ -237,7 +249,12 @@ public sealed class ConversationStore
                    COALESCE(SUM(CASE WHEN m.feedback > 0 THEN 1 ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN r.output_problems > 0 THEN 1 ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN r.output_problems_at_end > 0 THEN 1 ELSE 0 END), 0),
-                   COALESCE(SUM(r.plan_nudged), 0)
+                   COALESCE(SUM(r.plan_nudged), 0),
+                   COALESCE(AVG(r.prompt_tokens + r.completion_tokens), 0),
+                   COALESCE(MAX(r.prompt_tokens + r.completion_tokens), 0),
+                   COALESCE(SUM(CASE WHEN r.stop_reason = 'Budget' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN r.stop_reason = 'Stuck' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN r.guard_nudges > 0 THEN 1 ELSE 0 END), 0)
             FROM run_stats r LEFT JOIN messages m ON m.id = r.message_id
             WHERE r.created_at >= $since
             """;
@@ -245,7 +262,8 @@ public sealed class ConversationStore
         using var x = cmd.ExecuteReader();
         x.Read();
         return new RunStatsSummary(days, x.GetInt32(0), x.GetInt32(1), x.GetInt32(2), x.GetInt32(3), x.GetInt32(4),
-            Math.Round(x.GetDouble(5), 1), x.GetInt32(6), x.GetInt32(7), x.GetInt32(8), x.GetInt32(9), x.GetInt32(10));
+            Math.Round(x.GetDouble(5), 1), x.GetInt32(6), x.GetInt32(7), x.GetInt32(8), x.GetInt32(9), x.GetInt32(10),
+            (long)Math.Round(x.GetDouble(11)), x.GetInt64(12), x.GetInt32(13), x.GetInt32(14), x.GetInt32(15));
     }
 
     private static void AddColumn(SqliteConnection c, string table, string column, string definition)

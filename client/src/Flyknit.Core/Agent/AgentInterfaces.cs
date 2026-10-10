@@ -86,6 +86,14 @@ public sealed class AgentOptions
 
     public const int DefaultMaxSteps = 100;
 
+    /// <summary>
+    /// 一次任务最多用多少 token（每次调用模型的输入 + 输出累计）。到 70% 提醒收尾，用完就停下总结。0 表示不限。
+    /// 防的是「每一步都不一样、但一直做不完」的长任务把 token 烧光——这种 <see cref="LoopGuard"/> 认不出来。
+    /// </summary>
+    public long MaxRunTokens { get; init; } = DefaultMaxRunTokens;
+
+    public const long DefaultMaxRunTokens = 2_000_000;
+
     /// <summary>每隔多少步提醒模型对照计划自查一次（不停下）。0 表示不提醒。</summary>
     public int CheckpointInterval { get; init; } = 25;
 
@@ -125,6 +133,9 @@ public enum AgentStopReason
 
     /// <summary>模型服务返回错误（网络、鉴权、内容审核等），已经做完的部分照常保留。</summary>
     Failed,
+
+    /// <summary>超出单次任务的预算（累计 token 用完，或连续多轮没有新进展），停下总结做到哪了。</summary>
+    Budget,
 }
 
 public sealed class AgentRunResult
@@ -156,4 +167,11 @@ public sealed class AgentRunResult
     /// <summary>是否提醒过列计划 / 改计划。</summary>
     public bool PlanNudged { get; init; }
     public bool ReplanNudged { get; init; }
+
+    /// <summary>计划被改了几次（换了要做的事，不算勾掉完成的步骤）、最长连续几轮没有新进展。</summary>
+    public int Replans { get; init; }
+    public int MaxNoProgressStreak { get; init; }
+
+    /// <summary>空转 / 预算提醒了几次（链路和统计用）。</summary>
+    public int GuardNudges { get; init; }
 }

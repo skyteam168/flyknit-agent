@@ -795,7 +795,8 @@ public sealed class AgentHost : IDisposable
                 result.OutputProblems, result.OutputProblemsAtEnd,
                 Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
                 Security.On(Flyknit.Core.Security.SecuritySettings.VerifyOutputs),
-                result.PlanNudged));
+                result.PlanNudged, null,
+                result.Usage?.PromptTokens ?? 0, result.Usage?.CompletionTokens ?? 0, result.Replans, result.GuardNudges));
         }
         catch (Exception ex)
         {
@@ -1073,6 +1074,7 @@ public sealed class AgentHost : IDisposable
             AgentStopReason.MaxSteps => "超过最大步数仍未完成",
             AgentStopReason.TooManyFailures => "连续多次失败后停止",
             AgentStopReason.Stuck => "反复执行同一个操作没有进展，已停止",
+            AgentStopReason.Budget => "超出单次任务的预算（token 用量或连续无进展），已暂停",
             _ => answer.Length > 0 ? answer : "执行失败",
         };
         return new InstructionOutcome(ok, answer, error, conversationId);

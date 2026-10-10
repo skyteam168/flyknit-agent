@@ -212,6 +212,7 @@ public static class TraceDto
                 kind = x.Kind,
                 name = x.Name,
                 summary = x.Summary,
+                detail = x.Detail,
                 status = x.Status,
                 startedAt = x.StartedAt.ToString("O"),
                 durationMs = x.DurationMs,
