@@ -346,6 +346,29 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         return await resp.Content.ReadFromJsonAsync<TranscriptResult>(cancellationToken: ct) ?? new TranscriptResult();
     }
 
+    /// <summary>「意见反馈」：问题描述、截图，员工勾了「上传日志」就带上日志包。</summary>
+    public async Task SubmitFeedbackAsync(string text, IReadOnlyList<Diagnostics.FeedbackImage> images, byte[]? logs, CancellationToken ct)
+    {
+        using var content = new MultipartFormDataContent();
+        content.Add(new StringContent(text), "content");
+        for (var i = 0; i < images.Count; i++)
+        {
+            var part = new ByteArrayContent(images[i].Data);
+            part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(images[i].MediaType);
+            content.Add(part, "images", $"image-{i + 1}.{images[i].Extension}");
+        }
+        if (logs is { Length: > 0 })
+        {
+            var part = new ByteArrayContent(logs);
+            part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/zip");
+            content.Add(part, "logs", "logs.zip");
+        }
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/feedback");
+        req.Content = content;
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
     /// <summary>管理员上架的 MCP 连接器。和技能库是两个接口，互不影响。</summary>
     public async Task<List<Flyknit.Core.Mcp.McpVendor>> GetMcpVendorsAsync(CancellationToken ct)
     {

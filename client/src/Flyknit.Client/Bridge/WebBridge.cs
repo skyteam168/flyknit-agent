@@ -355,8 +355,25 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             }
 
             case "update.check":
-                _ = _host.Updater.CheckAsync(System.Threading.CancellationToken.None);
-                return new { ok = true };
+            {
+                // 设置里「检查更新」：等服务器回话（最多 20 秒），告诉用户结果；下载在后台继续
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(20));
+                var result = await _host.Updater.CheckNowAsync(cts.Token);
+                return new
+                {
+                    outcome = result.Outcome switch
+                    {
+                        UpdateCheckOutcome.UpToDate => "upToDate",
+                        UpdateCheckOutcome.Downloading => "downloading",
+                        UpdateCheckOutcome.Ready => "ready",
+                        UpdateCheckOutcome.NeedsIt => "needsIt",
+                        _ => "failed",
+                    },
+                    version = result.Version,
+                    current = typeof(WebBridge).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
+                    message = result.Message,
+                };
+            }
 
             case "security.settings":
                 return SecurityList();
@@ -576,6 +593,74 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                 var (ok, message) = await _host.TestConnectionAsync(cts.Token);
                 return new { ok, message };
+            }
+
+            case "legal.get":
+            {
+                // 「意见反馈」里的隐私保护声明链接：读服务器上 IT 维护的那份（和登录界面同一份）
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var json = await _host.Server.GetLegalAsync(cts.Token);
+                var kind = Str("kind");
+                var doc = System.Text.Json.Nodes.JsonNode.Parse(json)?["docs"]?.AsArray()
+                    .FirstOrDefault(d => (string?)d?["kind"] == kind);
+                return doc is null ? null : new { title = (string?)doc["title"] ?? "", content = (string?)doc["content"] ?? "" };
+            }
+
+            case "feedback.submit":
+            {
+                var text = Str("content").Trim();
+                if (text.Length > Flyknit.Core.Diagnostics.FeedbackPackage.MaxContent)
+                {
+                    return new { ok = false, message = "too_long" };
+                }
+                var images = new List<Flyknit.Core.Diagnostics.FeedbackImage>();
+                if (p.TryGetProperty("images", out var list) && list.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in list.EnumerateArray().Take(Flyknit.Core.Diagnostics.FeedbackPackage.MaxImages))
+                    {
+                        var image = item.ValueKind == JsonValueKind.String ? Flyknit.Core.Diagnostics.FeedbackPackage.DecodeImage(item.GetString()!) : null;
+                        if (image is null)
+                        {
+                            return new { ok = false, message = "bad_image" };
+                        }
+                        images.Add(image);
+                    }
+                }
+                if (text.Length == 0 && images.Count == 0)
+                {
+                    return new { ok = false, message = "empty" };
+                }
+                byte[]? logs = null;
+                if (Bool("logs"))
+                {
+                    Log.Info("员工提交反馈，附带日志");
+                    logs = await Task.Run(() => Flyknit.Core.Diagnostics.FeedbackPackage.BuildLogs(AppPaths.Logs, DateTime.Now, new Dictionary<string, string>
+                    {
+                        ["version"] = typeof(WebBridge).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
+                        ["machine"] = Environment.MachineName,
+                        ["user"] = $"{Environment.UserDomainName}\\{Environment.UserName}",
+                        ["os"] = Environment.OSVersion.VersionString,
+                        ["arch"] = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString(),
+                        ["runtime"] = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+                        ["webview2"] = SafeWebViewVersion(),
+                        ["language"] = _settings.ResolveUiLanguage(),
+                        ["culture"] = System.Globalization.CultureInfo.CurrentCulture.Name,
+                        ["time"] = DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz"),
+                        ["memoryMB"] = (GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024 / 1024).ToString(),
+                        ["processMB"] = (Environment.WorkingSet / 1024 / 1024).ToString(),
+                    }));
+                }
+                try
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                    await _host.Server.SubmitFeedbackAsync(text, images, logs, cts.Token);
+                    return new { ok = true, message = "" };
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("提交反馈失败", ex);
+                    return new { ok = false, message = ex is OperationCanceledException ? "timeout" : ex.Message };
+                }
             }
 
             case "storage.info":
@@ -1715,6 +1800,18 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     {
         var name = Path.GetFileName(path.TrimEnd('\\', '/'));
         return string.IsNullOrEmpty(name) ? path : name;
+    }
+
+    private static string SafeWebViewVersion()
+    {
+        try
+        {
+            return CoreWebView2Environment.GetAvailableBrowserVersionString();
+        }
+        catch (Exception)
+        {
+            return "";
+        }
     }
 }
 

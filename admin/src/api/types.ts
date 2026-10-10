@@ -462,3 +462,27 @@ export interface LegalDoc {
   /** 改过（不是默认文本） */
   customized: boolean
 }
+
+export type FeedbackStatus = 'open' | 'done'
+
+export interface FeedbackItem {
+  id: number
+  device_id: number | null
+  machine_name: string
+  user_name: string
+  client_version: string
+  content: string
+  images: string[]
+  logs_size: number
+  status: FeedbackStatus
+  note: string
+  handled_by: string
+  handled_at: string | null
+  created_at: string
+}
+
+export interface FeedbackPage {
+  items: FeedbackItem[]
+  total: number
+  open: number
+}

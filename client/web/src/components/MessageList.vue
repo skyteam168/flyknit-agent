@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Activity, Archive, Brain, Info, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
+import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
@@ -154,10 +154,29 @@ function isContinuation(i: number) {
   return i > 0 && visible.value[i - 1].role === 'assistant' && visible.value[i].role === 'assistant'
 }
 
+/** 点了「回到底部」正在平滑滚动：这期间的滚动事件不算用户往上翻 */
+let jumping = false
+let jumpTimer: ReturnType<typeof setTimeout> | undefined
+
 function onScroll() {
   const el = scroller.value
-  if (!el) return
+  if (!el || jumping) return
   stick.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+}
+
+/** 往上翻看历史时输入框上方那个圆按钮：平滑滚回底部，之后继续跟着新内容走 */
+function jumpToBottom() {
+  const el = scroller.value
+  if (!el) return
+  jumping = true
+  stick.value = true
+  el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  clearTimeout(jumpTimer)
+  jumpTimer = setTimeout(() => {
+    jumping = false
+    // 滚动途中又来了新内容，补到真正的底部
+    el.scrollTo({ top: el.scrollHeight })
+  }, 500)
 }
 
 watch(
@@ -326,6 +345,20 @@ const isImage = (mime: string) => mime.startsWith('image/')
         <span>{{ s.notice.kind === 'error' ? `${t('message.error')}: ${s.notice.text}` : t(`message.${s.notice.kind}`) }}</span>
       </div>
     </div>
+    <!-- 往上翻看历史时：任务在跑显示三个点，鼠标放上去变成向下箭头；点一下回到底部 -->
+    <div v-if="s && !stick && visible.length" class="jump-wrap">
+      <button
+        type="button"
+        class="jump"
+        :class="{ working: busy }"
+        :title="busy ? `${t('message.working')} · ${t('message.toBottom')}` : t('message.toBottom')"
+        :aria-label="t('message.toBottom')"
+        @click="jumpToBottom"
+      >
+        <span v-if="busy" class="dots" aria-hidden="true"><i /><i /><i /></span>
+        <ArrowDown class="arrow" :size="18" :stroke-width="2.2" />
+      </button>
+    </div>
   </div>
 </template>
 
@@ -334,6 +367,97 @@ const isImage = (mime: string) => mime.startsWith('image/')
   flex: 1;
   overflow-y: auto;
   scroll-behavior: auto;
+}
+
+/* 回到底部：贴在可视区底部（输入框正上方），不占内容的位置 */
+.jump-wrap {
+  position: sticky;
+  bottom: 14px;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  height: 0;
+  pointer-events: none;
+}
+.jump {
+  --dot: #ef4b6c;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  transform: translateY(-100%);
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--cloth);
+  color: var(--ink);
+  box-shadow: var(--shadow-pop);
+  pointer-events: auto;
+  cursor: pointer;
+  animation: jump-in 0.18s ease-out;
+  transition: background 0.15s, border-color 0.15s;
+}
+.jump:hover {
+  background: var(--chip);
+}
+.jump:focus-visible {
+  outline: 2px solid var(--indigo);
+  outline-offset: 2px;
+}
+@keyframes jump-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-100% + 6px));
+  }
+}
+.jump .dots {
+  display: flex;
+  gap: 4px;
+}
+.jump .dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dot);
+  animation: jump-dot 1.2s ease-in-out infinite;
+}
+.jump .dots i:nth-child(2) {
+  background: var(--dot);
+  animation-delay: 0.15s;
+}
+.jump .dots i:nth-child(3) {
+  background: var(--dot);
+  animation-delay: 0.3s;
+}
+@keyframes jump-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+/* 任务进行中默认显示三个点，鼠标放上去换成向下箭头 */
+.jump.working .arrow {
+  display: none;
+}
+.jump.working:hover .dots,
+.jump.working:focus-visible .dots {
+  display: none;
+}
+.jump.working:hover .arrow,
+.jump.working:focus-visible .arrow {
+  display: block;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jump,
+  .jump .dots i {
+    animation: none;
+  }
 }
 .column {
   max-width: var(--column);

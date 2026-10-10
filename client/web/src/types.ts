@@ -741,3 +741,11 @@ export interface PersonaUpdate {
   assistantName?: string
   about?: AboutMe
 }
+
+/** 「检查更新」的结果 */
+export interface UpdateCheckResult {
+  outcome: 'upToDate' | 'downloading' | 'ready' | 'needsIt' | 'failed'
+  version: string
+  current: string
+  message: string
+}

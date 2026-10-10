@@ -8,6 +8,7 @@
  * 在普通浏览器中运行（npm run dev）时，使用 mockHost 模拟宿主。
  */
 import type {
+  UpdateCheckResult,
   AppInfo,
   ApprovalInfo,
   UpdateInfo,
@@ -322,7 +323,13 @@ class Bridge {
   updateState = () => this.call<UpdateInfo>('update.state')
   /** 立刻装上。宿主会在更新器起来之后让程序退出 */
   applyUpdate = () => this.call<{ ok: boolean; message: string }>('update.apply')
-  checkUpdate = () => this.call<void>('update.check')
+  /** 设置里「检查更新」：等服务器回话，告诉用户结果。下载在后台继续 */
+  checkUpdate = () => this.call<UpdateCheckResult>('update.check')
+  /** 意见反馈。images 是 data: URL；logs 为 true 时宿主把最近几天的日志打包一起传 */
+  submitFeedback = (req: { content: string; images: string[]; logs: boolean }) =>
+    this.call<{ ok: boolean; message: string }>('feedback.submit', { ...req })
+  /** 服务器上 IT 维护的用户协议 / 隐私政策（Markdown） */
+  legal = (kind: 'terms' | 'privacy') => this.call<{ title: string; content: string } | null>('legal.get', { kind })
 }
 
 export const bridge = new Bridge()

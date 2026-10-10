@@ -1046,7 +1046,20 @@ export function createMockHost(): HostTransport {
         return { ok: true, message: '' }
       case 'update.check':
         // 浏览器里调试更新条：?update=ready 或 ?update=needsit
-        return
+        await sleep(800)
+        if (mockUpdate.stage === 'ready') return { outcome: 'ready', version: mockUpdate.version, current: '0.3.0', message: '' }
+        if (mockUpdate.stage === 'needsIt') return { outcome: 'needsIt', version: mockUpdate.version, current: '0.3.0', message: '' }
+        return { outcome: 'upToDate', version: '', current: '0.3.0', message: '' }
+      case 'feedback.submit':
+        await sleep(900)
+        console.info('[mock] 反馈', { ...p, images: (p.images as string[]).map((u) => `${u.length} chars`) })
+        return { ok: true, message: '' }
+      case 'legal.get':
+        await sleep(300)
+        return {
+          title: '隐私政策',
+          content: '# 隐私政策\n\n## 一、我们收集哪些信息\n\n- 设备信息：计算机名、Windows 账号、系统版本\n- 你主动提交的反馈内容、截图和日志\n\n## 二、我们如何使用\n\n仅用于排查问题、改进产品，不会用于其他目的。',
+        }
       case 'settings.setLanguage':
         language = p.language
         return
