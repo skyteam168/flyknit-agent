@@ -85,7 +85,7 @@ async function apply() {
   align-items: center;
   margin: 8px 12px 0;
   padding: 8px 8px 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--thread) 35%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--indigo) 35%, var(--line));
   border-radius: 12px;
   background: var(--cloth);
   color: var(--ink);
@@ -114,7 +114,7 @@ async function apply() {
 }
 .mark {
   flex: none;
-  color: var(--thread);
+  color: var(--indigo);
 }
 .what {
   flex: 1 0 auto;
@@ -142,20 +142,20 @@ async function apply() {
   white-space: nowrap;
 }
 .link {
-  border: 1px solid color-mix(in srgb, var(--thread) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--indigo) 45%, transparent);
   background: transparent;
-  color: var(--thread);
+  color: var(--indigo);
 }
 .link:hover {
-  background: var(--thread-wash);
+  background: var(--indigo-wash);
 }
 .go {
   border: 0;
-  background: var(--thread);
+  background: var(--indigo);
   color: #fff;
 }
 .go:hover {
-  filter: brightness(1.08);
+  background: var(--indigo-hover);
 }
 .go:disabled {
   opacity: 0.6;

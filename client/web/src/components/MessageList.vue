@@ -380,7 +380,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
   pointer-events: none;
 }
 .jump {
-  --dot: #ef4b6c;
+  --dot: var(--indigo);
   position: relative;
   display: grid;
   place-items: center;
