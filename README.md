@@ -464,8 +464,40 @@ curl -H "Authorization: Bearer <管理员令牌>" \
 
 ## 数据存放位置
 
-**服务器**：数据库（模型配置、设备、审计、用量）+ `server/data/skills/` 技能包。
+**服务器**：
+
+- 数据库：管理员账号、模型配置（API Key 用 `FLYKNIT_SECRET_KEY` 加密后存）、安全策略、设备、用量、聊天和审计记录、指令和任务、安装凭证等。
+  默认是 SQLite 文件 `flyknit.db`（在启动服务端时所在的目录），每天自动备份到 `server/data/backups/`；
+  填了 `POSTGRES_HOST` 就用 PostgreSQL（自动备份只管 SQLite，PostgreSQL 请用 `pg_dump` 定时备份）。
+- `server/data/`：员工端安装包（releases）、运维软件包（packages）、技能包、反馈附件（feedback）。不在数据库里，换服务器时要一起拷。
+- `server/.env`：`FLYKNIT_SECRET_KEY` 换了，库里的模型 Key 就解不开，换服务器时原样带走。
+
 Docker 部署的都在卷里，备份 `docker volume` 即可。
+
+### 从 SQLite 换到 PostgreSQL
+
+1. 停掉服务端。
+2. 在 `server/.env` 里加上 PostgreSQL 的连接信息（`FLYKNIT_DATABASE_URL` 那行 SQLite 留着，脚本从它读旧数据）：
+   ```
+   POSTGRES_HOST=10.0.0.5
+   POSTGRES_PORT=5432
+   POSTGRES_DB=flyknit
+   POSTGRES_USER=flyknit
+   POSTGRES_PASSWORD=...
+   ```
+3. 在 `server` 目录下先演练，只读不写，看要搬多少行、能不能连上：
+   ```
+   python -m scripts.migrate_to_postgres --dry-run
+   ```
+4. 正式迁移。建表、搬全部数据、接上自增编号，最后逐表核对行数：
+   ```
+   python -m scripts.migrate_to_postgres
+   ```
+   新库里已经有数据时会停下来不动它；确认要用旧库覆盖，加 `--replace`。
+   SQLite 文件本身不会被改动，迁移失败可以直接回到 SQLite（把 `POSTGRES_HOST` 注释掉）。
+5. 启动服务端，日志里「数据库：postgresql+asyncpg://…」说明已经连上 PostgreSQL。登录后台核对设备、用量、模型配置。
+
+管理员账号、模型 Key、设备和员工端的登录令牌都原样搬过去，员工不用重新登录。
 
 **员工电脑**：`%APPDATA%\Flyknit\`
 

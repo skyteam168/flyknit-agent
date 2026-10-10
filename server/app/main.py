@@ -10,6 +10,7 @@ from dotenv.parser import parse_stream
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.engine import make_url
 
 from . import __version__, db
 from .config import Settings, get_settings
@@ -72,6 +73,8 @@ async def lifespan(app: FastAPI):
         if getattr(settings, name) == Settings.model_fields[name].default:
             log.warning("仍在使用默认的 FLYKNIT_%s，请在 .env 中修改%s", name.upper(),
                         "（拿到它就能冒充任意机器注册）" if name == "enrollment_key" else "")
+    # 换到 PostgreSQL 后一眼看出连的是哪个库（密码不写进日志）
+    log.info("数据库：%s", make_url(settings.database_url).render_as_string(hide_password=True))
     db.init_engine(settings.database_url)
     await db.create_all()
     app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(settings.upstream_timeout, connect=10))

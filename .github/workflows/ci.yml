@@ -11,6 +11,17 @@ jobs:
     defaults:
       run:
         working-directory: server
+    services:
+      # 换到 PostgreSQL 的部署也要能跑：整套测试在 PostgreSQL 上再跑一遍，含 SQLite → PostgreSQL 迁移
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: flyknit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,6 +29,10 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
+      - name: pytest on PostgreSQL
+        run: python -m pytest -q
+        env:
+          FLYKNIT_TEST_PG_URL: postgresql+asyncpg://postgres:ci@localhost:5432/flyknit_test
 
   client:
     runs-on: windows-latest
