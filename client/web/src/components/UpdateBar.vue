@@ -46,14 +46,15 @@ async function apply() {
       {{ info.stage === 'ready' ? t('ui.update.ready') : t('ui.update.needsIt') }}
     </span>
 
-    <template v-if="info.stage === 'ready'">
+    <!-- 中文一行放得下；越南语、英语按钮字长，放不下就整组换到第二行，不撑出侧边栏 -->
+    <span v-if="info.stage === 'ready'" class="actions">
       <button v-if="info.notes" type="button" class="link" @click="notesOpen = true">
         {{ t('ui.update.notes') }}
       </button>
-      <button type="button" class="go" :disabled="busy" @click="apply">
+      <button type="button" class="go" :disabled="busy" :title="t('ui.update.restart')" @click="apply">
         {{ t('ui.update.restart') }}
       </button>
-    </template>
+    </span>
 
     <button type="button" class="close" :aria-label="t('ui.update.later')" :title="t('ui.update.laterHint')"
             @click="dismissed = info.version">
@@ -81,11 +82,12 @@ async function apply() {
 .card {
   position: relative;
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
   margin: 8px 12px 0;
   padding: 8px 8px 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--thread) 35%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--indigo) 35%, var(--line));
   border-radius: 12px;
   background: var(--cloth);
   color: var(--ink);
@@ -114,10 +116,10 @@ async function apply() {
 }
 .mark {
   flex: none;
-  color: var(--thread);
+  color: var(--indigo);
 }
 .what {
-  flex: 1 0 auto;
+  flex: 1 1 auto;
   overflow: hidden;
   min-width: 0;
   font-weight: 600;
@@ -129,9 +131,21 @@ async function apply() {
   color: var(--amber);
   white-space: normal;
 }
+.actions {
+  display: flex;
+  flex: 1 0 auto;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+.link {
+  flex: none;
+}
 .link,
 .go {
-  flex: none;
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
   height: 26px;
   padding: 0 8px;
   border-radius: 7px;
@@ -142,20 +156,20 @@ async function apply() {
   white-space: nowrap;
 }
 .link {
-  border: 1px solid color-mix(in srgb, var(--thread) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--indigo) 45%, transparent);
   background: transparent;
-  color: var(--thread);
+  color: var(--indigo);
 }
 .link:hover {
-  background: var(--thread-wash);
+  background: var(--indigo-wash);
 }
 .go {
   border: 0;
-  background: var(--thread);
+  background: var(--indigo);
   color: #fff;
 }
 .go:hover {
-  filter: brightness(1.08);
+  background: var(--indigo-hover);
 }
 .go:disabled {
   opacity: 0.6;

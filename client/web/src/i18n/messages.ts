@@ -171,7 +171,7 @@ const zh = {
     updateResult: {
       upToDate: '已是最新版本（{v}）',
       downloading: '发现新版本 {v}，正在后台下载，下载好后会提示你重启升级',
-      ready: '新版本 {v} 已下载好，点窗口上方的「重启升级」即可安装',
+      ready: '新版本 {v} 已下载好，点窗口左下角的「重启升级」即可安装',
       needsIt: '新版本 {v} 需要 IT 协助安装（当前账号没有写入程序目录的权限）',
       failed: '检查更新失败：{msg}',
       timeout: '连接服务器超时，请稍后再试',
@@ -1186,7 +1186,7 @@ const vi: Messages = {
     updateResult: {
       upToDate: 'Đã là phiên bản mới nhất ({v})',
       downloading: 'Có phiên bản mới {v}, đang tải ngầm. Tải xong sẽ nhắc bạn khởi động lại để cập nhật',
-      ready: 'Phiên bản {v} đã tải xong, bấm "Khởi động lại để cập nhật" ở phía trên cửa sổ',
+      ready: 'Phiên bản {v} đã tải xong, bấm "Cập nhật ngay" ở góc dưới bên trái cửa sổ',
       needsIt: 'Phiên bản {v} cần IT hỗ trợ cài đặt (tài khoản hiện tại không có quyền ghi thư mục chương trình)',
       failed: 'Kiểm tra cập nhật thất bại: {msg}',
       timeout: 'Kết nối máy chủ quá thời gian, vui lòng thử lại sau',
@@ -1690,7 +1690,7 @@ const vi: Messages = {
       ready: 'Đã có bản mới',
       notes: 'Có gì mới',
       notesTitle: 'Bản {version} có gì mới',
-      restart: 'Khởi động lại để cập nhật',
+      restart: 'Cập nhật ngay',
       later: 'Để sau',
       laterHint: 'Cứ để đó. Lúc thoát hoặc lần mở máy sau sẽ tự cài',
       needsIt: 'Có bản mới nhưng máy này không cài được, liên hệ IT',
@@ -2206,7 +2206,7 @@ const en: Messages = {
     updateResult: {
       upToDate: "You're up to date ({v})",
       downloading: 'Version {v} is available and downloading in the background. You will be asked to restart when it is ready',
-      ready: 'Version {v} is downloaded. Click "Restart to update" at the top of the window to install it',
+      ready: 'Version {v} is downloaded. Click "Restart to update" at the bottom left of the window to install it',
       needsIt: 'Version {v} needs IT to install it (this account cannot write to the program folder)',
       failed: "Couldn't check for updates: {msg}",
       timeout: 'The server took too long to respond. Please try again later',
