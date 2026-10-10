@@ -55,6 +55,8 @@ public sealed class LoginWindow : Window
             UseAeroCaptionButtons = false,
         });
         Content = _web;
+        // 关窗时把浏览器控件也释放掉，别让它的页面在后台一直挂着
+        Closed += (_, _) => _web.Dispose();
         Loaded += async (_, _) =>
         {
             try
@@ -77,7 +79,8 @@ public sealed class LoginWindow : Window
 
     private async Task InitAsync()
     {
-        var env = await CoreWebView2Environment.CreateAsync(null, AppPaths.WebViewData);
+        // 和主窗口共用同一个环境：各建各的、参数不一样，主窗口会报 0x8007139F 打不开
+        var env = await SharedWebView.EnvironmentAsync();
         await _web.EnsureCoreWebView2Async(env);
         var core = _web.CoreWebView2;
         core.Settings.IsNonClientRegionSupportEnabled = true; // 页面里 app-region: drag 的地方能拖动窗口

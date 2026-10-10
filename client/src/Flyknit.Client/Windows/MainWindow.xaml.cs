@@ -82,10 +82,8 @@ public partial class MainWindow : Window, IWindowActions
         try
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            // 关掉 Chromium 的“窗口被遮挡/最小化就丢弃画面”：不然最小化、隐藏再恢复时，
-            // 页面要重新绘制，中间那一下露出的是空白底色（闪白）。界面静止时不重绘，开销可以忽略。
-            var options = new CoreWebView2EnvironmentOptions("--disable-features=CalculateNativeWinOcclusion");
-            var env = await CoreWebView2Environment.CreateAsync(null, AppPaths.WebViewData, options);
+            // 和登录窗口共用同一个环境（同一个数据目录只能有一套启动参数，见 SharedWebView）
+            var env = await SharedWebView.EnvironmentAsync();
             Log.Info($"WebView2 环境就绪，耗时 {watch.ElapsedMilliseconds} ms（运行时 {env.BrowserVersionString}）");
             await Web.EnsureCoreWebView2Async(env);
             Log.Info($"WebView2 控件就绪，累计 {watch.ElapsedMilliseconds} ms");
