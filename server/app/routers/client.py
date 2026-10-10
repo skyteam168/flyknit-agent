@@ -112,6 +112,18 @@ def _client_ip(request: Request) -> str:
     return (request.client.host if request.client else "")[:64]
 
 
+@router.post("/devices/logout", status_code=204)
+async def logout_device(device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
+    """
+    员工在客户端点了「退出登录」：作废这台电脑的设备令牌（换成一个谁也不知道的随机值），
+    台账记录保留（用量、审计还挂在它上面），标上退出时间。再登录会注册成一条新设备。
+    """
+    device.token_hash = hash_token(new_token())
+    device.signed_out_at = datetime.now(timezone.utc)
+    await session.commit()
+    log.info("设备退出登录 device=%s machine=%s user=%s", device.id, device.machine_name, device.user_name)
+
+
 @router.post("/devices/heartbeat", status_code=204)
 async def heartbeat(
     data: MachineInfoIn,

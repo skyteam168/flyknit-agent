@@ -123,3 +123,14 @@ def test_old_database_gains_the_new_columns(tmp_path):
         # 老设备还在，令牌没变，不用重新注册
         row = conn.exec_driver_sql("SELECT machine_name, token_hash FROM devices").fetchone()
         assert row == ("PC-001", "h1")
+
+
+async def test_logout_revokes_the_token_and_keeps_the_record(client, device_headers, admin_headers):
+    r = await client.post("/api/v1/devices/logout", headers=device_headers)
+    assert r.status_code == 204
+    # 令牌作废：再用就是 401（客户端会弹登录）
+    assert (await client.get("/api/v1/client/usage", headers=device_headers)).status_code == 401
+    assert (await client.post("/api/v1/devices/logout", headers=device_headers)).status_code == 401
+
+    devices = (await client.get("/api/v1/admin/devices", headers=admin_headers)).json()
+    assert len(devices) == 1 and devices[0]["signed_out_at"]

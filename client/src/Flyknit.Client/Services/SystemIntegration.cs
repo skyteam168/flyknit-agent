@@ -121,6 +121,34 @@ public static class ProxyFactory
         return handler;
     }
 
+    /// <summary>网络检测用：按当前设置，访问 <paramref name="target"/> 实际走不走代理、走哪个。</summary>
+    public static Flyknit.Core.Diagnostics.ProxyInfo Describe(AppSettings settings, Uri target)
+    {
+        var mode = (settings.ProxyMode ?? System).ToLowerInvariant();
+        switch (mode)
+        {
+            case Direct:
+                return new(mode, "");
+            case Manual:
+                return Uri.TryCreate(settings.ProxyUrl, UriKind.Absolute, out var uri)
+                    ? new(mode, uri.GetLeftPart(UriPartial.Authority))
+                    : new(mode, settings.ProxyUrl ?? "", Valid: false);
+            default:
+                try
+                {
+                    // 系统代理可能是 PAC 脚本，按目标地址问一次才知道这次走不走代理
+                    var proxy = WebRequest.GetSystemWebProxy();
+                    var via = proxy.IsBypassed(target) ? null : proxy.GetProxy(target);
+                    return via is null || via == target ? new(mode, "") : new(mode, via.GetLeftPart(UriPartial.Authority));
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("读取系统代理失败", ex);
+                    return new(mode, "");
+                }
+        }
+    }
+
     /// <summary>校验用户填的代理地址，填错了当场告诉他，而不是等到下次请求失败。</summary>
     public static (bool Ok, string Message) Validate(string mode, string url)
     {

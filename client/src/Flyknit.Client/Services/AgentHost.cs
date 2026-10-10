@@ -225,6 +225,28 @@ public sealed class AgentHost : IDisposable
     /// </summary>
     public event Action? ReregistrationRequired;
 
+    /// <summary>员工在设置里点了「退出登录」，服务端那边已经处理过。App 清掉本机令牌后重启到登录窗口。</summary>
+    public event Action? LogoutRequested;
+
+    /// <summary>
+    /// 退出登录：先请服务端作废令牌（连不上也照样退——本机令牌清掉就登不回来了，
+    /// 服务端那条记录只是成了一台不再上线的旧设备），再交给 App 重启到登录窗口。
+    /// </summary>
+    public async Task LogoutAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            await Server.LogoutAsync(cts.Token);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("通知服务端退出登录失败（本机照样退出）", ex);
+        }
+        Log.Info("员工退出登录");
+        LogoutRequested?.Invoke();
+    }
+
     /// <summary>有运行中的任务或等待确认时变化，悬浮球据此显示状态。</summary>
     public event Action<int>? ActiveRunsChanged;
 

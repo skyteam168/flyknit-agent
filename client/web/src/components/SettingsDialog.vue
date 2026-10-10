@@ -13,6 +13,7 @@ import {
   Lightbulb,
   Loader,
   Lock,
+  LogOut,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -25,7 +26,9 @@ import { uiLanguages } from '../i18n'
 import { setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
 import type { ApprovalInfo, KeepAwakeMode, StorageInfo, Theme } from '../types'
 import AuditLog from './AuditLog.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 import FeedbackDialog from './FeedbackDialog.vue'
+import NetworkCheck from './NetworkCheck.vue'
 import PersonalizePanel from './PersonalizePanel.vue'
 import SecurityPanel from './SecurityPanel.vue'
 import ShortcutsPanel from './ShortcutsPanel.vue'
@@ -64,6 +67,21 @@ const page = ref<Page>('general')
 /** 安全中心里点了「查看全部」，右侧换成审计明细；切到别的页再回来时回到安全中心首页 */
 const auditOpen = ref(false)
 const feedbackOpen = ref(false)
+
+/** 退出登录：先确认（有任务在跑要说清楚会被中断），再交给宿主重启到登录窗口 */
+const logoutAsk = ref(false)
+const loggingOut = ref(false)
+const anyBusy = computed(() => Object.values(state.byId).some((c) => c.busy))
+async function logout() {
+  logoutAsk.value = false
+  loggingOut.value = true
+  try {
+    await bridge.logout()
+  } catch (e) {
+    loggingOut.value = false
+    toast(e instanceof Error ? e.message : String(e))
+  }
+}
 
 /** 检查更新：马上问服务器，结果用一句话告诉用户；有新版本就在后台下载，顶上的更新条会跟着变 */
 const checkingUpdate = ref(false)
@@ -262,6 +280,20 @@ onMounted(async () => {
         <!-- 通用 -->
         <template v-if="page === 'general'">
           <h2>{{ t('settings.nav.general') }}</h2>
+          <section class="card account">
+            <div class="row">
+              <span class="avatar">{{ (state.app?.owner || state.app?.userName || '?').slice(0, 1).toUpperCase() }}</span>
+              <span class="label">
+                <strong>{{ t('settings.signedInAs', { name: state.app?.owner || state.app?.userName || '', machine: state.app?.machineName ?? '' }) }}</strong>
+                <small v-if="state.app?.serverUrl">{{ t('settings.server', { url: state.app.serverUrl }) }}</small>
+              </span>
+              <button type="button" class="btn logout" :disabled="loggingOut" @click="logoutAsk = true">
+                <Loader v-if="loggingOut" :size="14" class="spin" />
+                <LogOut v-else :size="14" />
+                {{ loggingOut ? t('settings.loggingOut') : t('settings.logout') }}
+              </button>
+            </div>
+          </section>
           <section class="card">
             <div class="row">
               <span class="label"><strong>{{ t('settings.language') }}</strong></span>
@@ -433,6 +465,7 @@ onMounted(async () => {
               </button>
             </div>
           </section>
+          <NetworkCheck />
         </template>
 
         <!-- 记忆与进化 -->
@@ -543,6 +576,15 @@ onMounted(async () => {
     </div>
     <Teleport to="body">
       <FeedbackDialog v-if="feedbackOpen" @close="feedbackOpen = false" />
+      <ConfirmDialog
+        v-if="logoutAsk"
+        :title="t('settings.logoutTitle')"
+        :body="anyBusy ? t('settings.logoutBusy') : t('settings.logoutBody')"
+        :ok="t('settings.logout')"
+        danger
+        @ok="logout"
+        @cancel="logoutAsk = false"
+      />
     </Teleport>
   </div>
 </template>
@@ -679,6 +721,29 @@ h2 {
 }
 .card > .row:first-child {
   border-top: 0;
+}
+.account .avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--indigo);
+  color: #fff;
+  font-weight: 600;
+}
+.account .label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn.logout {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+  color: var(--red);
 }
 .row.col {
   flex-direction: column;

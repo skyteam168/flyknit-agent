@@ -62,6 +62,7 @@ export function createMockHost(): HostTransport {
 
   // 更新条在浏览器里没法真的更新，用 ?update=ready / ?update=needsit 看样子
   const wanted = new URLSearchParams(location.search).get('update') ?? 'none'
+  let lastNetwork: unknown = null
   const mockUpdate = {
     stage: wanted,
     version: '0.3.0',
@@ -596,6 +597,7 @@ export function createMockHost(): HostTransport {
           theme: 'system',
           userName: 'nguyen.van.a',
           machineName: 'PC-QC-017',
+          serverUrl: 'http://10.0.0.5:8000',
           micAvailable: true,
           sandboxed: true,
           notificationSound: 'none',
@@ -1050,6 +1052,50 @@ export function createMockHost(): HostTransport {
         if (mockUpdate.stage === 'ready') return { outcome: 'ready', version: mockUpdate.version, current: '0.3.0', message: '' }
         if (mockUpdate.stage === 'needsIt') return { outcome: 'needsIt', version: mockUpdate.version, current: '0.3.0', message: '' }
         return { outcome: 'upToDate', version: '', current: '0.3.0', message: '' }
+      case 'account.logout':
+        await sleep(800)
+        location.reload()
+        return
+      case 'network.last':
+        return lastNetwork
+      case 'network.diagnose': {
+        await sleep(2500)
+        // ?net=fail 看失败的样子
+        const fail = new URLSearchParams(location.search).get('net') === 'fail'
+        lastNetwork = {
+          at: new Date().toISOString(),
+          endpoint: 'http://10.0.0.5:8000',
+          host: '10.0.0.5',
+          port: 8000,
+          scheme: 'HTTP',
+          proxyMode: 'system',
+          proxyUrl: '',
+          overall: fail ? 'fail' : 'warn',
+          checks: [
+            { id: 'proxy', status: 'pass', code: 'noProxy', value: 'No Proxy', ms: null, error: '' },
+            { id: 'hosts', status: 'pass', code: 'ipLiteral', value: '10.0.0.5', ms: null, error: '' },
+            { id: 'dns', status: 'pass', code: 'ipLiteral', value: '10.0.0.5', ms: null, error: '' },
+            fail
+              ? { id: 'http', status: 'fail', code: 'httpError', value: '', ms: 8002, error: 'timeout' }
+              : { id: 'http', status: 'pass', code: 'httpOk', value: '200', ms: 141, error: '' },
+            fail
+              ? { id: 'auth', status: 'skip', code: 'skipped', value: '', ms: null, error: '' }
+              : { id: 'auth', status: 'pass', code: 'authOk', value: '200', ms: 38, error: '' },
+            fail
+              ? { id: 'tcp', status: 'fail', code: 'tcpFail', value: '10.0.0.5:8000', ms: 8001, error: '由于目标计算机积极拒绝，无法连接。' }
+              : { id: 'tcp', status: 'pass', code: 'tcpOk', value: '10.0.0.5:8000', ms: 20, error: '' },
+            { id: 'loss', status: 'warn', code: 'icmpBlocked', value: '100%', ms: 6012, error: '' },
+          ],
+          reportPath: 'C:\\Users\\nguyen\\AppData\\Roaming\\Flyknit\\logs\\network\\network-diagnostics-20261010-084030-754.txt',
+          reportDir: 'C:\\Users\\nguyen\\AppData\\Roaming\\Flyknit\\logs\\network',
+        }
+        return lastNetwork
+      }
+      case 'network.openReports':
+      case 'network.revealReport':
+        return
+      case 'network.exportReport':
+        return { ok: true, path: 'C:\\Users\\nguyen\\Desktop\\network-diagnostics.txt' }
       case 'feedback.submit':
         await sleep(900)
         console.info('[mock] 反馈', { ...p, images: (p.images as string[]).map((u) => `${u.length} chars`) })

@@ -8,6 +8,7 @@
  * 在普通浏览器中运行（npm run dev）时，使用 mockHost 模拟宿主。
  */
 import type {
+  NetworkReport,
   UpdateCheckResult,
   AppInfo,
   ApprovalInfo,
@@ -324,6 +325,14 @@ class Bridge {
   /** 立刻装上。宿主会在更新器起来之后让程序退出 */
   applyUpdate = () => this.call<{ ok: boolean; message: string }>('update.apply')
   /** 设置里「检查更新」：等服务器回话，告诉用户结果。下载在后台继续 */
+  /** 退出登录：服务端作废令牌，宿主清掉本机令牌后重启到登录窗口 */
+  logout = () => this.call<void>('account.logout')
+  /** 网络检测：最近一次的结果（没测过为 null）/ 重新检测 / 报告目录 / 导出 / 定位 */
+  lastNetworkReport = () => this.call<NetworkReport | null>('network.last')
+  diagnoseNetwork = () => this.call<NetworkReport>('network.diagnose')
+  openNetworkReports = () => this.call<void>('network.openReports')
+  revealNetworkReport = () => this.call<void>('network.revealReport')
+  exportNetworkReport = () => this.call<{ ok: boolean; path: string }>('network.exportReport')
   checkUpdate = () => this.call<UpdateCheckResult>('update.check')
   /** 意见反馈。images 是 data: URL；logs 为 true 时宿主把最近几天的日志打包一起传 */
   submitFeedback = (req: { content: string; images: string[]; logs: boolean }) =>

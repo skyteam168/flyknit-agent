@@ -94,6 +94,8 @@ class Device(Base):
     #: 登录时同意的用户协议和隐私政策版本（terms@v;privacy@v）。老办法注册的为空
     legal_agreed: Mapped[str] = mapped_column(String(200), default="")
     legal_agreed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 员工在客户端点了「退出登录」的时间。令牌随之作废，再登录会注册成一条新设备
+    signed_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
 
 class Setting(Base):

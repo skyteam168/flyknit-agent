@@ -83,6 +83,13 @@ public partial class App : Application
 
         _host = new AgentHost(_settings);
         _host.ReregistrationRequired += OnReregistrationRequired;
+        _host.LogoutRequested += () => Dispatcher.BeginInvoke(() =>
+        {
+            // 清掉令牌再重启：新进程看到「未登录」就会先弹登录窗口
+            _settings.DeviceToken = "";
+            _settings.Save();
+            Restart();
+        });
         _main = new MainWindow(_host, _settings);
         _main.UiLanguageChanged += lang =>
         {
