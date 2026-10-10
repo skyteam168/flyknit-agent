@@ -64,11 +64,18 @@ Run "发布运维代理 FlyknitAgent $Version" {
     dotnet publish (Join-Path $root "src\Flyknit.Agent") -c Release -r win-x64 `
         "-p:Version=$Version" -p:EnableCompressionInSingleFile=true -o (Join-Path $publish "agent")
 }
+# 安装程序外壳先发布到一个临时目录，只把 exe 拷进员工端文件夹，用完就删
+$setupOut = Join-Path ([System.IO.Path]::GetTempPath()) "FlyknitSetup-publish"
+if (Test-Path $setupOut) { Remove-Item $setupOut -Recurse -Force }
 Run "发布安装程序 FlyknitSetup $Version" {
     dotnet publish (Join-Path $root "src\Flyknit.Setup") -c Release -r win-x64 `
-        "-p:Version=$Version" -o (Join-Path $root "publish\setup")
+        "-p:Version=$Version" -o $setupOut
 }
-Copy-Item (Join-Path $root "publish\setup\FlyknitSetup.exe") $publish -Force
+Copy-Item (Join-Path $setupOut "FlyknitSetup.exe") $publish -Force
+Remove-Item $setupOut -Recurse -Force
+# 老版本脚本留下的中间目录
+$oldSetup = Join-Path $root "publish\setup"
+if (Test-Path $oldSetup) { Remove-Item $oldSetup -Recurse -Force }
 # 发布目录里的 pdb 用不上，不打进包
 Get-ChildItem $publish -Recurse -Filter *.pdb | Remove-Item -Force
 
