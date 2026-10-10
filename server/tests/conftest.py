@@ -19,9 +19,29 @@ from app.main import app  # noqa: E402
 ADMIN = {"Authorization": "Bearer test-admin"}
 
 
+#: 设了这个就在 PostgreSQL 上跑整套测试（每个用例前清空 public schema），例如
+#: FLYKNIT_TEST_PG_URL=postgresql+asyncpg://postgres@127.0.0.1:55432/flyknit_test
+PG_URL = os.environ.get("FLYKNIT_TEST_PG_URL", "")
+
+
+async def _reset_pg(url: str) -> None:
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine(url)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
+    await engine.dispose()
+
+
 @pytest_asyncio.fixture
 async def client(tmp_path):
-    get_settings().database_url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
+    if PG_URL:
+        await _reset_pg(PG_URL)
+        get_settings().database_url = PG_URL
+    else:
+        get_settings().database_url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
     get_settings().data_dir = str(tmp_path / "data")
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
