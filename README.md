@@ -324,6 +324,33 @@ powershell -ExecutionPolicy Bypass -File scripts\publish-client.ps1 -Version 0.2
 
 ---
 
+## 运维代理（可选，「任务中心」要用）
+
+员工端（FlyknitBuddy）和运维代理（FlyknitAgent）是**两个程序**：
+
+| | 员工端 FlyknitBuddy | 运维代理 FlyknitAgent |
+|---|---|---|
+| 运行身份 | 当前员工 | SYSTEM（Windows 服务） |
+| 怎么装 | 员工自己装，点「登录」 | IT 用管理员身份装 |
+| 负责 | 聊天、办事、「指令中心」下发的指令 | 「任务中心」：静默装软件、收集硬件和软件清单 |
+
+所以员工端装好、指令能跑，不代表代理装好了——设备列表里「运维代理」一列显示「未安装」就是这个原因。
+代理装好后按设备标识（Windows 的 MachineGuid）自动对上同一台电脑。
+
+```powershell
+# 1) 在 IT 电脑上发布（产物在 client\dist\agent）
+cd client
+powershell -ExecutionPolicy Bypass -File scripts\publish-agent.ps1
+
+# 2) 拷到目标电脑，用管理员身份运行（也可以放进组策略「计算机配置 → 启动脚本」批量装）
+powershell -ExecutionPolicy Bypass -File install-agent.ps1 `
+    -ServerUrl "http://<服务器IP>:8000" -EnrollmentKey "<.env 里的 FLYKNIT_ENROLLMENT_KEY>"
+```
+
+卸载：`uninstall-agent.ps1`（加 `-Purge` 连配置和日志一起删）。
+
+---
+
 ## 发布新版本
 
 装完第一次之后，升级不用再跑一台台。用新版本号重新打包（`scripts\publish-client.ps1 -Version 0.3.0`），

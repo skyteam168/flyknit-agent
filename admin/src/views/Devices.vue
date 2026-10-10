@@ -14,6 +14,8 @@ type Row = Device & { agent: MachineAgent | null }
 
 const devices = ref<Device[]>([])
 const agents = ref<MachineAgent[]>([])
+/** 安装说明里预填的服务器地址：就是打开后台用的这个 */
+const serverUrl = location.origin
 const todayTokens = ref(new Map<number, number>())
 const loading = ref(false)
 const keyword = ref('')
@@ -404,13 +406,52 @@ function summaryText(): string {
             </el-timeline>
           </section>
         </template>
-        <el-empty v-else description="这台电脑还没有安装运维代理，无法下发任务" />
+        <div v-else class="no-agent">
+          <el-empty description="这台电脑还没有安装运维代理，无法下发任务" :image-size="90" />
+          <div class="agent-howto">
+            <p>
+              <strong>运维代理和员工端是两个程序。</strong>员工端（FlyknitBuddy）以员工身份运行，聊天和「指令中心」下发的指令靠它执行；
+              运维代理（FlyknitAgent）是以 SYSTEM 身份运行的 Windows 服务，「任务中心」的装软件、收集硬件和软件清单靠它。
+              员工端装好不代表代理装好了。
+            </p>
+            <p>在 IT 的电脑上发布代理，再在这台电脑上用<strong>管理员身份</strong>运行安装脚本（也可以放进组策略的计算机启动脚本批量装）：</p>
+            <pre>cd client
+powershell -ExecutionPolicy Bypass -File scripts\publish-agent.ps1
+# 把 client\dist\agent 拷到这台电脑，管理员 PowerShell 里：
+powershell -ExecutionPolicy Bypass -File install-agent.ps1 `
+  -ServerUrl "{{ serverUrl }}" -EnrollmentKey "服务端 .env 里的 FLYKNIT_ENROLLMENT_KEY"</pre>
+            <p class="muted">装好后一分钟内这里会显示「代理在线」，按设备标识（{{ detailDevice.machine_guid || '—' }}）自动对上这台电脑。</p>
+          </div>
+        </div>
       </div>
     </el-drawer>
   </div>
 </template>
 
 <style scoped>
+.no-agent {
+  margin-top: 8px;
+}
+.agent-howto {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.agent-howto p {
+  margin: 0 0 8px;
+}
+.agent-howto pre {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--el-bg-color);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre;
+}
 .signed-out {
   margin-left: 6px;
   vertical-align: 1px;
