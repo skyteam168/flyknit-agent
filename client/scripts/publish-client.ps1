@@ -11,7 +11,9 @@
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Version,
-    [string]$Output = "$PSScriptRoot\..\dist",
+    # 默认 client\dist。不在这里写 $PSScriptRoot：有的 PowerShell 版本里参数默认值拿到的是空的，
+    # 结果变成「\..\dist」，zip 跑到了盘符根目录（比如 G:\dist）
+    [string]$Output = "",
     # 公司电脑统一装了 .NET 8 Desktop Runtime 时可以加 -FrameworkDependent，包从约 150 MB 变成十几 MB
     [switch]$FrameworkDependent,
     # 界面已经编译过、只改了 C# 时可以跳过 npm
@@ -26,6 +28,7 @@ if ($Version -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$') {
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $publish = Join-Path $root "publish\FlyknitBuddy"
+if (-not $Output) { $Output = Join-Path $root "dist" }
 New-Item -ItemType Directory -Force -Path $Output | Out-Null
 $Output = Resolve-Path $Output
 $zip = Join-Path $Output "FlyknitBuddy-$Version.zip"

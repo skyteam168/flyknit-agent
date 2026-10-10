@@ -7,11 +7,13 @@
 #>
 param(
     [string]$Configuration = "Release",
-    [string]$Output = "$PSScriptRoot\..\dist\agent"
+    # 默认 client\dist\agent（参数默认值里的 $PSScriptRoot 有的 PowerShell 版本拿到的是空的，下面再算）
+    [string]$Output = ""
 )
 
 $ErrorActionPreference = "Stop"
 $proj = Join-Path $PSScriptRoot "..\src\Flyknit.Agent\Flyknit.Agent.csproj"
+if (-not $Output) { $Output = Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) "dist\agent" }
 
 Write-Host "发布运维代理 -> $Output"
 dotnet publish $proj -c $Configuration -r win-x64 --self-contained true `
