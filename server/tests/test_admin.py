@@ -74,6 +74,22 @@ async def test_audit_roundtrip(client, device_headers):
     assert rows[0]["machine_name"] == "PC-001"
 
 
+async def test_nul_characters_are_dropped_before_saving(client, device_headers):
+    """命令输出里偶尔带 \x00：PostgreSQL 的文本存不了，整批审计会写不进去。写库前去掉，两种库都一样。"""
+    r = await client.post("/api/v1/audit", headers=device_headers, json={"items": [
+        {"tool_name": "run_shell", "arguments": "{\"command\": \"type a.bin\"}", "risk": "auto",
+         "decision": "auto", "status": "ok", "summary": "退出码：0\r\nMZ\u0000\u0000\u0003"},
+    ]})
+    assert r.status_code == 204, r.text
+    from sqlalchemy import select
+
+    from app import db
+    from app.models import AuditLog
+
+    async with db.get_sessionmaker()() as s:
+        assert (await s.scalars(select(AuditLog.summary))).all() == ["退出码：0\r\nMZ\x03"]
+
+
 async def test_audit_export_csv(client, device_headers, chat_reader_headers):
     import csv
     import io

@@ -1,11 +1,40 @@
 from collections.abc import AsyncIterator
+from typing import Any
 
+from sqlalchemy import event, inspect
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Session
 
 
 class Base(DeclarativeBase):
     pass
+
+
+def strip_nul(value: Any) -> Any:
+    """去掉字符串里的 \x00（含 JSON 里嵌套的）。没有的话原样返回同一个对象。"""
+    if isinstance(value, str):
+        return value.replace("\x00", "") if "\x00" in value else value
+    if isinstance(value, dict):
+        return {k: strip_nul(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [strip_nul(v) for v in value]
+    return value
+
+
+@event.listens_for(Session, "before_flush")
+def _no_nul_characters(session: Session, _context, _instances) -> None:
+    """
+    PostgreSQL 的文本字段存不了 \x00（SQLite 可以）。员工端上报的命令输出、读到的二进制文件片段里偶尔会带，
+    一条带了整批审计就写不进去、员工端还会一直重试。写库前统一去掉，两种库行为一致。
+    """
+    for obj in (*session.new, *session.dirty):
+        state = inspect(obj)
+        for attr in state.mapper.column_attrs:
+            value = getattr(obj, attr.key, None)
+            if isinstance(value, (str, dict, list)):
+                cleaned = strip_nul(value)
+                if cleaned is not value and cleaned != value:
+                    setattr(obj, attr.key, cleaned)
 
 
 _engine: AsyncEngine | None = None
