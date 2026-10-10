@@ -45,6 +45,12 @@ public sealed class ClientUpdater(AgentConfig config, Func<ServerApi> api)
     public async Task RunAsync(CancellationToken ct)
     {
         var nextCheck = DateTime.UtcNow.AddMinutes(2);  // 开机先让别的事跑起来
+        // 上次下好的版本只记在内存里，服务重启就没了：状态文件还写着「就绪」的话员工点了升级会白等。
+        // 先清掉，两分钟后重新检查、重新下载
+        if (File.Exists(StatusFile))
+        {
+            WriteStatus("", "", "idle");
+        }
         while (!ct.IsCancellationRequested)
         {
             try

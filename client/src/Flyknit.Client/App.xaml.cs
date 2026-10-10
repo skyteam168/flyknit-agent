@@ -36,6 +36,7 @@ public partial class App : Application
     private TranslatePopup? _translatePopup;
     private bool _capturingSelection;
     private CancellationTokenSource _pipeCts = new();
+    private bool _cleanedUp;
     private int _activeRuns;
     private int _pendingConfirms;
 
@@ -71,6 +72,13 @@ public partial class App : Application
         _settings = AppSettings.Load();
         NativeStrings.Language = _settings.ResolveUiLanguage();
 
+        if (_settings.IsRegistered && Flyknit.Core.Setup.Provisioning.ServerReplaced(AppContext.BaseDirectory, AppPaths.Root, _settings.ServerUrl))
+        {
+            Log.Info($"安装程序换了服务器地址（原来 {_settings.ServerUrl}），按新的重新登录");
+            _settings.DeviceToken = "";
+            _settings.Save();
+        }
+
         if (!_settings.IsRegistered)
         {
             var setup = new LoginWindow(_settings);
@@ -83,6 +91,7 @@ public partial class App : Application
 
         _host = new AgentHost(_settings);
         _host.ReregistrationRequired += OnReregistrationRequired;
+        _host.ExitRequested += () => Dispatcher.BeginInvoke(() => ExitApp(applyUpdate: false));
         _host.LogoutRequested += () => Dispatcher.BeginInvoke(() =>
         {
             // 清掉令牌再重启：新进程看到「未登录」就会先弹登录窗口
@@ -306,8 +315,26 @@ public partial class App : Application
         _tray.ContextMenuStrip = menu;
     }
 
-    private void ExitApp()
+    private void ExitApp() => ExitApp(applyUpdate: true);
+
+    /// <param name="applyUpdate">用户点「稍后」的更新在退出时装上。点「重启升级」走到这里时更新器已经起了，别再起一个。</param>
+    private void ExitApp(bool applyUpdate)
     {
+        Cleanup(applyUpdate);
+        Shutdown();
+    }
+
+    /// <summary>
+    /// 退出前收拾干净：托盘图标、悬浮球、后台服务都要停掉。只调 Shutdown 的话悬浮球和托盘图标会留在屏幕上、
+    /// 后台线程让进程一直不退——运维代理看到程序还在跑，新版本就一直换不上。
+    /// </summary>
+    private void Cleanup(bool applyUpdate)
+    {
+        if (_cleanedUp)
+        {
+            return;
+        }
+        _cleanedUp = true;
         _pipeCts.Cancel();
         UnregisterHotkey();
         _translatePopup?.Close();
@@ -321,12 +348,25 @@ public partial class App : Application
         _noticeWatcher?.Dispose();
         _instructionPoller?.Dispose();
         // 下好了没装的，就在这会儿装上——用户说「稍后」，指的就是等他关掉程序的时候
-        _host?.Updater.ApplyOnExit();
-        _host?.Dispose();
+        if (applyUpdate)
+        {
+            _host?.Updater.ApplyOnExit();
+        }
+        try { _host?.Dispose(); }
+        catch (Exception ex) { Log.Warn("退出时停止后台服务出错", ex); }
         _main?.ExitForReal();
         _ball?.Close();
-        _mutex?.ReleaseMutex();
-        Shutdown();
+        try { _mutex?.ReleaseMutex(); }
+        catch (Exception) { /* 已经放掉了 */ }
+        _mutex?.Dispose();
+        _mutex = null;
+        // 兜底：哪个后台线程卡住不退，5 秒后强制结束，别让进程半死不活地挂着
+        new Thread(() =>
+        {
+            Thread.Sleep(TimeSpan.FromSeconds(5));
+            Log.Warn("退出 5 秒后进程还在，强制结束");
+            Environment.Exit(0);
+        }) { IsBackground = true }.Start();
     }
 
     // ---------- 全局热键：唤起主窗口（Ctrl+Alt+Space）、划词翻译（Ctrl+Alt+T） ----------
@@ -540,12 +580,10 @@ public partial class App : Application
     private void Restart()
     {
         var exe = Environment.ProcessPath;
+        // 先收拾干净（也放掉单实例锁，否则新进程会以为已经有一个在跑然后直接退出）
+        Cleanup(applyUpdate: false);
         try
         {
-            // 先放掉单实例锁，否则新进程会以为已经有一个在跑然后直接退出
-            _mutex?.ReleaseMutex();
-            _mutex?.Dispose();
-            _mutex = null;
             if (exe is not null)
             {
                 Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });

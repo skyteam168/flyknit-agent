@@ -69,6 +69,12 @@ public sealed class Worker : BackgroundService
             {
                 break;
             }
+            catch (HttpRequestException ex)
+            {
+                // 最常见的是安装包里的服务器地址填错了（localhost、开发端口），把地址写进日志方便 IT 一眼看出来
+                AgentLog.Warn($"连不上服务器 {_config.ServerUrl}（{(_config.IsRegistered ? "已注册" : "还没注册上")}），一分钟后重试：{ex.Message}");
+                await Delay(60, stoppingToken);
+            }
             catch (Exception ex)
             {
                 AgentLog.Warn("轮询出错，稍后重试", ex);

@@ -247,6 +247,11 @@ public sealed class AgentHost : IDisposable
         LogoutRequested?.Invoke();
     }
 
+    /// <summary>「重启升级」：更新器已经起来了，App 收拾干净后退出（不能只关窗口，进程在代理就换不了文件）。</summary>
+    public event Action? ExitRequested;
+
+    public void RequestExit() => ExitRequested?.Invoke();
+
     /// <summary>有运行中的任务或等待确认时变化，悬浮球据此显示状态。</summary>
     public event Action<int>? ActiveRunsChanged;
 

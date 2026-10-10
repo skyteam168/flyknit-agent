@@ -414,7 +414,16 @@ function summaryText(): string {
               运维代理（FlyknitAgent）是以 SYSTEM 身份运行的 Windows 服务，「任务中心」的装软件、收集硬件和软件清单靠它。
               员工端装好不代表代理装好了。
             </p>
-            <p>在 IT 的电脑上发布代理，再在这台电脑上用<strong>管理员身份</strong>运行安装脚本（也可以放进组策略的计算机启动脚本批量装）：</p>
+            <p>
+              <strong>推荐：</strong>在「发布」页下载<strong>安装程序 .exe</strong>，在这台电脑上用管理员身份运行，员工端和代理一起装好。
+            </p>
+            <p>
+              <strong>已经装了代理（服务里 FlyknitAgent 在运行）这里还显示未安装：</strong>代理连不上服务器，没注册上。
+              最常见的是下载安装包时服务器地址填成了 localhost、127.0.0.1 或后台开发服务器的 5180 端口——员工电脑上这些地址都连不到服务器。
+              改成员工电脑能访问的地址重新下载安装包、重新安装即可（员工端会自动按新地址重新登录）。
+              原因写在这台电脑的 <code>C:\ProgramData\Flyknit\agent.log</code> 里。
+            </p>
+            <p>也可以只装代理：在 IT 的电脑上发布代理，再在这台电脑上用<strong>管理员身份</strong>运行安装脚本（也可以放进组策略的计算机启动脚本批量装）：</p>
             <pre>cd client
 powershell -ExecutionPolicy Bypass -File scripts\publish-agent.ps1
 # 把 client\dist\agent 拷到这台电脑，管理员 PowerShell 里：
