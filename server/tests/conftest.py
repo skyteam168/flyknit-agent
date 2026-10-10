@@ -31,6 +31,7 @@ async def _reset_pg(url: str) -> None:
     engine = create_async_engine(url)
     async with engine.begin() as conn:
         await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("DROP SCHEMA IF EXISTS flyknit CASCADE"))
         await conn.execute(text("CREATE SCHEMA public"))
     await engine.dispose()
 

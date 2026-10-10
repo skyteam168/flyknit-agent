@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     postgres_db: str = _pg("POSTGRES_DB", "postgres")
     postgres_user: str = _pg("POSTGRES_USER", "postgres")
     postgres_password: str = _pg("POSTGRES_PASSWORD")
+    #: 和别的系统共用一个库时，本系统的表放进这个 schema（自动创建），不和 public 里别人的表混在一起
+    postgres_schema: str = _pg("POSTGRES_SCHEMA")
     #: 换成 PostgreSQL 之前用的 SQLite 库。迁移脚本从这里读旧数据
     sqlite_url: str = ""
     upstream_timeout: float = 300.0

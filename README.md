@@ -476,7 +476,11 @@ Docker 部署的都在卷里，备份 `docker volume` 即可。
 
 ### 从 SQLite 换到 PostgreSQL
 
-1. 停掉服务端。
+1. 停掉服务端。给本系统**单独建一个库**，不要和别的项目共用 `postgres` 库的 `public`（表名 `settings`、`models` 之类容易撞名）：
+   ```sql
+   CREATE DATABASE flyknit;
+   ```
+   没有建库权限、只能用现成的库时，在 `.env` 里加 `POSTGRES_SCHEMA=flyknit`，本系统的表会放进单独的 schema（自动创建）。
 2. 在 `server/.env` 里加上 PostgreSQL 的连接信息（`FLYKNIT_DATABASE_URL` 那行 SQLite 留着，脚本从它读旧数据）：
    ```
    POSTGRES_HOST=10.0.0.5
@@ -498,6 +502,15 @@ Docker 部署的都在卷里，备份 `docker volume` 即可。
 5. 启动服务端，日志里「数据库：postgresql+asyncpg://…」说明已经连上 PostgreSQL。登录后台核对设备、用量、模型配置。
 
 管理员账号、模型 Key、设备和员工端的登录令牌都原样搬过去，员工不用重新登录。
+
+目标位置已有别的程序的同名表时，迁移脚本一张表都不碰、直接停下（加 `--replace` 也一样）。
+
+**已经迁进了别人的 `public`、和别的项目的表混在一起了**：按上面的步骤迁到单独的库（或 schema）、服务端在新位置跑好后，
+把旧库 `public` 里本系统的表删掉。脚本只删结构和本系统一致的表，同名但结构不同的（别人的）会跳过并列出来：
+```
+python -m scripts.cleanup_postgres --db postgres          # 预览：会删哪些、哪些是别人的
+python -m scripts.cleanup_postgres --db postgres --yes    # 确认后真的删
+```
 
 **员工电脑**：`%APPDATA%\Flyknit\`
 
