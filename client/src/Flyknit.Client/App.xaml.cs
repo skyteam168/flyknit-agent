@@ -162,8 +162,9 @@ public partial class App : Application
         });
         _instructionPoller.Start();
 
-        // --silent 是开机自启用的：只放悬浮球，不弹主窗口打断用户登录
-        if (e.Args.Contains("--show") && !e.Args.Contains("--silent"))
+        // 员工自己打开的（双击快捷方式、刚登录完、点了「重启升级」）直接把主窗口拿出来，
+        // 不要只放一个悬浮球让人再去找。只有开机自启（--silent）才安静地待在悬浮球里，不打断开机
+        if (!e.Args.Contains("--silent"))
         {
             _main.ShowAndFocus();
         }

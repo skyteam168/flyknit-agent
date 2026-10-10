@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UpdateBar from './UpdateBar.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -271,6 +272,7 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
+    <UpdateBar />
     <button type="button" class="user" @click="state.settingsOpen = true">
       <span class="avatar">{{ initial }}</span>
       <span class="who">
