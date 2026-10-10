@@ -26,3 +26,6 @@ Thumbs.db
 
 # 服务端技能库等运行时数据
 server/data/
+
+# 员工端打包产物（client/scripts/publish-client.ps1）
+client/publish/

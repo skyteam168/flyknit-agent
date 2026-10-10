@@ -6,6 +6,7 @@
 
 import hashlib
 import io
+import json
 import zipfile
 
 import pytest
@@ -195,3 +196,32 @@ async def test_a_release_whose_file_vanished_cannot_be_published(client):
     Path(get_settings().data_dir, "releases", f"{release['sha256']}.zip").unlink()
     r = await publish(client, headers, release["id"])
     assert r.status_code == 400
+
+
+def a_published_folder(built_version: str, folder: str = "FlyknitBuddy/") -> bytes:
+    """dotnet publish 出来的样子：deps.json 里把项目自己记成 FlyknitBuddy/版本号。"""
+    deps = {
+        "runtimeTarget": {"name": ".NETCoreApp,Version=v8.0/win-x64"},
+        "libraries": {
+            f"FlyknitBuddy/{built_version}": {"type": "project", "serviceable": False, "sha512": ""},
+            "Markdig/0.37.0": {"type": "package"},
+        },
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as z:
+        z.writestr(folder + "FlyknitBuddy.exe", "exe")
+        z.writestr(folder + "FlyknitUpdater.exe", "updater")
+        z.writestr(folder + "FlyknitBuddy.deps.json", "﻿" + json.dumps(deps))
+    return buffer.getvalue()
+
+
+async def test_the_version_built_into_the_program_must_match(client):
+    """填 0.2.0 但程序里编的还是 0.1.0：装上后它还报 0.1.0，会一直以为有新版本、反复重装。"""
+    headers = await owner_headers(client)
+    r = await upload(client, headers, "0.2.0", body=a_published_folder("0.1.0"))
+    assert r.status_code == 400
+    assert "0.1.0" in r.json()["detail"] and "-p:Version=0.2.0" in r.json()["detail"]
+
+    assert (await upload(client, headers, "0.2.0", body=a_published_folder("0.2.0"))).status_code == 201
+    # 1.3 和 1.3.0 是同一个版本；deps.json 在根目录也认
+    assert (await upload(client, headers, "1.3", body=a_published_folder("1.3.0", folder=""))).status_code == 201

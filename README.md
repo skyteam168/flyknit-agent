@@ -267,24 +267,21 @@ curl -X PUT http://localhost:8000/api/v1/admin/policy \
 git clone https://github.com/skyteam168/flkynit-agent.git
 cd flkynit-agent\client
 
-# 1) 编译聊天界面
-cd web
-npm install
-npm run build
-cd ..
-
-# 2) 打包成不依赖运行时的独立程序
-dotnet publish src\Flyknit.Client -c Release -r win-x64 --self-contained true -o publish\FlyknitBuddy
-
-# 3) 更新器也要放进同一个文件夹，否则自动更新装不上
-dotnet publish src\Flyknit.Updater -c Release -r win-x64 -o publish\FlyknitBuddy
+# 一条命令：编译界面 → 发布主程序和更新器 → 打成 zip。版本号会编进程序里
+powershell -ExecutionPolicy Bypass -File scripts\publish-client.ps1 -Version 0.2.0
 ```
 
-产物在 `client\publish\FlyknitBuddy\`，里面的 `FlyknitBuddy.exe` 就是主程序。
-整个文件夹约 150 MB，拷到员工电脑任意位置（或放共享盘）即可运行，**员工电脑不需要装 .NET**。
+产物是 `client\dist\FlyknitBuddy-0.2.0.zip`（里面是 `FlyknitBuddy` 文件夹，约 150 MB，**员工电脑不需要装 .NET**），
+直接上传到管理后台「员工端版本」。公司电脑已经统一装了 .NET 8 Desktop Runtime 的话，加 `-FrameworkDependent`，包只有十几 MB。
 
-如果公司电脑已经统一装了 .NET 8 Desktop Runtime，可以改用
-`--self-contained false`，产物只有十几 MB。
+> **版本号以编进程序的为准。** 员工端「关于」里显示的、自动更新时上报给服务端的，都是打包时 `-Version`
+> （也就是 `dotnet publish -p:Version=...`）写进去的号，不是在后台填的那个。两者对不上时后台会拒绝上传——
+> 否则员工电脑装完还报旧号，会一直以为有新版本、反复下载重装。
+>
+> 手动打包也可以，记得每一步都带上版本号：
+> `dotnet publish src\Flyknit.Client -c Release -r win-x64 --self-contained true -p:Version=0.2.0 -o publish\FlyknitBuddy`，
+> `dotnet publish src\Flyknit.Updater -c Release -r win-x64 -p:Version=0.2.0 -o publish\FlyknitBuddy`，
+> 再把 `publish\FlyknitBuddy` 整个文件夹压成 zip。
 
 > GitHub Actions 也会自动编译：推送代码后在 Actions 页面下载 `FlyknitBuddy-win-x64`。
 
@@ -329,8 +326,8 @@ dotnet publish src\Flyknit.Updater -c Release -r win-x64 -o publish\FlyknitBuddy
 
 ## 发布新版本
 
-装完第一次之后，升级不用再跑一台台。重新打包，把 `publish\FlyknitBuddy`
-整个文件夹压成一个 zip，在管理后台「员工端版本」上传。
+装完第一次之后，升级不用再跑一台台。用新版本号重新打包（`scripts\publish-client.ps1 -Version 0.3.0`），
+把生成的 zip 在管理后台「员工端版本」上传，版本号填同一个。
 
 上传和发布是**两步**：传完先停在「未发布」，确认无误再点「发布」。发布之后：
 
