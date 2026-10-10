@@ -23,16 +23,20 @@ needs_pg = pytest.mark.skipif(not PG_URL, reason="没有配置 FLYKNIT_TEST_PG_U
 
 
 @asynccontextmanager
-async def running(url):
+async def running(url, schema=""):
     get_settings().database_url = url
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
+    get_settings().postgres_schema = schema
+    try:
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                yield c
+    finally:
+        get_settings().postgres_schema = ""
 
 
 def migrate(source, **flags):
-    args = argparse.Namespace(source=str(source), target=PG_URL, dry_run=False, replace=False)
+    args = argparse.Namespace(source=str(source), target=PG_URL, dry_run=False, replace=False, schema=None)
     for k, v in flags.items():
         setattr(args, k, v)
     return migrate_to_postgres.run(args)
@@ -123,11 +127,72 @@ async def test_whole_database_moves_to_postgres(tmp_path):
     await engine.dispose()
 
 
+async def _sql(sql, params=None):
+    engine = create_async_engine(PG_URL)
+    async with engine.begin() as conn:
+        result = await conn.execute(text(sql), params or {})
+        rows = result.all() if result.returns_rows else None
+    await engine.dispose()
+    return rows
+
+
+@pytest.mark.asyncio
+@needs_pg
+async def test_never_touches_another_systems_table_with_the_same_name(tmp_path):
+    """和别的项目共用一个库：撞名的表（settings 这种）是别人的，加了 --replace 也不能往里写、不能清空。"""
+    sqlite_file = tmp_path / "flyknit.db"
+    await seed(sqlite_file)
+    await _reset_pg(PG_URL)
+    await _sql("CREATE TABLE settings (name text primary key, theme text)")
+    await _sql("INSERT INTO settings VALUES ('crm', 'dark')")
+
+    assert await migrate(sqlite_file) == 4
+    assert await migrate(sqlite_file, replace=True) == 4
+    assert await _sql("SELECT name, theme FROM settings") == [("crm", "dark")]
+    # 本系统的表一张都没建
+    assert await _sql("SELECT to_regclass('public.devices')") == [(None,)]
+
+
+@pytest.mark.asyncio
+@needs_pg
+async def test_own_schema_and_cleanup_of_public(tmp_path):
+    """先迁进了 public、和别人的表混在一起：迁到单独的 schema，再把 public 里本系统的表清掉，别人的表不动。"""
+    from scripts import cleanup_postgres
+
+    sqlite_file = tmp_path / "flyknit.db"
+    device, dev_headers = await seed(sqlite_file)
+    await _reset_pg(PG_URL)
+    await _sql("CREATE TABLE orders (id serial primary key, item text)")
+    await _sql("INSERT INTO orders (item) VALUES ('布料')")
+    assert await migrate(sqlite_file) == 0          # 混进了 public
+
+    assert await migrate(sqlite_file, schema="flyknit") == 0
+    async with running(PG_URL, schema="flyknit") as c:
+        r = await c.post("/api/v1/admin/login", json={"username": "it.zhang", "password": "changed-pass-456"})
+        assert r.status_code == 200, r.text
+        assert (await c.post("/api/v1/devices/heartbeat", headers=dev_headers, json={})).status_code == 204
+        # 新注册的设备进的是 flyknit 这个 schema
+        r = await c.post("/api/v1/devices/register", json={
+            "enrollment_key": "test-enroll", "machine_name": "PC-NEW", "user_name": "tran"})
+        assert r.status_code == 200, r.text
+    assert await _sql("SELECT COUNT(*) FROM flyknit.devices") == [(2,)]
+    assert await _sql("SELECT COUNT(*) FROM public.devices") == [(1,)]
+
+    preview = argparse.Namespace(target=PG_URL, db=None, schema="public", yes=False)
+    assert await cleanup_postgres.run(preview) == 0
+    assert await _sql("SELECT to_regclass('public.devices')") != [(None,)]  # 只是预览
+
+    assert await cleanup_postgres.run(argparse.Namespace(target=PG_URL, db=None, schema="public", yes=True)) == 0
+    assert await _sql("SELECT to_regclass('public.devices')") == [(None,)]
+    assert await _sql("SELECT item FROM public.orders") == [("布料",)]
+    assert await _sql("SELECT COUNT(*) FROM flyknit.devices") == [(2,)]
+
+
 @pytest.mark.asyncio
 async def test_refuses_a_sqlite_target(tmp_path):
     sqlite_file = tmp_path / "flyknit.db"
     sqlite3.connect(sqlite_file).close()
-    args = argparse.Namespace(source=str(sqlite_file), target="sqlite+aiosqlite:///x.db", dry_run=False, replace=False)
+    args = argparse.Namespace(source=str(sqlite_file), target="sqlite+aiosqlite:///x.db", dry_run=False, replace=False, schema=None)
     assert await migrate_to_postgres.run(args) == 2
 
 

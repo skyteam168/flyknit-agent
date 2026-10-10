@@ -74,8 +74,10 @@ async def lifespan(app: FastAPI):
             log.warning("仍在使用默认的 FLYKNIT_%s，请在 .env 中修改%s", name.upper(),
                         "（拿到它就能冒充任意机器注册）" if name == "enrollment_key" else "")
     # 换到 PostgreSQL 后一眼看出连的是哪个库（密码不写进日志）
-    log.info("数据库：%s", make_url(settings.database_url).render_as_string(hide_password=True))
-    db.init_engine(settings.database_url)
+    schema = settings.postgres_schema if settings.database_url.startswith("postgresql") else ""
+    log.info("数据库：%s%s", make_url(settings.database_url).render_as_string(hide_password=True),
+             f"（schema {schema}）" if schema else "")
+    db.init_engine(settings.database_url, schema)
     await db.create_all()
     app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(settings.upstream_timeout, connect=10))
 

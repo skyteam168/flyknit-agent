@@ -1,7 +1,8 @@
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
-from sqlalchemy import event, inspect
+from sqlalchemy import event, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Session
 
@@ -41,9 +42,36 @@ _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
-def init_engine(url: str) -> AsyncEngine:
-    global _engine, _sessionmaker
-    _engine = create_async_engine(url, future=True)
+_schema = ""
+
+_SCHEMA_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
+
+def check_schema(schema: str) -> str:
+    schema = (schema or "").strip()
+    if schema and not _SCHEMA_NAME.match(schema):
+        raise ValueError(f"POSTGRES_SCHEMA 只能用字母、数字和下划线，且不能以数字开头：{schema!r}")
+    return schema
+
+
+def make_engine(url: str, schema: str = "") -> AsyncEngine:
+    """PostgreSQL 指定了 schema 时，每个连接的 search_path 都设成它：表建在里面，查询也只看它。"""
+    schema = check_schema(schema)
+    if schema and url.startswith("postgresql"):
+        return create_async_engine(url, future=True, connect_args={"server_settings": {"search_path": schema}})
+    return create_async_engine(url, future=True)
+
+
+async def ensure_pg_schema(engine: AsyncEngine, schema: str) -> None:
+    if schema and engine.dialect.name == "postgresql":
+        async with engine.begin() as conn:
+            await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{check_schema(schema)}"'))
+
+
+def init_engine(url: str, schema: str = "") -> AsyncEngine:
+    global _engine, _sessionmaker, _schema
+    _schema = check_schema(schema) if url.startswith("postgresql") else ""
+    _engine = make_engine(url, _schema)
     _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 
@@ -54,6 +82,7 @@ async def create_all() -> None:
     from . import models  # noqa: F401  确保模型已注册
     from .migrate import ensure_schema
 
+    await ensure_pg_schema(_engine, _schema)
     async with _engine.begin() as conn:
         changes = await conn.run_sync(ensure_schema)
     if changes:

@@ -46,7 +46,7 @@ sys.path.insert(0, str(SERVER_DIR))
 
 from app import models  # noqa: E402,F401  注册所有表
 from app.config import get_settings  # noqa: E402
-from app.db import Base, strip_nul  # noqa: E402
+from app.db import Base, ensure_pg_schema, make_engine, strip_nul  # noqa: E402
 from app.migrate import ensure_schema  # noqa: E402
 
 BATCH = 500
@@ -151,6 +151,26 @@ def single_int_pk(table: sa.Table) -> sa.Column | None:
     return None
 
 
+def table_ownership(conn: sa.Connection, schema: str | None = None) -> tuple[list[str], list[str]]:
+    """
+    库里和本系统同名的表，分成「本系统的」和「别的程序的」。
+
+    settings、models、routes、feedback 这种名字很常见，和别的系统共用一个库时可能撞名。
+    本系统建的表，列都是模型里有的；有模型里没有的列、或者缺主键列的，就是别人的表——绝不能往里写，更不能清空或删掉。
+    """
+    inspector = sa.inspect(conn)
+    present = set(inspector.get_table_names(schema=schema))
+    ours, foreign = [], []
+    for table in Base.metadata.sorted_tables:
+        if table.name not in present:
+            continue
+        cols = {c["name"] for c in inspector.get_columns(table.name, schema=schema)}
+        model = {c.name for c in table.columns}
+        pk = {c.name for c in table.primary_key.columns}
+        (ours if cols <= model and pk <= cols else foreign).append(table.name)
+    return ours, foreign
+
+
 async def target_rows(target: AsyncEngine) -> dict[str, int]:
     async with target.connect() as conn:
         existing = set(await conn.run_sync(lambda c: sa.inspect(c).get_table_names()))
@@ -172,21 +192,34 @@ async def run(args: argparse.Namespace) -> int:
     say(f"新库（PostgreSQL）：{masked(target_url)}")
 
     # Windows 上出错时 SQLite 副本可能还被占着，删不掉就留在临时目录，别让它盖住真正的错误
+    schema = (args.schema if args.schema is not None else settings.postgres_schema).strip()
+    say(f"新库 schema：{schema or 'public（默认）'}")
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         copy = snapshot(source, Path(tmp))
         src = create_async_engine(f"sqlite+aiosqlite:///{copy}")
-        dst = create_async_engine(target_url)
+        dst = make_engine(target_url, schema)
         try:
             # 老版本的库可能缺几列：在副本上补齐，读出来的结构就和现在的模型一致
             async with src.begin() as conn:
                 await conn.run_sync(ensure_schema)
 
             try:
-                existing = await target_rows(dst)
+                if not args.dry_run:
+                    await ensure_pg_schema(dst, schema)
+                async with dst.connect() as conn:
+                    _, foreign = await conn.run_sync(table_ownership)
+                existing = await target_rows(dst) if not foreign else {}
             except Exception as exc:  # noqa: BLE001  连不上要把原因原样告诉 IT
                 say(f"\n连不上 PostgreSQL：{exc}")
                 say("检查 POSTGRES_HOST / PORT / USER / PASSWORD / DB，以及服务器防火墙是否放行 5432 端口。")
                 return 2
+            if foreign:
+                # 不管加没加 --replace 都停下：这些表是别的程序的，写进去或清空都会毁掉别人的数据
+                say("\n目标位置已经有别的程序的同名表，为了不碰到它们的数据，没有做任何操作：")
+                for name in foreign:
+                    say(f"  {name}")
+                say("请给本系统单独建一个库（推荐，POSTGRES_DB=flyknit），或者在 .env 里设 POSTGRES_SCHEMA=flyknit 放进单独的 schema，再重新运行。")
+                return 4
             occupied = {name: n for name, n in existing.items() if n}
             if occupied and not args.dry_run and not args.replace:
                 say("\n新库里已经有数据，没有动它：")
@@ -294,6 +327,7 @@ def main() -> None:
     parser.add_argument("--target", help="PostgreSQL 连接串（默认用 .env 里的 POSTGRES_* 拼出来）")
     parser.add_argument("--dry-run", action="store_true", help="只看要搬多少，不写新库")
     parser.add_argument("--replace", action="store_true", help="新库里已有数据时，先清空本系统的表再搬")
+    parser.add_argument("--schema", help="放进 PostgreSQL 的哪个 schema（默认用 .env 的 POSTGRES_SCHEMA，没有就是 public）")
     args = parser.parse_args()
     sys.exit(asyncio.run(run(args)))
 
