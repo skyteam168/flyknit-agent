@@ -102,6 +102,17 @@ async def upload_release(
                 out.write(chunk)
         if size == 0:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件是空的")
+        # 程序自己报的版本号是编译时写进 exe 的，不是这里填的。两个对不上的话，
+        # 员工电脑装完还报旧版本号，就会一直觉得「有新版本」，反复下载重装
+        built = _built_version(tmp)
+        if built is not None and versions.compare(built, version) != 0:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"zip 里的程序版本是 {built}，和填写的 {version} 对不上。"
+                f"打包时要把版本号编进程序：dotnet publish 加上 -p:Version={version.lstrip('vV')}"
+                f"（或用 client\\scripts\\publish-client.ps1 -Version {version.lstrip('vV')}），"
+                f"或者把这里的版本号改成 {built}",
+            )
         release = ClientRelease(
             version=version,
             notes=notes.strip(),
@@ -169,6 +180,30 @@ async def delete_release(
 #: 安装包里的开通文件，放在 FlyknitBuddy.exe 旁边。客户端首次启动读它，员工只需要点「登录」
 PROVISION_FILE = "flyknit.provision.json"
 _MAIN_EXE = "flyknitbuddy.exe"
+
+
+def _built_version(path: Path) -> str | None:
+    """
+    zip 里主程序编译时写进去的版本号（从 FlyknitBuddy.deps.json 里读：dotnet publish 会把
+    项目自己记成「FlyknitBuddy/版本号」）。读不出来（老包、不是 zip、手工拼的）返回 None，不拦。
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            folder = _exe_folder(zf)
+            if folder is None:
+                return None
+            name = next((n for n in zf.namelist()
+                         if n.replace("\\", "/").lower() == (folder + "FlyknitBuddy.deps.json").lower()), None)
+            if name is None:
+                return None
+            deps = json.loads(zf.read(name).decode("utf-8-sig"))
+    except (zipfile.BadZipFile, OSError, ValueError, UnicodeDecodeError):
+        return None
+    for key in (deps.get("libraries") or {}) if isinstance(deps, dict) else ():
+        lib, _, ver = key.partition("/")
+        if lib.lower() == "flyknitbuddy" and ver:
+            return ver
+    return None
 
 
 def _exe_folder(zf: zipfile.ZipFile) -> str | None:

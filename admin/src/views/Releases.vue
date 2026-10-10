@@ -257,7 +257,7 @@ async function remove(r: Release) {
     <el-dialog v-model="dialog" title="上传新版本" width="560px" :close-on-click-modal="false">
       <el-alert type="info" :closable="false" show-icon class="notice"
                 title="把 dotnet publish 出来的整个文件夹打成一个 zip 上传"
-                description="里面要有 FlyknitBuddy.exe 和 FlyknitUpdater.exe。上传完不会立刻下发，确认无误后再点发布。" />
+                description="推荐用 client\scripts\publish-client.ps1 -Version 版本号 打包（版本号会编进程序，要和下面填的一致）。里面要有 FlyknitBuddy.exe 和 FlyknitUpdater.exe。上传完不会立刻下发，确认无误后再点发布。" />
       <el-upload drag :auto-upload="false" :show-file-list="false" accept=".zip" :on-change="pick">
         <div class="drop">
           <el-icon :size="26"><Upload /></el-icon>
