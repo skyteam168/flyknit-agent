@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type UploadRawFile } from 'element-plus'
+import { ElMessage, ElMessageBox, type UploadFile, type UploadRawFile } from 'element-plus'
 import { Download, Refresh, Upload } from '@element-plus/icons-vue'
 import { api } from '@/api'
 import type { EnrollmentTicket, Release } from '@/api/types'
@@ -71,12 +71,18 @@ const version = ref('')
 const notes = ref('')
 const progress = ref(-1)
 
-function pick(f: UploadRawFile) {
+// 不自动上传时 el-upload 不会调 before-upload，选中的文件要从 on-change 里拿
+function pick(picked: UploadFile) {
+  const f = picked.raw
+  if (!f) return
+  if (!f.name.toLowerCase().endsWith('.zip')) {
+    ElMessage.warning('请选择 .zip 文件')
+    return
+  }
   file.value = f
   // 文件名里一般就带着版本号，省得再手敲一遍
   const guess = /(\d+\.\d+(\.\d+)?([-+][\w.]+)?)/.exec(f.name)
   if (guess && !version.value) version.value = guess[1]
-  return false
 }
 
 function openUpload() {
@@ -252,7 +258,7 @@ async function remove(r: Release) {
       <el-alert type="info" :closable="false" show-icon class="notice"
                 title="把 dotnet publish 出来的整个文件夹打成一个 zip 上传"
                 description="里面要有 FlyknitBuddy.exe 和 FlyknitUpdater.exe。上传完不会立刻下发，确认无误后再点发布。" />
-      <el-upload drag :before-upload="pick" :limit="1" :auto-upload="false" accept=".zip">
+      <el-upload drag :auto-upload="false" :show-file-list="false" accept=".zip" :on-change="pick">
         <div class="drop">
           <el-icon :size="26"><Upload /></el-icon>
           <p>{{ file ? file.name : '把 zip 拖到这里，或点击选择' }}</p>
