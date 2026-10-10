@@ -22,6 +22,22 @@ public enum UpdateStage
     NeedsIt,
 }
 
+/// <summary>用户点「检查更新」的结果。</summary>
+public enum UpdateCheckOutcome
+{
+    UpToDate,
+    /// <summary>有新版本，正在后台下载（可能是这次发现的，也可能之前就在下）。</summary>
+    Downloading,
+    /// <summary>新版本已下好，点「重启升级」就能装。</summary>
+    Ready,
+    /// <summary>新版本有，但这台电脑装不上，要 IT 协助。</summary>
+    NeedsIt,
+    /// <summary>连不上服务器之类。Message 里是原因。</summary>
+    Failed,
+}
+
+public sealed record UpdateCheckResult(UpdateCheckOutcome Outcome, string Version, string Message);
+
 public sealed record UpdateState(UpdateStage Stage, string Version, string Notes, double Progress, string Message)
 {
     public static readonly UpdateState Idle = new(UpdateStage.None, "", "", 0, "");
@@ -128,6 +144,68 @@ public sealed class UpdateService : IDisposable
             _gate.Release();
         }
     }
+
+    /// <summary>
+    /// 用户在设置里点「检查更新」：马上问服务器，把结果告诉他（已是最新 / 正在下载 / 已就绪 / 失败）。
+    /// 发现新版本就交给后台下载，不让界面等下载完。
+    /// </summary>
+    public async Task<UpdateCheckResult> CheckNowAsync(CancellationToken ct)
+    {
+        if (Known() is { } known)
+        {
+            return known;
+        }
+        await _gate.WaitAsync(ct);  // 后台那次正好在查，等它查完
+        var handedOff = false;
+        try
+        {
+            if (Known() is { } after)
+            {
+                return after;
+            }
+            var update = await _server.CheckUpdateAsync(_currentVersion, ct);
+            if (!update.Available || update.Version.Length == 0)
+            {
+                return new UpdateCheckResult(UpdateCheckOutcome.UpToDate, _currentVersion, "");
+            }
+            Log.Info($"手动检查：发现新版本 {update.Version}（当前 {_currentVersion}）");
+            Publish(new UpdateState(UpdateStage.Downloading, update.Version, update.Notes, 0, ""));
+            handedOff = true;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await DownloadAsync(update, _cts.Token);
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+            });
+            return new UpdateCheckResult(UpdateCheckOutcome.Downloading, update.Version, "");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("手动检查更新失败", ex);
+            return new UpdateCheckResult(UpdateCheckOutcome.Failed, "", ex is OperationCanceledException ? "timeout" : ex.Message);
+        }
+        finally
+        {
+            if (!handedOff)
+            {
+                _gate.Release();
+            }
+        }
+    }
+
+    /// <summary>已经在下载、已就绪、装不上：不用再问服务器，直接告诉用户现在的情况。</summary>
+    private UpdateCheckResult? Known() => State.Stage switch
+    {
+        UpdateStage.Downloading => new UpdateCheckResult(UpdateCheckOutcome.Downloading, State.Version, ""),
+        UpdateStage.Ready => new UpdateCheckResult(UpdateCheckOutcome.Ready, State.Version, ""),
+        UpdateStage.NeedsIt => new UpdateCheckResult(UpdateCheckOutcome.NeedsIt, State.Version, State.Message),
+        _ => null,
+    };
 
     private async Task DownloadAsync(ClientUpdate update, CancellationToken ct)
     {

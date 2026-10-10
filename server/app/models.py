@@ -483,3 +483,33 @@ class McpVendor(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class Feedback(Base):
+    """
+    员工在客户端「设置 → 意见反馈」里提交的问题。
+
+    截图和日志包存在 data_dir/feedback/{id}/ 下，表里只记文件名。日志里可能有对话记录，
+    下载它按聊天正文的规矩来：要有查看聊天内容的权限，并留访问记录。
+    """
+
+    __tablename__ = "feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    #: 提交时的计算机名和 Windows 账号。设备删了也知道是谁提的
+    machine_name: Mapped[str] = mapped_column(String(200), default="")
+    user_name: Mapped[str] = mapped_column(String(200), default="")
+    client_version: Mapped[str] = mapped_column(String(50), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    #: 截图的文件名，按上传顺序
+    images: Mapped[list] = mapped_column(JSON, default=list)
+    #: 日志包大小（字节），0 表示员工没勾选上传日志
+    logs_size: Mapped[int] = mapped_column(Integer, default=0)
+    #: open（待处理）/ done（已处理）
+    status: Mapped[str] = mapped_column(String(10), default="open", index=True)
+    #: 处理备注（IT 内部看）
+    note: Mapped[str] = mapped_column(String(1000), default="")
+    handled_by: Mapped[str] = mapped_column(String(64), default="")
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

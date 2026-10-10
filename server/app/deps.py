@@ -176,3 +176,16 @@ async def require_owner(
     if not user.is_owner:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只有超级管理员能做这个操作")
     return user
+
+
+async def admin_name(
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> str:
+    """配置类接口里「是谁做的」：具名账号的用户名，共享令牌记成 admin_token。权限同 require_admin。"""
+    await require_admin(authorization, session)
+    token = _bearer(authorization)
+    if _is_shared_token(token):
+        return "admin_token"
+    user = await _session_user(session, token)
+    return user.username if user else ""

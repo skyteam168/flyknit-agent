@@ -8,6 +8,7 @@ import { auth } from '@/store/auth'
 import { DECISION_LABELS, dateTime, num, parseTime, relative, sceneLabel, short } from '@/utils/format'
 
 const tab = ref<'list' | 'access'>('list')
+const ACCESS_LABELS: Record<string, string> = { read_chat: '查看正文', read_audit_args: '查看审计参数', feedback_logs: '下载反馈日志' }
 const canRead = computed(() => !!auth.user?.can_read_chats && !auth.user?.must_change_password)
 
 // ---------- 会话列表（只有元数据） ----------
@@ -226,7 +227,7 @@ onMounted(async () => {
             <el-table-column label="管理员" width="140" prop="username" />
             <el-table-column label="操作" width="110">
               <template #default="{ row }">
-                <el-tag size="small" type="warning" effect="plain">{{ row.action === 'read_chat' ? '查看正文' : row.action }}</el-tag>
+                <el-tag size="small" type="warning" effect="plain">{{ ACCESS_LABELS[row.action] ?? row.action }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="对象" min-width="200">

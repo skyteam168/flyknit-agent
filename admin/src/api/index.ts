@@ -1,6 +1,9 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
 import type {
   EnrollmentTicket,
+  FeedbackItem,
+  FeedbackPage,
+  FeedbackStatus,
   LegalDoc,
   LegalKind,
   AdminUser,
@@ -185,4 +188,14 @@ export const api = {
   security: () => get<SecurityDefaults>('/security'),
   setSecurity: (values: Record<string, boolean | number>, locks: Record<string, boolean>) =>
     put<SecurityDefaults>('/security', { values, locks }),
+
+  // 员工端「意见反馈」
+  feedback: (query: { status?: FeedbackStatus | ''; q?: string; limit: number; offset: number }) =>
+    get<FeedbackPage>('/feedback', query),
+  /** 截图要带登录令牌才能取，取回来转成 blob 地址给 <img> 用 */
+  feedbackImage: async (id: number, name: string) =>
+    URL.createObjectURL(await (await request<Response>(`/feedback/${id}/images/${encodeURIComponent(name)}`, { raw: true })).blob()),
+  feedbackLogs: (id: number) => download(`/feedback/${id}/logs`, undefined, `feedback-${id}.zip`),
+  updateFeedback: (id: number, body: { status?: FeedbackStatus; note?: string }) => patch<FeedbackItem>(`/feedback/${id}`, body),
+  deleteFeedback: (id: number) => del(`/feedback/${id}`),
 }

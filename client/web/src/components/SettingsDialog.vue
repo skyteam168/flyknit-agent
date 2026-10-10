@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Bell,
+  CircleArrowUp,
+  CircleHelp,
   Database,
   FolderOpen,
   Globe,
@@ -23,6 +25,7 @@ import { uiLanguages } from '../i18n'
 import { setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
 import type { ApprovalInfo, KeepAwakeMode, StorageInfo, Theme } from '../types'
 import AuditLog from './AuditLog.vue'
+import FeedbackDialog from './FeedbackDialog.vue'
 import PersonalizePanel from './PersonalizePanel.vue'
 import SecurityPanel from './SecurityPanel.vue'
 import ShortcutsPanel from './ShortcutsPanel.vue'
@@ -60,6 +63,26 @@ const nav: { group: string; pages: { id: Page; icon: Component; label: string }[
 const page = ref<Page>('general')
 /** 安全中心里点了「查看全部」，右侧换成审计明细；切到别的页再回来时回到安全中心首页 */
 const auditOpen = ref(false)
+const feedbackOpen = ref(false)
+
+/** 检查更新：马上问服务器，结果用一句话告诉用户；有新版本就在后台下载，顶上的更新条会跟着变 */
+const checkingUpdate = ref(false)
+async function checkUpdate() {
+  if (checkingUpdate.value) return
+  checkingUpdate.value = true
+  try {
+    const r = await bridge.checkUpdate()
+    if (r.outcome === 'failed') {
+      toast(r.message === 'timeout' ? t('settings.updateResult.timeout') : t('settings.updateResult.failed', { msg: r.message }))
+    } else {
+      toast(t(`settings.updateResult.${r.outcome}`, { v: r.outcome === 'upToDate' ? r.current : r.version }))
+    }
+  } catch (e) {
+    toast(t('settings.updateResult.failed', { msg: e instanceof Error ? e.message : String(e) }))
+  } finally {
+    checkingUpdate.value = false
+  }
+}
 const content = ref<HTMLElement>()
 watch(page, () => (auditOpen.value = false))
 function openAudit() {
@@ -212,6 +235,15 @@ onMounted(async () => {
           </button>
         </template>
         <div class="menu-foot">
+          <button type="button" @click="feedbackOpen = true">
+            <CircleHelp :size="16" />
+            <span>{{ t('settings.feedback') }}</span>
+          </button>
+          <button type="button" :disabled="checkingUpdate" @click="checkUpdate">
+            <Loader v-if="checkingUpdate" :size="16" class="spin" />
+            <CircleArrowUp v-else :size="16" />
+            <span>{{ checkingUpdate ? t('settings.checkingUpdate') : t('settings.checkUpdate') }}</span>
+          </button>
           <button type="button" :class="{ on: page === 'about' }" @click="page = 'about'">
             <Info :size="16" />
             <span>{{ t('settings.about') }}</span>
@@ -509,6 +541,9 @@ onMounted(async () => {
       </div>
       </div>
     </div>
+    <Teleport to="body">
+      <FeedbackDialog v-if="feedbackOpen" @close="feedbackOpen = false" />
+    </Teleport>
   </div>
 </template>
 
