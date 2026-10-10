@@ -111,6 +111,19 @@ docker compose logs -f server      # 看启动日志，Ctrl+C 退出查看
 
 这套 compose 同时起了 PostgreSQL，数据和技能包都存在 docker 卷里，升级不丢。
 
+**已经有 PostgreSQL（比如公司的数据库服务器）**：用 `docker-compose.external-db.yml`，不另起数据库容器。
+在 `.env` 里填好 `POSTGRES_HOST / PORT / DB / USER / PASSWORD`，然后：
+
+```bash
+docker compose -f docker-compose.external-db.yml up -d --build
+docker compose -f docker-compose.external-db.yml logs -f server
+```
+
+- 用的是宿主机网络，数据库和服务端在同一台机器上时不用改 `pg_hba.conf` 放行 docker 网段；
+- 端口默认 **8009**（`.env` 里加 `FLYKNIT_PORT=xxxx` 可以换），管理后台在 `http://服务器:8009/admin/`；
+- 上传的安装包、技能包等放在 `server/data`（挂进容器），从旧服务器迁过来时把这个目录和 `.env` 一起拷过来；
+- 升级：`git pull && docker compose -f docker-compose.external-db.yml up -d --build`。
+
 ### 方式 B：直接用 Python 跑
 
 适合先试用，或者公司不方便用 Docker。

@@ -1,0 +1,19 @@
+# 用已有的 PostgreSQL（不另起数据库容器）部署服务端。
+#
+#   cd server
+#   docker compose -f docker-compose.external-db.yml up -d --build
+#
+# 数据库连接读 .env 里的 POSTGRES_HOST / PORT / DB / USER / PASSWORD（以及可选的 POSTGRES_SCHEMA）。
+# 用宿主机网络：PostgreSQL 装在同一台服务器上时，容器直接连 127.0.0.1 或本机 IP 都行，
+# 不用改 pg_hba.conf 放行 docker 网段。
+# 端口默认 8009（这台机器 8000 已被占用），要换就在 .env 里加 FLYKNIT_PORT=xxxx。
+services:
+  server:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    network_mode: host
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "${FLYKNIT_PORT:-8009}", "--proxy-headers"]
+    volumes:
+      # 员工端安装包、运维软件包、技能包、反馈附件。从原来那台机器的 server/data 整个拷过来
+      - ./data:/app/data
