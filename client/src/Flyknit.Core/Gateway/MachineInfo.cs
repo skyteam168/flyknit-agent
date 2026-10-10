@@ -134,6 +134,9 @@ public sealed class MachineInfo
     /// 读系统标识 HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid。它在装系统时生成、
     /// 之后不变，和运维代理用的是同一个值，后台据此把员工端和代理对到同一台电脑。
     /// </summary>
+    /// <summary>注册时也报上系统标识：同一台电脑上同一个员工重新登录，服务端沿用原来那条设备记录。</summary>
+    public static string SystemGuid() => ReadMachineGuid();
+
     private static string ReadMachineGuid()
     {
         if (!OperatingSystem.IsWindows())

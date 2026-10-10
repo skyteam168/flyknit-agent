@@ -216,6 +216,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
             os_version = Environment.OSVersion.VersionString,
             client_version = clientVersion,
             ui_language = uiLanguage,
+            machine_guid = MachineInfo.SystemGuid(),
         }, ct);
 
     /// <summary>
@@ -234,6 +235,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
             os_version = Environment.OSVersion.VersionString,
             client_version = clientVersion,
             ui_language = uiLanguage,
+            machine_guid = MachineInfo.SystemGuid(),
         }, ct);
 
     /// <summary>用户协议和隐私政策（登录界面显示，还没登录所以不带令牌）。原样返回服务端的 JSON。</summary>

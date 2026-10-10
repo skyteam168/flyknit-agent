@@ -36,6 +36,23 @@ async function load() {
 }
 onMounted(load)
 
+/** 在线：最近 15 分钟连过服务端，且没有退出登录（退出登录的那条记录不会再上线） */
+const live = (d: Device) => !d.signed_out_at && isOnline(d.last_seen)
+
+// 删除不用了的设备记录（报废的电脑、退出登录后的旧记录）。限超级管理员；在线的不能删，要禁用请用停用
+const canDelete = computed(() => !!auth.user?.is_owner && !auth.user?.must_change_password)
+async function remove(d: Row) {
+  await ElMessageBox.confirm(
+    `删除「${d.machine_name}」（${d.user_name || '—'}）这条设备记录？它的 Token 用量统计、单独的额度和安全设置会一起删除；聊天和审计记录保留。` +
+      '同一台电脑同一个员工重新登录时，服务端会自动沿用原来的记录，一般不需要手动删除。',
+    '删除设备',
+    { type: 'warning', confirmButtonText: '删除' },
+  )
+  await api.deleteDevice(d.id)
+  devices.value = devices.value.filter((x) => x.id !== d.id)
+  ElMessage.success('已删除')
+}
+
 // 按 machine_guid 把运维代理挂到对应设备上
 const agentByGuid = computed(() => {
   const map = new Map<string, MachineAgent>()
@@ -49,16 +66,16 @@ const rows = computed<Row[]>(() =>
 
 const counts = computed(() => ({
   all: rows.value.length,
-  online: rows.value.filter((d) => !d.disabled && isOnline(d.last_seen)).length,
-  offline: rows.value.filter((d) => !d.disabled && !isOnline(d.last_seen)).length,
+  online: rows.value.filter((d) => !d.disabled && live(d)).length,
+  offline: rows.value.filter((d) => !d.disabled && !live(d)).length,
   disabled: rows.value.filter((d) => d.disabled).length,
 }))
 
 const filtered = computed(() => {
   const q = keyword.value.trim().toLowerCase()
   return rows.value.filter((d) => {
-    if (state.value === 'online' && (d.disabled || !isOnline(d.last_seen))) return false
-    if (state.value === 'offline' && (d.disabled || isOnline(d.last_seen))) return false
+    if (state.value === 'online' && (d.disabled || !live(d))) return false
+    if (state.value === 'offline' && (d.disabled || live(d))) return false
     if (state.value === 'disabled' && !d.disabled) return false
     if (!q) return true
     return [d.machine_name, d.user_name, d.owner, d.department, d.domain, d.ip_addresses, d.observed_ip, d.mac_address, d.client_version]
@@ -262,7 +279,7 @@ function summaryText(): string {
         <el-table-column label="电脑" min-width="190" prop="machine_name" sortable>
           <template #default="{ row }">
             <div class="who">
-              <span class="dot" :class="row.disabled ? 'off' : isOnline(row.last_seen) ? 'on' : ''" />
+              <span class="dot" :class="row.disabled ? 'off' : live(row as Row) ? 'on' : ''" />
               <div>
                 <strong>{{ row.machine_name }}</strong>
                 <el-tooltip v-if="row.signed_out_at" :content="`员工于 ${dateTime(row.signed_out_at)} 退出登录，这条记录不会再上线`" placement="top">
@@ -299,10 +316,11 @@ function summaryText(): string {
         <el-table-column label="今日 Token" width="100" align="right">
           <template #default="{ row }">{{ short(todayTokens.get(row.id) ?? 0) }}</template>
         </el-table-column>
-        <el-table-column width="200" align="right" fixed="right">
+        <el-table-column width="240" align="right" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row as Row)">编辑</el-button>
             <el-button link type="primary" @click="openDetail(row as Row)">详情</el-button>
+            <el-button v-if="canDelete && !live(row as Row)" link type="danger" @click="remove(row as Row)">删除</el-button>
             <el-switch :model-value="!row.disabled" style="margin-left: 8px" @update:model-value="toggle(row as Row)" />
           </template>
         </el-table-column>

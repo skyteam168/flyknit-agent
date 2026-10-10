@@ -32,7 +32,7 @@ from ..schemas import (
     MachineInfoIn,
     SceneInfo,
 )
-from ..services import config_events, legal_store, model_router, security_settings, settings_store, skill_library, usage_store
+from ..services import config_events, device_identity, legal_store, model_router, security_settings, settings_store, skill_library, usage_store
 from ..services.settings_store import get_policy
 
 log = logging.getLogger("flyknit.audit")
@@ -67,20 +67,23 @@ async def register_device(data: DeviceRegisterIn, session: AsyncSession = Depend
         if data.agreed_legal != current:
             raise HTTPException(status.HTTP_409_CONFLICT, "用户协议或隐私政策已更新，请重新阅读并同意后再登录")
     token = new_token()
-    device = Device(
-        token_hash=hash_token(token),
-        machine_name=data.machine_name,
-        user_name=data.user_name,
-        os_version=data.os_version,
-        client_version=data.client_version,
-        ui_language=data.ui_language,
-        domain=data.domain.strip()[:200] if method == "domain" else "",
-        login_method=method or "key",
-        ticket_id=ticket.id if ticket else None,
-        legal_agreed=data.agreed_legal if ticket else "",
-        legal_agreed_at=datetime.now(timezone.utc) if ticket else None,
-    )
-    session.add(device)
+    # 退出登录再登录、升级重装：同一台电脑上的同一个员工沿用原来那一行，用量和后台填的信息都还在
+    device = await device_identity.find_previous(session, data.machine_guid, data.user_name)
+    if device is None:
+        device = Device(machine_guid=data.machine_guid.strip().lower()[:64])
+        session.add(device)
+    device.token_hash = hash_token(token)
+    device.machine_name = data.machine_name
+    device.user_name = data.user_name
+    device.os_version = data.os_version
+    device.client_version = data.client_version
+    device.ui_language = data.ui_language
+    device.domain = data.domain.strip()[:200] if method == "domain" else ""
+    device.login_method = method or "key"
+    device.ticket_id = ticket.id if ticket else None
+    device.legal_agreed = data.agreed_legal if ticket else ""
+    device.legal_agreed_at = datetime.now(timezone.utc) if ticket else None
+    device.signed_out_at = None
     if ticket is not None:
         ticket.uses += 1
         ticket.last_used_at = datetime.now(timezone.utc)
@@ -145,6 +148,8 @@ async def heartbeat(
         device.machine_guid = data.machine_guid[:64].lower()
     # 这个不听客户端的，以服务端看到的为准
     device.observed_ip = _client_ip(request)
+    # 以前每次登录都新建一行，同一台电脑同一个员工的旧行在这里并过来（用量相加）
+    await device_identity.merge_duplicates(session, device)
     await session.commit()
 
 
