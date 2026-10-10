@@ -138,6 +138,7 @@ export const api = {
   // 设备与审计
   devices: () => get<Device[]>('/devices'),
   setDeviceDisabled: (id: number, disabled: boolean) => patch<Device>(`/devices/${id}`, { disabled }),
+  deleteDevice: (id: number) => del(`/devices/${id}`),
   updateDevice: (id: number, body: Partial<{ disabled: boolean; owner: string; department: string; note: string }>) =>
     patch<Device>(`/devices/${id}`, body),
   audit: (query: { decision?: string; device_id?: number | null; conversation_id?: string; limit: number; offset: number }) =>

@@ -104,6 +104,8 @@ class DeviceRegisterIn(BaseModel):
     os_version: str = ""
     client_version: str = ""
     ui_language: str = "zh-CN"
+    #: 系统标识（HKLM MachineGuid）。同一台电脑上同一个员工重新登录时，沿用原来那条设备记录
+    machine_guid: str = Field(default="", max_length=64)
 
 
 class MachineInfoIn(BaseModel):

@@ -59,7 +59,7 @@ from ..schemas import (
     SmbOut,
     SyncResult,
 )
-from ..services import config_events, legal_store, security_settings, settings_store, skill_library, usage_store
+from ..services import config_events, device_identity, legal_store, security_settings, settings_store, skill_library, usage_store
 from ..services.model_router import NON_CHAT_MODEL, Target, build_body, headers_for
 
 log = logging.getLogger("flyknit.admin")
@@ -480,6 +480,27 @@ async def update_device(device_id: int, data: DevicePatch, session: AsyncSession
         d.note = data.note.strip()[:500]
     await session.commit()
     return d
+
+
+@router.delete("/devices/{device_id}", status_code=204)
+async def delete_device(
+    device_id: int,
+    owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    删掉不用了的设备记录（报废的电脑、退出登录后不会再上线的旧记录）。限超级管理员。
+
+    还在用的不让删：删了员工端令牌立刻失效，员工会被踢回登录界面，登录后又是一条新记录。
+    要禁止一台电脑使用，用「停用」。
+    """
+    d = await _get_or_404(session, Device, device_id)
+    recent = d.last_seen is not None and d.last_seen.replace(tzinfo=d.last_seen.tzinfo or timezone.utc) > datetime.now(timezone.utc) - timedelta(minutes=15)
+    if recent and d.signed_out_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "这台电脑还在线，不能删除。要禁止它使用请点「停用」")
+    await device_identity.delete_device(session, d)
+    await session.commit()
+    log.info("%s 删除了设备 device=%s machine=%s user=%s", owner.username if owner else "admin_token", device_id, d.machine_name, d.user_name)
 
 
 # ---------- 审计 ----------
