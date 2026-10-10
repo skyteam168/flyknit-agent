@@ -42,7 +42,36 @@ public sealed class LoopGuard
     public int PlanOnlyNudgeAt { get; init; } = 3;
     public int PlanOnlyStopAt { get; init; } = 5;
 
+    /// <summary>
+    /// 反复重写同一个文件：每次内容都略有不同，按「参数完全相同」认不出来，但其实是在原地改来改去。
+    /// 按路径计数：同一个文件写到第 <see cref="RewriteNudgeAt"/> 次提醒，第 <see cref="RewriteStopAt"/> 次停下。
+    /// </summary>
+    public int RewriteNudgeAt { get; init; } = 4;
+    public int RewriteStopAt { get; init; } = 8;
+
+    /// <summary>按目标（文件路径）计数的工具：参数里的内容每次都不同，只看写的是哪个文件。</summary>
+    public static readonly HashSet<string> TargetTools = new(StringComparer.Ordinal) { "write_file", "delete_path" };
+
+    /// <summary>
+    /// 不影响「是不是同一个操作」的参数：同一条命令把超时从 60 改成 120 再跑一遍，仍然是在重复。
+    /// </summary>
+    private static readonly HashSet<string> VolatileArgs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "timeout", "timeout_seconds", "timeout_ms", "description", "reason", "explanation",
+    };
+
     private int _planOnly;
+    private readonly Dictionary<string, int> _targets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _targetNudged = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>本轮所有不同操作的签名：用来判断一轮有没有「新的进展」（全是做过的操作就不算）。</summary>
+    private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+
+    /// <summary>最近一次观察的调用是不是本轮第一次出现（之前没做过一模一样的操作）。</summary>
+    public bool LastWasNew { get; private set; }
+
+    /// <summary>重写同一个文件的提醒文字（和参数完全相同的打转分开说，给的建议不一样）。</summary>
+    public bool LastWasRewrite { get; private set; }
 
     private readonly LinkedList<(string Call, string Result)> _recent = new();
     private readonly HashSet<string> _nudged = new(StringComparer.Ordinal);
@@ -55,6 +84,9 @@ public sealed class LoopGuard
 
     public LoopVerdict Observe(ToolCall call, string result)
     {
+        LastWasRewrite = false;
+        var signature = Signature(call);
+        LastWasNew = _seen.Add(signature);
         if (Exempt.Contains(call.Name))
         {
             _planOnly++;
@@ -71,7 +103,16 @@ public sealed class LoopGuard
             return _planOnly >= PlanOnlyStopAt ? LoopVerdict.Stop : LoopVerdict.Ok;
         }
         _planOnly = 0;
-        var signature = Signature(call);
+        if (TargetTools.Contains(call.Name) && Target(call) is { } target)
+        {
+            var rewrite = ObserveTarget(call.Name, target);
+            if (rewrite != LoopVerdict.Ok)
+            {
+                LastTool = call.Name;
+                LastWasRewrite = true;
+                return rewrite;
+            }
+        }
         var resultHash = Hash(result);
         _recent.AddLast((signature, resultHash));
         while (_recent.Count > Window)
@@ -96,6 +137,51 @@ public sealed class LoopGuard
         Nudges++;
         return LoopVerdict.Nudge;
     }
+
+    private LoopVerdict ObserveTarget(string tool, string target)
+    {
+        var key = tool + "\n" + target;
+        var n = _targets[key] = _targets.GetValueOrDefault(key) + 1;
+        if (n >= RewriteStopAt)
+        {
+            return LoopVerdict.Stop;
+        }
+        if (n >= RewriteNudgeAt && _targetNudged.Add(key))
+        {
+            Nudges++;
+            return LoopVerdict.Nudge;
+        }
+        return LoopVerdict.Ok;
+    }
+
+    /// <summary>写的是哪个文件（规范化路径，大小写不敏感）。参数解析不了就当没有目标。</summary>
+    private static string? Target(ToolCall call)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(call.ArgumentsJson) ? "{}" : call.ArgumentsJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("path", out var path) && path.ValueKind == JsonValueKind.String
+                && path.GetString() is { Length: > 0 } p)
+            {
+                return p.Trim().Replace('/', '\\').TrimEnd('\\');
+            }
+        }
+        catch (JsonException)
+        {
+        }
+        return null;
+    }
+
+    public const string RewriteText = """
+
+
+        【系统提醒】你已经多次重写同一个文件。先停下来想清楚要改成什么样、一次写对，不要反复小改；
+        如果是在等外部条件（比如别的程序处理完），先确认条件，而不是一直重写。做完了就直接总结回答。
+        """;
+
+    /// <summary>附在工具结果后面给模型看的提醒。</summary>
+    public string NudgeFor(string tool) => LastWasRewrite ? RewriteText : NudgeText(tool);
 
     /// <summary>附在工具结果后面给模型看的提醒。</summary>
     public static string NudgeText(string tool) => Exempt.Contains(tool) ? PlanOnlyText : $"""
@@ -140,12 +226,17 @@ public sealed class LoopGuard
 
     private static string Canonical(JsonElement e) => e.ValueKind switch
     {
-        JsonValueKind.Object => "{" + string.Join(",", e.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal)
+        JsonValueKind.Object => "{" + string.Join(",", e.EnumerateObject()
+            .Where(p => !VolatileArgs.Contains(p.Name))
+            .OrderBy(p => p.Name, StringComparer.Ordinal)
             .Select(p => JsonSerializer.Serialize(p.Name) + ":" + Canonical(p.Value))) + "}",
         JsonValueKind.Array => "[" + string.Join(",", e.EnumerateArray().Select(Canonical)) + "]",
-        JsonValueKind.String => JsonSerializer.Serialize(e.GetString()!.Trim()),
+        // 多个空格、换行和单个空格算同一个：模型重试时经常只改了排版
+        JsonValueKind.String => JsonSerializer.Serialize(Spaces.Replace(e.GetString()!.Trim(), " ")),
         _ => e.GetRawText(),
     };
+
+    private static readonly System.Text.RegularExpressions.Regex Spaces = new(@"\s+", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static string Hash(string s) => Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(s.Trim())));
 }

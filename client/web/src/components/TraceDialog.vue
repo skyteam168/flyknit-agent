@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Archive, Brain, Check, FileCheck, Wrench, X } from '@lucide/vue'
-import { state } from '../store'
+import { AlertTriangle, Archive, Brain, Check, Copy, FileCheck, ShieldAlert, Wrench, X } from '@lucide/vue'
+import { state, toast } from '../store'
 import type { TraceStep } from '../types'
 
 // 一次任务的执行链路：每一步做了什么、花了多久、用了多少 token。
@@ -20,12 +20,42 @@ function ms(v: number) {
 }
 
 function icon(step: TraceStep) {
+  if (step.kind === 'guard') return ShieldAlert
   if (step.status === 'error' || step.status === 'blocked') return AlertTriangle
   if (step.kind === 'model') return Brain
   if (step.kind === 'compact') return Archive
   if (step.kind === 'tool') return Wrench
   if (step.kind === 'verify') return step.status === 'warning' ? AlertTriangle : FileCheck
   return Check
+}
+
+const stopLabel = computed(() => {
+  const r = trace.value?.stopReason
+  return r ? t(`ui.trace.stop.${r}`, r) : ''
+})
+
+/** 复制成纯文本：员工发给 IT、IT 发给开发排查（只有步骤、耗时、token，没有对话内容） */
+async function copy() {
+  const tr = trace.value
+  if (!tr) return
+  const lines = [
+    `${t('ui.trace.title')} ${tr.id} · ${stopLabel.value} · ${ms(tr.durationMs)} · ${tr.modelCalls} ${t('ui.trace.modelCalls')} · ${tr.toolCalls} ${t('ui.trace.toolCalls')} · ${(tr.promptTokens + tr.completionTokens).toLocaleString()} tokens`,
+    ...tr.items.map((s) =>
+      [
+        `${s.index}. [${s.kind}${s.status !== 'ok' ? '/' + s.status : ''}] ${s.name}`,
+        s.summary,
+        s.detail,
+        ms(s.durationMs),
+        s.promptTokens + s.completionTokens > 0 ? `${s.promptTokens}+${s.completionTokens} tokens` : '',
+      ].filter(Boolean).join(' | '),
+    ),
+  ]
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'))
+    toast(t('ui.trace.copied'))
+  } catch {
+    /* 剪贴板不可用 */
+  }
 }
 </script>
 
@@ -46,6 +76,7 @@ function icon(step: TraceStep) {
         <span><strong>{{ trace.toolCalls }}</strong>{{ t('ui.trace.toolCalls') }}</span>
         <span :class="{ bad: trace.errors > 0 }"><strong>{{ trace.errors }}</strong>{{ t('ui.trace.errors') }}</span>
         <span><strong>{{ (trace.promptTokens + trace.completionTokens).toLocaleString() }}</strong>{{ t('ui.trace.tokens') }}</span>
+        <span v-if="stopLabel" class="stop" :class="trace.stopReason">{{ stopLabel }}</span>
       </div>
 
       <ol class="steps">
@@ -58,6 +89,7 @@ function icon(step: TraceStep) {
               <em v-if="s.status !== 'ok'" class="tag">{{ t(`ui.trace.status.${s.status}`, s.status) }}</em>
             </span>
             <span v-if="s.summary" class="sum">{{ s.summary }}</span>
+            <span v-if="s.detail" class="detail">{{ s.detail }}</span>
             <span class="bar"><i :style="{ width: Math.round((s.durationMs / slowestMs) * 100) + '%' }" /></span>
           </span>
           <span class="right">
@@ -71,6 +103,7 @@ function icon(step: TraceStep) {
 
       <footer>
         <span class="hint">{{ t('ui.trace.hint') }}</span>
+        <button type="button" class="btn" @click="copy"><Copy :size="14" />{{ t('ui.trace.copy') }}</button>
         <button type="button" class="btn primary" @click="state.trace = null">{{ t('settings.close') }}</button>
       </footer>
     </div>
@@ -175,6 +208,32 @@ header h2 {
 li.model .ico-step {
   color: var(--indigo);
 }
+li.guard .ico-step,
+li.warning .ico-step {
+  color: var(--amber);
+}
+.steps li.guard {
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+}
+.detail {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-faint);
+  font-size: calc(11.5px * var(--font-scale));
+  font-variant-numeric: tabular-nums;
+}
+.stats .stop {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--thread-wash);
+  color: var(--thread);
+  font-weight: 600;
+}
+.stats .stop:not(.Completed) {
+  background: var(--amber-wash);
+  color: var(--amber);
+}
 li.error .ico-step,
 li.blocked .ico-step {
   color: var(--rust, #c0392b);
@@ -232,6 +291,11 @@ li.blocked .ico-step {
 .right small {
   color: var(--ink-soft);
   font-size: calc(11px * var(--font-scale));
+}
+footer .btn {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
 }
 footer {
   display: flex;

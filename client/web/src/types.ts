@@ -145,6 +145,13 @@ export interface RunStats {
   outputProblems: number
   outputProblemsAtEnd: number
   planNudges: number
+  /** 平均每次任务用掉的 token（输入 + 输出），最多的一次 */
+  avgTokens?: number
+  maxTokens?: number
+  /** 超出预算 / 空转被暂停的次数，被提醒过空转或预算的任务数 */
+  budgetStops?: number
+  stuckStops?: number
+  guardNudgeRuns?: number
 }
 
 export interface MemoryOverview {
@@ -213,7 +220,9 @@ export interface TraceStep {
   kind: string
   name: string
   summary: string
-  /** ok / error / blocked / stopped / skipped */
+  /** 补充说明：模型调用这一步输入 token 的构成（系统提示 / 工具定义 / 对话 / 工具输出） */
+  detail?: string
+  /** ok / error / blocked / stopped / skipped / warning */
   status: string
   startedAt: string
   durationMs: number

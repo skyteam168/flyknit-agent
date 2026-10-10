@@ -950,6 +950,11 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                             outputProblems = r.RunsWithOutputProblems,
                             outputProblemsAtEnd = r.RunsWithProblemsAtEnd,
                             planNudges = r.PlanNudges,
+                            avgTokens = r.AvgTokens,
+                            maxTokens = r.MaxTokens,
+                            budgetStops = r.BudgetStops,
+                            stuckStops = r.StuckStops,
+                            guardNudgeRuns = r.RunsWithGuardNudges,
                         }
                         : null,
                     episodes = total,

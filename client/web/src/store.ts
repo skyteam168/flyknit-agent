@@ -35,7 +35,7 @@ interface ConversationState {
   draft: { content: string; reasoning: string } | null
   tools: Record<string, ToolActivity>
   plan: PlanItem[]
-  notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'stuck' | 'failed'; text?: string } | null
+  notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'stuck' | 'budget' | 'failed'; text?: string } | null
   /** 运行过程中的一次性提示（例如内容被审核拦截后省略重试） */
   notices: string[]
 }
@@ -878,6 +878,7 @@ function onHostEvent(e: HostEvent) {
       else if (e.stopReason === 'MaxSteps') s.notice = { kind: 'maxSteps' }
       else if (e.stopReason === 'TooManyFailures') s.notice = { kind: 'tooManyFailures' }
       else if (e.stopReason === 'Stuck') s.notice = { kind: 'stuck' }
+      else if (e.stopReason === 'Budget') s.notice = { kind: 'budget' }
       for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
       if (e.modelName && state.app) state.app.modelName = e.modelName
       if (state.compacting?.conversationId === e.conversationId) state.compacting = null

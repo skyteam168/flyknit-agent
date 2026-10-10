@@ -168,6 +168,14 @@ public sealed class AgentLoop
         var replanHintedThisStreak = false;
         var outputProblems = 0;
         var outputProblemsAtEnd = 0;
+        var budget = new RunBudget { MaxTokens = _options.MaxRunTokens };
+        var guardNudges = 0;
+        // 工具定义每次请求都要整份发过去（几十个工具能占好几万 token），压缩上下文时要算上
+        var toolTokens = tools is null ? 0 : Context.TokenEstimator.Estimate(tools.ToJsonString());
+        if (context is not null)
+        {
+            context.ToolTokens = toolTokens;
+        }
 
         void PlanChanged(IReadOnlyList<PlanItem> plan) => observer.OnPlanUpdated(plan);
         ctx.PlanChanged += PlanChanged;
@@ -180,7 +188,32 @@ public sealed class AgentLoop
                     return Result(AgentStopReason.Cancelled);
                 }
 
+                // 全局预算：每次调模型前看一眼。累计 token、连续没进展的轮数、改计划的次数
+                var budgetVerdict = budget.Check(out var budgetNote);
+                if (budgetVerdict == BudgetVerdict.Stop)
+                {
+                    using (var g = trace.Begin("guard", "预算", budget.StopNote))
+                    {
+                        g.Status = "stopped";
+                    }
+                    await WrapUpAsync($"""
+
+
+                        【系统提醒】{budget.StopNote}，任务已暂停。不要再调用工具。
+                        请简要总结：已经完成了什么、还差什么、下一步打算怎么做。用户回复“继续”后会接着做。
+                        """);
+                    return Result(AgentStopReason.Budget);
+                }
+                if (budgetVerdict == BudgetVerdict.Nudge && newMessages.LastOrDefault(m => m.Role == ChatRole.Tool) is { } nudgeTarget)
+                {
+                    nudgeTarget.Content += budgetNote;
+                    guardNudges++;
+                    using var g = trace.Begin("guard", "预算提醒", budgetNote.Trim().Split('\n')[0]);
+                    g.Status = "warning";
+                }
+
                 ChatTurn turn;
+                Context.PromptBreakdown? breakdown = null;
                 using var modelStep = trace.Begin("model", modelName ?? "", $"第 {step + 1} 轮");
                 try
                 {
@@ -200,6 +233,7 @@ public sealed class AgentLoop
                             compactStep.Status = "skipped";
                         }
                     }
+                    breakdown = Context.PromptBreakdown.Of(history, toolTokens);
                     turn = await _gateway.CompleteAsync(
                         new ChatRequest
                         {
@@ -249,7 +283,12 @@ public sealed class AgentLoop
                 modelStep.Summary = turn.ToolCalls.Count > 0
                     ? $"决定调用 {string.Join("、", turn.ToolCalls.Select(c => c.Name))}"
                     : "给出回答";
+                if (breakdown is not null)
+                {
+                    modelStep.Detail = breakdown.Describe(turn.Usage?.PromptTokens ?? 0);
+                }
                 modelStep.Dispose(); // 这一轮的模型调用到此结束，后面是工具执行
+                budget.AddModelCall(turn.Usage);
 
                 context?.Observe(turn);
                 if (turn.Usage is { } u)
@@ -287,6 +326,10 @@ public sealed class AgentLoop
                 }
 
                 var verdict = LoopVerdict.Ok;
+                // 这一轮有没有新进展：做了之前没做过的事并且成功、完成了计划里的一步、或者产出了文件
+                var progress = false;
+                var completedBefore = ctx.Plan.Count(p => p.Status == "completed");
+                var producedBefore = _produced.Count;
                 foreach (var call in turn.ToolCalls)
                 {
                     if (ct.IsCancellationRequested)
@@ -295,7 +338,13 @@ public sealed class AgentLoop
                         AppendTool(call, "用户已停止任务，未执行");
                         continue;
                     }
+                    var planBefore = call.Name == UpdatePlanName ? ctx.Plan.Select(p => p.Step).ToList() : null;
                     var ok = await HandleCallAsync(call, turn.Content, ctx, observer, trace, ct);
+                    if (planBefore is { Count: > 0 } && ok && !planBefore.SequenceEqual(ctx.Plan.Select(p => p.Step)))
+                    {
+                        // 要做的事变了（不是勾掉完成的步骤）：重新规划
+                        budget.ObserveReplan();
+                    }
                     failures = ok ? 0 : failures + 1;
                     toolCalls++;
                     if (call.Name != UpdatePlanName)
@@ -305,9 +354,20 @@ public sealed class AgentLoop
                     if (ToolMessageOf(call) is { } result)
                     {
                         var v = guard.Observe(call, result.Content);
+                        if (ok && guard.LastWasNew && call.Name != UpdatePlanName)
+                        {
+                            progress = true;
+                        }
+                        if (v != LoopVerdict.Ok)
+                        {
+                            using var g = trace.Begin("guard", v == LoopVerdict.Stop ? "空转暂停" : "空转提醒",
+                                guard.LastWasRewrite ? $"反复重写同一个文件（{call.Name}）" : $"重复调用 {call.Name} 没有进展");
+                            g.Status = v == LoopVerdict.Stop ? "stopped" : "warning";
+                        }
                         if (v == LoopVerdict.Nudge)
                         {
-                            result.Content += LoopGuard.NudgeText(call.Name);
+                            guardNudges++;
+                            result.Content += guard.NudgeFor(call.Name);
                             if (_options.PlanGuidance && call.Name != UpdatePlanName && TaskPlan.HasOpenSteps(ctx.Plan))
                             {
                                 result.Content += ReplanText;
@@ -317,6 +377,12 @@ public sealed class AgentLoop
                         verdict = (LoopVerdict)Math.Max((int)verdict, (int)v);
                     }
                 }
+
+                if (ctx.Plan.Count(p => p.Status == "completed") > completedBefore || _produced.Count > producedBefore)
+                {
+                    progress = true;
+                }
+                budget.ObserveRound(progress);
 
                 // 规划提醒：只提醒，不拦截，每种情况至多一次，不影响失败计数
                 if (_options.PlanGuidance && newMessages.LastOrDefault(m => m.Role == ChatRole.Tool) is { } lastTool)
@@ -394,6 +460,9 @@ public sealed class AgentLoop
             OutputProblemsAtEnd = outputProblemsAtEnd,
             PlanNudged = planNudged,
             ReplanNudged = replanNudged,
+            Replans = budget.Replans,
+            MaxNoProgressStreak = budget.MaxNoProgressStreak,
+            GuardNudges = guardNudges,
         };
 
         void Append(ChatMessage m)

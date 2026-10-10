@@ -311,4 +311,21 @@ public class AgentQualityTests : IDisposable
         Assert.Equal(1, s.RunsWithOutputProblems);
         Assert.Equal(1, s.PlanNudges);
     }
+
+    [Fact]
+    public void RunStatsKeepTokenUseForBeforeAndAfterComparisons()
+    {
+        var store = new ConversationStore(Path.Combine(_dir, "tokens.db"));
+        store.AddRunStats(new RunStatsRecord("a", "c", "Completed", 27, 29, 0, 0, true, true, false, null, 2_200_000, 80_231, 2, 1));
+        store.AddRunStats(new RunStatsRecord("b", "c", "Budget", 30, 30, 0, 0, true, true, false, null, 1_900_000, 100_000, 0, 2));
+        store.AddRunStats(new RunStatsRecord("d", "c", "Completed", 4, 3, 0, 0, true, true, false, null, 40_000, 2_000));
+
+        var s = store.RunStats();
+        Assert.Equal(3, s.Runs);
+        Assert.Equal(1, s.Paused);
+        Assert.Equal(1, s.BudgetStops);
+        Assert.Equal(2, s.RunsWithGuardNudges);
+        Assert.Equal(2_280_231, s.MaxTokens);
+        Assert.Equal((long)Math.Round((2_280_231 + 2_000_000 + 42_000) / 3.0), s.AvgTokens);
+    }
 }
