@@ -58,7 +58,8 @@ export function createMockHost(): HostTransport {
   const messages = new Map<string, UiMessage[]>()
   const confirmWaiters = new Map<string, (choice: string) => void>()
   const stopped = new Set<string>()
-  let language = 'zh-CN'
+  // ?lang=vi-VN / en-US 看其它语言下的排版
+  let language = new URLSearchParams(location.search).get('lang') || 'zh-CN'
 
   // 更新条在浏览器里没法真的更新，用 ?update=ready / ?update=needsit 看样子
   const wanted = new URLSearchParams(location.search).get('update') ?? 'none'
