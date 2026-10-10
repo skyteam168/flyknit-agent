@@ -46,7 +46,7 @@ sys.path.insert(0, str(SERVER_DIR))
 
 from app import models  # noqa: E402,F401  注册所有表
 from app.config import get_settings  # noqa: E402
-from app.db import Base  # noqa: E402
+from app.db import Base, strip_nul  # noqa: E402
 from app.migrate import ensure_schema  # noqa: E402
 
 BATCH = 500
@@ -94,6 +94,7 @@ class Report:
         self.truncated: dict[str, int] = {}
         self.nulled: dict[str, int] = {}
         self.dropped: dict[str, int] = {}
+        self.nul: dict[str, int] = {}
 
     def bump(self, bucket: dict[str, int], key: str, n: int = 1) -> None:
         bucket[key] = bucket.get(key, 0) + n
@@ -127,6 +128,12 @@ def clean_rows(table: sa.Table, rows: list[dict], known_ids: dict[str, set], rep
             continue
         for column in table.columns:
             value = row.get(column.name)
+            # PostgreSQL 的文本存不了 \x00（命令输出、二进制文件片段里会带），去掉
+            if isinstance(value, (str, dict, list)):
+                cleaned = strip_nul(value)
+                if cleaned != value:
+                    row[column.name] = value = cleaned
+                    report.bump(report.nul, f"{table.name}.{column.name}")
             if isinstance(value, datetime) and value.tzinfo is None and getattr(column.type, "timezone", False):
                 row[column.name] = value.replace(tzinfo=timezone.utc)
             elif isinstance(value, str) and isinstance(column.type, sa.String) and column.type.length:
@@ -164,7 +171,8 @@ async def run(args: argparse.Namespace) -> int:
     say(f"旧库（SQLite）：{source}")
     say(f"新库（PostgreSQL）：{masked(target_url)}")
 
-    with tempfile.TemporaryDirectory() as tmp:
+    # Windows 上出错时 SQLite 副本可能还被占着，删不掉就留在临时目录，别让它盖住真正的错误
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         copy = snapshot(source, Path(tmp))
         src = create_async_engine(f"sqlite+aiosqlite:///{copy}")
         dst = create_async_engine(target_url)
@@ -198,47 +206,56 @@ async def run(args: argparse.Namespace) -> int:
                     say("\n注意：新库里已经有数据，正式搬时要加 --replace 才会覆盖。")
                 return 0
 
-            async with dst.begin() as conn:
-                if args.replace and existing:
-                    names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables if t.name in existing)
-                    await conn.execute(sa.text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
-                    say("已清空新库里本系统的表")
-                # 只建表，不跑 ensure_schema 里的一次性修复——那些记录会从旧库原样搬过来
-                await conn.run_sync(Base.metadata.create_all)
+            current = ""
+            try:
+                async with dst.begin() as conn:
+                    if args.replace and existing:
+                        names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables if t.name in existing)
+                        await conn.execute(sa.text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+                        say("已清空新库里本系统的表")
+                    # 只建表，不跑 ensure_schema 里的一次性修复——那些记录会从旧库原样搬过来
+                    await conn.run_sync(Base.metadata.create_all)
 
-                known_ids: dict[str, set] = {}
-                say("")
-                async with src.connect() as sconn:
+                    known_ids: dict[str, set] = {}
+                    say("")
+                    async with src.connect() as sconn:
+                        for table in Base.metadata.sorted_tables:
+                            current = table.name
+                            result = await sconn.stream(sa.select(table))
+                            total = 0
+                            ids: set = set()
+                            # 只有单列主键的表才记编号（外键都指向这种表的主键）
+                            key = next(iter(table.primary_key.columns)).name if len(table.primary_key.columns) == 1 else None
+                            async for chunk in result.mappings().partitions(BATCH):
+                                rows = clean_rows(table, [dict(r) for r in chunk], known_ids, report)
+                                if rows:
+                                    await conn.execute(table.insert(), rows)
+                                    total += len(rows)
+                                    if key is not None:
+                                        ids.update(r[key] for r in rows)
+                            if key is not None:
+                                known_ids[table.name] = ids
+                            report.copied[table.name] = total
+                            say(f"  {table.name:<28}{total:>10} 行")
+
+                    # 自增编号接着旧库的最大值往后排，不然新记录会撞上搬过来的编号
                     for table in Base.metadata.sorted_tables:
-                        result = await sconn.stream(sa.select(table))
-                        total = 0
-                        ids: set = set()
-                        # 只有单列主键的表才记编号（外键都指向这种表的主键）
-                        key = next(iter(table.primary_key.columns)).name if len(table.primary_key.columns) == 1 else None
-                        async for chunk in result.mappings().partitions(BATCH):
-                            rows = clean_rows(table, [dict(r) for r in chunk], known_ids, report)
-                            if rows:
-                                await conn.execute(table.insert(), rows)
-                                total += len(rows)
-                                if key is not None:
-                                    ids.update(r[key] for r in rows)
-                        if key is not None:
-                            known_ids[table.name] = ids
-                        report.copied[table.name] = total
-                        say(f"  {table.name:<28}{total:>10} 行")
-
-                # 自增编号接着旧库的最大值往后排，不然新记录会撞上搬过来的编号
-                for table in Base.metadata.sorted_tables:
-                    pk = single_int_pk(table)
-                    if pk is None:
-                        continue
-                    seq = (await conn.execute(sa.text("SELECT pg_get_serial_sequence(:t, :c)"),
-                                              {"t": table.name, "c": pk.name})).scalar()
-                    if seq:
-                        await conn.execute(sa.text(
-                            f'SELECT setval(:s, COALESCE((SELECT MAX("{pk.name}") FROM "{table.name}"), 1), '
-                            f'(SELECT MAX("{pk.name}") FROM "{table.name}") IS NOT NULL)'
-                        ), {"s": seq})
+                        pk = single_int_pk(table)
+                        if pk is None:
+                            continue
+                        seq = (await conn.execute(sa.text("SELECT pg_get_serial_sequence(:t, :c)"),
+                                                  {"t": table.name, "c": pk.name})).scalar()
+                        if seq:
+                            await conn.execute(sa.text(
+                                f'SELECT setval(:s, COALESCE((SELECT MAX("{pk.name}") FROM "{table.name}"), 1), '
+                                f'(SELECT MAX("{pk.name}") FROM "{table.name}") IS NOT NULL)'
+                            ), {"s": seq})
+            except sa.exc.DBAPIError as exc:
+                # 整个迁移在一个事务里，出错就全部回滚，新库保持原样，修好后直接重跑
+                detail = str(getattr(exc, "orig", exc)).splitlines()[0]
+                say(f"\n迁移失败（表 {current or '建表'}）：{detail}")
+                say("新库已回滚，没有写进任何数据。把上面这行发给开发排查，修好后直接重新运行即可。")
+                return 1
 
             # 逐表核对行数（不搬的孤儿行要算进去）
             after = await target_rows(dst)
@@ -247,6 +264,10 @@ async def run(args: argparse.Namespace) -> int:
             if report.truncated:
                 say("以下字段有超长内容，已按字段长度截断：")
                 for key, n in report.truncated.items():
+                    say(f"  {key}: {n} 行")
+            if report.nul:
+                say("以下字段含有空字符（\\x00，PostgreSQL 不能存），已去掉：")
+                for key, n in report.nul.items():
                     say(f"  {key}: {n} 行")
             if report.nulled:
                 say("以下字段指向已删除的记录，已置空：")

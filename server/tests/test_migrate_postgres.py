@@ -68,6 +68,8 @@ async def seed(sqlite_file):
                 " VALUES (999, '2026-10-01', 'chat', 10, 0, 1, '2026-10-01 00:00:00')")
     con.execute("UPDATE audit_logs SET device_id = 999 WHERE id = (SELECT MIN(id) FROM audit_logs)")
     con.execute("UPDATE devices SET os_version = ? WHERE id = ?", ("x" * 300, device["device_id"]))
+    # 命令输出里的空字符：SQLite 存得下，PostgreSQL 存不了
+    con.execute("UPDATE audit_logs SET summary = ?", ("退出码：0\r\nMZ\x00\x00\x03",))
     con.commit()
     con.close()
     return device, dev_headers
@@ -99,6 +101,9 @@ async def test_whole_database_moves_to_postgres(tmp_path):
         assert [u["device_id"] for u in usage] == [device["device_id"]]
         audit = (await c.get("/api/v1/admin/audit", headers=ADMIN)).json()
         assert len(audit) == 1
+        async with db.get_sessionmaker()() as s:
+            summary = (await s.execute(text("SELECT summary FROM audit_logs"))).scalar_one()
+            assert summary == "退出码：0\r\nMZ\x03"
         # 模型 Key 还解得开（FLYKNIT_SECRET_KEY 没变）
         async with db.get_sessionmaker()() as s:
             provider = (await s.execute(text("SELECT api_key_enc FROM providers"))).scalar_one()
