@@ -25,11 +25,15 @@ public sealed class Worker : BackgroundService
         AgentPaths.EnsureDirectories();
         AgentPaths.RestrictConfig();
 
-        if (string.IsNullOrEmpty(_config.ServerUrl) || string.IsNullOrEmpty(_config.EnrollmentKey))
+        if (string.IsNullOrEmpty(_config.ServerUrl) || (string.IsNullOrEmpty(_config.EnrollmentKey) && string.IsNullOrEmpty(_config.Ticket)))
         {
-            AgentLog.Error("配置缺少 server_url 或 enrollment_key，请用安装脚本正确配置后重启服务。");
+            AgentLog.Error("配置缺少 server_url，或注册密钥和安装凭证都没有。请用安装程序（或安装脚本）重新安装。");
             return;
         }
+
+        // 员工端由安装程序装在 Program Files 时，它的升级由这里负责（员工账号写不了那个目录）
+        var clientUpdater = new ClientUpdater(_config, () => _api);
+        _ = Task.Run(() => clientUpdater.RunAsync(stoppingToken), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {

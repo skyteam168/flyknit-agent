@@ -26,8 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..crypto import hash_token, new_token
 from ..db import get_session
-from ..deps import require_admin, require_device, require_owner
-from ..models import AdminUser, ClientRelease, Device, EnrollmentTicket
+from ..deps import require_admin, require_agent, require_device, require_owner
+from ..models import AdminUser, ClientRelease, Device, EnrollmentTicket, MachineAgent
 from ..schemas import ClientUpdateOut, ReleaseOut, ReleasePatch, TicketIn, TicketOut
 from ..services import versions
 
@@ -182,6 +182,17 @@ PROVISION_FILE = "flyknit.provision.json"
 _MAIN_EXE = "flyknitbuddy.exe"
 
 
+#: 安装程序外壳，在发布出来的 FlyknitBuddy 文件夹里（publish-client.ps1 放进去）
+SETUP_EXE = "FlyknitSetup.exe"
+#: 安装程序结尾的标记。和 Flyknit.Setup/Payload.cs 里的保持一致
+SETUP_MAGIC = b"FLYKNIT-SETUP-01"
+
+
+def setup_trailer(offset: int, length: int) -> bytes:
+    """32 字节：16 字节标记 + zip 起始位置 + zip 长度（各 8 字节小端）。"""
+    return SETUP_MAGIC + offset.to_bytes(8, "little") + length.to_bytes(8, "little")
+
+
 def _built_version(path: Path) -> str | None:
     """
     zip 里主程序编译时写进去的版本号（从 FlyknitBuddy.deps.json 里读：dotnet publish 会把
@@ -239,6 +250,18 @@ async def download_client_package(
     if folder is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"版本 {latest.version} 的 zip 里找不到 FlyknitBuddy.exe")
 
+    # 先确认能做成安装程序，再发凭证：做不成就别留一张没人用的凭证
+    stub: bytes | None = None
+    if data.format == "exe":
+        with zipfile.ZipFile(_release_path(latest)) as zf:
+            name = next((n for n in zf.namelist() if n.replace("\\", "/").lower() == (folder + SETUP_EXE).lower()), None)
+            if name is None:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"版本 {latest.version} 的包里没有安装程序（{SETUP_EXE}）。用新版 publish-client.ps1 重新打包上传，或者先选 zip",
+                )
+            stub = zf.read(name)
+
     who = owner.username if owner else "admin_token"
     token = new_token()
     ticket = EnrollmentTicket(
@@ -262,12 +285,30 @@ async def download_client_package(
     }
     with zipfile.ZipFile(out, "a", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(folder + PROVISION_FILE, json.dumps(provision, ensure_ascii=False, indent=2))
-    log.warning("%s 下载了员工端安装包 %s（凭证 #%s，服务器 %s）", who, latest.version, ticket.id, server_url)
+    log.warning("%s 下载了员工端安装包 %s（%s，凭证 #%s，服务器 %s）", who, latest.version, data.format, ticket.id, server_url)
+    if stub is None:
+        return FileResponse(
+            out,
+            media_type="application/zip",
+            filename=f"FlyknitBuddy-{latest.version}.zip",
+            background=BackgroundTask(out.unlink, missing_ok=True),
+        )
+    # 安装程序 = 安装程序外壳 + 上面这个 zip + 结尾 32 字节的标记（记着 zip 从哪开始、多长），
+    # 外壳运行时从自己身上读出 zip。在服务端拼，每次下载都带一张新凭证
+    exe = out.with_suffix(".exe")
+    try:
+        with exe.open("wb") as dst:
+            dst.write(stub)
+            with out.open("rb") as src:
+                shutil.copyfileobj(src, dst, 1024 * 1024)
+            dst.write(setup_trailer(len(stub), out.stat().st_size))
+    finally:
+        out.unlink(missing_ok=True)
     return FileResponse(
-        out,
-        media_type="application/zip",
-        filename=f"FlyknitBuddy-{latest.version}.zip",
-        background=BackgroundTask(out.unlink, missing_ok=True),
+        exe,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename=f"FlyknitBuddy-Setup-{latest.version}.exe",
+        background=BackgroundTask(exe.unlink, missing_ok=True),
     )
 
 
@@ -294,13 +335,7 @@ async def revoke_ticket(
 
 # ---------- 客户端 ----------
 
-@router.get("/client/update", response_model=ClientUpdateOut)
-async def check_update(
-    version: str = "",
-    device: Device = Depends(require_device),
-    session: AsyncSession = Depends(get_session),
-):
-    """这台电脑有没有新版本可装。没有就 available=false，客户端什么也不做。"""
+async def _update_for(session: AsyncSession, version: str) -> ClientUpdateOut:
     latest = await _latest(session)
     if latest is None or not versions.is_newer(latest.version, version):
         return ClientUpdateOut(available=False)
@@ -308,8 +343,6 @@ async def check_update(
         # 文件丢了就当没有更新：让客户端去下一个下不到的包，只会反复失败
         log.error("版本 %s 的安装包文件丢失，暂不下发", latest.version)
         return ClientUpdateOut(available=False)
-    device.last_seen = datetime.now(timezone.utc)
-    await session.commit()
     return ClientUpdateOut(
         available=True,
         version=latest.version,
@@ -319,13 +352,7 @@ async def check_update(
     )
 
 
-@router.get("/client/update/download")
-async def download_update(
-    version: str = "",
-    _: Device = Depends(require_device),
-    session: AsyncSession = Depends(get_session),
-):
-    """下载某个版本的安装包。只给已发布的。"""
+async def _download_latest(session: AsyncSession, version: str) -> FileResponse:
     latest = await _latest(session)
     if latest is None or (version and latest.version != version):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "没有这个版本，或它已经不是最新版")
@@ -333,3 +360,49 @@ async def download_update(
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "安装包文件丢失，请在管理后台重新上传")
     return FileResponse(path, media_type="application/zip", filename=f"FlyknitBuddy-{latest.version}.zip")
+
+
+@router.get("/client/update", response_model=ClientUpdateOut)
+async def check_update(
+    version: str = "",
+    device: Device = Depends(require_device),
+    session: AsyncSession = Depends(get_session),
+):
+    """这台电脑有没有新版本可装。没有就 available=false，客户端什么也不做。"""
+    result = await _update_for(session, version)
+    if result.available:
+        device.last_seen = datetime.now(timezone.utc)
+        await session.commit()
+    return result
+
+
+@router.get("/client/update/download")
+async def download_update(
+    version: str = "",
+    _: Device = Depends(require_device),
+    session: AsyncSession = Depends(get_session),
+):
+    """下载某个版本的安装包。只给已发布的。"""
+    return await _download_latest(session, version)
+
+
+# ---------- 运维代理替员工端升级 ----------
+# 用 Setup.exe 装在 Program Files 里的员工端，员工账号没有权限替换程序目录，
+# 由以 SYSTEM 运行的运维代理来下载、校验、替换。
+
+@router.get("/agent/client-update", response_model=ClientUpdateOut)
+async def agent_check_client_update(
+    version: str = "",
+    _: MachineAgent = Depends(require_agent),
+    session: AsyncSession = Depends(get_session),
+):
+    return await _update_for(session, version)
+
+
+@router.get("/agent/client-update/download")
+async def agent_download_client_update(
+    version: str = "",
+    _: MachineAgent = Depends(require_agent),
+    session: AsyncSession = Depends(get_session),
+):
+    return await _download_latest(session, version)

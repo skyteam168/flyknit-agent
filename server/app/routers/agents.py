@@ -28,7 +28,7 @@ from ..config import get_settings
 from ..crypto import hash_token, new_token
 from ..db import get_session
 from ..deps import require_admin, require_agent, require_dispatcher
-from ..models import AdminUser, AgentJob, AgentRun, MachineAgent, SoftwarePackage
+from ..models import AdminUser, AgentJob, AgentRun, EnrollmentTicket, MachineAgent, SoftwarePackage
 from ..services import agent_tasks
 
 log = logging.getLogger("flyknit.agents")
@@ -60,7 +60,9 @@ def _package_path(pkg: SoftwarePackage) -> Path:
 # =====================================================================
 
 class AgentRegisterIn(BaseModel):
-    enrollment_key: str
+    #: 两种凭据给一种：安装程序（Setup.exe）里带的安装凭证，或老办法的注册密钥
+    enrollment_key: str = ""
+    ticket: str = Field(default="", max_length=200)
     machine_guid: str = Field(min_length=8, max_length=64)
     machine_name: str = Field(default="", max_length=200)
     os_version: str = Field(default="", max_length=200)
@@ -101,8 +103,17 @@ class AgentFinishIn(BaseModel):
 
 @router.post("/agent/register", response_model=AgentRegisterOut)
 async def register_agent(data: AgentRegisterIn, session: AsyncSession = Depends(get_session)):
-    """同一台电脑重装代理时沿用原来的记录，换一个新令牌。"""
-    if not hmac.compare_digest(data.enrollment_key, get_settings().enrollment_key):
+    """
+    同一台电脑重装代理时沿用原来的记录，换一个新令牌。
+
+    凭据：后台下载的安装程序（Setup.exe）把安装凭证写进代理配置，代理拿它注册——和员工端登录用的是同一张，
+    吊销了就都注册不上；手工用 install-agent.ps1 装的还是用注册密钥。
+    """
+    if data.ticket:
+        ticket = await session.scalar(select(EnrollmentTicket).where(EnrollmentTicket.token_hash == hash_token(data.ticket)))
+        if ticket is None or ticket.revoked:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "安装凭证无效或已被停用，请向 IT 要新的安装程序")
+    elif not data.enrollment_key or not hmac.compare_digest(data.enrollment_key, get_settings().enrollment_key):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "注册密钥错误")
     guid = data.machine_guid.strip().lower()
     token = new_token()

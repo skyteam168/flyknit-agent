@@ -19,6 +19,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- 替员工端升级时和员工端自己的更新器用同一份「整目录替换、失败回滚」 -->
+    <Compile Include="..\Flyknit.Updater\Swap.cs" Link="Swap.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
     <PackageReference Include="System.Management" Version="8.0.0" />

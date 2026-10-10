@@ -27,6 +27,16 @@ internal static class Program
         var options = Options.Parse(args);
         _log = options.LogFile;
 
+        if (options.WaitVersion.Length > 0)
+        {
+            // 装在 Program Files 里的员工端由运维代理替换：这里只等它换好，再把程序打开
+            Say($"等运维代理把 {options.Exe} 换成 {options.WaitVersion}");
+            var done = WaitForVersion(options.Exe, options.WaitVersion, TimeSpan.FromMinutes(5));
+            Say(done ? "已换成新版本" : "等了 5 分钟还没换好，先打开原来的版本");
+            Relaunch(options);
+            return done ? 0 : 5;
+        }
+
         if (options.Source.Length == 0 || options.Target.Length == 0)
         {
             Say("参数不全，什么也没做");
@@ -60,6 +70,28 @@ internal static class Program
 
 
 
+
+    private static bool WaitForVersion(string exe, string version, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                if (File.Exists(exe) && (FileVersionInfo.GetVersionInfo(exe).ProductVersion ?? "").Split('+')[0].Trim() == version)
+                {
+                    Thread.Sleep(1000);  // 代理刚换完，给它一秒收尾
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+                // 正在替换，文件暂时读不了
+            }
+            Thread.Sleep(2000);
+        }
+        return false;
+    }
 
     /// <summary>等主程序退出。等不到就不动手——文件锁着，动手只会换出一个半成品。</summary>
     private static bool WaitForExit(int pid, TimeSpan timeout)
@@ -161,6 +193,7 @@ internal static class Program
         public string Zip = "";
         public string LogFile = "";
         public bool Silent;
+        public string WaitVersion = "";
 
         public static Options Parse(string[] args)
         {
@@ -177,6 +210,7 @@ internal static class Program
                     case "--zip": o.Zip = next; i++; break;
                     case "--log": o.LogFile = next; i++; break;
                     case "--silent": o.Silent = true; break;
+                    case "--wait-version": o.WaitVersion = next; i++; break;
                 }
             }
             return o;
