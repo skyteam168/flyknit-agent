@@ -1,18 +1,26 @@
+<script lang="ts">
+import { ref } from 'vue'
+
+/** 关掉的是哪个版本。侧边栏里的和浮在左下角的是两个组件实例，共用这一个，免得收起侧边栏又冒出来 */
+const dismissed = ref('')
+</script>
+
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowUp, RotateCw, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { state, toast } from '../store'
 
-// 新版本就绪时挂在这里的一条。
+// 新版本就绪时左下角（侧边栏用户信息上方）的一张小卡片。
 //
-// 要紧的是**不打断**：员工手上可能正跑着一个任务，弹窗会打断他。所以做成一条窄条，
+// 要紧的是**不打断**：员工手上可能正跑着一个任务，弹窗会打断他。所以做成一张小卡片，
 // 点「重启升级」才会立刻装；不点也不会一直缠着问——退出程序或者下次开机会自己装上。
 // 关掉这条只是不想看见它，不是取消更新。
 const { t } = useI18n()
+// 平时放在侧边栏用户信息上方；侧边栏收起时 App 把它浮在左下角（floating）
+defineProps<{ floating?: boolean }>()
 
-const dismissed = ref('')
 const info = computed(() => state.update)
 const show = computed(() =>
   info.value !== null &&
@@ -32,11 +40,10 @@ async function apply() {
 </script>
 
 <template>
-  <div v-if="show && info" class="bar" :class="{ blocked: info.stage === 'needsit' }">
-    <ArrowUp v-if="info.stage === 'ready'" :size="14" class="mark" />
-    <span class="what">
+  <div v-if="show && info" class="card" :class="{ blocked: info.stage === 'needsit', floating }">
+    <ArrowUp v-if="info.stage === 'ready'" :size="15" class="mark" />
+    <span class="what" :title="info.stage === 'ready' ? info.version : info.message">
       {{ info.stage === 'ready' ? t('ui.update.ready') : t('ui.update.needsIt') }}
-      <small v-if="info.stage === 'ready'">{{ info.version }}</small>
     </span>
 
     <template v-if="info.stage === 'ready'">
@@ -44,14 +51,13 @@ async function apply() {
         {{ t('ui.update.notes') }}
       </button>
       <button type="button" class="go" :disabled="busy" @click="apply">
-        <RotateCw :size="13" /> {{ t('ui.update.restart') }}
+        {{ t('ui.update.restart') }}
       </button>
     </template>
-    <span v-else class="where">{{ info.message }}</span>
 
     <button type="button" class="close" :aria-label="t('ui.update.later')" :title="t('ui.update.laterHint')"
             @click="dismissed = info.version">
-      <X :size="14" />
+      <X :size="11" :stroke-width="2.5" />
     </button>
   </div>
 
@@ -72,91 +78,119 @@ async function apply() {
 </template>
 
 <style scoped>
-.bar {
+.card {
+  position: relative;
   display: flex;
-  gap: 10px;
+  gap: 6px;
   align-items: center;
-  padding: 7px 10px 7px 12px;
-  border-radius: var(--r-md);
-  background: var(--thread-wash);
+  margin: 8px 12px 0;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--thread) 35%, var(--line));
+  border-radius: 12px;
+  background: var(--cloth);
   color: var(--ink);
   font-size: var(--t-xs);
+  box-shadow: var(--shadow-card);
+  animation: rise 0.2s ease-out;
 }
-.bar.blocked {
-  background: var(--amber-wash);
+.card.blocked {
+  border-color: color-mix(in srgb, var(--amber) 40%, var(--line));
+}
+/* 侧边栏收起时浮在窗口左下角 */
+.card.floating {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 40;
+  margin: 0;
+  width: 280px;
+  box-shadow: var(--shadow-pop);
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 .mark {
   flex: none;
   color: var(--thread);
 }
 .what {
-  flex: 1;
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-  min-width: 0;
-  font-weight: 500;
-}
-.what small {
-  color: var(--ink-faint);
-  font-weight: 400;
-}
-.where {
-  flex: none;
+  flex: 1 0 auto;
   overflow: hidden;
-  max-width: 40%;
-  color: var(--ink-faint);
-  font-family: var(--font-code);
+  min-width: 0;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.link {
-  flex: none;
-  padding: 4px 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: var(--cloth);
-  color: var(--ink-soft);
-  font: inherit;
-  font-size: var(--t-xs);
-  cursor: pointer;
+.blocked .what {
+  flex: 1;
+  color: var(--amber);
+  white-space: normal;
 }
-.link:hover {
-  border-color: var(--ink-faint);
-}
+.link,
 .go {
-  display: inline-flex;
   flex: none;
-  gap: 5px;
-  align-items: center;
-  padding: 4px 11px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--thread);
-  color: #fff;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 7px;
   font: inherit;
   font-size: var(--t-xs);
   font-weight: 500;
   cursor: pointer;
+  white-space: nowrap;
+}
+.link {
+  border: 1px solid color-mix(in srgb, var(--thread) 55%, transparent);
+  background: transparent;
+  color: var(--thread);
+}
+.link:hover {
+  background: var(--thread-wash);
+}
+.go {
+  border: 0;
+  background: var(--thread);
+  color: #fff;
+}
+.go:hover {
+  filter: brightness(1.08);
 }
 .go:disabled {
   opacity: 0.6;
   cursor: default;
 }
+/* 右上角的小圆叉：不占一行的位置 */
 .close {
+  position: absolute;
+  top: -7px;
+  right: -7px;
   display: grid;
-  flex: none;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--cloth);
   color: var(--ink-faint);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.card:hover .close,
+.close:focus-visible {
+  opacity: 1;
 }
 .close:hover {
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+.sheet .close {
+  position: static;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  opacity: 1;
 }
 .scrim {
   position: fixed;

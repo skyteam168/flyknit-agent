@@ -258,9 +258,10 @@ onBeforeUnmount(() => {
       @mousedown="startSidebarResize"
     />
 
+    <!-- 侧边栏收起（或窄窗口抽屉没打开）时，更新提示浮在左下角 -->
+    <UpdateBar v-if="narrow ? !drawer : sidebarHidden || autoCollapseSidebar" floating />
     <main class="main">
       <TopBar :narrow="narrow" :sidebar-hidden="narrow || sidebarHidden || autoCollapseSidebar" @toggle-sidebar="toggleSidebar" />
-      <UpdateBar class="update" />
       <div class="body">
         <LibraryPage v-if="state.view === 'library'" />
         <div v-else-if="inConversation" class="conversation">
@@ -393,10 +394,6 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-}
-.update {
-  flex: none;
-  margin: 0 16px 8px;
 }
 .body {
   flex: 1;
