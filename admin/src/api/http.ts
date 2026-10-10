@@ -128,12 +128,12 @@ export async function download(path: string, query: RequestOptions['query'], fal
   await save(await request<Response>(path, { query, raw: true }), fallbackName)
 }
 
-/** POST 之后下载返回的文件（比如生成员工端安装包） */
-export async function downloadPost(path: string, body: unknown, fallbackName: string) {
-  await save(await request<Response>(path, { method: 'POST', body, raw: true }), fallbackName)
+/** POST 之后下载返回的文件（比如生成员工端安装包）。返回保存的文件名 */
+export async function downloadPost(path: string, body: unknown, fallbackName: string): Promise<string> {
+  return save(await request<Response>(path, { method: 'POST', body, raw: true }), fallbackName)
 }
 
-async function save(resp: Response, fallbackName: string) {
+async function save(resp: Response, fallbackName: string): Promise<string> {
   const blob = await resp.blob()
   const match = /filename="?([^"]+)"?/.exec(resp.headers.get('Content-Disposition') ?? '')
   const a = document.createElement('a')
@@ -141,4 +141,5 @@ async function save(resp: Response, fallbackName: string) {
   a.download = match?.[1] ?? fallbackName
   a.click()
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  return a.download
 }
