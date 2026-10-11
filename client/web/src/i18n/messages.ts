@@ -461,7 +461,19 @@ const zh = {
     askPlaceholder: "询问关于此文件的问题",
   },
   ui: {
-    common: { retry: '重试' },
+    common: {
+      retry: '重试',
+      loading: '正在加载…',
+      loadFailed: '没有加载出来：{msg}',
+      edit: '编辑',
+      reload: '重新加载',
+      setFailed: '设置失败',
+      saveFailed: '保存失败',
+      testFailed: '测试失败',
+      openFailed: '打开失败',
+      hostTimeout: '程序没有响应，请稍后再试',
+      items: '[{n} 项]',
+    },
     chat: { loadFailed: '这个对话的内容没读出来：{msg}' },
     shell: {
       summarize: '总结一下这份文件的要点 | 总结一下这些文件的要点，最后合在一起说说它们的关系',
@@ -1544,7 +1556,19 @@ const vi: Messages = {
     askPlaceholder: "Hỏi về tệp này",
   },
   ui: {
-    common: { retry: 'Thử lại' },
+    common: {
+      retry: 'Thử lại',
+      loading: 'Đang tải…',
+      loadFailed: 'Không tải được: {msg}',
+      edit: 'Sửa',
+      reload: 'Tải lại',
+      setFailed: 'Cài đặt thất bại',
+      saveFailed: 'Lưu thất bại',
+      testFailed: 'Kiểm tra thất bại',
+      openFailed: 'Không mở được',
+      hostTimeout: 'Chương trình không phản hồi, vui lòng thử lại sau',
+      items: '[{n} mục]',
+    },
     chat: { loadFailed: 'Không đọc được nội dung cuộc trò chuyện: {msg}' },
     shell: {
       summarize: 'Tóm tắt các ý chính của tệp này | Tóm tắt các ý chính của những tệp này, cuối cùng nói mối liên hệ giữa chúng',
@@ -2632,7 +2656,19 @@ const en: Messages = {
     askPlaceholder: "Ask a question about this file",
   },
   ui: {
-    common: { retry: 'Retry' },
+    common: {
+      retry: 'Retry',
+      loading: 'Loading…',
+      loadFailed: "Couldn't load: {msg}",
+      edit: 'Edit',
+      reload: 'Reload',
+      setFailed: "Couldn't change the setting",
+      saveFailed: "Couldn't save",
+      testFailed: 'Test failed',
+      openFailed: "Couldn't open",
+      hostTimeout: 'The app is not responding. Please try again later.',
+      items: '[{n} items]',
+    },
     chat: { loadFailed: "Couldn't load this conversation: {msg}" },
     shell: {
       summarize: 'Summarize the key points of this file | Summarize the key points of these files, then explain how they relate',
