@@ -182,6 +182,35 @@ const sceneOption = computed(() => {
 })
 const sceneTitle = computed(() => (data.value?.scenes_today.length ? '今日场景分布' : `近 ${days.value} 天场景分布`))
 
+// ---------- 每日模型消耗：按模型堆叠柱状 ----------
+const modelSeriesOption = computed(() => {
+  void isDark.value
+  const d = data.value
+  if (!d?.model_series) return {}
+  const p = palette()
+  const axis = baseAxis()
+  return {
+    color: p.series,
+    tooltip: { ...tooltip(), trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: number) => num(v) },
+    legend: { top: 0, type: 'scroll', textStyle: { color: p.soft }, icon: 'roundRect', itemWidth: 10, itemHeight: 10 },
+    grid: { left: 8, right: 8, top: 36, bottom: 4, containLabel: true },
+    xAxis: { type: 'category', data: d.days.map(dayLabel), ...axis, splitLine: { show: false } },
+    yAxis: { type: 'value', ...axis, axisLabel: { ...axis.axisLabel, formatter: (v: number) => short(v) } },
+    series: d.model_series.map((m) => ({
+      name: m.model,
+      type: 'bar',
+      stack: 'models',
+      barMaxWidth: 28,
+      emphasis: { focus: 'series' },
+      data: m.data,
+    })),
+  }
+})
+const modelTotal = computed(() => data.value?.models?.reduce((s, m) => s + m.tokens, 0) ?? 0)
+const modelShare = (tokens: number) => (modelTotal.value ? Math.round((tokens / modelTotal.value) * 1000) / 10 : 0)
+const modelScenes = (scenes: { scene: string; tokens: number }[]) =>
+  scenes.map((s) => `${sceneLabel(s.scene)} ${short(s.tokens)}`).join(' · ')
+
 const userShare = (tokens: number) => (rangeTotal.value ? Math.round((tokens / rangeTotal.value) * 1000) / 10 : 0)
 </script>
 
@@ -251,6 +280,29 @@ const userShare = (tokens: number) => (rangeTotal.value ? Math.round((tokens / r
           <div class="panel-title"><h3>{{ sceneTitle }}</h3></div>
           <EChart v-if="(data.scenes_today.length || data.scenes.length)" :option="sceneOption" height="300px" />
           <el-empty v-else description="还没有用量数据" :image-size="80" />
+        </section>
+
+        <section class="panel span-2">
+          <div class="panel-title">
+            <h3>每日模型消耗 <small>近 {{ days }} 天，按实际回答的模型（备用模型顶上时算在备用模型）</small></h3>
+          </div>
+          <EChart v-if="data.model_series?.length" :option="modelSeriesOption" height="300px" />
+          <el-empty v-else description="还没有按模型的用量数据" :image-size="80" />
+        </section>
+        <section class="panel">
+          <div class="panel-title"><h3>模型用量排行 <small>近 {{ days }} 天</small></h3></div>
+          <el-empty v-if="!data.models?.length" description="还没有按模型的用量数据" :image-size="80" />
+          <ul v-else class="models">
+            <li v-for="m in data.models" :key="m.model">
+              <div class="model-head">
+                <strong :title="m.model">{{ m.model }}</strong>
+                <span>{{ short(m.tokens) }}</span>
+              </div>
+              <el-progress :percentage="modelShare(m.tokens)" :stroke-width="6" />
+              <small>今日 {{ short(m.today_tokens) }} · 请求 {{ num(m.requests) }} 次 · 输入 {{ short(m.prompt) }} / 输出 {{ short(m.completion) }}</small>
+              <small v-if="m.scenes.length" class="model-scenes">{{ modelScenes(m.scenes) }}</small>
+            </li>
+          </ul>
         </section>
 
         <section class="panel span-2">
@@ -388,6 +440,46 @@ const userShare = (tokens: number) => (rangeTotal.value ? Math.round((tokens / r
   color: var(--ink-faint);
   font-size: 12px;
   white-space: nowrap;
+}
+.models {
+  display: flex;
+  flex-direction: column;
+  max-height: 340px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.models li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 2px;
+  border-top: 1px solid var(--line);
+}
+.models li:first-child {
+  border-top: 0;
+}
+.model-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.model-head strong {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-head span {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.models small {
+  color: var(--ink-faint);
+  font-size: 12px;
 }
 .dot {
   flex: none;

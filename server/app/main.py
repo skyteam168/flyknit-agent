@@ -15,7 +15,7 @@ from sqlalchemy.engine import make_url
 from . import __version__, db
 from .config import Settings, get_settings
 from .routers import admin, agents, chats, client, console, feedback, gateway, instructions, mcp, releases, speech
-from .services import housekeeping
+from .services import housekeeping, usage_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -79,6 +79,13 @@ async def lifespan(app: FastAPI):
              f"（schema {schema}）" if schema else "")
     db.init_engine(settings.database_url, schema)
     await db.create_all()
+    try:
+        # 按模型的用量统计是后加的：第一次启动时用聊天记录补出历史，只做一次
+        async with db.get_sessionmaker()() as s:
+            if n := await usage_store.backfill_model_usage(s):
+                log.info("已用 %d 条聊天记录补出按模型的用量统计", n)
+    except Exception:  # noqa: BLE001  补历史数据失败不能挡住启动
+        log.warning("补按模型的用量统计失败", exc_info=True)
     app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(settings.upstream_timeout, connect=10))
 
     # 清理过期记录和备份数据库。做成后台任务而不是写进文档让人记得跑——
