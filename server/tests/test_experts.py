@@ -186,3 +186,28 @@ async def test_usage_is_counted_per_message_and_device(client, device_headers):
     assert live["tags"] == ["产量分析", "设备停机"] and live["author"] == "IT 部"
     [admin_view] = (await client.get("/api/v1/admin/experts", headers=ADMIN)).json()
     assert admin_view["uses"] == 4
+
+
+async def test_rows_from_before_the_upgrade_still_load(client, device_headers):
+    """老版本建的专家：升级时补上的 tags、author 列是 NULL，快照里也没有这两项。"""
+    from sqlalchemy import text
+
+    await client.post("/api/v1/admin/experts", headers=ADMIN, json=MES)
+    await client.post("/api/v1/admin/experts/mes_analyst/publish", headers=ADMIN, json={})
+    async with db.get_sessionmaker()() as s:
+        # 和升级时一样：列是后加的、可以为空，老行里是 NULL
+        for column, kind in (("tags", "JSON"), ("author", "VARCHAR(100)")):
+            await s.execute(text(f"ALTER TABLE experts DROP COLUMN {column}"))
+            await s.execute(text(f"ALTER TABLE experts ADD COLUMN {column} {kind} NULL"))
+        row = (await s.execute(text("SELECT published FROM experts"))).scalar_one()
+        snap = json.loads(row) if isinstance(row, str) else dict(row)
+        snap.pop("tags", None)
+        snap.pop("author", None)
+        await s.execute(text("UPDATE experts SET published = :p"), {"p": json.dumps(snap, ensure_ascii=False)})
+        await s.commit()
+    r = await client.get("/api/v1/admin/experts", headers=ADMIN)
+    assert r.status_code == 200, r.text
+    [e] = r.json()
+    assert e["tags"] == [] and e["author"] == "" and e["dirty"] is False
+    [live] = await client_experts(client, device_headers)
+    assert live["tags"] == [] and live["author"] == ""

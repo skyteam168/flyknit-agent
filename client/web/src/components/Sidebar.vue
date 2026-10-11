@@ -307,13 +307,13 @@ const moreOpen = ref(false)
 const moreBtn = ref<HTMLElement>()
 const morePos = ref({ x: 0, y: 0 })
 let moreTimer: number | undefined
-const moreActive = computed(() => state.view === 'experts' || state.showTrash || (state.view === 'chat' && state.currentId === null && !!draftMode.expertId))
+const moreActive = computed(() => state.showTrash)
 
 function showMore() {
   clearTimeout(moreTimer)
   const rect = moreBtn.value?.getBoundingClientRect()
   if (rect) {
-    const height = 4 * 40 + 16
+    const height = 3 * 40 + 16
     morePos.value = {
       x: Math.min(rect.right + 6, window.innerWidth - 230),
       y: Math.max(8, Math.min(rect.top - 8, window.innerHeight - height - 8)),
@@ -448,6 +448,13 @@ onBeforeUnmount(() => {
       </button>
 
       <nav class="nav">
+        <button
+          type="button"
+          :class="{ on: state.view === 'experts' || (state.view === 'chat' && state.currentId === null && !!draftMode.expertId) }"
+          @click="(openExperts(), emit('navigate'))"
+        >
+          <UsersRound :size="17" /> {{ t('ui.nav.experts') }}
+        </button>
         <button type="button" :class="{ on: state.view === 'library' }" @click="(openLibrary(), emit('navigate'))">
           <LibraryBig :size="17" /> {{ t('ui.nav.library') }}
         </button>
@@ -711,9 +718,6 @@ onBeforeUnmount(() => {
         @mouseenter="showMore"
         @mouseleave="hideMoreSoon"
       >
-        <button role="menuitem" type="button" :class="{ on: state.view === 'experts' }" @click="moreAction(openExperts)">
-          <UsersRound :size="17" /> {{ t('ui.nav.experts') }}
-        </button>
         <button role="menuitem" type="button" @click="moreAction(() => (state.memoryOpen = true))">
           <Brain :size="17" /> {{ t('ui.nav.memory') }}
         </button>
