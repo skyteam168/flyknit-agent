@@ -647,6 +647,7 @@ export function createMockHost(): HostTransport {
           notificationSound: 'none',
           fontScale: 1,
           autoStart: false,
+          explorerMenu: true,
           keepAwake: 'tasks',
           keepAwakeAllowed: true,
           keepScreenAllowed: false,
@@ -758,6 +759,8 @@ export function createMockHost(): HostTransport {
         return
       case 'settings.setNotifications':
         return { ok: true, message: '', enabled: !!p.enabled }
+      case 'settings.setExplorerMenu':
+        return
       case 'settings.setAutoStart':
         return { ok: true, message: '', enabled: !!p.enabled }
       case 'settings.setKeepAwake':

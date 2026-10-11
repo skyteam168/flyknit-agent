@@ -139,6 +139,12 @@ const fontIndex = computed({
 
 // ---------- 开机自启 ----------
 const autoStart = ref(false)
+const explorerMenu = ref(true)
+async function toggleExplorerMenu(on: boolean) {
+  explorerMenu.value = on
+  await bridge.setExplorerMenu(on).catch(() => {})
+  if (state.app) state.app.explorerMenu = on
+}
 async function toggleAutoStart(on: boolean) {
   const r = await bridge.setAutoStart(on).catch(() => ({ ok: false, message: '设置失败', enabled: autoStart.value }))
   autoStart.value = r.enabled
@@ -220,6 +226,7 @@ async function changeWorkspace() {
 onMounted(async () => {
   await loadApprovals()
   autoStart.value = state.app?.autoStart ?? false
+  explorerMenu.value = state.app?.explorerMenu ?? true
   keepAwake.value = state.app?.keepAwake ?? 'tasks'
   proxyMode.value = state.app?.proxyMode ?? 'system'
   proxyUrl.value = state.app?.proxyUrl ?? ''
@@ -363,6 +370,13 @@ onMounted(async () => {
                 <small>{{ t('settings.autoStartHint') }}</small>
               </span>
               <input type="checkbox" class="switch" :checked="autoStart" @change="toggleAutoStart(($event.target as HTMLInputElement).checked)" />
+            </label>
+            <label class="row">
+              <span class="label">
+                <strong>{{ t('settings.explorerMenu') }}</strong>
+                <small>{{ t('settings.explorerMenuHint') }}</small>
+              </span>
+              <input type="checkbox" class="switch" :checked="explorerMenu" @change="toggleExplorerMenu(($event.target as HTMLInputElement).checked)" />
             </label>
             <div class="row">
               <span class="label">

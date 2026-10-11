@@ -46,6 +46,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     /// <summary>等待用户确认的数量变化（悬浮球提示用）。</summary>
     public event Action<int>? PendingConfirmsChanged;
 
+    /// <summary>界面已经调过 app.init：这之后发的事件界面都收得到。</summary>
+    public bool UiReady { get; private set; }
+
     /// <summary>新的确认请求（宿主据此弹出系统通知或闪烁窗口）。</summary>
     public event Action<PendingConfirm>? ConfirmRequested;
 
@@ -305,6 +308,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
         switch (method)
         {
             case "app.init":
+                UiReady = true;
                 return new
                 {
                     version = typeof(WebBridge).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
@@ -330,6 +334,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     soundLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound)?.Locked ?? false,
                     fontScale = _settings.FontScale,
                     autoStart = AutoStart.IsEnabled(),   // 以注册表为准，用户可能在任务管理器里关过
+                    explorerMenu = _settings.ExplorerMenu,
                     keepAwake = Flyknit.Core.Settings.KeepAwake.Normalize(_settings.KeepAwakeMode),
                     keepAwakeAllowed = _host.KeepAwakeAllowed,
                     keepScreenAllowed = _host.KeepScreenOnAllowed,
@@ -497,6 +502,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 _settings.Save();
                 return _settings.FontScale;
             }
+
+            case "settings.setExplorerMenu":
+                _settings.ExplorerMenu = Bool("enabled");
+                _settings.Save();
+                ExplorerMenuRegistration.Apply(_settings.ExplorerMenu, _settings.ResolveUiLanguage());
+                return null;
 
             case "settings.setAutoStart":
             {

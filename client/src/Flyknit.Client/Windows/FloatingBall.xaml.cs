@@ -28,7 +28,11 @@ public partial class FloatingBall : Window
         ToolTip = NativeStrings.T("ball.tip");
         Loaded += (_, _) => RestorePosition();
 
-        MouseEnter += (_, _) => AnimateScale(1.08);
+        MouseEnter += (_, _) =>
+        {
+            AnimateScale(1.08);
+            RememberForeground();
+        };
         MouseLeave += (_, _) => AnimateScale(1.0);
         MouseLeftButtonDown += OnDown;
         MouseMove += OnMove;
@@ -81,6 +85,32 @@ public partial class FloatingBall : Window
     /// 每次右键时由 App 重新给菜单内容（界面语言、安全中心开关随时会变）。null 表示分隔线。
     /// </summary>
     public Func<System.Collections.Generic.IReadOnlyList<MenuEntry?>>? MenuItems { get; set; }
+
+    /// <summary>
+    /// 鼠标移到悬浮球上那一刻在前台的别的程序。从菜单里划词翻译时要把焦点还给它，才取得到选中的字
+    /// （一点悬浮球，前台就变成悬浮球了）。
+    /// </summary>
+    public IntPtr LastForeground { get; private set; }
+
+    private void RememberForeground()
+    {
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+        GetWindowThreadProcessId(hwnd, out var pid);
+        if (pid != (uint)Environment.ProcessId)
+        {
+            LastForeground = hwnd;
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
     /// <summary>悬浮球在屏幕上的位置（DIP），对话浮窗据此贴在旁边。</summary>
     public Rect Bounds => new(Left, Top, Width, Height);
