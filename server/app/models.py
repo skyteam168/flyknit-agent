@@ -124,6 +124,29 @@ class UsageDaily(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class UsageModelDaily(Base):
+    """
+    Token 用量按模型分：每天、每个模型、每个场景一行。
+
+    usage_daily 按「电脑 + 天 + 场景」记，回答不了「钱花在哪个模型上」；网关每次转发都知道这次实际用的是哪个模型
+    （主模型不可用时走的备用模型也算在备用模型头上），顺手在这里也记一笔。
+    模型可能被删掉或改名，所以存的是当时的名字，model_id 只作参考、不建外键。
+    """
+
+    __tablename__ = "usage_model_daily"
+    __table_args__ = (UniqueConstraint("day", "model_name", "scene", name="uq_usage_model_day_scene"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[str] = mapped_column(String(10), index=True)  # YYYY-MM-DD（本地时区）
+    model_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_name: Mapped[str] = mapped_column(String(200))
+    scene: Mapped[str] = mapped_column(String(20))
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    requests: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class SkillPackage(Base):
     """公司技能库里的一个技能包（zip 存在磁盘上，这里只存元数据）。"""
 

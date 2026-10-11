@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import require_admin
-from ..models import Device, ModelConfig, RouteRule, UsageDaily
+from ..models import Device, ModelConfig, RouteRule, UsageDaily, UsageModelDaily
 from ..services import asr, model_router, settings_store, usage_store
 from .speech import build_target
 
@@ -28,6 +28,8 @@ router = APIRouter(prefix="/api/v1/admin", tags=["console"], dependencies=[Depen
 ONLINE_MINUTES = 15
 #: 「每人每天」那张堆叠图最多画几个人，再多就糊成一片了
 SERIES_USERS = 5
+#: 「每日模型消耗」最多分几个模型画，其余并成「其他」
+SERIES_MODELS = 6
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -126,6 +128,47 @@ async def dashboard(
     def scene_list(bucket: dict) -> list[dict]:
         return sorted(({"scene": k, **v} for k, v in bucket.items()), key=lambda s: s["tokens"], reverse=True)
 
+    # ---------- 按模型 ----------
+    model_rows = (
+        await session.execute(
+            select(
+                UsageModelDaily.day, UsageModelDaily.model_name, UsageModelDaily.scene,
+                UsageModelDaily.prompt_tokens, UsageModelDaily.completion_tokens, UsageModelDaily.requests,
+            ).where(UsageModelDaily.day >= start)
+        )
+    ).all()
+    per_model: dict[str, dict] = {}
+    per_model_day: dict[str, dict[str, int]] = {}
+    for day, name, scene, prompt, completion, requests in model_rows:
+        m = per_model.setdefault(name, {"tokens": 0, "prompt": 0, "completion": 0, "requests": 0,
+                                        "today_tokens": 0, "today_requests": 0, "scenes": {}})
+        tokens = prompt + completion
+        m["tokens"] += tokens
+        m["prompt"] += prompt
+        m["completion"] += completion
+        m["requests"] += requests
+        m["scenes"][scene] = m["scenes"].get(scene, 0) + tokens
+        if day == today:
+            m["today_tokens"] += tokens
+            m["today_requests"] += requests
+        per_model_day.setdefault(name, {})[day] = per_model_day.get(name, {}).get(day, 0) + tokens
+    models_ranked = sorted(per_model.items(), key=lambda kv: kv[1]["tokens"], reverse=True)
+    models = [
+        {"model": name, **{k: v for k, v in stats.items() if k != "scenes"},
+         "scenes": sorted(({"scene": k, "tokens": v} for k, v in stats["scenes"].items()), key=lambda x: x["tokens"], reverse=True)}
+        for name, stats in models_ranked
+    ]
+    model_series = [
+        {"model": name, "data": [per_model_day.get(name, {}).get(d, 0) for d in day_list]}
+        for name, _ in models_ranked[:SERIES_MODELS]
+    ]
+    if len(models_ranked) > SERIES_MODELS:
+        rest = [name for name, _ in models_ranked[SERIES_MODELS:]]
+        model_series.append({
+            "model": "其他",
+            "data": [sum(per_model_day.get(n, {}).get(d, 0) for n in rest) for d in day_list],
+        })
+
     quota = await usage_store.get_quota(session)
     return {
         "generated_at": now,
@@ -146,6 +189,8 @@ async def dashboard(
         "user_series": user_series,
         "scenes_today": scene_list(scenes_today),
         "scenes": scene_list(scenes_range),
+        "models": models,
+        "model_series": model_series,
         "online": [
             {"device_id": d.id, "machine_name": d.machine_name, "user_name": d.user_name,
              "client_version": d.client_version, "last_seen": _aware(d.last_seen)}

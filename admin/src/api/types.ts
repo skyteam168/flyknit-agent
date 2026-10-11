@@ -365,7 +365,22 @@ export interface Dashboard {
   user_series: (Omit<UserUsage, 'tokens' | 'requests' | 'today_tokens'> & { data: number[] })[]
   scenes_today: { scene: string; tokens: number; requests: number }[]
   scenes: { scene: string; tokens: number; requests: number }[]
+  /** 按模型：近 N 天合计（按 token 从多到少），每个模型分场景 */
+  models?: ModelUsage[]
+  /** 每日按模型的 token，前几个模型分开，其余并成「其他」 */
+  model_series?: { model: string; data: number[] }[]
   online: { device_id: number; machine_name: string; user_name: string; client_version: string; last_seen: string }[]
+}
+
+export interface ModelUsage {
+  model: string
+  tokens: number
+  prompt: number
+  completion: number
+  requests: number
+  today_tokens: number
+  today_requests: number
+  scenes: { scene: string; tokens: number }[]
 }
 
 export interface ChatConversation {

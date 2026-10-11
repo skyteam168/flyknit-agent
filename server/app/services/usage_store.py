@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Device, UsageDaily
+from ..models import ChatRecord, Device, UsageDaily, UsageModelDaily
 from . import settings_store
 
 QUOTA_KEY = "quota"
@@ -69,8 +69,11 @@ async def used_today(session: AsyncSession, device_id: int, day: str | None = No
     return int(total or 0)
 
 
-async def record(session: AsyncSession, device_id: int, scene: str, prompt: int, completion: int) -> None:
-    """累加一次调用的用量。"""
+async def record(
+    session: AsyncSession, device_id: int, scene: str, prompt: int, completion: int,
+    model_id: int | None = None, model_name: str = "",
+) -> None:
+    """累加一次调用的用量。带上模型名的话，按模型的统计也记一笔。"""
     if prompt <= 0 and completion <= 0:
         return
     day = today()
@@ -84,7 +87,69 @@ async def record(session: AsyncSession, device_id: int, scene: str, prompt: int,
     row.prompt_tokens += max(0, prompt)
     row.completion_tokens += max(0, completion)
     row.requests += 1
+    if model_name:
+        await _add_model_usage(session, day, model_id, model_name, scene, max(0, prompt), max(0, completion), 1)
     await session.commit()
+
+
+async def _add_model_usage(
+    session: AsyncSession, day: str, model_id: int | None, model_name: str, scene: str,
+    prompt: int, completion: int, requests: int,
+) -> None:
+    name = model_name.strip()[:200] or "未知模型"
+    row = await session.scalar(
+        select(UsageModelDaily).where(
+            UsageModelDaily.day == day, UsageModelDaily.model_name == name, UsageModelDaily.scene == scene
+        )
+    )
+    if row is None:
+        row = UsageModelDaily(day=day, model_id=model_id, model_name=name, scene=scene,
+                              prompt_tokens=0, completion_tokens=0, requests=0)
+        session.add(row)
+    if model_id is not None:
+        row.model_id = model_id
+    row.prompt_tokens += prompt
+    row.completion_tokens += completion
+    row.requests += requests
+
+
+MODEL_BACKFILL_KEY = "migration.usage_by_model_v1"
+
+
+async def backfill_model_usage(session: AsyncSession, tz_offset_hours: int = 8) -> int:
+    """
+    升级上来时，按模型的统计是空的。聊天记录里每一轮都存了当时用的模型和 token，用它补出历史数据，只做一次。
+
+    补出来的会比实际略少：压缩上下文、生成标题这类后台调用不进聊天记录；被清理掉的旧记录也补不回来。
+    返回补了几条聊天记录。
+    """
+    if await settings_store.get_value(session, MODEL_BACKFILL_KEY, None) is not None:
+        return 0
+    if await session.scalar(select(func.count()).select_from(UsageModelDaily)):
+        await settings_store.set_value(session, MODEL_BACKFILL_KEY, {"rows": 0, "skipped": "already has data"})
+        return 0
+    totals: dict[tuple[str, str, str], list[int]] = {}
+    n = 0
+    result = await session.stream(
+        select(ChatRecord.created_at, ChatRecord.model, ChatRecord.scene,
+               ChatRecord.prompt_tokens, ChatRecord.completion_tokens)
+    )
+    async for created_at, model, scene, prompt, completion in result:
+        if not model or (prompt or 0) + (completion or 0) <= 0 or created_at is None:
+            continue
+        at = created_at if created_at.tzinfo else created_at.replace(tzinfo=timezone.utc)
+        day = (at + timedelta(hours=tz_offset_hours)).date().isoformat()
+        key = (day, model, scene if scene in SCENES else "chat")
+        t = totals.setdefault(key, [0, 0, 0])
+        t[0] += max(0, prompt or 0)
+        t[1] += max(0, completion or 0)
+        t[2] += 1
+        n += 1
+    for (day, model, scene), (prompt, completion, requests) in totals.items():
+        await _add_model_usage(session, day, None, model, scene, prompt, completion, requests)
+    await settings_store.set_value(session, MODEL_BACKFILL_KEY, {"rows": n})
+    await session.commit()
+    return n
 
 
 async def record_request(session: AsyncSession, device_id: int, scene: str) -> None:

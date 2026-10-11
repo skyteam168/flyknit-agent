@@ -142,7 +142,8 @@ async def chat_completions(
             return
         try:
             async with get_sessionmaker()() as s2:
-                await usage_store.record(s2, device_id, scene, prompt, completion)
+                await usage_store.record(s2, device_id, scene, prompt, completion,
+                                         model_id=target.model_id, model_name=target.display_name)
         except Exception:  # noqa: BLE001  统计失败不能影响对话
             log.warning("记录用量失败 device=%s", device_id, exc_info=True)
 
@@ -248,7 +249,8 @@ async def embeddings(
             tokens = 0
         if tokens > 0:
             try:
-                await usage_store.record(session, device.id, "embedding", tokens, 0)
+                await usage_store.record(session, device.id, "embedding", tokens, 0,
+                                         model_id=target.model_id, model_name=target.display_name)
             except Exception:  # noqa: BLE001  统计失败不能影响检索
                 log.warning("记录用量失败 device=%s", device.id, exc_info=True)
     return Response(
