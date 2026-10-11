@@ -18,7 +18,12 @@ public class ExpertTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("flyknit-expert").FullName;
 
-    public void Dispose() => Directory.Delete(_dir, true);
+    public void Dispose()
+    {
+        // Windows 上连接池还攥着 history.db，不清掉删不了目录
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        Directory.Delete(_dir, true);
+    }
 
     private static McpTool Mcp(string server, string name) =>
         new(server, server.ToUpperInvariant(), new McpToolInfo(name, "", "", new JsonObject(), false, false),
