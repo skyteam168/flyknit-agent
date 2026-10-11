@@ -660,3 +660,91 @@ class McpTestOut(BaseModel):
     server_version: str = ""
     tools: list[dict] = []
     error: str = ""
+
+
+# ---------- 专家 ----------
+EXPERT_ID_PATTERN = r"^[a-z][a-z0-9_-]{1,39}$"
+
+
+class ExpertFields(BaseModel):
+    """专家的可编辑内容（草稿和发布的快照都是这一套）。"""
+
+    name: str = Field(min_length=1, max_length=100)
+    avatar: str = Field(default="", max_length=400_000)
+    tagline: str = Field(default="", max_length=200)
+    category: str = Field(default="", max_length=50)
+    description: str = Field(default="", max_length=4000)
+    instructions: str = Field(default="", max_length=20000)
+    knowledge: str = Field(default="", max_length=20000)
+    examples: list[str] = []
+    preferred_skills: list[str] = []
+    mcp_servers: list[str] = []
+    disallowed_tools: list[str] = []
+    read_only: bool = False
+    model_id: int | None = None
+    allow_direct: bool = True
+    allow_delegate: bool = True
+    sort_order: int = 0
+
+
+class ExpertIn(ExpertFields):
+    id: str = Field(pattern=EXPERT_ID_PATTERN)
+
+
+class ExpertOut(ExpertFields):
+    id: str
+    status: str
+    version: int
+    #: 草稿和已发布的不一样（改了还没发布）
+    dirty: bool = False
+    published_at: datetime | None = None
+    published_by: str = ""
+    updated_by: str = ""
+    updated_at: datetime | None = None
+
+
+class ExpertPublishIn(BaseModel):
+    note: str = Field(default="", max_length=300)
+
+
+class ExpertVersionOut(BaseModel):
+    version: int
+    note: str = ""
+    published_by: str = ""
+    published_at: datetime
+    snapshot: dict
+
+
+class ExpertDraftIn(BaseModel):
+    """一句话描述想要什么专家，由 AI 起草。"""
+
+    text: str = Field(min_length=2, max_length=2000)
+
+
+class ExpertDraftOut(ExpertFields):
+    id: str = ""
+    #: 给管理员的提示，例如「没有找到和 MES 相关的技能」
+    notes: list[str] = []
+
+
+class ExpertOption(BaseModel):
+    value: str
+    label: str
+    detail: str = ""
+
+
+class ExpertOptionsOut(BaseModel):
+    """编辑专家时可选的工具、技能、连接器、模型。"""
+
+    tools: list[ExpertOption]
+    skills: list[ExpertOption]
+    mcp: list[ExpertOption]
+    models: list[ExpertOption]
+
+
+class ExpertClientOut(ExpertFields):
+    """员工端拿到的：已发布的快照。"""
+
+    id: str
+    version: int
+    published_at: datetime | None = None

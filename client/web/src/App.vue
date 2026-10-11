@@ -19,12 +19,16 @@ import PreviewPane from './components/PreviewPane.vue'
 import TraceDialog from './components/TraceDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
+import ExpertsPage from './components/ExpertsPage.vue'
+import ExpertAvatar from './components/ExpertAvatar.vue'
 import { uploadDropped } from './library'
 import {
   addFiles,
   closePreview,
   current,
+  currentExpert,
   currentState,
+  expertWithdrawn,
   init,
   newConversation,
   openConversation,
@@ -264,7 +268,19 @@ onBeforeUnmount(() => {
       <TopBar :narrow="narrow" :sidebar-hidden="narrow || sidebarHidden || autoCollapseSidebar" @toggle-sidebar="toggleSidebar" />
       <div class="body">
         <LibraryPage v-if="state.view === 'library'" />
+        <ExpertsPage v-else-if="state.view === 'experts'" />
         <div v-else-if="inConversation" class="conversation">
+          <!-- 专家对话：顶部标出是哪位专家；专家被下线了说一声 -->
+          <div v-if="current?.expertId" class="expert-bar" :class="{ withdrawn: expertWithdrawn }">
+            <template v-if="currentExpert">
+              <ExpertAvatar :avatar="currentExpert.avatar" :name="currentExpert.name" :id="currentExpert.id" :size="22" />
+              <strong>{{ currentExpert.name }}</strong>
+              <span class="badge">{{ t('ui.experts.badge') }}</span>
+              <span v-if="currentExpert.readOnly" class="badge muted">{{ t('ui.experts.readOnly') }}</span>
+              <span v-if="currentExpert.tagline" class="tagline">{{ currentExpert.tagline }}</span>
+            </template>
+            <span v-else>{{ t('ui.experts.withdrawn') }}</span>
+          </div>
           <MessageList />
           <Composer ref="composer" />
         </div>
@@ -405,6 +421,43 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+.expert-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 auto;
+  width: 100%;
+  max-width: var(--column);
+  padding: 8px 24px 4px;
+  font-size: var(--t-sm);
+}
+.expert-bar strong {
+  flex: none;
+  font-weight: 600;
+}
+.expert-bar .badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--indigo-wash);
+  color: var(--indigo);
+  font-size: var(--t-xs);
+}
+.expert-bar .badge.muted {
+  background: var(--chip);
+  color: var(--ink-soft);
+}
+.expert-bar .tagline {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.expert-bar.withdrawn {
+  color: var(--amber);
 }
 
 .dropzone {

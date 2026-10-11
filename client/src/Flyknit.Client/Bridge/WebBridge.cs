@@ -1402,9 +1402,22 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 var modelId = Int("modelId");
                 var workspace = OptStr("workspace") ?? _settings.ResolveWorkspace(_settings.DefaultWorkspace);
                 var permission = Flyknit.Core.Security.PermissionModes.Parse(OptStr("permission") ?? _settings.DefaultPermission);
-                var conv = await Task.Run(() => _host.Store.Create(mode, "", modelId, workspace, permission));
+                // 呼叫专家：只认本机列表里员工可以呼叫的；专家对话一律是「办事」模式
+                var expert = _host.Experts.Get(OptStr("expertId"));
+                if (expert is { AllowDirect: true })
+                {
+                    mode = ConversationMode.Agent;
+                }
+                else
+                {
+                    expert = null;
+                }
+                var conv = await Task.Run(() => _host.Store.Create(mode, "", modelId, workspace, permission, expert?.Id));
                 return ConversationDto.From(conv);
             }
+
+            case "experts.list":
+                return _host.Experts.Callable.Select(ExpertDto.From).ToList();
 
             case "conversation.rename":
                 await Task.Run(() => _host.Store.Rename(Str("id"), Str("title")));

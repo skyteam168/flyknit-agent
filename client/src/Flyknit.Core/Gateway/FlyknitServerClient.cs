@@ -405,6 +405,15 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Mcp.McpVendor>>(cancellationToken: ct) ?? new();
     }
 
+    /// <summary>管理员发布的专家（发布时的快照）。</summary>
+    public async Task<List<Flyknit.Core.Experts.Expert>> GetExpertsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/experts");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Experts.Expert>>(cancellationToken: ct) ?? new();
+    }
+
     /// <summary>公司技能库列表。</summary>
     public async Task<List<ServerSkill>> GetSkillsAsync(CancellationToken ct)
     {

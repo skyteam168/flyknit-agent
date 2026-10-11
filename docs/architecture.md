@@ -414,6 +414,29 @@ skill-name/
 模型判断相关后调用 `load_skill` 读取正文和文件列表。技能超过 12 个时按与当前任务的相关度只列出前 N 个，
 其余通过 `search_skills` 工具按关键词检索，避免提示词被技能挤满。
 
+## 专家
+
+专家是一份**配置**，不是另一套引擎：员工端跑的还是同一个 `AgentLoop`，只是换上专家的工作方式和知识、按专家的限制筛一遍工具
+（和 Claude Code 的子 agent 定义同一个思路：不写 `tools` 就继承全部）。
+
+| 部分 | 位置 |
+| --- | --- |
+| 专家表（草稿 + 发布快照）、版本表、后台和员工端接口、AI 起草 | `server/app/models.py` `Expert` / `ExpertVersion`、`server/app/routers/experts.py`、`server/app/services/expert_registry.py` |
+| 后台页面 | `admin/src/views/Experts.vue`（配置 → 专家） |
+| 筛工具、压权限、提示词里的专家身份、本机缓存 | `client/src/Flyknit.Core/Experts/Expert.cs` |
+| 拉取同步、运行时接入 | `client/src/Flyknit.Client/Services/AgentHost.cs`（`SyncExpertsAsync`、`RunAsync`） |
+| 专家列表、专家首页、对话顶部标识 | `client/web/src/components/ExpertsPage.vue`、`Home.vue`、`App.vue` |
+
+- **草稿与发布**：`experts` 表里存的是草稿，发布时拍成快照写进 `published`，同时在 `expert_versions` 留一份；员工端接口只返回快照。
+  配置版本号（`config_events`）只在发布、下线、删除时变，员工端随即重新拉取。
+- **限制只做减法**：`disallowed_tools` 去掉指定工具；`mcp_servers` 非空时只保留这些连接器的工具（`McpTool.ServerId`），
+  提示词里的连接器说明也一起筛；`read_only` 把权限压到「仅可查看」并去掉 `write_file` / `delete_path`。
+  没写的全部沿用，以后新加的技能、连接器自动可用。`preferred_skills` 只是提示，不限制。
+- **提示词**：在权限说明之后加一段 `<专家身份>`（职责、工作方式、专家知识、优先技能），并写明安全规则和用户确认不受专家身份影响。
+- **对话**：`conversations.expert_id` 在创建时定下。专家对话固定是办事模式、不做自动复盘（点踩也不复盘），
+  业务数据不进员工的个人记忆。专家被下线时本机缓存随之删除，已有对话按普通助手继续，界面上提示。
+- 专家的 `allow_delegate`（可接受主智能体派遣）先存着，留给后面的多智能体派遣用。
+
 ## MCP 连接器
 
 照 Claude Code 的 MCP 设计做，但改成**管理员统一上架、员工点一下连接**（相当于 Claude Code 的 managed-mcp 独占模式）：

@@ -55,6 +55,9 @@ public sealed class AgentHost : IDisposable
 
     /// <summary>MCP 连接器。和技能（Skills / SkillManager）各管各的，只在工具注册表里相遇，且工具名带 mcp__ 前缀。</summary>
     public McpService Mcp { get; }
+
+    /// <summary>管理员发布的专家（本机缓存一份，没网也能打开专家对话）。</summary>
+    public Flyknit.Core.Experts.ExpertCatalog Experts { get; }
     public AuditQueue Audit { get; }
 
     /// <summary>上报服务端的同时，把拦截与放行记录存一份在本机（用量与安全面板用）。</summary>
@@ -289,6 +292,7 @@ public sealed class AgentHost : IDisposable
         RunFinished += Scheduler.OnRunFinished;
         Updater = new UpdateService(Server, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
         Mcp = new McpService(settings, Server, Tools, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
+        Experts = new Flyknit.Core.Experts.ExpertCatalog(Path.Combine(AppPaths.Root, "experts.json"));
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -351,6 +355,29 @@ public sealed class AgentHost : IDisposable
         }
     }
 
+    /// <summary>拉一次管理员发布的专家。失败就继续用本机缓存，下次刷新配置时再拉。</summary>
+    private async Task SyncExpertsAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var experts = await Server.GetExpertsAsync(cts.Token);
+            if (Experts.Replace(experts))
+            {
+                Log.Info($"专家列表已更新：{experts.Count} 位");
+            }
+        }
+        catch (GatewayException ex) when (ex.StatusCode == 404)
+        {
+            // 服务端还是没有专家功能的旧版本：当作没有专家
+            Experts.Replace(Array.Empty<Flyknit.Core.Experts.Expert>());
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"拉取专家列表失败：{ex.Message}");
+        }
+    }
+
     /// <summary>从服务端拉取策略与模型信息，失败时 1 分钟后重试，成功后每 10 分钟刷新。</summary>
     public async Task RefreshConfigAsync()
     {
@@ -397,6 +424,7 @@ public sealed class AgentHost : IDisposable
             _ = SkillManager.SyncRequiredAsync(CancellationToken.None);
             // MCP 连接器另走一条：下架的断开、改了配置的重连
             _ = Task.Run(Mcp.SyncAsync);
+            _ = Task.Run(SyncExpertsAsync);
         }
         catch (GatewayException ex) when (ex.StatusCode is 401 or 403)
         {
@@ -555,6 +583,16 @@ public sealed class AgentHost : IDisposable
             }
 
             var workspace = _settings.ResolveWorkspace(conv.Workspace);
+            // 专家对话：换上专家的工作方式和知识，按专家的限制筛工具、压权限。
+            // 专家被下线或删掉了，就按普通助手继续（界面上会提示）
+            var expert = conv.Mode == ConversationMode.Agent ? Experts.Get(conv.ExpertId) : null;
+            var permission = expert is null ? conv.Permission : Flyknit.Core.Experts.ExpertRuntime.CapPermission(expert, conv.Permission);
+            var modelId = conv.ModelId ?? expert?.ModelId;
+            var mcpServers = conv.Mode == ConversationMode.Agent ? Mcp.PromptInfo() : Array.Empty<McpPromptInfo>();
+            if (expert is not null)
+            {
+                mcpServers = Flyknit.Core.Experts.ExpertRuntime.FilterMcp(expert, mcpServers);
+            }
             var promptBuilder = new PromptBuilder(Memory, Skills, Episodes);
             var persona = PersonaForPrompt();
             var prompt = promptBuilder.Build(new PromptContext
@@ -567,11 +605,12 @@ public sealed class AgentHost : IDisposable
                 TranslateFrom = conv.TranslateFrom,
                 TranslateTo = conv.TranslateTo,
                 Workspace = workspace,
-                Permission = conv.Permission,
+                Permission = permission,
                 Sandboxed = Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 Query = text,
                 SemanticScores = conv.Mode == ConversationMode.Translate ? null : await SemanticScoresAsync(text, cts.Token),
-                McpServers = conv.Mode == ConversationMode.Agent ? Mcp.PromptInfo() : Array.Empty<McpPromptInfo>(),
+                McpServers = mcpServers,
+                Expert = expert,
             });
 
             var scene = conv.Mode switch
@@ -610,7 +649,7 @@ public sealed class AgentHost : IDisposable
             }
             else
             {
-                context = new ContextManager(Server, prompt, summary, _contextLength) { Scene = scene, ModelId = conv.ModelId, Plan = () => plan };
+                context = new ContextManager(Server, prompt, summary, _contextLength) { Scene = scene, ModelId = modelId, Plan = () => plan };
                 context.Progress += p => events.Post(new
                 {
                     type = "context.compacting",
@@ -640,7 +679,7 @@ public sealed class AgentHost : IDisposable
                 ConversationId = id,
                 UserRequest = text,
                 Workspace = workspace,
-                Permission = conv.Permission,
+                Permission = permission,
                 Memory = Memory,
                 Episodes = Episodes,
                 Skills = Skills,
@@ -665,8 +704,9 @@ public sealed class AgentHost : IDisposable
                 }
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
-            var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, conv.ModelId, context);
+            var tools = expert is null ? Tools : Flyknit.Core.Experts.ExpertRuntime.FilterTools(Tools, expert);
+            var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
+            var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
             var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
             if (observer.Outputs.Count > 0)
@@ -726,7 +766,9 @@ public sealed class AgentHost : IDisposable
 
             // 长期记忆：办事任务结束后在后台复盘，提炼偏好、经验和可复用的做法。
             // 被用户中途停止的任务同样复盘——用户喊停往往说明做错了方向，这是最该记下来的教训（只记教训，不记成功经验）。
-            if (_settings.EnableLearning && conv.Mode == ConversationMode.Agent && !LearningPolicy.From(Security).Nothing
+            // 专家对话不自动复盘：里面是业务系统的数据和专家的做法，不该变成员工的个人记忆
+            // （员工明说「记住」时照样能用 memory_write 记）
+            if (_settings.EnableLearning && conv.Mode == ConversationMode.Agent && conv.ExpertId is null && !LearningPolicy.From(Security).Nothing
                 && Reflector.ShouldReflect(result.NewMessages, 0))
             {
                 var previous = stored.Take(stored.Count - 1).LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
@@ -921,7 +963,8 @@ public sealed class AgentHost : IDisposable
             return;
         }
         Episodes.SetFeedback(conversationId, value.Value);
-        if (value.Value >= 0 || !_settings.EnableLearning || Store.Get(conversationId) is not { } conv)
+        // 专家对话不复盘，点踩也一样（理由见 RunAsync）
+        if (value.Value >= 0 || !_settings.EnableLearning || Store.Get(conversationId) is not { } conv || conv.ExpertId is not null)
         {
             return;
         }

@@ -25,7 +25,8 @@ public sealed record ConversationDto(
     int? ModelId,
     string? Workspace,
     string Permission,
-    string? SummaryUpto)
+    string? SummaryUpto,
+    string? ExpertId)
 {
     public static ConversationDto From(Conversation c) => new(
         c.Id,
@@ -42,7 +43,24 @@ public sealed record ConversationDto(
         c.ModelId,
         c.Workspace,
         Flyknit.Core.Security.PermissionModes.ToText(c.Permission),
-        c.SummaryUpto);
+        c.SummaryUpto,
+        c.ExpertId);
+}
+
+/// <summary>界面上显示的专家：卡片和对话顶部用。工作方式、专家知识这些只给模型看，不发给界面。</summary>
+public sealed record ExpertDto(
+    string Id,
+    string Name,
+    string Avatar,
+    string Tagline,
+    string Category,
+    string Description,
+    IReadOnlyList<string> Examples,
+    bool ReadOnly,
+    int Version)
+{
+    public static ExpertDto From(Flyknit.Core.Experts.Expert e) =>
+        new(e.Id, e.Name, e.Avatar, e.Tagline, e.Category, e.Description, e.Examples, e.ReadOnly, e.Version);
 }
 
 public sealed class AttachmentDto

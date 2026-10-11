@@ -58,6 +58,57 @@ export function createMockHost(): HostTransport {
   const messages = new Map<string, UiMessage[]>()
   const confirmWaiters = new Map<string, (choice: string) => void>()
   const stopped = new Set<string>()
+  // 专家：管理员发布的。?experts=none 看没有专家时的样子
+  const mockExperts =
+    new URLSearchParams(location.search).get('experts') === 'none'
+      ? []
+      : [
+          {
+            id: 'mes_analyst',
+            name: 'MES生产分析专家',
+            avatar: '🏭',
+            tagline: '生产数据查询、产量异常与设备停机分析',
+            category: '生产',
+            description: '负责：MES 生产数据查询、产量异常、工单进度、设备停机、产能分析\n适合：查生产订单、分析产量下降、分析停机原因\n不负责：财务、人事、修改 ERP 订单\n需要的信息：车间 / 产线、日期范围、订单号（可选）',
+            examples: ['昨天 A 车间产量为什么下降？', '本周 3 号线停机时间最长的设备是哪台？', '工单 WO-1001 现在到哪一步了？'],
+            readOnly: true,
+            version: 3,
+          },
+          {
+            id: 'it_ops',
+            name: 'IT 运维专家',
+            avatar: '🛠️',
+            tagline: '电脑、网络、打印机问题排查',
+            category: 'IT',
+            description: '负责：办公电脑、网络、打印机、常用软件的问题排查',
+            examples: ['打印机打不出来', '电脑突然很卡'],
+            readOnly: false,
+            version: 1,
+          },
+          {
+            id: 'report',
+            name: '报表助手',
+            avatar: '📊',
+            tagline: '把 Excel 数据整理成周报、月报',
+            category: '行政',
+            description: '',
+            examples: [],
+            readOnly: false,
+            version: 2,
+          },
+          {
+            id: 'quality',
+            name: '质检数据分析',
+            avatar: '',
+            tagline: '不良率趋势、批次追溯、8D 报告草稿',
+            category: '生产',
+            description: '',
+            examples: [],
+            readOnly: true,
+            version: 1,
+          },
+        ]
+
   // ?lang=vi-VN / en-US 看其它语言下的排版
   let language = new URLSearchParams(location.search).get('lang') || 'zh-CN'
 
@@ -1118,8 +1169,11 @@ export function createMockHost(): HostTransport {
           .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt))
           .map((c) => ({ ...c }))
       }
+      case 'experts.list':
+        return mockExperts.map((e) => ({ ...e }))
       case 'conversation.create': {
-        const c = makeConversation(p.mode)
+        const c = makeConversation(p.expertId ? 'agent' : p.mode)
+        c.expertId = mockExperts.some((e) => e.id === p.expertId) ? p.expertId : null
         c.modelId = p.modelId ?? null
         c.workspace = p.workspace ?? defaultWorkspace
         c.permission = p.permission ?? 'workspace'

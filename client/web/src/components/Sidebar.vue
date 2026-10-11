@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Hand,
   LibraryBig,
+  UsersRound,
   Languages,
   LoaderCircle,
   MessageSquare,
@@ -30,13 +31,16 @@ import {
 } from '@lucide/vue'
 import KnitMark from './KnitMark.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import ExpertAvatar from './ExpertAvatar.vue'
 import Popover from './Popover.vue'
 import { bridge } from '../bridge'
 import { openLibrary } from '../library'
 import {
   deleteConversation,
+  draftMode,
   newConversation,
   openConversation,
+  openExperts,
   purgeConversation,
   refreshList,
   renameConversation,
@@ -49,6 +53,9 @@ import type { Conversation, Mode } from '../types'
 
 const emit = defineEmits<{ navigate: [] }>()
 const { t } = useI18n()
+
+/** 专家对话在列表里用专家头像（专家下线了就回到模式图标） */
+const expertOf = (c: Conversation) => (c.expertId ? state.experts.find((e) => e.id === c.expertId) : undefined)
 
 const editingId = ref<string | null>(null)
 const editText = ref('')
@@ -196,13 +203,20 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-if="!state.showTrash">
-      <button class="new-task" type="button" :class="{ on: state.currentId === null && state.view === 'chat' }" @click="startNew">
+      <button class="new-task" type="button" :class="{ on: state.currentId === null && state.view === 'chat' && !draftMode.expertId }" @click="startNew">
         <Plus :size="18" />
         <span>{{ t('sidebar.newChat') }}</span>
         <kbd>Ctrl N</kbd>
       </button>
 
       <nav class="nav">
+        <button
+          type="button"
+          :class="{ on: state.view === 'experts' || (state.view === 'chat' && state.currentId === null && !!draftMode.expertId) }"
+          @click="(openExperts(), emit('navigate'))"
+        >
+          <UsersRound :size="17" /> {{ t('ui.nav.experts') }}
+        </button>
         <button type="button" :class="{ on: state.view === 'library' }" @click="(openLibrary(), emit('navigate'))">
           <LibraryBig :size="17" /> {{ t('ui.nav.library') }}
         </button>
@@ -233,6 +247,7 @@ onBeforeUnmount(() => {
           <span class="status" :class="runStatus(c.id)">
             <LoaderCircle v-if="runStatus(c.id) === 'running'" :size="15" class="spin" />
             <Hand v-else-if="runStatus(c.id) === 'waiting'" :size="15" />
+            <ExpertAvatar v-else-if="expertOf(c)" :avatar="expertOf(c)!.avatar" :name="expertOf(c)!.name" :id="expertOf(c)!.id" :size="17" />
             <component :is="modeIcon[c.mode]" v-else :size="15" />
           </span>
           <input

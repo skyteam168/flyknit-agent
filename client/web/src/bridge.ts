@@ -36,6 +36,7 @@ import type {
   AttachmentRef,
   ConfirmChoice,
   Conversation,
+  Expert,
   HostEvent,
   Mode,
   ModelInfo,
@@ -173,8 +174,9 @@ class Bridge {
   // ---------- 会话 ----------
   listConversations = (query = '', trash = false) =>
     this.call<Conversation[]>('conversations.list', { query, trash })
-  createConversation = (mode: Mode, modelId: number | null, workspace: string | null, permission: Permission) =>
-    this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission })
+  createConversation = (mode: Mode, modelId: number | null, workspace: string | null, permission: Permission, expertId: string | null = null) =>
+    this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission, expertId })
+  listExperts = () => this.call<Expert[]>('experts.list')
   setWorkspace = (id: string, path: string | null) => this.call<void>('conversation.setWorkspace', { id, path })
   setPermission = (id: string, permission: Permission) => this.call<void>('conversation.setPermission', { id, permission })
   setModel = (id: string, modelId: number | null) => this.call<void>('conversation.setModel', { id, modelId })

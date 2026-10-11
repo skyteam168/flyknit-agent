@@ -80,6 +80,9 @@ public sealed class PromptContext
 
     /// <summary>已连接的 MCP 连接器（办事模式才用得上）。</summary>
     public IReadOnlyList<McpPromptInfo> McpServers { get; init; } = Array.Empty<McpPromptInfo>();
+
+    /// <summary>这个对话呼叫的专家。为空是普通助手。</summary>
+    public Experts.Expert? Expert { get; init; }
 }
 
 /// <summary>提示词里要说的一个已连接的 MCP 服务。</summary>
@@ -175,6 +178,10 @@ public sealed class PromptBuilder
             }
             sb.AppendLine("当前权限：" + Security.PermissionModes.Describe(ctx.EffectivePermission, ctx.Workspace));
             sb.AppendLine();
+            if (ctx.Expert is not null)
+            {
+                sb.AppendLine(Experts.ExpertRuntime.BuildPromptSection(ctx.Expert));
+            }
         }
 
         sb.AppendLine(ChartAndDiagramGuide);
