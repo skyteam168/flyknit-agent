@@ -549,6 +549,26 @@ export async function newConversationIn(path: string) {
   window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
 }
 
+/** 资源管理器右键菜单发过来的请求 */
+async function handleShellRequest(e: Extract<HostEvent, { type: 'shell.request' }>) {
+  state.expertDetail = null
+  if (e.action === 'workspace') {
+    if (!e.path) return
+    await loadWorkspaces()
+    await newConversationIn(e.path)
+    return
+  }
+  const files = e.attachments ?? []
+  if (files.length === 0) return
+  newConversation('agent')
+  state.pending = files
+  if (e.action === 'summarize' || e.action === 'translate') {
+    // 填好一句话，员工看一眼再发，也可以改
+    state.composerFill = i18n.global.t(`ui.shell.${e.action}`, files.length)
+  }
+  window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+}
+
 /** 把对话挪到另一个工作区（侧栏里拖过去） */
 export async function moveToWorkspace(id: string, path: string) {
   const c = state.conversations.find((x) => x.id === id)
@@ -994,6 +1014,9 @@ function onHostEvent(e: HostEvent) {
       newConversation()
       state.pending = [e.attachment]
       window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+      break
+    case 'shell.request':
+      void handleShellRequest(e)
       break
     case 'update.state':
       state.update = { stage: e.stage, version: e.version, notes: e.notes, progress: e.progress, message: e.message }

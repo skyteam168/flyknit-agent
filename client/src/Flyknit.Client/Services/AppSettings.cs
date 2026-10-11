@@ -128,6 +128,9 @@ public sealed class AppSettings
     /// <summary>登录 Windows 后自动启动。实际开关写在注册表的 Run 项里，这里只记用户的选择。</summary>
     public bool AutoStart { get; set; }
 
+    /// <summary>在资源管理器的右键菜单里显示 FlyknitBuddy（默认显示）。</summary>
+    public bool ExplorerMenu { get; set; } = true;
+
     /// <summary>锁屏运行：off / tasks（默认，只在有任务时挡住睡眠）/ awake / screen，见 KeepAwake。</summary>
     public string KeepAwakeMode { get; set; } = Flyknit.Core.Settings.KeepAwake.Tasks;
 

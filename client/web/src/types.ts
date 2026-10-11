@@ -604,6 +604,8 @@ export interface AppInfo {
   soundLocked?: boolean
   fontScale: number
   autoStart: boolean
+  /** 资源管理器右键菜单里的 FlyknitBuddy */
+  explorerMenu?: boolean
   /** 锁屏运行：off / tasks / awake / screen */
   keepAwake: KeepAwakeMode
   /** IT 允不允许阻止睡眠、允不允许屏幕常亮 */
@@ -739,6 +741,8 @@ export type HostEvent =
   | { type: 'conversation.updated'; conversation: Conversation }
   | { type: 'files.added'; attachments: AttachmentRef[] }
   | { type: 'screenshot.taken'; attachment: AttachmentRef }
+  /** 资源管理器右键菜单：文件发过来提问 / 总结 / 翻译，或者在某个文件夹里办事 */
+  | { type: 'shell.request'; action: 'ask' | 'summarize' | 'translate' | 'workspace'; attachments?: AttachmentRef[]; path?: string }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
       Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed'>

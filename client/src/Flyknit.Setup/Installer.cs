@@ -249,6 +249,48 @@ public sealed class Installer(Action<string> say)
 
     // ---------- 卸载 ----------
 
+    /// <summary>员工端在各用户的 HKCU 里写的资源管理器右键菜单（见 Flyknit.Core.Setup.ExplorerMenu）。</summary>
+    internal static readonly string[] ExplorerMenuKeys =
+    {
+        @"Software\Classes\*\shell\FlyknitBuddy",
+        @"Software\Classes\Directory\shell\FlyknitBuddy",
+        @"Software\Classes\Directory\Background\shell\FlyknitBuddy",
+    };
+
+    /// <summary>
+    /// 卸载时把右键菜单一起删掉，不然资源管理器里会留着点了没反应的菜单。
+    /// 卸载程序以管理员身份运行，HKCU 未必是员工自己的，所以遍历 HKEY_USERS 里已加载的每个用户都删一遍
+    /// （没登录的用户下次启动员工端前菜单还在，点了提示找不到程序，影响不大）。
+    /// </summary>
+    private void RemoveExplorerMenus()
+    {
+        try
+        {
+            foreach (var sid in Registry.Users.GetSubKeyNames())
+            {
+                if (sid.EndsWith("_Classes", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                foreach (var key in ExplorerMenuKeys)
+                {
+                    try
+                    {
+                        Registry.Users.DeleteSubKeyTree($@"{sid}\{key}", throwOnMissingSubKey: false);
+                    }
+                    catch (Exception)
+                    {
+                        // 别的用户的配置单元没权限就算了
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            say($"清理右键菜单失败：{ex.Message}");
+        }
+    }
+
     public void Uninstall()
     {
         say("正在关闭 FlyknitBuddy…");
@@ -269,6 +311,7 @@ public sealed class Installer(Action<string> say)
         TryDeleteFile(Path.Combine(DataDir, "client-update.json"));
         TryDeleteFile(StartMenuLink);
         TryDeleteFile(DesktopLink);
+        RemoveExplorerMenus();
         try
         {
             RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64).DeleteSubKeyTree(UninstallKey, throwOnMissingSubKey: false);

@@ -198,6 +198,8 @@ const zh = {
     startup: '启动',
     autoStart: '开机自启',
     autoStartHint: '开启后 FlyknitBuddy 会在你登录电脑后自动启动，只显示悬浮球，不打断你。',
+    explorerMenu: '资源管理器右键菜单',
+    explorerMenuHint: '在文件上点右键可以「发给 FlyknitBuddy 提问 / 总结 / 翻译」，在文件夹上可以「在这里用 FlyknitBuddy 办事」。Windows 11 在「显示更多选项」里。',
     keepAwake: '允许锁屏运行',
     keepAwakeNote: '锁屏不会让任务停下，电脑睡眠才会。合盖、手动选“睡眠”仍会睡；锁屏后截图、点击这类界面操作做不了，命令和文件操作不受影响。',
     keepAwakeModes: {
@@ -459,6 +461,10 @@ const zh = {
     askPlaceholder: "询问关于此文件的问题",
   },
   ui: {
+    shell: {
+      summarize: '总结一下这份文件的要点 | 总结一下这些文件的要点，最后合在一起说说它们的关系',
+      translate: '把这份文件翻译成中文，保持原来的格式，另存一份 | 把这些文件翻译成中文，保持原来的格式，各另存一份',
+    },
     experts: {
       title: '专家',
       subtitle: '公司为不同业务准备的 AI 专家。选一位，直接说你要做什么。',
@@ -1272,6 +1278,8 @@ const vi: Messages = {
     startup: 'Khởi động',
     autoStart: 'Tự khởi động cùng máy',
     autoStartHint: 'Bật thì FlyknitBuddy tự chạy sau khi bạn đăng nhập, chỉ hiện quả bóng nổi.',
+    explorerMenu: 'Menu chuột phải trong File Explorer',
+    explorerMenuHint: 'Nhấp chuột phải vào tệp để hỏi / tóm tắt / dịch bằng FlyknitBuddy, vào thư mục để làm việc ở đó. Windows 11: trong «Show more options».',
     keepAwake: 'Cho phép chạy khi khóa màn hình',
     keepAwakeNote: 'Khóa màn hình không làm dừng công việc, máy ngủ mới làm dừng. Gập nắp hoặc tự chọn “Ngủ” thì máy vẫn ngủ; khi khóa màn hình, các thao tác giao diện như chụp màn hình, bấm chuột không làm được, lệnh và thao tác tệp vẫn bình thường.',
     keepAwakeModes: {
@@ -1533,6 +1541,10 @@ const vi: Messages = {
     askPlaceholder: "Hỏi về tệp này",
   },
   ui: {
+    shell: {
+      summarize: 'Tóm tắt các ý chính của tệp này | Tóm tắt các ý chính của những tệp này, cuối cùng nói mối liên hệ giữa chúng',
+      translate: 'Dịch tệp này sang tiếng Việt, giữ nguyên định dạng, lưu thành bản mới | Dịch những tệp này sang tiếng Việt, giữ nguyên định dạng, mỗi tệp lưu thành bản mới',
+    },
     experts: {
       title: 'Chuyên gia',
       subtitle: 'Các chuyên gia AI công ty chuẩn bị cho từng nghiệp vụ. Chọn một người và nói thẳng việc bạn cần.',
@@ -2351,6 +2363,8 @@ const en: Messages = {
     startup: 'Startup',
     autoStart: 'Start with Windows',
     autoStartHint: 'FlyknitBuddy starts after you sign in, showing only the floating ball.',
+    explorerMenu: 'File Explorer right-click menu',
+    explorerMenuHint: 'Right-click a file to ask, summarize or translate it with FlyknitBuddy, or a folder to work there. On Windows 11 it is under "Show more options".',
     keepAwake: 'Keep running while locked',
     keepAwakeNote: 'Locking the screen does not stop tasks; sleep does. Closing the lid or choosing Sleep still puts the PC to sleep. While locked, screen actions such as screenshots and clicks cannot work; commands and file operations are unaffected.',
     keepAwakeModes: {
@@ -2612,6 +2626,10 @@ const en: Messages = {
     askPlaceholder: "Ask a question about this file",
   },
   ui: {
+    shell: {
+      summarize: 'Summarize the key points of this file | Summarize the key points of these files, then explain how they relate',
+      translate: 'Translate this file into English, keep the original formatting, and save it as a new copy | Translate these files into English, keep the original formatting, and save each as a new copy',
+    },
     experts: {
       title: 'Experts',
       subtitle: 'AI experts your company set up for specific work. Pick one and say what you need.',

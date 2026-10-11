@@ -61,7 +61,8 @@ public partial class App : Application
         _mutex = new Mutex(true, MutexName, out var isFirst);
         if (!isFirst)
         {
-            await NotifyExistingInstanceAsync();
+            // 资源管理器右键菜单起的新进程：把参数交给已经在运行的那个，自己退出
+            await NotifyExistingInstanceAsync(e.Args);
             Shutdown();
             return;
         }
@@ -107,7 +108,10 @@ public partial class App : Application
             NativeStrings.Language = lang;
             BuildTrayMenu();
             _ball?.RefreshText();
+            ExplorerMenuRegistration.Apply(_settings.ExplorerMenu, lang);
         };
+        // 资源管理器右键菜单：按现在的程序路径和界面语言重写（装到别处、换了语言都跟着变）
+        _ = Task.Run(() => ExplorerMenuRegistration.Apply(_settings.ExplorerMenu, _settings.ResolveUiLanguage()));
 
         _ball = new FloatingBall(_settings);
         _ball.Clicked += () => _main.Toggle();
@@ -181,6 +185,11 @@ public partial class App : Application
         if (!e.Args.Contains("--silent"))
         {
             _main.ShowAndFocus();
+        }
+        // 程序没在运行时从右键菜单点进来：启动完再处理那个文件
+        if (Flyknit.Core.Setup.ShellRequest.Parse(e.Args) is { } request)
+        {
+            QueueShellRequest(request);
         }
     }
 
@@ -274,9 +283,11 @@ public partial class App : Application
                 }
             }),
         };
+        list.Add(null);
+        // 划词翻译：选中别的程序里的字，再右键悬浮球点这一项（悬浮球不抢焦点，选中的字还在）
+        list.Add(new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.translate"), () => _ = TranslateFromBallAsync(), HotkeyText("selection.translate")));
         if (_host?.Security.On(Flyknit.Core.Security.SecuritySettings.ScreenshotAsk) != false)
         {
-            list.Add(null);
             list.Add(new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.screenshot"), () => _ = AskWithScreenshotAsync(), HotkeyText("screenshot.ask")));
         }
         list.Add(null);
@@ -285,6 +296,22 @@ public partial class App : Application
         list.Add(new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.disable"), DisableBall));
         return list;
     }
+
+    /// <summary>
+    /// 从悬浮球菜单划词翻译：把焦点还给右键之前的那个程序（菜单弹出时焦点可能被抢走），再去取选中的字。
+    /// </summary>
+    private async Task TranslateFromBallAsync()
+    {
+        if (_ball?.LastForeground is { } target && target != IntPtr.Zero)
+        {
+            SetForegroundWindow(target);
+            await Task.Delay(150);
+        }
+        await TranslateSelectionAsync();
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     private string HotkeyText(string commandId)
     {
@@ -302,6 +329,56 @@ public partial class App : Application
         _ball?.Hide();
         BuildTrayMenu();
         _tray?.ShowBalloonTip(4000, "FlyknitBuddy", NativeStrings.T("ball.disabled"), System.Windows.Forms.ToolTipIcon.Info);
+    }
+
+    // ---------- 资源管理器右键菜单 ----------
+
+    private readonly Flyknit.Core.Setup.ShellRequestBatcher _shellBatch = new();
+    private System.Windows.Threading.DispatcherTimer? _shellTimer;
+
+    /// <summary>
+    /// 多选文件时每个文件各来一次：等 0.6 秒没有新的再一起处理，几个文件进同一个对话。
+    /// 界面还没加载好（刚被右键菜单拉起来）就接着等。
+    /// </summary>
+    private void QueueShellRequest(Flyknit.Core.Setup.ShellRequest request)
+    {
+        _shellBatch.Add(request);
+        _shellTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        _shellTimer.Stop();
+        _shellTimer.Tick -= OnShellTimer;
+        _shellTimer.Tick += OnShellTimer;
+        _shellTimer.Start();
+    }
+
+    private void OnShellTimer(object? sender, EventArgs e)
+    {
+        if (_main?.Bridge is not { UiReady: true } bridge)
+        {
+            return; // 界面还没好，下一次再看
+        }
+        _shellTimer?.Stop();
+        _main.ShowAndFocus();
+        foreach (var (action, paths) in _shellBatch.Drain())
+        {
+            if (action == Flyknit.Core.Setup.ShellAction.Workspace)
+            {
+                var folder = paths[0];
+                if (!Directory.Exists(folder))
+                {
+                    continue;
+                }
+                var full = AppSettings.NormalizeDir(folder);
+                _settings.AddWorkspace(full);
+                _settings.Save();
+                bridge.Post(new { type = "shell.request", action = "workspace", path = full });
+                continue;
+            }
+            var attachments = paths.Where(File.Exists).Select(AttachmentDto.FromPath).ToList();
+            if (attachments.Count > 0)
+            {
+                bridge.Post(new { type = "shell.request", action = action.ToString().ToLowerInvariant(), attachments });
+            }
+        }
     }
 
     // ---------- 截图提问 ----------
@@ -761,7 +838,30 @@ public partial class App : Application
                 {
                     await using var server = new NamedPipeServerStream(PipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                     await server.WaitForConnectionAsync(token);
-                    await Dispatcher.InvokeAsync(() => _main?.ShowAndFocus());
+                    // 新进程把自己的命令行参数（JSON 数组）写过来；普通双击没有参数，就是把窗口拿出来
+                    using var reader = new StreamReader(server);
+                    var payload = await reader.ReadToEndAsync(token);
+                    string[] args;
+                    try
+                    {
+                        args = payload.Length > 0 ? System.Text.Json.JsonSerializer.Deserialize<string[]>(payload) ?? Array.Empty<string>() : Array.Empty<string>();
+                    }
+                    catch (System.Text.Json.JsonException)
+                    {
+                        args = Array.Empty<string>();
+                    }
+                    var request = Flyknit.Core.Setup.ShellRequest.Parse(args);
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (request is not null)
+                        {
+                            QueueShellRequest(request);
+                        }
+                        else
+                        {
+                            _main?.ShowAndFocus();
+                        }
+                    });
                 }
                 catch (OperationCanceledException)
                 {
@@ -776,12 +876,15 @@ public partial class App : Application
         });
     }
 
-    private static async Task NotifyExistingInstanceAsync()
+    private static async Task NotifyExistingInstanceAsync(string[] args)
     {
         try
         {
             await using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
-            await client.ConnectAsync(2000);
+            // 多选文件时资源管理器同时起好几个进程，管道一次只接一个：多等一会儿
+            await client.ConnectAsync(5000);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(args));
+            await client.WriteAsync(bytes);
         }
         catch (Exception ex)
         {

@@ -241,6 +241,7 @@ class Bridge {
     this.call<{ ok: boolean; message: string; sound: string }>('settings.setNotificationSound', { sound })
   previewSound = (sound: string) => this.call<void>('settings.previewSound', { sound })
   setAutoStart = (enabled: boolean) => this.call<{ ok: boolean; message: string; enabled: boolean }>('settings.setAutoStart', { enabled })
+  setExplorerMenu = (enabled: boolean) => this.call<void>('settings.setExplorerMenu', { enabled })
   setKeepAwake = (mode: KeepAwakeMode) => this.call<{ ok: boolean; message: string; mode: KeepAwakeMode }>('settings.setKeepAwake', { mode })
   getPersona = () => this.call<PersonaInfo>('persona.get')
   setPersona = (update: PersonaUpdate) =>
