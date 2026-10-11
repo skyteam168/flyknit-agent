@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BrandLoader from './BrandLoader.vue'
 import {
   Check,
   ChevronDown,
@@ -377,7 +378,8 @@ const emptyText = computed(() => {
         </div>
 
         <template v-else>
-          <p v-if="!lib.loading && lib.items.length === 0" class="empty">
+          <BrandLoader v-if="lib.loading && lib.items.length === 0" class="loader" :text="t('ui.skills.loading').replace(/[.…]+$/, '')" />
+          <p v-else-if="!lib.loading && lib.items.length === 0" class="empty">
             <FolderOpen :size="34" />
             <span>{{ emptyText }}</span>
             <small v-if="!inTrash && !lib.search">{{ t('library.dropHint') }}</small>

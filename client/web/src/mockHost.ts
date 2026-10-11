@@ -632,7 +632,11 @@ export function createMockHost(): HostTransport {
     }
   }
 
+  // 开发时看骨架屏：地址里加 ?slow=毫秒，列表和对话内容晚一点才返回
+  const slow = Number(new URLSearchParams(location.search).get('slow') ?? 0)
+  const slowMethods = new Set(['skills.list', 'mcp.list', 'experts.list', 'messages.load'])
   const handle = async (method: string, p: Record<string, any>, files: File[]): Promise<unknown> => {
+    if (slow > 0 && slowMethods.has(method)) await sleep(slow)
     switch (method) {
       case 'app.init':
         return {

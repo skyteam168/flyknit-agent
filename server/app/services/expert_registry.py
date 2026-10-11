@@ -250,16 +250,24 @@ async def draft(session: AsyncSession, http: httpx.AsyncClient, text: str) -> di
         mcp=_listing(opts["mcp"], "（还没有接入任何外部系统）"),
         tools=_listing(opts["tools"], ""),
     )
+    return clean_draft(await ask_json(session, http, prompt, text), opts)
+
+
+async def ask_json(session: AsyncSession, http: httpx.AsyncClient, system: str, user: str, max_tokens: int | None = None) -> dict:
+    """用「办事」场景的模型回答一次，取出回答里的 JSON 对象。按路由顺序，前一个不可用就换下一个。"""
     try:
         targets = await model_router.resolve(session, "agent")
     except model_router.NoRouteError as exc:
         raise DraftError("还没有配置「办事」场景的模型，没法让 AI 起草。请先在模型路由里配置") from exc
-    messages = [{"role": "system", "content": prompt}, {"role": "user", "content": text}]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    payload: dict = {"messages": messages, "temperature": 0.3, "stream": False}
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
     last_error = ""
     for target in targets:
-        body = model_router.build_body({"messages": messages, "temperature": 0.3, "stream": False}, target)
+        body = model_router.build_body(payload, target)
         try:
-            resp = await http.post(target.url, json=body, headers=model_router.headers_for(target), timeout=120)
+            resp = await http.post(target.url, json=body, headers=model_router.headers_for(target), timeout=180)
         except httpx.HTTPError as exc:
             last_error = f"连不上模型服务：{exc}"
             continue
@@ -272,5 +280,5 @@ async def draft(session: AsyncSession, http: httpx.AsyncClient, text: str) -> di
             content = resp.json()["choices"][0]["message"]["content"] or ""
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise DraftError("模型返回的内容看不懂，请再试一次") from exc
-        return clean_draft(parse_json(content), opts)
+        return parse_json(content)
     raise DraftError(last_error or "没有可用的模型")

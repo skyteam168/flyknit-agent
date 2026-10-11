@@ -390,6 +390,52 @@ class SkillPatch(BaseModel):
     enabled: bool | None = None
 
 
+class SkillFileIn(BaseModel):
+    path: str = Field(min_length=1, max_length=200)
+    content: str = ""
+
+
+class SkillSourceIn(BaseModel):
+    """后台编写的技能：SKILL.md 和其他文本文件。不能编辑的文件（图片等）保存时原样保留，除非列在 remove 里。"""
+
+    skill_md: str = Field(min_length=1, max_length=256 * 1024)
+    files: list[SkillFileIn] = Field(default_factory=list, max_length=50)
+    remove: list[str] = Field(default_factory=list)
+    required: bool | None = None
+
+
+class SkillCreateIn(SkillSourceIn):
+    name: str = Field(min_length=2, max_length=64)
+    #: 后台手写 / AI 生成，记在来源里
+    origin: str = Field(default="后台编写", max_length=100)
+
+
+class SkillSourceFile(BaseModel):
+    path: str
+    content: str | None = None
+    binary: bool = False
+    size: int = 0
+
+
+class SkillSourceOut(BaseModel):
+    name: str
+    skill_md: str
+    files: list[SkillSourceFile] = []
+
+
+class SkillDraftIn(BaseModel):
+    text: str = Field(min_length=2, max_length=4000)
+    #: 在已有技能上按描述修改
+    name: str | None = None
+
+
+class SkillDraftOut(BaseModel):
+    name: str
+    skill_md: str
+    files: list[SkillFileIn] = []
+    notes: list[str] = []
+
+
 class SkillImportResult(BaseModel):
     imported: list[str] = []
     skipped: list[str] = []

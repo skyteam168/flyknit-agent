@@ -31,6 +31,8 @@ import type {
 interface ConversationState {
   messages: UiMessage[]
   loaded: boolean
+  /** 打开对话时消息没加载出来的原因（界面上显示重试） */
+  loadError?: string
   busy: boolean
   /** 正在流式输出的回答 */
   draft: { content: string; reasoning: string } | null
@@ -57,6 +59,10 @@ export const state = reactive({
   view: 'chat' as 'chat' | 'library' | 'experts',
   /** 管理员发布的专家 */
   experts: [] as Expert[],
+  /** 第一次加载完没有：没加载完显示骨架屏，加载完是空的才显示「没有」 */
+  loaded: { experts: false, skills: false, mcp: false },
+  /** 专家列表加载失败的原因（列表页显示「重试」） */
+  expertsError: '',
   /** 正在看详情的专家 */
   expertDetail: null as Expert | null,
   /** 要放进输入框的文字（Composer 接走后清空），例如专家详情里点的示例问题 */
@@ -366,14 +372,20 @@ export async function loadMcp(refresh = false, quiet = false) {
     state.mcp = await bridge.listMcp(refresh)
   } catch (e) {
     if (!quiet) fail(e)
+  } finally {
+    state.loaded.mcp = true
   }
 }
 
 export async function loadExperts() {
   try {
     state.experts = await bridge.listExperts()
-  } catch {
-    state.experts = []
+    state.expertsError = ''
+  } catch (e) {
+    // 已经有列表时保留旧的，只有第一次加载失败才显示错误
+    if (state.experts.length === 0) state.expertsError = e instanceof Error ? e.message : String(e)
+  } finally {
+    state.loaded.experts = true
   }
 }
 
@@ -404,8 +416,10 @@ export const expertWithdrawn = computed(() => !!current.value?.expertId && curre
 export async function loadSkills() {
   try {
     state.skills = await bridge.listSkills()
-  } catch {
-    state.skills = []
+  } catch (e) {
+    if (state.skills.length === 0) fail(e)
+  } finally {
+    state.loaded.skills = true
   }
 }
 
@@ -483,6 +497,7 @@ export async function openConversation(id: string) {
   state.currentId = id
   const s = convState(id)
   if (!s.loaded) {
+    s.loadError = ''
     try {
       const messages = await bridge.loadMessages(id)
       s.messages = messages
@@ -491,7 +506,7 @@ export async function openConversation(id: string) {
       // 任务计划跟着对话保存，重新打开时还能看到做到哪一步
       if (!s.plan.length) s.plan = await bridge.loadPlan(id).catch(() => [])
     } catch (e) {
-      fail(e)
+      s.loadError = e instanceof Error ? e.message : String(e)
     }
   }
 }

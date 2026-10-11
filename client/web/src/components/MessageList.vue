@@ -5,7 +5,7 @@ import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, Copy, C
 import { bridge } from '../bridge'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
-import { current, currentState, editAndResend, openTrace, regenerate, setFeedback, state } from '../store'
+import { current, currentState, editAndResend, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 import OutputFiles from './OutputFiles.vue'
@@ -211,7 +211,26 @@ const isImage = (mime: string) => mime.startsWith('image/')
 
 <template>
   <div ref="scroller" class="scroller" @scroll="onScroll">
-    <div v-if="s" class="column" @click="onContentClick">
+    <!-- 打开旧对话、消息还没读出来：先画出对话的样子，避免一片白 -->
+    <div v-if="s && !s.loaded && s.messages.length === 0" class="column" aria-busy="true">
+      <div v-if="s.loadError" class="load-error">
+        <OctagonAlert :size="18" />
+        <p>{{ t('ui.chat.loadFailed', { msg: s.loadError }) }}</p>
+        <button type="button" class="btn" @click="current && openConversation(current.id)">{{ t('ui.common.retry') }}</button>
+      </div>
+      <div v-else class="skel-chat" aria-hidden="true">
+        <template v-for="i in 2" :key="i">
+          <div class="skel-user"><span class="skel" :style="{ width: i === 1 ? '46%' : '32%', height: '40px', borderRadius: '14px' }" /></div>
+          <div class="skel-assistant">
+            <span class="skel line lg" style="width: 92%" />
+            <span class="skel line lg" style="width: 86%" />
+            <span class="skel line lg" style="width: 64%" />
+            <span v-if="i === 1" class="skel" style="width: 58%; height: 54px; border-radius: 10px" />
+          </div>
+        </template>
+      </div>
+    </div>
+    <div v-else-if="s" class="column" @click="onContentClick">
       <template v-for="(m, i) in visible" :key="m.id">
         <!-- 用户消息 -->
         <div v-if="m.role === 'user'" class="user" :class="{ editing: editingId === m.id }">
@@ -463,6 +482,33 @@ const isImage = (mime: string) => mime.startsWith('image/')
   max-width: var(--column);
   margin: 0 auto;
   padding: 28px 32px 40px;
+}
+.skel-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.skel-user {
+  display: flex;
+  justify-content: flex-end;
+  margin: 8px 0 6px;
+}
+.skel-assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 60px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.load-error p {
+  margin: 0;
 }
 .user {
   display: flex;

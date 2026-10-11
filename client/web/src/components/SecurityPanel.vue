@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BrandLoader from './BrandLoader.vue'
 import { ChevronRight, Download, FolderOpen, Globe, Lock, Trash2, TriangleAlert } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { toast } from '../store'
@@ -127,7 +128,7 @@ onMounted(load)
       </span>
     </header>
 
-    <p v-if="loading" class="empty">{{ t('ui.security.loading') }}</p>
+    <BrandLoader v-if="loading" class="loader" :text="t('ui.security.loading').replace(/[.…]+$/, '')" />
     <p v-else-if="items.length === 0" class="empty">{{ t('ui.security.unavailable') }}</p>
 
     <section v-for="g in grouped" :key="g.id" class="card">

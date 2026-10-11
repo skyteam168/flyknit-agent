@@ -2,10 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadRequestOptions } from 'element-plus'
-import { Delete, Link, Refresh, Search, UploadFilled } from '@element-plus/icons-vue'
+import { Delete, Edit, Link, MagicStick, Refresh, Search, UploadFilled } from '@element-plus/icons-vue'
 import { api } from '@/api'
 import type { Skill } from '@/api/types'
 import { bytes, dateTime } from '@/utils/format'
+import SkillEditor from '@/components/SkillEditor.vue'
 
 const skills = ref<Skill[]>([])
 const loading = ref(false)
@@ -70,6 +71,14 @@ async function upload(opts: UploadRequestOptions) {
   }
 }
 
+// ---------- 编写 ----------
+const editorOpen = ref(false)
+const editing = ref<string | null>(null)
+function openEditor(name: string | null) {
+  editing.value = name
+  editorOpen.value = true
+}
+
 async function patch(s: Skill, key: 'required' | 'enabled') {
   try {
     await api.updateSkill(s.name, { [key]: s[key] })
@@ -93,12 +102,13 @@ async function remove(s: Skill) {
     <div class="page-head">
       <div>
         <h1>技能库</h1>
-        <p>集中管理员工端可用的技能包。「必装」的技能会自动下发到每台电脑，其余的员工可以在技能市场里自行安装。</p>
+        <p>集中管理员工端可用的技能包：可以自己写、让 AI 按描述写，也可以从 GitHub 导入。「必装」的技能会自动下发到每台电脑，其余的员工可以在技能市场里自行安装。</p>
       </div>
       <div class="toolbar">
         <el-input v-model="keyword" :prefix-icon="Search" placeholder="搜索技能" clearable style="width: 200px" />
         <el-button :icon="Refresh" :loading="loading" @click="load" />
-        <el-button type="primary" :icon="UploadFilled" @click="openImport">导入技能</el-button>
+        <el-button :icon="UploadFilled" @click="openImport">导入技能</el-button>
+        <el-button type="primary" :icon="MagicStick" @click="openEditor(null)">新建技能</el-button>
       </div>
     </div>
 
@@ -106,7 +116,7 @@ async function remove(s: Skill) {
       <div class="panel-title">
         <h3>全部技能 <small>共 {{ skills.length }} 个，其中 {{ requiredCount }} 个必装</small></h3>
       </div>
-      <el-table :data="filtered" v-loading="loading" empty-text="技能库是空的，点右上角「导入技能」">
+      <el-table :data="filtered" v-loading="loading" empty-text="技能库是空的：点右上角「新建技能」自己写或让 AI 写，也可以「导入技能」">
         <el-table-column label="技能" min-width="260">
           <template #default="{ row }">
             <div class="skill">
@@ -121,7 +131,7 @@ async function remove(s: Skill) {
         <el-table-column label="来源" min-width="180" show-overflow-tooltip>
           <template #default="{ row }"><span class="muted">{{ row.origin || '—' }}</span></template>
         </el-table-column>
-        <el-table-column label="大小" width="110" align="right">
+        <el-table-column label="大小" width="150" align="right">
           <template #default="{ row }">{{ bytes(row.size) }} · {{ row.file_count }} 个文件</template>
         </el-table-column>
         <el-table-column label="更新时间" width="150">
@@ -133,13 +143,16 @@ async function remove(s: Skill) {
         <el-table-column label="上架" width="80" align="center">
           <template #default="{ row }"><el-switch v-model="row.enabled" @change="patch(row as Skill, 'enabled')" /></template>
         </el-table-column>
-        <el-table-column width="80" align="right">
+        <el-table-column width="140" align="right">
           <template #default="{ row }">
+            <el-button link type="primary" :icon="Edit" @click="openEditor(row.name)">编辑</el-button>
             <el-button link type="danger" :icon="Delete" @click="remove(row as Skill)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
     </div>
+
+    <SkillEditor v-model="editorOpen" :name="editing" @saved="load" />
 
     <el-dialog v-model="importDialog" title="导入技能" width="560px">
       <el-segmented

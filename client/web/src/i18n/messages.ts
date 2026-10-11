@@ -461,12 +461,15 @@ const zh = {
     askPlaceholder: "询问关于此文件的问题",
   },
   ui: {
+    common: { retry: '重试' },
+    chat: { loadFailed: '这个对话的内容没读出来：{msg}' },
     shell: {
       summarize: '总结一下这份文件的要点 | 总结一下这些文件的要点，最后合在一起说说它们的关系',
       translate: '把这份文件翻译成中文，保持原来的格式，另存一份 | 把这些文件翻译成中文，保持原来的格式，各另存一份',
     },
     experts: {
       title: '专家',
+      loadFailed: '专家列表没加载出来：{msg}',
       subtitle: '公司为不同业务准备的 AI 专家。选一位，直接说你要做什么。',
       search: '搜索专家',
       all: '全部',
@@ -1541,12 +1544,15 @@ const vi: Messages = {
     askPlaceholder: "Hỏi về tệp này",
   },
   ui: {
+    common: { retry: 'Thử lại' },
+    chat: { loadFailed: 'Không đọc được nội dung cuộc trò chuyện: {msg}' },
     shell: {
       summarize: 'Tóm tắt các ý chính của tệp này | Tóm tắt các ý chính của những tệp này, cuối cùng nói mối liên hệ giữa chúng',
       translate: 'Dịch tệp này sang tiếng Việt, giữ nguyên định dạng, lưu thành bản mới | Dịch những tệp này sang tiếng Việt, giữ nguyên định dạng, mỗi tệp lưu thành bản mới',
     },
     experts: {
       title: 'Chuyên gia',
+      loadFailed: 'Không tải được danh sách chuyên gia: {msg}',
       subtitle: 'Các chuyên gia AI công ty chuẩn bị cho từng nghiệp vụ. Chọn một người và nói thẳng việc bạn cần.',
       search: 'Tìm chuyên gia',
       all: 'Tất cả',
@@ -2626,12 +2632,15 @@ const en: Messages = {
     askPlaceholder: "Ask a question about this file",
   },
   ui: {
+    common: { retry: 'Retry' },
+    chat: { loadFailed: "Couldn't load this conversation: {msg}" },
     shell: {
       summarize: 'Summarize the key points of this file | Summarize the key points of these files, then explain how they relate',
       translate: 'Translate this file into English, keep the original formatting, and save it as a new copy | Translate these files into English, keep the original formatting, and save each as a new copy',
     },
     experts: {
       title: 'Experts',
+      loadFailed: "Couldn't load the experts: {msg}",
       subtitle: 'AI experts your company set up for specific work. Pick one and say what you need.',
       search: 'Search experts',
       all: 'All',

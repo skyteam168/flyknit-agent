@@ -51,15 +51,20 @@ from ..schemas import (
     DeviceUsageOut,
     QuotaIn,
     QuotaOut,
+    SkillCreateIn,
+    SkillDraftIn,
+    SkillDraftOut,
     SkillImportIn,
     SkillImportResult,
     SkillOut,
     SkillPatch,
+    SkillSourceIn,
+    SkillSourceOut,
     SmbIn,
     SmbOut,
     SyncResult,
 )
-from ..services import config_events, device_identity, legal_store, security_settings, settings_store, skill_library, usage_store
+from ..services import config_events, device_identity, expert_registry, legal_store, security_settings, settings_store, skill_author, skill_library, usage_store
 from ..services.model_router import NON_CHAT_MODEL, Target, build_body, headers_for
 
 log = logging.getLogger("flyknit.admin")
@@ -440,6 +445,97 @@ async def upload_skill(
     saved = _save_packages(skills, session, file.filename or "上传", required)
     await session.commit()
     return SkillImportResult(imported=saved)
+
+
+def _read_zip(name: str) -> bytes:
+    path = _skill_dir() / f"{name}.zip"
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "技能包文件丢失，请重新导入或重新编写")
+    return path.read_bytes()
+
+
+def _store(skill: SkillPackage, parsed: skill_library.ParsedSkill) -> None:
+    (_skill_dir() / f"{parsed.name}.zip").write_bytes(parsed.data)
+    skill.description = parsed.description
+    skill.version = parsed.version
+    skill.author = parsed.author
+    skill.size = len(parsed.data)
+    skill.file_count = len(parsed.files)
+
+
+@router.post("/skills/draft", response_model=SkillDraftOut)
+async def draft_skill(data: SkillDraftIn, request: Request, session: AsyncSession = Depends(get_session)):
+    """描述想要的能力，AI 写出 SKILL.md 和需要的脚本；带 name 时是在已有技能上按描述修改。管理员确认后再保存。"""
+    current = None
+    if data.name:
+        await _get_or_404(session, SkillPackage, data.name)
+        try:
+            current = {"name": data.name, **skill_library.read_source(_read_zip(data.name))}
+        except skill_library.SkillError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    try:
+        result = await skill_author.draft(session, request.app.state.http, data.text, current)
+    except expert_registry.DraftError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    if not data.name and result["name"] and await session.get(SkillPackage, result["name"]) is not None:
+        result["notes"].append(f"技能标识 {result['name']} 已经有了，保存前换一个，或者去编辑那个技能")
+    return result
+
+
+@router.post("/skills", response_model=SkillOut, status_code=201)
+async def create_skill(data: SkillCreateIn, session: AsyncSession = Depends(get_session)):
+    """在后台手写或用 AI 生成的技能。"""
+    if await session.get(SkillPackage, data.name) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"技能 {data.name} 已经存在")
+    skill_md = data.skill_md
+    meta, _ = skill_library.split_frontmatter(skill_md)
+    if not meta.get("version"):
+        skill_md = skill_library.set_meta(skill_md, "version", "1.0.0")
+    try:
+        parsed = skill_library.build_package(data.name, skill_md, [(f.path, f.content) for f in data.files])
+    except skill_library.SkillError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    skill = SkillPackage(name=parsed.name, origin=data.origin, required=bool(data.required))
+    _store(skill, parsed)
+    session.add(skill)
+    await session.commit()
+    log.info("后台新建技能 %s", parsed.name)
+    return skill
+
+
+@router.get("/skills/{name}/source", response_model=SkillSourceOut)
+async def skill_source(name: str, session: AsyncSession = Depends(get_session)):
+    """技能包的内容，给编辑器用。图片之类不能编辑的文件只列出来。"""
+    await _get_or_404(session, SkillPackage, name)
+    try:
+        return {"name": name, **skill_library.read_source(_read_zip(name))}
+    except skill_library.SkillError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.put("/skills/{name}/source", response_model=SkillOut)
+async def save_skill_source(name: str, data: SkillSourceIn, session: AsyncSession = Depends(get_session)):
+    """
+    保存编辑后的技能。版本号没改就自动加一：员工电脑按版本号判断要不要重新下载，不加的话改了也不会更新。
+    """
+    skill = await _get_or_404(session, SkillPackage, name)
+    old = _read_zip(name)
+    skill_md = data.skill_md
+    meta, _ = skill_library.split_frontmatter(skill_md)
+    if (meta.get("version") or "") in ("", skill.version):
+        skill_md = skill_library.set_meta(skill_md, "version", skill_library.bump_version(skill.version))
+    removed = {p.replace("\\", "/").lower() for p in data.remove}
+    try:
+        keep = {p: raw for p, raw in skill_library.binary_files(old).items() if p.lower() not in removed}
+        parsed = skill_library.build_package(name, skill_md, [(f.path, f.content) for f in data.files], keep)
+    except skill_library.SkillError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    _store(skill, parsed)
+    if data.required is not None:
+        skill.required = data.required
+    await session.commit()
+    log.info("后台修改技能 %s，版本 %s", name, parsed.version)
+    return skill
 
 
 @router.patch("/skills/{name}", response_model=SkillOut)

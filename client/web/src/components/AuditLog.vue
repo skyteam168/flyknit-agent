@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BrandLoader from './BrandLoader.vue'
 import { ChevronLeft, Download, Search, Trash2, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { toast } from '../store'
@@ -132,7 +133,7 @@ const fmtTime = (s: string) => new Date(s).toLocaleString()
         <span>{{ t('ui.audit.logs', { n: filtered.length }) }}</span>
         <span class="time">{{ t('ui.audit.time') }}</span>
       </div>
-      <p v-if="loading" class="empty">{{ t('ui.security.loading') }}</p>
+      <BrandLoader v-if="loading" class="loader" :text="t('ui.security.loading').replace(/[.…]+$/, '')" />
       <p v-else-if="filtered.length === 0" class="empty">
         {{ events.length === 0 ? t('ui.audit.empty') : t('ui.audit.noMatch') }}
       </p>

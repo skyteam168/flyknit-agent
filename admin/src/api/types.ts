@@ -69,6 +69,26 @@ export interface DeviceUsage {
   daily_limit: number
 }
 
+export interface SkillFile {
+  path: string
+  content: string | null
+  binary?: boolean
+  size?: number
+}
+
+export interface SkillSource {
+  name: string
+  skill_md: string
+  files: SkillFile[]
+}
+
+export interface SkillDraft {
+  name: string
+  skill_md: string
+  files: { path: string; content: string }[]
+  notes: string[]
+}
+
 export interface Skill {
   name: string
   description: string

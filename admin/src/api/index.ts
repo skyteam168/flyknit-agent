@@ -40,6 +40,8 @@ import type {
   SecurityCatalogItem,
   SecurityDefaults,
   Skill,
+  SkillDraft,
+  SkillSource,
   McpDraft,
   McpTestResult,
   McpVendor,
@@ -101,6 +103,12 @@ export const api = {
   updateSkill: (name: string, body: Partial<{ required: boolean; enabled: boolean }>) =>
     patch<Skill>(`/skills/${encodeURIComponent(name)}`, body),
   deleteSkill: (name: string) => del(`/skills/${encodeURIComponent(name)}`),
+  skillSource: (name: string) => get<SkillSource>(`/skills/${encodeURIComponent(name)}/source`),
+  draftSkill: (text: string, name?: string) => post<SkillDraft>('/skills/draft', { text, name: name || null }),
+  createSkill: (body: { name: string; skill_md: string; files: { path: string; content: string }[]; required: boolean; origin: string }) =>
+    post<Skill>('/skills', body),
+  saveSkillSource: (name: string, body: { skill_md: string; files: { path: string; content: string }[]; remove: string[] }) =>
+    put<Skill>(`/skills/${encodeURIComponent(name)}/source`, body),
 
   // 专家
   experts: () => get<Expert[]>('/experts'),

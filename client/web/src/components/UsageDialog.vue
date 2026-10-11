@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BrandLoader from './BrandLoader.vue'
 import {
   Ban,
   ChartColumn,
@@ -181,7 +182,7 @@ const close = () => (state.usageOpen = false)
               <p v-if="usage.byDay.length === 0" class="empty small">{{ t('ui.usagePanel.noneToday') }}</p>
             </div>
           </template>
-          <p v-else class="empty">{{ t('ui.skills.loading') }}</p>
+          <BrandLoader v-else class="loader" :text="t('ui.skills.loading').replace(/[.…]+$/, '')" />
         </template>
 
         <!-- 安全记录 -->

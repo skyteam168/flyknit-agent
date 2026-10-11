@@ -299,3 +299,47 @@ button {
 .hljs-strong {
   font-weight: 600;
 }
+
+/* ---------- 骨架屏：内容还没到时先画出大致的样子，避免白屏 ---------- */
+.skel {
+  position: relative;
+  display: block;
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--r-sm);
+  /* 用正文色的浅色叠加：白底、灰底的卡片上都看得清，深色模式也一样 */
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cloth) 55%, transparent), transparent);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+}
+.skel.round {
+  border-radius: 50%;
+}
+.skel.line {
+  height: 12px;
+}
+.skel.line.lg {
+  height: 16px;
+}
+@keyframes skel-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel::after {
+    animation: none;
+  }
+}
+
+/* 页面、面板中间的加载动画（BrandLoader）留出上下空间 */
+.brand-loader.loader {
+  padding: 48px 0;
+}
