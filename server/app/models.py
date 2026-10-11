@@ -510,6 +510,70 @@ class McpVendor(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class Expert(Base):
+    """
+    专家：管理员在后台定义、发布的垂直场景智能体（MES 生产分析专家、IT 运维专家……）。
+
+    这一行里存的是**草稿**，管理员随便改不影响员工端；点「发布」时把草稿拍成快照写进 published、
+    版本号 +1、历史留一份到 expert_versions。员工端只看得到 published 里的内容。
+
+    专家不是一套新的引擎：员工端用同一个智能体循环，只是换上专家的工作方式和知识、
+    按专家的限制筛一遍工具。技能、MCP、工具默认全部沿用，以后新加的自动可用。
+    """
+
+    __tablename__ = "experts"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)  # 例如 mes_analyst
+    name: Mapped[str] = mapped_column(String(100))
+    avatar: Mapped[str] = mapped_column(Text, default="")  # 一个 emoji，或图片链接 / data: URL
+    tagline: Mapped[str] = mapped_column(String(200), default="")  # 卡片上的一句话介绍
+    category: Mapped[str] = mapped_column(String(50), default="")
+    #: 名片：负责什么、适合什么任务、不负责什么、需要什么信息。主智能体以后靠它判断派给谁
+    description: Mapped[str] = mapped_column(Text, default="")
+    #: 工作方式：专家的提示词
+    instructions: Mapped[str] = mapped_column(Text, default="")
+    #: 专家知识：管理员维护的固定信息（产线和车间的对应、编码规则……），每次都带给专家
+    knowledge: Mapped[str] = mapped_column(Text, default="")
+    examples: Mapped[list] = mapped_column(JSON, default=list)  # 示例问题
+    #: 优先使用的技能（名字）。只是提示，不是限制：别的技能照样能找到、能用
+    preferred_skills: Mapped[list] = mapped_column(JSON, default=list)
+    #: 只用这些 MCP 连接器（id）。空 = 员工连上的全部都能用
+    mcp_servers: Mapped[list] = mapped_column(JSON, default=list)
+    #: 不让专家用的工具。空 = 全部沿用
+    disallowed_tools: Mapped[list] = mapped_column(JSON, default=list)
+    #: 只读：员工端权限压到「仅可查看」，去掉写文件、删文件；命令只放行查询类
+    read_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: 指定用哪个模型（models.id，不设外键：模型删了专家照样能用，回到默认）。空 = 和普通「办事」一样
+    model_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    allow_direct: Mapped[bool] = mapped_column(Boolean, default=True)  # 员工可以直接呼叫
+    allow_delegate: Mapped[bool] = mapped_column(Boolean, default=True)  # 主智能体可以派任务给它（以后用）
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    #: draft（还没发布过）/ published / offline（下线：员工端不再显示）
+    status: Mapped[str] = mapped_column(String(10), default="draft")
+    version: Mapped[int] = mapped_column(Integer, default=0)  # 已发布的版本号，0 = 还没发布过
+    published: Mapped[dict] = mapped_column(JSON, default=dict)  # 已发布的快照
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_by: Mapped[str] = mapped_column(String(100), default="")
+    updated_by: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ExpertVersion(Base):
+    """专家每次发布的快照，用来看历史、回滚。"""
+
+    __tablename__ = "expert_versions"
+    __table_args__ = (UniqueConstraint("expert_id", "version", name="uq_expert_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    expert_id: Mapped[str] = mapped_column(String(40), ForeignKey("experts.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    published_by: Mapped[str] = mapped_column(String(100), default="")
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Feedback(Base):
     """
     员工在客户端「设置 → 意见反馈」里提交的问题。

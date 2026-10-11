@@ -1,5 +1,11 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
 import type {
+  Expert,
+  ExpertDraft,
+  ExpertFields,
+  ExpertIn,
+  ExpertOptions,
+  ExpertVersion,
   EnrollmentTicket,
   FeedbackItem,
   FeedbackPage,
@@ -95,6 +101,19 @@ export const api = {
   updateSkill: (name: string, body: Partial<{ required: boolean; enabled: boolean }>) =>
     patch<Skill>(`/skills/${encodeURIComponent(name)}`, body),
   deleteSkill: (name: string) => del(`/skills/${encodeURIComponent(name)}`),
+
+  // 专家
+  experts: () => get<Expert[]>('/experts'),
+  expertOptions: () => get<ExpertOptions>('/experts/options'),
+  draftExpert: (text: string) => post<ExpertDraft>('/experts/draft', { text }),
+  createExpert: (body: ExpertIn) => post<Expert>('/experts', body),
+  updateExpert: (id: string, body: ExpertFields) => put<Expert>(`/experts/${encodeURIComponent(id)}`, body),
+  publishExpert: (id: string, note: string) => post<Expert>(`/experts/${encodeURIComponent(id)}/publish`, { note }),
+  offlineExpert: (id: string) => post<Expert>(`/experts/${encodeURIComponent(id)}/offline`),
+  discardExpert: (id: string) => post<Expert>(`/experts/${encodeURIComponent(id)}/discard`),
+  expertVersions: (id: string) => get<ExpertVersion[]>(`/experts/${encodeURIComponent(id)}/versions`),
+  restoreExpert: (id: string, version: number) => post<Expert>(`/experts/${encodeURIComponent(id)}/versions/${version}/restore`),
+  deleteExpert: (id: string) => del(`/experts/${encodeURIComponent(id)}`),
 
   // MCP 连接器（和技能库是两套接口）
   mcpVendors: () => get<McpVendor[]>('/mcp/vendors'),

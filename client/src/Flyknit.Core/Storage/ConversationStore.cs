@@ -33,6 +33,9 @@ public sealed class Conversation
     /// <summary>update_plan 写下的任务计划（JSON），跟着对话保存：下一轮、压缩之后都还在。</summary>
     public string? Plan { get; set; }
 
+    /// <summary>呼叫的专家（服务端专家 ID）。为空是普通助手。创建时定下，之后不变。</summary>
+    public string? ExpertId { get; set; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? DeletedAt { get; set; }
@@ -149,6 +152,7 @@ public sealed class ConversationStore
         AddColumn(c, "conversations", "summary", "TEXT NULL");
         AddColumn(c, "conversations", "summary_upto", "TEXT NULL");
         AddColumn(c, "conversations", "plan", "TEXT NULL");
+        AddColumn(c, "conversations", "expert_id", "TEXT NULL");
         AddColumn(c, "messages", "model", "TEXT NULL");
         AddColumn(c, "messages", "prompt_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
@@ -283,15 +287,17 @@ public sealed class ConversationStore
         string title = "",
         int? modelId = null,
         string? workspace = null,
-        Security.PermissionMode permission = Security.PermissionMode.Workspace)
+        Security.PermissionMode permission = Security.PermissionMode.Workspace,
+        string? expertId = null)
     {
-        var conv = new Conversation { Mode = mode, Title = title, ModelId = modelId, Workspace = workspace, Permission = permission };
+        var conv = new Conversation { Mode = mode, Title = title, ModelId = modelId, Workspace = workspace, Permission = permission, ExpertId = expertId };
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO conversations (id, title, title_source, mode, pinned, translate_from, translate_to, model_id, workspace, permission, created_at, updated_at)
-            VALUES ($id, $title, 'auto', $mode, 0, $from, $to, $model, $ws, $perm, $created, $updated)
+            INSERT INTO conversations (id, title, title_source, mode, pinned, translate_from, translate_to, model_id, workspace, permission, created_at, updated_at, expert_id)
+            VALUES ($id, $title, 'auto', $mode, 0, $from, $to, $model, $ws, $perm, $created, $updated, $expert)
             """;
+        cmd.Parameters.AddWithValue("$expert", (object?)expertId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$model", (object?)modelId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$ws", (object?)workspace ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$perm", Security.PermissionModes.ToText(permission));
@@ -736,7 +742,7 @@ public sealed class ConversationStore
 
     private const string SelectConversation = """
         SELECT c.id, c.title, c.title_source, c.mode, c.pinned, c.translate_from, c.translate_to,
-               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan
+               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan, c.expert_id
         FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id AND m.role IN ('user','assistant')
         """;
 
@@ -759,6 +765,7 @@ public sealed class ConversationStore
         Summary = r.IsDBNull(14) ? null : r.GetString(14),
         SummaryUpto = r.IsDBNull(15) ? null : r.GetString(15),
         Plan = r.IsDBNull(16) ? null : r.GetString(16),
+        ExpertId = r.IsDBNull(17) ? null : r.GetString(17),
     };
 
     private void Update(string id, string set, object value)

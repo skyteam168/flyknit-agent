@@ -2,7 +2,9 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
+  ArrowLeft,
   AppWindow,
+  Eye,
   BarChart3,
   FileText,
   FolderTree,
@@ -18,7 +20,8 @@ import {
 } from '@lucide/vue'
 import KnitMark from './KnitMark.vue'
 import Composer from './Composer.vue'
-import { draftMode, setMode, setTranslate } from '../store'
+import ExpertAvatar from './ExpertAvatar.vue'
+import { currentExpert, draftMode, openExperts, setMode, setTranslate } from '../store'
 import type { Mode } from '../types'
 
 const { t } = useI18n()
@@ -80,7 +83,30 @@ async function pick(key: string) {
 
 <template>
   <div class="home-page">
-    <section class="hero">
+    <!-- 呼叫专家：专家的名片和示例问题 -->
+    <section v-if="currentExpert" class="hero expert">
+      <button type="button" class="back" @click="openExperts"><ArrowLeft :size="15" /> {{ t('ui.experts.back') }}</button>
+      <ExpertAvatar :avatar="currentExpert.avatar" :name="currentExpert.name" :id="currentExpert.id" :size="72" />
+      <h1>{{ currentExpert.name }}</h1>
+      <p v-if="currentExpert.tagline" class="sub">{{ currentExpert.tagline }}</p>
+      <p v-if="currentExpert.readOnly" class="ro"><Eye :size="14" /> {{ t('ui.experts.readOnlyHint') }}</p>
+      <details v-if="currentExpert.description" class="card-desc">
+        <summary>{{ t('ui.experts.card') }}</summary>
+        <p>{{ currentExpert.description }}</p>
+      </details>
+      <div v-if="currentExpert.examples.length" class="examples">
+        <span class="label">{{ t('ui.experts.examples') }}</span>
+        <div class="chips">
+          <button v-for="ex in currentExpert.examples" :key="ex" type="button" @click="composer?.fill(ex)">
+            <Lightbulb :size="15" />
+            {{ ex }}
+          </button>
+        </div>
+      </div>
+      <Composer ref="composer" home />
+    </section>
+
+    <section v-else class="hero">
       <div class="mark">
         <KnitMark :size="72" />
       </div>
@@ -228,6 +254,80 @@ h1 {
 }
 .hero > :deep(.composer-wrap) {
   width: 100%;
+}
+.expert h1 {
+  margin-top: 12px;
+}
+.back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  margin-bottom: 8px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+}
+.back:hover {
+  background: var(--chip);
+  color: var(--ink);
+}
+.ro {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  color: var(--ink-faint);
+  font-size: var(--t-sm);
+}
+.card-desc {
+  width: 100%;
+  max-width: 620px;
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--cloth);
+  font-size: var(--t-sm);
+}
+.card-desc summary {
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.card-desc p {
+  margin: 8px 0 2px;
+  color: var(--ink-soft);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.examples {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 16px;
+}
+.examples .label {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.examples .chips {
+  margin: 8px 0 16px;
+}
+.examples .chips button {
+  max-width: 100%;
+  height: auto;
+  min-height: 36px;
+  padding: 7px 14px;
+  text-align: left;
+}
+.expert > :deep(.composer-wrap) {
+  width: 100%;
+  margin-top: 18px;
+}
+.examples + :deep(.composer-wrap) {
+  margin-top: 0;
 }
 @media (max-width: 720px) {
   .hero {

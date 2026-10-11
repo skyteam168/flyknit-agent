@@ -5,6 +5,7 @@ import type {
   AppInfo,
   AttachmentRef,
   ConfirmChoice,
+  Expert,
   McpVendor,
   Conversation,
   HostEvent,
@@ -52,8 +53,10 @@ export const state = reactive({
   /** 自动更新：有新版本时界面上挂一条，点了才装；不点退出时也会装 */
   update: null as UpdateInfo | null,
   toast: '' as string,
-  /** 主区域显示什么：对话（含新任务首页），或者资料库 */
-  view: 'chat' as 'chat' | 'library',
+  /** 主区域显示什么：对话（含新任务首页）、资料库，或者专家列表 */
+  view: 'chat' as 'chat' | 'library' | 'experts',
+  /** 管理员发布的专家 */
+  experts: [] as Expert[],
   settingsOpen: false,
   skillsOpen: false,
   /** MCP 连接器面板 */
@@ -317,6 +320,7 @@ export async function init() {
   // 上次下好没装的，重开界面时也要能看见那条提示
   void bridge.updateState().then((u) => { state.update = u }).catch(() => {})
   void loadSkills()
+  void loadExperts()
   // 启动时也拉一次连接器：对话里的 MCP 工具卡片要靠它显示成「腾讯文档 · 新建表格」
   void loadMcp(false, true)
   void refreshUsage()
@@ -360,6 +364,36 @@ export async function loadMcp(refresh = false, quiet = false) {
     if (!quiet) fail(e)
   }
 }
+
+export async function loadExperts() {
+  try {
+    state.experts = await bridge.listExperts()
+  } catch {
+    state.experts = []
+  }
+}
+
+/** 专家列表页 */
+export function openExperts() {
+  state.view = 'experts'
+  void loadExperts()
+}
+
+/** 呼叫专家：进入这位专家的新对话（发第一句话时才真正创建，和新任务一样） */
+export function callExpert(id: string) {
+  newConversation('agent')
+  draftMode.expertId = id
+  window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+}
+
+/** 当前对话（或新对话草稿）的专家。对话里的专家被下线了返回 null，见 expertWithdrawn */
+export const currentExpert = computed<Expert | null>(() => {
+  const id = current.value ? current.value.expertId : draftMode.expertId
+  return id ? (state.experts.find((e) => e.id === id) ?? null) : null
+})
+
+/** 对话是和某位专家开的，但这位专家已经下线 */
+export const expertWithdrawn = computed(() => !!current.value?.expertId && currentExpert.value === null)
 
 export async function loadSkills() {
   try {
@@ -461,6 +495,7 @@ export function newConversation(mode?: Mode) {
   state.view = 'chat'
   state.currentId = null
   state.pending = []
+  draftMode.expertId = null
   if (mode) draftMode.mode = mode
 }
 
@@ -471,6 +506,8 @@ export const draftMode = reactive({
   modelId: null as number | null,
   workspace: '' as string,
   permission: 'workspace' as Permission,
+  /** 新对话要呼叫的专家 */
+  expertId: null as string | null,
 })
 
 // ---------- 工作区与权限 ----------
@@ -616,7 +653,13 @@ export async function send(text: string) {
   let id = state.currentId
   try {
     if (!id) {
-      const c = await bridge.createConversation(draftMode.mode, draftMode.modelId, selectedWorkspace.value || null, draftMode.permission)
+      const c = await bridge.createConversation(
+        draftMode.expertId ? 'agent' : draftMode.mode,
+        draftMode.modelId,
+        selectedWorkspace.value || null,
+        draftMode.permission,
+        draftMode.expertId,
+      )
       if (draftMode.mode === 'translate') {
         await bridge.setTranslate(c.id, draftMode.translateFrom, draftMode.translateTo)
         c.translateFrom = draftMode.translateFrom
@@ -1012,6 +1055,10 @@ function onHostEvent(e: HostEvent) {
       else if (i >= 0) state.mcp.splice(i, 1)
       break
     }
+    case 'experts.changed':
+      // 管理员发布、下线了专家
+      void loadExperts()
+      break
     case 'skills.changed':
       // 技能目录被安装、卸载或手动改动，重新注册后刷新界面
       void loadSkills()

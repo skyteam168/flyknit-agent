@@ -28,10 +28,12 @@ import PermissionPicker from './PermissionPicker.vue'
 import ConfirmBar from './ConfirmBar.vue'
 import CompactingCard from './CompactingCard.vue'
 import UsageWarning from './UsageWarning.vue'
+import ExpertAvatar from './ExpertAvatar.vue'
 import {
   addPastedImage,
   cancelSpeech,
   current,
+  currentExpert,
   currentState,
   draftMode,
   finishSpeech,
@@ -52,6 +54,14 @@ const text = ref('')
 const box = ref<HTMLTextAreaElement>()
 
 const mode = computed<Mode>(() => current.value?.mode ?? draftMode.mode)
+/** 专家对话：固定是「办事」，模式不能切；只读专家的权限也不用选 */
+const expertMode = computed(() => !!(current.value?.expertId ?? draftMode.expertId))
+const placeholder = computed(() => {
+  if (offline.value) return t('input.disconnected')
+  if (mode.value === 'translate') return t('input.placeholderTranslate')
+  if (currentExpert.value) return t('ui.experts.placeholder', { name: currentExpert.value.name })
+  return t('input.placeholder')
+})
 const from = computed(() => current.value?.translateFrom ?? draftMode.translateFrom)
 const to = computed(() => current.value?.translateTo ?? draftMode.translateTo)
 const busy = computed(() => currentState.value?.busy ?? false)
@@ -237,7 +247,7 @@ onBeforeUnmount(() => {
         ref="box"
         v-model="text"
         :rows="props.home ? 3 : 1"
-        :placeholder="offline ? t('input.disconnected') : mode === 'translate' ? t('input.placeholderTranslate') : t('input.placeholder')"
+        :placeholder="placeholder"
         @input="resize"
         @keydown="onKey"
         @paste="onPaste"
@@ -269,8 +279,13 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="bar">
+        <!-- 专家对话：显示是哪位专家，不能切模式 -->
+        <span v-if="expertMode && currentExpert" class="tool-btn expert-chip" :title="currentExpert.tagline">
+          <ExpertAvatar :avatar="currentExpert.avatar" :name="currentExpert.name" :id="currentExpert.id" :size="18" />
+          <span>{{ currentExpert.name }}</span>
+        </span>
         <!-- 模式 -->
-        <Popover :width="260">
+        <Popover v-else :width="260">
           <template #trigger="{ toggle, open }">
             <button type="button" class="tool-btn mode-btn" :class="{ open }" @click="toggle">
               <component :is="modeIcon" :size="15" />
@@ -396,7 +411,7 @@ onBeforeUnmount(() => {
     <div class="foot">
       <template v-if="mode === 'agent'">
         <WorkspacePicker />
-        <PermissionPicker />
+        <PermissionPicker v-if="!currentExpert?.readOnly" />
       </template>
       <span class="spacer" />
       <span class="ai-note">{{ t('ui.safety.other') }}</span>
@@ -616,6 +631,19 @@ textarea::placeholder {
 .tool-btn.open {
   background: var(--chip);
   color: var(--ink);
+}
+.expert-chip {
+  max-width: 220px;
+  color: var(--ink);
+  cursor: default;
+}
+.expert-chip:hover {
+  background: transparent;
+}
+.expert-chip > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .mode-btn {
   background: var(--chip);

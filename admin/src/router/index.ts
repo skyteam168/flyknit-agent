@@ -1,6 +1,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import type { Component } from 'vue'
-import { ChatDotRound, ChatLineSquare, Coin, Collection, Connection, Document, Link, Lock, MagicStick, Microphone, Monitor, Odometer, Promotion, Tickets, Upload, UserFilled } from '@element-plus/icons-vue'
+import { Avatar, ChatDotRound, ChatLineSquare, Coin, Collection, Connection, Document, Link, Lock, MagicStick, Microphone, Monitor, Odometer, Promotion, Tickets, Upload, UserFilled } from '@element-plus/icons-vue'
 import { auth } from '@/store/auth'
 import AdminLayout from '@/layout/AdminLayout.vue'
 
@@ -17,6 +17,7 @@ export const menuRoutes: RouteRecordRaw[] = [
   { path: 'dashboard', name: 'dashboard', component: () => import('@/views/Dashboard.vue'), meta: { title: '首页统计', icon: Odometer, group: '概览' } },
   { path: 'models', name: 'models', component: () => import('@/views/Models.vue'), meta: { title: '模型路由', icon: Connection, group: '配置' } },
   { path: 'quota', name: 'quota', component: () => import('@/views/Quota.vue'), meta: { title: '配额与用量', icon: Coin, group: '配置' } },
+  { path: 'experts', name: 'experts', component: () => import('@/views/Experts.vue'), meta: { title: '专家', icon: Avatar, group: '配置' } },
   { path: 'skills', name: 'skills', component: () => import('@/views/Skills.vue'), meta: { title: '技能库', icon: Collection, group: '配置' } },
   { path: 'mcp', name: 'mcp', component: () => import('@/views/Mcp.vue'), meta: { title: 'MCP 连接器', icon: Link, group: '配置' } },
   { path: 'speech', name: 'speech', component: () => import('@/views/Speech.vue'), meta: { title: '语音转文字', icon: Microphone, group: '配置' } },

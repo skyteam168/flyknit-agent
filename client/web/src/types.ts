@@ -23,6 +23,23 @@ export interface Conversation {
   permission: Permission
   /** 较早对话已压缩为摘要，摘要覆盖到这条消息（含） */
   summaryUpto?: string | null
+  /** 呼叫的专家。为空是普通助手 */
+  expertId?: string | null
+}
+
+/** 管理员发布的专家（界面只拿展示用的部分） */
+export interface Expert {
+  id: string
+  name: string
+  /** 一个 emoji，或图片链接 / data: URL */
+  avatar: string
+  tagline: string
+  category: string
+  /** 名片：负责什么、适合什么、不负责什么、需要什么信息 */
+  description: string
+  examples: string[]
+  readOnly: boolean
+  version: number
 }
 
 export type MemoryKind = 'preference' | 'fact' | 'success' | 'lesson'
@@ -705,6 +722,7 @@ export type HostEvent =
   | { type: 'app.openConversation'; conversationId: string }
   | { type: 'window.state'; maximized: boolean }
   | { type: 'skills.changed' }
+  | { type: 'experts.changed' }
   | { type: 'mcp.changed'; id: string; vendor: McpVendor | null }
   | { type: 'schedules.changed' }
   | { type: 'chat.error'; conversationId: string; message: string }

@@ -502,3 +502,63 @@ export interface FeedbackPage {
   total: number
   open: number
 }
+
+// ---------- 专家 ----------
+export interface ExpertFields {
+  name: string
+  avatar: string
+  tagline: string
+  category: string
+  description: string
+  instructions: string
+  knowledge: string
+  examples: string[]
+  preferred_skills: string[]
+  mcp_servers: string[]
+  disallowed_tools: string[]
+  read_only: boolean
+  model_id: number | null
+  allow_direct: boolean
+  allow_delegate: boolean
+  sort_order: number
+}
+
+export interface ExpertIn extends ExpertFields {
+  id: string
+}
+
+export interface Expert extends ExpertIn {
+  status: 'draft' | 'published' | 'offline'
+  version: number
+  dirty: boolean
+  published_at: string | null
+  published_by: string
+  updated_by: string
+  updated_at: string | null
+}
+
+export interface ExpertDraft extends ExpertFields {
+  id: string
+  notes: string[]
+}
+
+export interface ExpertVersion {
+  version: number
+  note: string
+  published_by: string
+  published_at: string
+  snapshot: ExpertFields
+}
+
+export interface ExpertOption {
+  value: string
+  label: string
+  detail: string
+}
+
+export interface ExpertOptions {
+  tools: ExpertOption[]
+  skills: ExpertOption[]
+  mcp: ExpertOption[]
+  models: ExpertOption[]
+}
