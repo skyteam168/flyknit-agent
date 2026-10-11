@@ -509,6 +509,8 @@ export interface ExpertFields {
   avatar: string
   tagline: string
   category: string
+  tags: string[]
+  author: string
   description: string
   instructions: string
   knowledge: string
@@ -530,6 +532,8 @@ export interface ExpertIn extends ExpertFields {
 export interface Expert extends ExpertIn {
   status: 'draft' | 'published' | 'offline'
   version: number
+  uses: number
+  users: number
   dirty: boolean
   published_at: string | null
   published_by: string

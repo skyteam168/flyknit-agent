@@ -12,10 +12,12 @@ import logging
 import re
 
 import httpx
-from sqlalchemy import select
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Expert, McpVendor, ModelConfig, SkillPackage
+from ..models import Expert, ExpertUsageDaily, McpVendor, ModelConfig, SkillPackage
 from ..schemas import EXPERT_ID_PATTERN, ExpertFields
 from . import model_router
 
@@ -41,6 +43,7 @@ BUILTIN_TOOLS: dict[str, str] = {
 }
 
 MAX_EXAMPLES = 8
+MAX_TAGS = 4
 
 
 def snapshot(e: Expert) -> dict:
@@ -50,9 +53,10 @@ def snapshot(e: Expert) -> dict:
 def normalize(data: dict) -> dict:
     """整理一份专家内容：去空白、去重、截断列表。"""
     out = dict(data)
-    for key in ("name", "tagline", "category", "description", "instructions", "knowledge", "avatar"):
+    for key in ("name", "tagline", "category", "author", "description", "instructions", "knowledge", "avatar"):
         out[key] = (out.get(key) or "").strip()
     out["examples"] = _unique(out.get("examples") or [])[:MAX_EXAMPLES]
+    out["tags"] = [t[:20] for t in _unique(out.get("tags") or [])][:MAX_TAGS]
     for key in ("preferred_skills", "mcp_servers", "disallowed_tools"):
         out[key] = _unique(out.get(key) or [])[:50]
     return out
@@ -84,6 +88,31 @@ def _unique(items: list) -> list[str]:
         if text and text not in seen:
             seen.append(text)
     return seen
+
+
+# ---------- 使用量 ----------
+def _today(tz_offset_hours: int = 8) -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=tz_offset_hours)).strftime("%Y-%m-%d")
+
+
+async def record_use(session: AsyncSession, expert_id: str, device_id: int) -> None:
+    """员工向专家发了一句话：这台设备今天的次数 +1。"""
+    day = _today()
+    row = await session.scalar(select(ExpertUsageDaily).where(
+        ExpertUsageDaily.expert_id == expert_id, ExpertUsageDaily.device_id == device_id, ExpertUsageDaily.day == day))
+    if row is None:
+        row = ExpertUsageDaily(expert_id=expert_id, device_id=device_id, day=day, uses=0)
+        session.add(row)
+    row.uses = (row.uses or 0) + 1
+    await session.commit()
+
+
+async def usage_totals(session: AsyncSession) -> dict[str, tuple[int, int]]:
+    """每位专家的累计使用次数和用过的设备数。"""
+    rows = await session.execute(
+        select(ExpertUsageDaily.expert_id, func.sum(ExpertUsageDaily.uses), func.count(func.distinct(ExpertUsageDaily.device_id)))
+        .group_by(ExpertUsageDaily.expert_id))
+    return {expert_id: (int(uses or 0), int(users or 0)) for expert_id, uses, users in rows.all()}
 
 
 # ---------- 编辑时的可选项 ----------
@@ -129,6 +158,7 @@ DRAFT_PROMPT = """你是企业智能体平台的「专家设计师」。管理�
   "avatar": "一个合适的 emoji",
   "tagline": "一句话介绍（20 字以内，显示在卡片上）",
   "category": "分类，如 生产 / 供应链 / IT / 行政 / 财务",
+  "tags": ["2～3 个能力标签，每个 2～6 个字，如 产量分析、设备停机"],
   "description": "名片，固定四行：\\n负责：……\\n适合：……\\n不负责：……\\n需要的信息：……",
   "instructions": "工作方式（给这个专家的提示词）：它是谁、怎么理解任务、按什么思路分析、查数据时注意什么、结论怎么组织（结论先行，给出依据和数据来源，不确定的地方明确说明）、什么情况下停下来问用户。300～800 字，分条写",
   "knowledge": "",
@@ -198,6 +228,7 @@ def clean_draft(data: dict, opts: dict) -> dict:
         "avatar": text("avatar", 16),
         "tagline": text("tagline", 200),
         "category": text("category", 50),
+        "tags": [str(t).strip()[:20] for t in _unique(data.get("tags") if isinstance(data.get("tags"), list) else [])][:MAX_TAGS],
         "description": text("description", 4000),
         "instructions": text("instructions", 20000),
         "knowledge": text("knowledge", 20000),

@@ -21,6 +21,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
 import ExpertAvatar from './components/ExpertAvatar.vue'
+import ExpertDetail from './components/ExpertDetail.vue'
 import { uploadDropped } from './library'
 import {
   addFiles,
@@ -301,6 +302,7 @@ onBeforeUnmount(() => {
     <MemoryDialog v-if="state.memoryOpen" />
     <UsageDialog v-if="state.usageOpen" />
     <SchedulesDialog v-if="state.schedulesOpen" />
+    <ExpertDetail v-if="state.expertDetail" />
     <div v-if="state.toast" class="toast" role="status">{{ state.toast }}</div>
     <ResizeEdges />
   </div>

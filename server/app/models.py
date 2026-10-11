@@ -528,6 +528,10 @@ class Expert(Base):
     avatar: Mapped[str] = mapped_column(Text, default="")  # 一个 emoji，或图片链接 / data: URL
     tagline: Mapped[str] = mapped_column(String(200), default="")  # 卡片上的一句话介绍
     category: Mapped[str] = mapped_column(String(50), default="")
+    #: 卡片上的几个标签（全栈开发、架构设计……）
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    #: 署名：谁维护这位专家（显示在详情里），例如「IT 部 · 张工」
+    author: Mapped[str] = mapped_column(String(100), default="")
     #: 名片：负责什么、适合什么任务、不负责什么、需要什么信息。主智能体以后靠它判断派给谁
     description: Mapped[str] = mapped_column(Text, default="")
     #: 工作方式：专家的提示词
@@ -556,6 +560,21 @@ class Expert(Base):
     published_by: Mapped[str] = mapped_column(String(100), default="")
     updated_by: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ExpertUsageDaily(Base):
+    """专家的使用次数：员工每向专家发一句话记一次，按天、按设备累计（列表上的「使用量」和「用过的人数」）。"""
+
+    __tablename__ = "expert_usage_daily"
+    __table_args__ = (UniqueConstraint("expert_id", "device_id", "day", name="uq_expert_usage_day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: 不设外键：专家删了用量照样留着，也不挡删除
+    expert_id: Mapped[str] = mapped_column(String(40), index=True)
+    device_id: Mapped[int] = mapped_column(Integer, index=True)
+    day: Mapped[str] = mapped_column(String(10), index=True)
+    uses: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 

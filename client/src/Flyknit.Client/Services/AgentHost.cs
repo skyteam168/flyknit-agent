@@ -355,6 +355,20 @@ public sealed class AgentHost : IDisposable
         }
     }
 
+    /// <summary>报一次专家使用量（列表上的「使用量」）。报不上就算了，不影响对话。</summary>
+    private async Task ReportExpertUseAsync(string expertId)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await Server.ReportExpertUseAsync(expertId, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"上报专家使用量失败：{ex.Message}");
+        }
+    }
+
     /// <summary>拉一次管理员发布的专家。失败就继续用本机缓存，下次刷新配置时再拉。</summary>
     private async Task SyncExpertsAsync()
     {
@@ -586,6 +600,10 @@ public sealed class AgentHost : IDisposable
             // 专家对话：换上专家的工作方式和知识，按专家的限制筛工具、压权限。
             // 专家被下线或删掉了，就按普通助手继续（界面上会提示）
             var expert = conv.Mode == ConversationMode.Agent ? Experts.Get(conv.ExpertId) : null;
+            if (expert is not null && newUser is not null)
+            {
+                _ = Task.Run(() => ReportExpertUseAsync(expert.Id));
+            }
             var permission = expert is null ? conv.Permission : Flyknit.Core.Experts.ExpertRuntime.CapPermission(expert, conv.Permission);
             var modelId = conv.ModelId ?? expert?.ModelId;
             var mcpServers = conv.Mode == ConversationMode.Agent ? Mcp.PromptInfo() : Array.Empty<McpPromptInfo>();

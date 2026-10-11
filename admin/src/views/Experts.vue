@@ -66,6 +66,8 @@ const form = reactive({
   avatar: '',
   tagline: '',
   category: '',
+  tags: [] as string[],
+  author: '',
   description: '',
   instructions: '',
   knowledge: '',
@@ -86,6 +88,8 @@ function fill(e: Partial<Expert>) {
   form.avatar = e.avatar ?? ''
   form.tagline = e.tagline ?? ''
   form.category = e.category ?? ''
+  form.tags = [...(e.tags ?? [])]
+  form.author = e.author ?? ''
   form.description = e.description || CARD_TEMPLATE
   form.instructions = e.instructions ?? ''
   form.knowledge = e.knowledge ?? ''
@@ -109,6 +113,8 @@ function body(): ExpertFields {
     avatar: form.avatar.trim(),
     tagline: form.tagline.trim(),
     category: form.category.trim(),
+    tags: form.tags.map((x) => x.trim()).filter(Boolean).slice(0, 4),
+    author: form.author.trim(),
     description: form.description.trim() === CARD_TEMPLATE ? '' : form.description.trim(),
     instructions: form.instructions.trim(),
     knowledge: form.knowledge.trim(),
@@ -181,7 +187,7 @@ async function runDraft() {
   try {
     const d = await api.draftExpert(draftText.value.trim())
     isNew.value = true
-    fill({ ...d, model_id: null, allow_direct: true, allow_delegate: true, sort_order: 0 })
+    fill({ ...d, model_id: null, allow_direct: true, allow_delegate: true, sort_order: 0, author: '' })
     notes.value = d.notes
     draftOpen.value = false
     editing.value = true
@@ -325,6 +331,10 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
             <el-tag v-if="e.mcp_servers.length" size="small" effect="plain" type="info">限定连接器 {{ e.mcp_servers.length }}</el-tag>
             <el-tag v-if="!e.allow_direct" size="small" effect="plain" type="info">不对员工显示</el-tag>
           </div>
+          <div class="usage">
+            <span>使用 <strong>{{ e.uses.toLocaleString() }}</strong> 次</span>
+            <span><strong>{{ e.users }}</strong> 台电脑用过</span>
+          </div>
           <div class="foot">
             <span class="muted">{{ e.updated_at ? dateTime(e.updated_at) : '' }}<template v-if="e.updated_by"> · {{ e.updated_by }}</template></span>
             <span class="actions">
@@ -386,6 +396,14 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
           </div>
         </el-form-item>
         <el-form-item label="一句话介绍"><el-input v-model="form.tagline" maxlength="200" show-word-limit placeholder="显示在员工端的专家卡片上" /></el-form-item>
+        <el-form-item label="标签">
+          <el-select v-model="form.tags" multiple filterable allow-create default-first-option :multiple-limit="4"
+            placeholder="2～3 个能力标签，输入后回车，如 产量分析" style="width: 100%" />
+          <p class="hint">显示在员工端的专家卡片上，最多 4 个。</p>
+        </el-form-item>
+        <el-form-item label="维护人">
+          <el-input v-model="form.author" maxlength="100" placeholder="选填，例如「IT 部 · 张工」。员工在专家详情里能看到" />
+        </el-form-item>
         <el-form-item label="分类 / 排序">
           <div class="inline">
             <el-input v-model="form.category" placeholder="生产 / 供应链 / IT / 行政……" maxlength="50" />
@@ -596,6 +614,16 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+.usage {
+  display: flex;
+  gap: 16px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+.usage strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 .foot {
   display: flex;

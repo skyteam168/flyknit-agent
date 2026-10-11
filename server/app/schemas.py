@@ -673,6 +673,8 @@ class ExpertFields(BaseModel):
     avatar: str = Field(default="", max_length=400_000)
     tagline: str = Field(default="", max_length=200)
     category: str = Field(default="", max_length=50)
+    tags: list[str] = []
+    author: str = Field(default="", max_length=100)
     description: str = Field(default="", max_length=4000)
     instructions: str = Field(default="", max_length=20000)
     knowledge: str = Field(default="", max_length=20000)
@@ -695,6 +697,8 @@ class ExpertOut(ExpertFields):
     id: str
     status: str
     version: int
+    uses: int = 0
+    users: int = 0
     #: 草稿和已发布的不一样（改了还没发布）
     dirty: bool = False
     published_at: datetime | None = None
@@ -743,8 +747,10 @@ class ExpertOptionsOut(BaseModel):
 
 
 class ExpertClientOut(ExpertFields):
-    """员工端拿到的：已发布的快照。"""
+    """员工端拿到的：已发布的快照，加上使用量。"""
 
     id: str
     version: int
+    uses: int = 0
+    users: int = 0
     published_at: datetime | None = None

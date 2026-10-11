@@ -57,6 +57,10 @@ export const state = reactive({
   view: 'chat' as 'chat' | 'library' | 'experts',
   /** 管理员发布的专家 */
   experts: [] as Expert[],
+  /** 正在看详情的专家 */
+  expertDetail: null as Expert | null,
+  /** 要放进输入框的文字（Composer 接走后清空），例如专家详情里点的示例问题 */
+  composerFill: null as string | null,
   settingsOpen: false,
   skillsOpen: false,
   /** MCP 连接器面板 */
@@ -380,9 +384,11 @@ export function openExperts() {
 }
 
 /** 呼叫专家：进入这位专家的新对话（发第一句话时才真正创建，和新任务一样） */
-export function callExpert(id: string) {
+export function callExpert(id: string, prompt?: string) {
+  state.expertDetail = null
   newConversation('agent')
   draftMode.expertId = id
+  if (prompt) state.composerFill = prompt
   window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
 }
 

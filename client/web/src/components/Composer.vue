@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ArrowLeftRight,
@@ -212,6 +212,17 @@ function focusInput() {
 }
 
 defineExpose({ fill, useSkill, focusInput })
+
+// 别处要往输入框里放的文字（专家详情里点了示例问题），接过来就清掉
+watch(
+  () => state.composerFill,
+  (value) => {
+    if (!value) return
+    state.composerFill = null
+    fill(value)
+  },
+  { immediate: true },
+)
 
 const focus = () => box.value?.focus()
 let offSpeech: (() => void) | null = null
