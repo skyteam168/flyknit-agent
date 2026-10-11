@@ -177,6 +177,8 @@ class Bridge {
   createConversation = (mode: Mode, modelId: number | null, workspace: string | null, permission: Permission, expertId: string | null = null) =>
     this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission, expertId })
   listExperts = () => this.call<Expert[]>('experts.list')
+  enhancePrompt = (text: string, mode: Mode, conversationId: string | null, expertId: string | null) =>
+    this.call<{ text: string }>('prompt.enhance', { text, mode, conversationId, expertId }, undefined, 70_000)
   setWorkspace = (id: string, path: string | null) => this.call<void>('conversation.setWorkspace', { id, path })
   setPermission = (id: string, permission: Permission) => this.call<void>('conversation.setPermission', { id, permission })
   setModel = (id: string, modelId: number | null) => this.call<void>('conversation.setModel', { id, modelId })

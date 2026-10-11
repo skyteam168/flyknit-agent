@@ -56,6 +56,9 @@ public static class Shortcuts
 
         // 划词翻译：在任何程序里选中文字后按下，就地弹出译文
         new ShortcutCommand("selection.translate", "window", "Ctrl+Alt+T", Global: true),
+
+        // 截图提问：框选屏幕的一块，作为附件开一个新对话
+        new ShortcutCommand("screenshot.ask", "window", "Ctrl+Alt+S", Global: true),
     };
 
     /// <summary>修饰键的固定顺序，保证 "Shift+Ctrl+B" 和 "Ctrl+Shift+B" 算同一个键。</summary>

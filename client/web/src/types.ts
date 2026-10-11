@@ -738,6 +738,7 @@ export type HostEvent =
   | { type: 'chat.error'; conversationId: string; message: string }
   | { type: 'conversation.updated'; conversation: Conversation }
   | { type: 'files.added'; attachments: AttachmentRef[] }
+  | { type: 'screenshot.taken'; attachment: AttachmentRef }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
       Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed'>

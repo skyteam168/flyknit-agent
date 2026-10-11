@@ -22,6 +22,7 @@ public partial class App : Application
     private const string PipeName = "Flyknit.Client.Activate";
     private const int HotkeyId = 0xF17;
     private const int TranslateHotkeyId = 0xF18;
+    private const int ScreenshotHotkeyId = 0xF19;
 
     private Mutex? _mutex;
     private AppSettings _settings = new();
@@ -35,6 +36,7 @@ public partial class App : Application
     private HwndSource? _hotkeySource;
     private TranslatePopup? _translatePopup;
     private bool _capturingSelection;
+    private bool _capturingScreen;
     private CancellationTokenSource _pipeCts = new();
     private bool _cleanedUp;
     private int _activeRuns;
@@ -110,6 +112,7 @@ public partial class App : Application
         _ball = new FloatingBall(_settings);
         _ball.Clicked += () => _main.Toggle();
         _ball.FilesDropped += OnFilesDropped;
+        _ball.MenuItems = BallMenu;
         if (_settings.ShowBall)
         {
             _ball.Show();
@@ -254,6 +257,110 @@ public partial class App : Application
     }
 
     private void UpdateBall() => _ball?.SetState(_activeRuns > 0, _pendingConfirms > 0);
+
+    // ---------- 悬浮球右键菜单 ----------
+
+    /// <summary>每次右键时现拼：界面语言、安全中心开关、快捷键随时会变。null 是分隔线。</summary>
+    private IReadOnlyList<FloatingBall.MenuEntry?> BallMenu()
+    {
+        var list = new List<FloatingBall.MenuEntry?>
+        {
+            new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.open"), () => _main?.ShowAndFocus()),
+            new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.compact"), () =>
+            {
+                if (_ball is not null)
+                {
+                    _main?.ShowCompact(_ball.Bounds, System.Windows.Media.VisualTreeHelper.GetDpi(_ball));
+                }
+            }),
+        };
+        if (_host?.Security.On(Flyknit.Core.Security.SecuritySettings.ScreenshotAsk) != false)
+        {
+            list.Add(null);
+            list.Add(new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.screenshot"), () => _ = AskWithScreenshotAsync(), HotkeyText("screenshot.ask")));
+        }
+        list.Add(null);
+        // 只是这次隐藏：设置不变，下次启动照常显示
+        list.Add(new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.hide"), () => _ball?.Hide()));
+        list.Add(new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.disable"), DisableBall));
+        return list;
+    }
+
+    private string HotkeyText(string commandId)
+    {
+        var resolved = Flyknit.Core.Settings.Shortcuts.Resolve(_settings.Shortcuts);
+        return resolved.TryGetValue(commandId, out var binding)
+            ? binding
+            : Flyknit.Core.Settings.Shortcuts.Find(commandId)?.Default ?? "";
+    }
+
+    /// <summary>停用悬浮球：和托盘菜单里取消勾选「显示悬浮球」一样，记进设置。</summary>
+    private void DisableBall()
+    {
+        _settings.ShowBall = false;
+        _settings.Save();
+        _ball?.Hide();
+        BuildTrayMenu();
+        _tray?.ShowBalloonTip(4000, "FlyknitBuddy", NativeStrings.T("ball.disabled"), System.Windows.Forms.ToolTipIcon.Info);
+    }
+
+    // ---------- 截图提问 ----------
+
+    /// <summary>
+    /// 框选屏幕的一块，作为附件开一个新对话，员工接着打字问就行。
+    /// 截之前先把悬浮球和主窗口藏起来，截的是员工正在看的东西。
+    /// </summary>
+    private async Task AskWithScreenshotAsync()
+    {
+        if (_capturingScreen || _main is null || _host is null)
+        {
+            return;
+        }
+        if (!_host.Security.On(Flyknit.Core.Security.SecuritySettings.ScreenshotAsk))
+        {
+            _tray?.ShowBalloonTip(4000, "FlyknitBuddy", NativeStrings.T("screenshot.blocked"), System.Windows.Forms.ToolTipIcon.Info);
+            return;
+        }
+        _capturingScreen = true;
+        var ballVisible = _ball?.IsVisible == true;
+        var mainVisible = _main.IsVisible && _main.WindowState != WindowState.Minimized;
+        try
+        {
+            if (ballVisible)
+            {
+                _ball!.Hide();
+            }
+            if (mainVisible)
+            {
+                _main.HideMain();
+            }
+            await Task.Delay(200); // 等窗口真正消失、桌面重绘完
+            var path = await ScreenshotOverlay.CaptureAsync(NativeStrings.T("screenshot.hint"), AppPaths.Temp);
+            if (path is null)
+            {
+                if (mainVisible)
+                {
+                    _main.ShowAndFocus();
+                }
+                return;
+            }
+            Log.Info("截图提问：已截取一块屏幕");
+            _main.ShowAndFocus();
+            _main.Bridge?.Post(new { type = "screenshot.taken", attachment = AttachmentDto.FromPath(path) });
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("截图提问失败", ex);
+        }
+        finally
+        {
+            if (ballVisible)
+            {
+                _ball?.Show();
+            }
+            _capturingScreen = false;
+        }
+    }
 
     private void OnFilesDropped(string[] files)
     {
@@ -431,12 +538,17 @@ public partial class App : Application
                     _ = TranslateSelectionAsync();
                     handled = true;
                     break;
+                case ScreenshotHotkeyId:
+                    _ = AskWithScreenshotAsync();
+                    handled = true;
+                    break;
             }
             return IntPtr.Zero;
         });
         var resolved = Flyknit.Core.Settings.Shortcuts.Resolve(_settings.Shortcuts);
         RegisterOne(HotkeyId, "window.toggle", resolved);
         RegisterOne(TranslateHotkeyId, "selection.translate", resolved);
+        RegisterOne(ScreenshotHotkeyId, "screenshot.ask", resolved);
     }
 
     private void RegisterOne(int hotkeyId, string commandId, IReadOnlyDictionary<string, string> resolved)
@@ -465,6 +577,7 @@ public partial class App : Application
         {
             UnregisterHotKey(_hotkeySource.Handle, HotkeyId);
             UnregisterHotKey(_hotkeySource.Handle, TranslateHotkeyId);
+            UnregisterHotKey(_hotkeySource.Handle, ScreenshotHotkeyId);
             _hotkeySource.Dispose();
         }
     }

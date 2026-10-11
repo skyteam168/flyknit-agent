@@ -1430,6 +1430,15 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 return ConversationDto.From(conv);
             }
 
+            case "prompt.enhance":
+            {
+                // 专家对话没有对话 ID 时（还没发第一句）由界面直接带 expertId
+                var conv = OptStr("conversationId") is { } cid ? _host.Store.Get(cid) : null;
+                var mode = conv?.Mode ?? ConversationStore.TextToMode(Str("mode"));
+                var text = await _host.EnhancePromptAsync(Str("text"), mode, conv?.ExpertId ?? OptStr("expertId"), _settings.ResolveUiLanguage());
+                return new { text };
+            }
+
             case "experts.list":
                 return _host.Experts.Callable.Select(ExpertDto.From).ToList();
 

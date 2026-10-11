@@ -989,6 +989,12 @@ function onHostEvent(e: HostEvent) {
     case 'files.added':
       state.pending.push(...e.attachments)
       break
+    case 'screenshot.taken':
+      // 截图提问：开一个新对话，截图作为附件，员工接着打字问
+      newConversation()
+      state.pending = [e.attachment]
+      window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+      break
     case 'update.state':
       state.update = { stage: e.stage, version: e.version, notes: e.notes, progress: e.progress, message: e.message }
       break
