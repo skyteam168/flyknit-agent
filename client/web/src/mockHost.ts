@@ -352,8 +352,9 @@ export function createMockHost(): HostTransport {
     { id: 'r2', tool: 'run_shell', shell: '*', prefix: 'git status', scope: '*', display: 'git status *', approvedAt: now(), lastUsedAt: now(), uses: 23 },
   ]
 
-  const seed = (title: string, mode: Mode, daysAgo: number, pinned = false) => {
+  const seed = (title: string, mode: Mode, daysAgo: number, pinned = false, workspace?: string) => {
     const c = makeConversation(mode)
+    if (workspace !== undefined) c.workspace = workspace
     c.title = title
     c.pinned = pinned
     c.messageCount = 2
@@ -386,9 +387,9 @@ export function createMockHost(): HostTransport {
 
   seed('车间排班表翻译成越南语', 'translate', 0, true)
   seed('整理 D 盘的日报文件', 'agent', 0)
-  seed('质检数据周报', 'agent', 1)
+  seed('质检数据周报', 'agent', 1, false, 'D:\\')
   seed('Email gửi nhà cung cấp', 'chat', 3)
-  seed('安装 ERP 客户端', 'agent', 12)
+  seed('安装 ERP 客户端', 'agent', 12, false, 'C:\\Users\\demo\\Documents\\Flyknit')
 
   async function stream(conversationId: string, text: string) {
     for (const piece of text.match(/.{1,6}/gsu) ?? []) {
@@ -984,6 +985,17 @@ export function createMockHost(): HostTransport {
       case 'workspaces.remove':
         workspaces.splice(workspaces.findIndex((w) => w.path === p.path && !w.isDefault) >>> 0, 1)
         return workspaces
+      case 'workspaces.reorder': {
+        const order = (p.paths as string[]).map((x) => workspaces.find((w) => w.path === x)!).filter(Boolean)
+        workspaces.splice(0, workspaces.length, ...order, ...workspaces.filter((w) => !order.includes(w)))
+        return workspaces
+      }
+      case 'conversations.reorder':
+        ;(p.ids as string[]).forEach((id, i) => {
+          const c = conversations.get(id)
+          if (c) c.sortOrder = i
+        })
+        return
       case 'settings.setDefaultWorkspace':
         defaultWorkspace = p.path
         return

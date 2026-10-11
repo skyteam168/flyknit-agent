@@ -25,6 +25,8 @@ export interface Conversation {
   summaryUpto?: string | null
   /** 呼叫的专家。为空是普通助手 */
   expertId?: string | null
+  /** 侧栏手动排序的位置（小的在前）。没拖过为空 */
+  sortOrder?: number | null
 }
 
 /** 管理员发布的专家（界面只拿展示用的部分） */

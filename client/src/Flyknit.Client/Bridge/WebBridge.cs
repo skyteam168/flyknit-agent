@@ -293,9 +293,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
 
     private async Task<object?> HandleAsync(string method, JsonElement p, List<string> droppedPaths)
     {
-        List<string> Ids() => p.ValueKind == JsonValueKind.Object && p.TryGetProperty("ids", out var v) && v.ValueKind == JsonValueKind.Array
+        List<string> StrList(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
             : new List<string>();
+        List<string> Ids() => StrList("ids");
         string Str(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         bool Bool(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
         string? OptStr(string name) => Str(name) is { Length: > 0 } v ? v : null;
@@ -1020,6 +1021,19 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 return WorkspaceList();
             }
 
+            case "workspaces.reorder":
+            {
+                // 侧栏手动排序：拖动工作区。默认工作区也可以挪位置，只是不能删
+                var order = StrList("paths");
+                var known = _settings.Workspaces;
+                var next = order.Select(path => known.Find(w => w.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                    .OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                next.AddRange(known.Where(w => !next.Contains(w, StringComparer.OrdinalIgnoreCase)));
+                _settings.Workspaces = next;
+                _settings.Save();
+                return WorkspaceList();
+            }
+
             case "settings.setDefaultWorkspace":
                 _settings.DefaultWorkspace = OptStr("path");
                 _settings.Save();
@@ -1446,6 +1460,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
 
             case "conversation.setModel":
                 await Task.Run(() => _host.Store.SetModel(Str("id"), Int("modelId")));
+                return null;
+
+            case "conversations.reorder":
+                await Task.Run(() => _host.Store.Reorder(StrList("ids")));
                 return null;
 
             case "conversation.setWorkspace":

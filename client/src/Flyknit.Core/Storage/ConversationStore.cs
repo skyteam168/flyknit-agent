@@ -36,6 +36,9 @@ public sealed class Conversation
     /// <summary>呼叫的专家（服务端专家 ID）。为空是普通助手。创建时定下，之后不变。</summary>
     public string? ExpertId { get; set; }
 
+    /// <summary>侧栏「手动排序」时的位置（小的在前）。为空表示没拖过，排在拖过的前面、按更新时间。</summary>
+    public double? SortOrder { get; set; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? DeletedAt { get; set; }
@@ -153,6 +156,7 @@ public sealed class ConversationStore
         AddColumn(c, "conversations", "summary_upto", "TEXT NULL");
         AddColumn(c, "conversations", "plan", "TEXT NULL");
         AddColumn(c, "conversations", "expert_id", "TEXT NULL");
+        AddColumn(c, "conversations", "sort_order", "REAL NULL");
         AddColumn(c, "messages", "model", "TEXT NULL");
         AddColumn(c, "messages", "prompt_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
@@ -346,6 +350,25 @@ public sealed class ConversationStore
             list.Add(ReadConversation(r));
         }
         return list;
+    }
+
+    /// <summary>侧栏手动排序：按给出的顺序写位置（0、1、2…）。不在列表里的不动。</summary>
+    public void Reorder(IReadOnlyList<string> ids)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        using var cmd = c.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "UPDATE conversations SET sort_order = $o WHERE id = $id";
+        var order = cmd.Parameters.Add("$o", SqliteType.Real);
+        var id = cmd.Parameters.Add("$id", SqliteType.Text);
+        for (var i = 0; i < ids.Count; i++)
+        {
+            order.Value = (double)i;
+            id.Value = ids[i];
+            cmd.ExecuteNonQuery();
+        }
+        tx.Commit();
     }
 
     /// <summary>用户手动改名，之后不再自动生成标题。</summary>
@@ -742,7 +765,7 @@ public sealed class ConversationStore
 
     private const string SelectConversation = """
         SELECT c.id, c.title, c.title_source, c.mode, c.pinned, c.translate_from, c.translate_to,
-               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan, c.expert_id
+               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan, c.expert_id, c.sort_order
         FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id AND m.role IN ('user','assistant')
         """;
 
@@ -766,6 +789,7 @@ public sealed class ConversationStore
         SummaryUpto = r.IsDBNull(15) ? null : r.GetString(15),
         Plan = r.IsDBNull(16) ? null : r.GetString(16),
         ExpertId = r.IsDBNull(17) ? null : r.GetString(17),
+        SortOrder = r.IsDBNull(18) ? null : r.GetDouble(18),
     };
 
     private void Update(string id, string set, object value)

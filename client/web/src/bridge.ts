@@ -221,6 +221,8 @@ class Bridge {
   /** 不传 path 时弹出文件夹选择框；取消返回 null */
   addWorkspace = (path?: string) => this.call<string | null>('workspaces.add', path ? { path } : {})
   removeWorkspace = (path: string) => this.call<WorkspaceInfo[]>('workspaces.remove', { path })
+  reorderWorkspaces = (paths: string[]) => this.call<WorkspaceInfo[]>('workspaces.reorder', { paths })
+  reorderConversations = (ids: string[]) => this.call<void>('conversations.reorder', { ids })
   setDefaultWorkspace = (path: string | null) => this.call<void>('settings.setDefaultWorkspace', { path })
   setDefaultPermission = (permission: Permission) => this.call<void>('settings.setDefaultPermission', { permission })
   // ---------- 定时任务 ----------
