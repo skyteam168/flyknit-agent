@@ -22,6 +22,21 @@ public class ConversationStoreTests : IDisposable
     }
 
     [Fact]
+    public void ManualOrderFromTheSidebarIsKept()
+    {
+        var a = _store.Create(ConversationMode.Agent, "a", workspace: "D:\\proj");
+        var b = _store.Create(ConversationMode.Agent, "b", workspace: "D:\\proj");
+        var c = _store.Create(ConversationMode.Chat, "c");
+        Assert.Null(_store.Get(a.Id)!.SortOrder);
+
+        _store.Reorder(new[] { c.Id, a.Id, b.Id });
+        Assert.Equal(0, _store.Get(c.Id)!.SortOrder);
+        Assert.Equal(1, _store.Get(a.Id)!.SortOrder);
+        Assert.Equal(2, _store.Get(b.Id)!.SortOrder);
+        Assert.Equal("D:\\proj", _store.List().Single(x => x.Id == a.Id).Workspace);
+    }
+
+    [Fact]
     public void SavesAndLoadsMessagesInOrder()
     {
         var conv = _store.Create(ConversationMode.Agent);

@@ -26,7 +26,8 @@ public sealed record ConversationDto(
     string? Workspace,
     string Permission,
     string? SummaryUpto,
-    string? ExpertId)
+    string? ExpertId,
+    double? SortOrder)
 {
     public static ConversationDto From(Conversation c) => new(
         c.Id,
@@ -44,7 +45,8 @@ public sealed record ConversationDto(
         c.Workspace,
         Flyknit.Core.Security.PermissionModes.ToText(c.Permission),
         c.SummaryUpto,
-        c.ExpertId);
+        c.ExpertId,
+        c.SortOrder);
 }
 
 /// <summary>界面上显示的专家：卡片和对话顶部用。工作方式、专家知识这些只给模型看，不发给界面。</summary>

@@ -205,7 +205,7 @@ public sealed class AppSettings
         File.Move(tmp, AppPaths.SettingsFile, overwrite: true);
     }
 
-    /// <summary>确保默认工作区存在并在列表首位，去掉重复项。</summary>
+    /// <summary>确保默认工作区存在、在列表里（没有就放首位），去掉重复项。用户在侧栏拖过的顺序保留。</summary>
     public void EnsureWorkspaces()
     {
         try
@@ -216,7 +216,7 @@ public sealed class AppSettings
         {
             Log.Warn("创建默认工作区失败", ex);
         }
-        var list = new System.Collections.Generic.List<string> { AppPaths.DefaultWorkspace };
+        var list = new System.Collections.Generic.List<string>();
         foreach (var w in Workspaces)
         {
             var full = NormalizeDir(w);
@@ -224,6 +224,10 @@ public sealed class AppSettings
             {
                 list.Add(full);
             }
+        }
+        if (!list.Exists(x => x.Equals(AppPaths.DefaultWorkspace, StringComparison.OrdinalIgnoreCase)))
+        {
+            list.Insert(0, AppPaths.DefaultWorkspace);
         }
         Workspaces = list;
     }

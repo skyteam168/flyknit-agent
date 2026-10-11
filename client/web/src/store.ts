@@ -536,6 +536,41 @@ export async function selectWorkspace(path: string) {
   await bridge.setDefaultWorkspace(path).catch(fail)
 }
 
+/** 在某个工作区里开一个新对话：以后的新对话都默认放在这里 */
+export async function newConversationIn(path: string) {
+  newConversation()
+  await selectWorkspace(path)
+  window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+}
+
+/** 把对话挪到另一个工作区（侧栏里拖过去） */
+export async function moveToWorkspace(id: string, path: string) {
+  const c = state.conversations.find((x) => x.id === id)
+  if (!c || c.workspace === path) return
+  c.workspace = path
+  await bridge.setWorkspace(id, path).catch(fail)
+}
+
+/** 侧栏手动排序：按给出的顺序记下位置 */
+export async function reorderConversations(ids: string[]) {
+  ids.forEach((id, i) => {
+    const c = state.conversations.find((x) => x.id === id)
+    if (c) c.sortOrder = i
+  })
+  await bridge.reorderConversations(ids).catch(fail)
+}
+
+export async function reorderWorkspaces(paths: string[]) {
+  const byPath = new Map(state.workspaces.map((w) => [w.path.toLowerCase(), w]))
+  const next = paths.map((p) => byPath.get(p.toLowerCase())).filter((w): w is WorkspaceInfo => !!w)
+  state.workspaces = [...next, ...state.workspaces.filter((w) => !next.includes(w))]
+  try {
+    state.workspaces = await bridge.reorderWorkspaces(paths)
+  } catch (e) {
+    fail(e)
+  }
+}
+
 /** 弹出文件夹选择框添加工作区，添加后直接切换过去 */
 export async function addWorkspace() {
   try {
