@@ -160,6 +160,12 @@ SETTINGS: tuple[Setting, ...] = (
         title="允许锁屏运行（阻止电脑睡眠）",
         risk="关闭后电脑按系统电源设置正常睡眠，睡着时定时任务不会执行、收不到下发的指令。",
     ),
+    # ---- 截图提问：框选屏幕的一块发给 AI。屏幕上可能有敏感信息，IT 可以统一关掉 ----
+    Setting(
+        key="screenshot_ask", kind="bool", default=True, locked=True,
+        title="允许截图提问",
+        risk="关闭后悬浮球菜单和快捷键里的「截图提问」不可用。员工仍然可以自己粘贴截图。",
+    ),
     Setting(
         key="keep_screen_on", kind="bool", default=True, locked=True,
         title="允许保持屏幕常亮",

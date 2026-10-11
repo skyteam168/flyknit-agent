@@ -74,6 +74,50 @@ public partial class FloatingBall : Window
 
     public void RefreshText() => ToolTip = NativeStrings.T("ball.tip");
 
+    /// <summary>右键菜单里的一项。gesture 是右侧灰字显示的快捷键。</summary>
+    public readonly record struct MenuEntry(string Text, Action OnClick, string Gesture = "");
+
+    /// <summary>
+    /// 每次右键时由 App 重新给菜单内容（界面语言、安全中心开关随时会变）。null 表示分隔线。
+    /// </summary>
+    public Func<System.Collections.Generic.IReadOnlyList<MenuEntry?>>? MenuItems { get; set; }
+
+    /// <summary>悬浮球在屏幕上的位置（DIP），对话浮窗据此贴在旁边。</summary>
+    public Rect Bounds => new(Left, Top, Width, Height);
+
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonUp(e);
+        if (MenuItems?.Invoke() is not { Count: > 0 } entries)
+        {
+            return;
+        }
+        var menu = new System.Windows.Controls.ContextMenu
+        {
+            Style = (Style)FindResource("BallMenu"),
+            PlacementTarget = this,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
+        };
+        foreach (var entry in entries)
+        {
+            if (entry is not { } item)
+            {
+                menu.Items.Add(new System.Windows.Controls.Separator { Style = (Style)FindResource("BallMenuSeparator") });
+                continue;
+            }
+            var mi = new System.Windows.Controls.MenuItem
+            {
+                Header = item.Text,
+                InputGestureText = item.Gesture,
+                Style = (Style)FindResource("BallMenuItem"),
+            };
+            mi.Click += (_, _) => item.OnClick();
+            menu.Items.Add(mi);
+        }
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
     private void OnDown(object sender, MouseButtonEventArgs e)
     {
         _pressPoint = e.GetPosition(this);

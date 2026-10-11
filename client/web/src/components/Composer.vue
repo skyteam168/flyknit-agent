@@ -16,6 +16,8 @@ import {
   Paperclip,
   Plug,
   Puzzle,
+  RotateCcw,
+  Sparkles,
   Square,
   Wrench,
   X,
@@ -29,6 +31,7 @@ import ConfirmBar from './ConfirmBar.vue'
 import CompactingCard from './CompactingCard.vue'
 import UsageWarning from './UsageWarning.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
+import { bridge } from '../bridge'
 import {
   addPastedImage,
   cancelSpeech,
@@ -45,6 +48,7 @@ import {
   startSpeech,
   state,
   stop,
+  toast,
 } from '../store'
 import type { Mode } from '../types'
 
@@ -212,6 +216,44 @@ function focusInput() {
 }
 
 defineExpose({ fill, useSkill, focusInput })
+
+// ---------- 增强提示词：AI 把这句话改写清楚，原文留着可以一键恢复 ----------
+const enhancing = ref(false)
+/** 增强前的原文；为空表示没有可恢复的 */
+const original = ref<string | null>(null)
+/** 增强后的文字。用户一改动，就不再提供「恢复原文」 */
+let enhanced = ''
+const canEnhance = computed(
+  () => mode.value !== 'translate' && !busy.value && !offline.value && original.value === null && text.value.trim().length >= 2,
+)
+
+async function enhance() {
+  if (!canEnhance.value || enhancing.value) return
+  const before = text.value
+  enhancing.value = true
+  try {
+    const r = await bridge.enhancePrompt(before, mode.value, current.value?.id ?? null, current.value ? null : draftMode.expertId)
+    if (text.value !== before) return // 等结果的时候用户又改了，不覆盖
+    original.value = before
+    enhanced = r.text
+    fill(r.text)
+  } catch (e) {
+    toast(e instanceof Error ? e.message : String(e))
+  } finally {
+    enhancing.value = false
+  }
+}
+
+function restoreOriginal() {
+  if (original.value === null) return
+  const back = original.value
+  original.value = null
+  fill(back)
+}
+
+watch(text, (value) => {
+  if (original.value !== null && value !== enhanced) original.value = null
+})
 
 // 别处要往输入框里放的文字（专家详情里点了示例问题），接过来就清掉
 watch(
@@ -397,6 +439,27 @@ onBeforeUnmount(() => {
         </div>
 
         <span class="spacer" />
+        <button
+          v-if="original !== null"
+          type="button"
+          class="tool-btn icon-only"
+          :title="t('input.restoreOriginal')"
+          @click="restoreOriginal"
+        >
+          <RotateCcw :size="17" />
+        </button>
+        <button
+          v-else-if="mode !== 'translate'"
+          type="button"
+          class="tool-btn icon-only enhance"
+          :class="{ on: enhancing }"
+          :disabled="!canEnhance || enhancing"
+          :title="enhancing ? t('input.enhancing') : t('input.enhance')"
+          @click="enhance"
+        >
+          <Loader2 v-if="enhancing" :size="17" class="spin" />
+          <Sparkles v-else :size="17" />
+        </button>
         <button type="button" class="tool-btn icon-only" :title="t('input.attach')" @click="pickFiles">
           <Paperclip :size="17" />
         </button>

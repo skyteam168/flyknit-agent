@@ -10,6 +10,64 @@
         ShowInTaskbar="False"
         Topmost="True"
         AllowDrop="True">
+    <Window.Resources>
+        <!-- 右键菜单：白色圆角卡片 -->
+        <Style x:Key="BallMenu" TargetType="ContextMenu">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="HasDropShadow" Value="True" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="#FFFFFF" CornerRadius="12" BorderBrush="#E6E8EE" BorderThickness="1"
+                                Padding="6" Margin="4,4,10,10">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="16" ShadowDepth="3" Direction="270" Opacity="0.18" Color="#1A2433" />
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="BallMenuItem" TargetType="MenuItem">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Padding="12,8" MinWidth="210">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Right" Text="{TemplateBinding InputGestureText}" Foreground="#9AA0AE"
+                                           Margin="24,0,0,0" VerticalAlignment="Center" />
+                                <ContentPresenter ContentSource="Header" RecognizesAccessKey="False" VerticalAlignment="Center"
+                                                  TextBlock.Foreground="#1F2330" />
+                            </DockPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#F1F3F7" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="BallMenuSeparator" TargetType="Separator">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Separator">
+                        <Border Height="1" Margin="8,5" Background="#ECEEF3" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Grid x:Name="Root" Cursor="Hand">
         <Grid.RenderTransform>
             <ScaleTransform x:Name="Scale" CenterX="32" CenterY="32" ScaleX="1" ScaleY="1" />

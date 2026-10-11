@@ -81,6 +81,9 @@ const zh = {
     placeholder: '输入消息，Enter 发送，Shift+Enter 换行',
     placeholderTranslate: '输入或粘贴要翻译的内容',
     attach: '添加文件',
+    enhance: '增强提示词',
+    enhancing: '正在增强…',
+    restoreOriginal: '恢复原文',
     send: '发送',
     stop: '停止',
     drop: '松开即可添加文件',
@@ -685,6 +688,7 @@ const zh = {
         'window_fullscreen': '进入 / 退出最大化',
         'window_toggle': '唤起 / 隐藏主窗口',
         'selection_translate': '划词翻译（选中文字后按）',
+        'screenshot_ask': '截图提问（框选屏幕的一块来问）',
       },
     },
     audit: {
@@ -808,6 +812,7 @@ const zh = {
         persona_custom: { title: '允许自定义语气和 AI 的名字', risk: '关闭后不能自己写语气说明、不能给 AI 改名字，已经设置的按默认处理。' },
         keep_awake: { title: '允许锁屏运行（阻止电脑睡眠）', risk: '关闭后电脑按系统电源设置正常睡眠，睡着时定时任务不会执行、收不到下发的指令。' },
         keep_screen_on: { title: '允许保持屏幕常亮', risk: '关闭后“保持屏幕常亮”按“熄屏后保持唤醒”处理，屏幕照常熄灭。' },
+        screenshot_ask: { title: '允许截图提问', risk: '关闭后悬浮球菜单和快捷键里的“截图提问”不可用，仍然可以自己粘贴截图。' },
         sandbox: {
           title: '工作区隔离',
           risk: '关闭后 AI 可以在工作区之外读写文件。危险命令仍会拦截，但范围限制没有了。',
@@ -1150,6 +1155,9 @@ const vi: Messages = {
     placeholder: 'Nhập tin nhắn, Enter để gửi, Shift+Enter để xuống dòng',
     placeholderTranslate: 'Nhập hoặc dán nội dung cần dịch',
     attach: 'Thêm tệp',
+    enhance: 'Làm rõ câu lệnh',
+    enhancing: 'Đang làm rõ…',
+    restoreOriginal: 'Khôi phục bản gốc',
     send: 'Gửi',
     stop: 'Dừng',
     drop: 'Thả để thêm tệp',
@@ -1754,6 +1762,7 @@ const vi: Messages = {
         'window_fullscreen': 'Phóng to / thu nhỏ',
         'window_toggle': 'Hiện / ẩn cửa sổ chính',
         'selection_translate': 'Dịch nhanh (chọn chữ rồi nhấn)',
+        'screenshot_ask': 'Chụp màn hình để hỏi (chọn một vùng)',
       },
     },
     audit: {
@@ -1881,6 +1890,7 @@ const vi: Messages = {
         persona_custom: { title: 'Cho phép tự mô tả giọng điệu và đặt tên AI', risk: 'Tắt rồi thì không tự viết giọng điệu, không đổi tên AI được; cái đã đặt sẽ về mặc định.' },
         keep_awake: { title: 'Cho phép chạy khi khóa máy (ngăn máy ngủ)', risk: 'Tắt rồi thì máy ngủ theo cài đặt nguồn; khi ngủ, việc định kỳ không chạy và không nhận được lệnh từ xa.' },
         keep_screen_on: { title: 'Cho phép giữ màn hình luôn sáng', risk: 'Tắt rồi thì “Giữ màn hình luôn sáng” được xử lý như “Tắt màn hình nhưng giữ máy thức”.' },
+        screenshot_ask: { title: 'Cho phép chụp màn hình để hỏi', risk: 'Tắt rồi thì không dùng được “Chụp màn hình để hỏi” trong menu nút nổi và phím tắt; vẫn có thể tự dán ảnh chụp.' },
         sandbox: {
           title: 'Giới hạn trong thư mục làm việc',
           risk: 'Tắt rồi thì AI đọc ghi được cả ngoài thư mục làm việc. Lệnh nguy hiểm vẫn bị chặn, nhưng hết giới hạn phạm vi.',
@@ -2224,6 +2234,9 @@ const en: Messages = {
     placeholder: 'Message FlyknitBuddy — Enter to send, Shift+Enter for a new line',
     placeholderTranslate: 'Type or paste the text to translate',
     attach: 'Add files',
+    enhance: 'Enhance prompt',
+    enhancing: 'Enhancing…',
+    restoreOriginal: 'Restore original',
     send: 'Send',
     stop: 'Stop',
     drop: 'Drop to add files',
@@ -2828,6 +2841,7 @@ const en: Messages = {
         'window_fullscreen': 'Maximize / restore',
         'window_toggle': 'Show / hide main window',
         'selection_translate': 'Quick translate (select text, then press)',
+        'screenshot_ask': 'Ask about a screenshot (select an area)',
       },
     },
     audit: {
@@ -2955,6 +2969,7 @@ const en: Messages = {
         persona_custom: { title: 'Allow a custom tone and AI name', risk: 'Once off, people cannot write their own tone or rename the AI; existing settings fall back to the defaults.' },
         keep_awake: { title: 'Allow running while locked (prevent sleep)', risk: 'Once off, the PC sleeps per its power settings; while asleep, scheduled tasks do not run and remote instructions are not received.' },
         keep_screen_on: { title: 'Allow keeping the screen on', risk: 'Once off, “Keep screen on” is treated as “Keep awake, screen off”.' },
+        screenshot_ask: { title: 'Allow screenshot questions', risk: 'Once off, “Ask about a screenshot” is unavailable from the floating button and the shortcut. Pasting screenshots still works.' },
         sandbox: {
           title: 'Keep the AI inside the workspace',
           risk: 'Once off, the AI can read and write files outside the workspace. Dangerous commands are still blocked, but the boundary is gone.',

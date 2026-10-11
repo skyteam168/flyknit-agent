@@ -355,6 +355,25 @@ public sealed class AgentHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// 输入框的「增强提示词」：把员工写的话改写清楚。专家对话（或要呼叫专家的新对话）按专家的职责来补充。
+    /// 原文由界面保留，随时可以恢复。
+    /// </summary>
+    public async Task<string> EnhancePromptAsync(string text, ConversationMode mode, string? expertId, string uiLanguage)
+    {
+        var expert = Experts.Get(expertId);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        try
+        {
+            return await new PromptEnhancer(Server).EnhanceAsync(
+                new PromptEnhanceInput(text, expert is null ? mode : ConversationMode.Agent, uiLanguage, expert?.Name, expert?.Description), cts.Token);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("增强提示词超时了，请再试一次");
+        }
+    }
+
     /// <summary>报一次专家使用量（列表上的「使用量」）。报不上就算了，不影响对话。</summary>
     private async Task ReportExpertUseAsync(string expertId)
     {

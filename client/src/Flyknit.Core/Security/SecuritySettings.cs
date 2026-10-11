@@ -79,6 +79,9 @@ public sealed class SecuritySettings
     public const string KeepAwakeAllowed = "keep_awake";
     public const string KeepScreenOn = "keep_screen_on";
 
+    /// <summary>截图提问（悬浮球菜单、全局快捷键）。</summary>
+    public const string ScreenshotAsk = "screenshot_ask";
+
     private readonly Dictionary<string, SecurityItem> _items;
 
     public SecuritySettings(Dictionary<string, SecurityItem>? items = null)

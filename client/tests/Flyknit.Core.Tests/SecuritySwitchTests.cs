@@ -186,6 +186,8 @@ public class SecuritySwitchTests
             SecuritySettings.PersonaCustom,
             SecuritySettings.KeepAwakeAllowed,
             SecuritySettings.KeepScreenOn,
+            // App 读这一项：悬浮球菜单里有没有「截图提问」、快捷键截图前再挡一道
+            SecuritySettings.ScreenshotAsk,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

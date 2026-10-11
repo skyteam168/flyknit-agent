@@ -69,7 +69,8 @@ public partial class MainWindow : Window, IWindowActions
         };
         SizeChanged += (_, _) =>
         {
-            if (WindowState == WindowState.Normal)
+            // 对话浮窗的小尺寸不记：下次正常打开还是原来的大小
+            if (WindowState == WindowState.Normal && !_compact)
             {
                 _settings.WindowWidth = ActualWidth;
                 _settings.WindowHeight = ActualHeight;
@@ -279,7 +280,84 @@ public partial class MainWindow : Window, IWindowActions
 
     private bool _shownOnce;
 
+    // ---------- 对话浮窗：主窗口缩成小窗贴在悬浮球旁边，置顶；正常打开时恢复原来的大小和位置 ----------
+    private const double CompactWidth = 420;
+    private const double CompactHeight = 640;
+    private bool _compact;
+    private Rect? _beforeCompact;
+    private bool _maximizedBeforeCompact;
+
+    /// <param name="anchor">悬浮球的位置（DIP）。</param>
+    /// <param name="dpi">悬浮球所在显示器的缩放，用来换算工作区。</param>
+    public void ShowCompact(Rect anchor, DpiScale dpi)
+    {
+        if (!_compact)
+        {
+            _maximizedBeforeCompact = WindowState == WindowState.Maximized || (!_shownOnce && _settings.WindowMaximized);
+            if (WindowState == WindowState.Maximized)
+            {
+                WindowState = WindowState.Normal;
+            }
+            _beforeCompact = IsVisible && !_prewarming && WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : null;
+            _compact = true;
+        }
+        if (_prewarming)
+        {
+            // 预加载时窗口在屏幕外：先结束预加载，再摆到悬浮球旁边（否则 ShowCore 里会被挪回原来的位置）
+            EndPrewarm(visible: true);
+        }
+        _shownOnce = true; // 浮窗模式下不要恢复上次的最大化
+        var screen = System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point(
+            (int)((anchor.Left + anchor.Width / 2) * dpi.DpiScaleX), (int)((anchor.Top + anchor.Height / 2) * dpi.DpiScaleY)));
+        var area = new Rect(
+            screen.WorkingArea.Left / dpi.DpiScaleX,
+            screen.WorkingArea.Top / dpi.DpiScaleY,
+            screen.WorkingArea.Width / dpi.DpiScaleX,
+            screen.WorkingArea.Height / dpi.DpiScaleY);
+        var width = Math.Min(CompactWidth, area.Width - 16);
+        var height = Math.Min(CompactHeight, area.Height - 16);
+        Width = width;
+        Height = height;
+        // 悬浮球在屏幕右半边就放在它左边，否则放右边；底边和悬浮球对齐
+        var left = anchor.Left + anchor.Width / 2 > area.Left + area.Width / 2 ? anchor.Left - width - 8 : anchor.Right + 8;
+        Left = Math.Clamp(left, area.Left + 8, Math.Max(area.Left + 8, area.Right - width - 8));
+        Top = Math.Clamp(anchor.Bottom - height, area.Top + 8, Math.Max(area.Top + 8, area.Bottom - height - 8));
+        Topmost = true;
+        ShowCore();
+    }
+
+    private void LeaveCompact()
+    {
+        if (!_compact)
+        {
+            return;
+        }
+        _compact = false;
+        Topmost = false;
+        Width = Math.Max(MinWidth, _settings.WindowWidth);
+        Height = Math.Max(MinHeight, _settings.WindowHeight);
+        if (_beforeCompact is { } r)
+        {
+            Left = r.Left;
+            Top = r.Top;
+        }
+        else
+        {
+            PlaceNearTray();
+        }
+        if (_maximizedBeforeCompact)
+        {
+            WindowState = WindowState.Maximized;
+        }
+    }
+
     public void ShowAndFocus()
+    {
+        LeaveCompact();
+        ShowCore();
+    }
+
+    private void ShowCore()
     {
         if (_prewarming)
         {
