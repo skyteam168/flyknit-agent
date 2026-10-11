@@ -56,13 +56,19 @@ public sealed record ExpertDto(
     string Avatar,
     string Tagline,
     string Category,
+    IReadOnlyList<string> Tags,
+    string Author,
     string Description,
     IReadOnlyList<string> Examples,
     bool ReadOnly,
-    int Version)
+    int Version,
+    int Uses,
+    int Users,
+    string? PublishedAt)
 {
     public static ExpertDto From(Flyknit.Core.Experts.Expert e) =>
-        new(e.Id, e.Name, e.Avatar, e.Tagline, e.Category, e.Description, e.Examples, e.ReadOnly, e.Version);
+        new(e.Id, e.Name, e.Avatar, e.Tagline, e.Category, e.Tags, e.Author, e.Description, e.Examples, e.ReadOnly, e.Version,
+            e.Uses, e.Users, e.PublishedAt?.ToString("O"));
 }
 
 public sealed class AttachmentDto

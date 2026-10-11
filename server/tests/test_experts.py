@@ -168,3 +168,21 @@ async def test_ai_draft_reports_unusable_answers(client):
 async def test_ai_draft_without_models(client):
     r = await client.post("/api/v1/admin/experts/draft", headers=ADMIN, json={"text": "MES 专家"})
     assert r.status_code == 502 and "模型" in r.json()["detail"]
+
+
+async def test_usage_is_counted_per_message_and_device(client, device_headers):
+    await client.post("/api/v1/admin/experts", headers=ADMIN, json={**MES, "tags": ["产量分析", " 设备停机", "产量分析"], "author": "IT 部"})
+    # 草稿不记
+    assert (await client.post("/api/v1/client/experts/mes_analyst/use", headers=device_headers)).status_code == 404
+    await client.post("/api/v1/admin/experts/mes_analyst/publish", headers=ADMIN, json={})
+    for _ in range(3):
+        assert (await client.post("/api/v1/client/experts/mes_analyst/use", headers=device_headers)).status_code == 204
+    other = await client.post("/api/v1/devices/register",
+                              json={"enrollment_key": "test-enroll", "machine_name": "PC-002", "user_name": "tran"})
+    await client.post("/api/v1/client/experts/mes_analyst/use",
+                      headers={"Authorization": f"Bearer {other.json()['token']}"})
+    [live] = await client_experts(client, device_headers)
+    assert live["uses"] == 4 and live["users"] == 2
+    assert live["tags"] == ["产量分析", "设备停机"] and live["author"] == "IT 部"
+    [admin_view] = (await client.get("/api/v1/admin/experts", headers=ADMIN)).json()
+    assert admin_view["uses"] == 4

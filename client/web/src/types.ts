@@ -37,11 +37,19 @@ export interface Expert {
   avatar: string
   tagline: string
   category: string
+  tags: string[]
+  /** 署名：谁维护这位专家 */
+  author: string
   /** 名片：负责什么、适合什么、不负责什么、需要什么信息 */
   description: string
   examples: string[]
   readOnly: boolean
   version: number
+  /** 全公司累计使用次数 */
+  uses: number
+  /** 用过的设备数 */
+  users: number
+  publishedAt: string | null
 }
 
 export type MemoryKind = 'preference' | 'fact' | 'success' | 'lesson'

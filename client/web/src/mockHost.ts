@@ -3,7 +3,7 @@
  * 模拟会话存储、流式回复、工具调用与确认流程，便于在没有 Windows 的情况下开发界面。
  */
 import type { HostTransport } from './bridge'
-import type { AttachmentRef, Conversation, HostEvent, McpVendor, MemoryItem, Mode, UiMessage } from './types'
+import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, UiMessage } from './types'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -59,55 +59,46 @@ export function createMockHost(): HostTransport {
   const confirmWaiters = new Map<string, (choice: string) => void>()
   const stopped = new Set<string>()
   // 专家：管理员发布的。?experts=none 看没有专家时的样子
-  const mockExperts =
+  const minutesAgo = (min: number) => new Date(Date.now() - min * 60000).toISOString()
+  const mockExperts = (
     new URLSearchParams(location.search).get('experts') === 'none'
       ? []
       : [
           {
-            id: 'mes_analyst',
-            name: 'MES生产分析专家',
-            avatar: '🏭',
-            tagline: '生产数据查询、产量异常与设备停机分析',
-            category: '生产',
+            id: 'mes_analyst', name: 'MES生产分析专家', avatar: '🏭', category: '生产',
+            tagline: '生产数据查询、产量异常与设备停机分析', tags: ['产量分析', '设备停机', '工单进度'], author: 'IT 部 · 张工',
             description: '负责：MES 生产数据查询、产量异常、工单进度、设备停机、产能分析\n适合：查生产订单、分析产量下降、分析停机原因\n不负责：财务、人事、修改 ERP 订单\n需要的信息：车间 / 产线、日期范围、订单号（可选）',
             examples: ['昨天 A 车间产量为什么下降？', '本周 3 号线停机时间最长的设备是哪台？', '工单 WO-1001 现在到哪一步了？'],
-            readOnly: true,
-            version: 3,
+            readOnly: true, version: 3, uses: 112100, users: 86, publishedAt: minutesAgo(60 * 24 * 3),
           },
           {
-            id: 'it_ops',
-            name: 'IT 运维专家',
-            avatar: '🛠️',
-            tagline: '电脑、网络、打印机问题排查',
-            category: 'IT',
-            description: '负责：办公电脑、网络、打印机、常用软件的问题排查',
-            examples: ['打印机打不出来', '电脑突然很卡'],
-            readOnly: false,
-            version: 1,
+            id: 'quality', name: '质检数据分析', avatar: '🔬', category: '生产',
+            tagline: '不良率趋势、批次追溯、8D 报告草稿', tags: ['不良率', '批次追溯'], author: '',
+            description: '', examples: ['上个月哪个工序的不良率最高？'], readOnly: true, version: 1, uses: 8420, users: 23, publishedAt: minutesAgo(60 * 5),
           },
           {
-            id: 'report',
-            name: '报表助手',
-            avatar: '📊',
-            tagline: '把 Excel 数据整理成周报、月报',
-            category: '行政',
-            description: '',
-            examples: [],
-            readOnly: false,
-            version: 2,
+            id: 'plan', name: '生产排程助手', avatar: '', category: '生产',
+            tagline: '按订单交期和产能排周计划', tags: ['排程', '产能'], author: '计划部',
+            description: '', examples: [], readOnly: false, version: 2, uses: 3100, users: 9, publishedAt: minutesAgo(60 * 24 * 10),
           },
           {
-            id: 'quality',
-            name: '质检数据分析',
-            avatar: '',
-            tagline: '不良率趋势、批次追溯、8D 报告草稿',
-            category: '生产',
-            description: '',
-            examples: [],
-            readOnly: true,
-            version: 1,
+            id: 'it_ops', name: 'IT 运维专家', avatar: '🛠️', category: 'IT',
+            tagline: '电脑、网络、打印机问题排查', tags: ['网络排障', '打印机'], author: 'IT 部',
+            description: '负责：办公电脑、网络、打印机、常用软件的问题排查', examples: ['打印机打不出来', '电脑突然很卡'],
+            readOnly: false, version: 1, uses: 16050000, users: 412, publishedAt: minutesAgo(60 * 24 * 30),
+          },
+          {
+            id: 'erp_helper', name: 'ERP 操作指导', avatar: '🧾', category: 'IT',
+            tagline: '一步步教你在 ERP 里查单、录单、出报表', tags: ['ERP', '操作指导'], author: '',
+            description: '', examples: [], readOnly: true, version: 4, uses: 47130, users: 140, publishedAt: minutesAgo(60 * 24),
+          },
+          {
+            id: 'report', name: '报表助手', avatar: '📊', category: '行政',
+            tagline: '把 Excel 数据整理成周报、月报', tags: ['Excel', '周报'], author: '行政部',
+            description: '', examples: ['把这周的考勤表做成部门汇总'], readOnly: false, version: 2, uses: 21900, users: 77, publishedAt: minutesAgo(60 * 24 * 2),
           },
         ]
+  ) as Expert[]
 
   // ?lang=vi-VN / en-US 看其它语言下的排版
   let language = new URLSearchParams(location.search).get('lang') || 'zh-CN'

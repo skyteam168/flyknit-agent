@@ -414,6 +414,14 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Experts.Expert>>(cancellationToken: ct) ?? new();
     }
 
+    /// <summary>员工向专家发了一句话：服务端用来算使用量。</summary>
+    public async Task ReportExpertUseAsync(string expertId, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/experts/{Uri.EscapeDataString(expertId)}/use");
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
     /// <summary>公司技能库列表。</summary>
     public async Task<List<ServerSkill>> GetSkillsAsync(CancellationToken ct)
     {

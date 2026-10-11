@@ -25,6 +25,10 @@ public sealed class Expert
     [JsonPropertyName("avatar")] public string Avatar { get; set; } = "";
     [JsonPropertyName("tagline")] public string Tagline { get; set; } = "";
     [JsonPropertyName("category")] public string Category { get; set; } = "";
+    [JsonPropertyName("tags")] public List<string> Tags { get; set; } = new();
+
+    /// <summary>署名：谁维护这位专家。</summary>
+    [JsonPropertyName("author")] public string Author { get; set; } = "";
 
     /// <summary>名片：负责什么、适合什么任务、不负责什么、需要什么信息。</summary>
     [JsonPropertyName("description")] public string Description { get; set; } = "";
@@ -53,6 +57,13 @@ public sealed class Expert
     [JsonPropertyName("allow_direct")] public bool AllowDirect { get; set; } = true;
     [JsonPropertyName("allow_delegate")] public bool AllowDelegate { get; set; } = true;
     [JsonPropertyName("sort_order")] public int SortOrder { get; set; }
+
+    /// <summary>全公司累计使用次数（员工每向专家发一句话算一次）。</summary>
+    [JsonPropertyName("uses")] public int Uses { get; set; }
+
+    /// <summary>用过这位专家的设备数。</summary>
+    [JsonPropertyName("users")] public int Users { get; set; }
+    [JsonPropertyName("published_at")] public DateTimeOffset? PublishedAt { get; set; }
 }
 
 /// <summary>专家在一次运行里的具体效果：筛工具、压权限、写进提示词。</summary>

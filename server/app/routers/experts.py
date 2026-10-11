@@ -30,9 +30,10 @@ admin_router = APIRouter(prefix="/api/v1/admin/experts", tags=["experts"], depen
 client_router = APIRouter(prefix="/api/v1/client/experts", tags=["experts"])
 
 
-def _out(e: Expert) -> ExpertOut:
+def _out(e: Expert, usage: dict[str, tuple[int, int]] | None = None) -> ExpertOut:
+    uses, users = (usage or {}).get(e.id, (0, 0))
     return ExpertOut(
-        id=e.id, status=e.status, version=e.version, dirty=expert_registry.is_dirty(e),
+        id=e.id, status=e.status, version=e.version, dirty=expert_registry.is_dirty(e), uses=uses, users=users,
         published_at=e.published_at, published_by=e.published_by, updated_by=e.updated_by, updated_at=e.updated_at,
         **expert_registry.snapshot(e),
     )
@@ -49,7 +50,8 @@ async def _get(session: AsyncSession, expert_id: str) -> Expert:
 @admin_router.get("", response_model=list[ExpertOut])
 async def list_experts(session: AsyncSession = Depends(get_session)):
     rows = await session.scalars(select(Expert).order_by(Expert.sort_order, Expert.created_at))
-    return [_out(e) for e in rows.all()]
+    usage = await expert_registry.usage_totals(session)
+    return [_out(e, usage) for e in rows.all()]
 
 
 @admin_router.get("/options", response_model=ExpertOptionsOut)
@@ -176,8 +178,21 @@ async def client_experts(_: Device = Depends(require_device), session: AsyncSess
     """已发布的专家（发布时的快照）。不在这个列表里的（下线、删除）员工端自己收起来。"""
     rows = await session.scalars(
         select(Expert).where(Expert.status == "published").order_by(Expert.sort_order, Expert.created_at))
+    usage = await expert_registry.usage_totals(session)
     out = []
     for e in rows.all():
         snap = expert_registry.from_snapshot(e.published)
-        out.append(ExpertClientOut(id=e.id, version=e.version, published_at=e.published_at, **snap.model_dump()))
+        uses, users = usage.get(e.id, (0, 0))
+        out.append(ExpertClientOut(id=e.id, version=e.version, published_at=e.published_at, uses=uses, users=users,
+                                   **snap.model_dump()))
     return out
+
+
+@client_router.post("/{expert_id}/use", status_code=204)
+async def use_expert(expert_id: str, device: Device = Depends(require_device),
+                     session: AsyncSession = Depends(get_session)):
+    """员工向专家发了一句话（员工端每轮对话报一次），用来算「使用量」。下线、删掉的专家不记。"""
+    e = await session.get(Expert, expert_id)
+    if e is None or e.status != "published":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "专家不存在或已下线")
+    await expert_registry.record_use(session, expert_id, device.id)
