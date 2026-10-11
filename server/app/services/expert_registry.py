@@ -47,7 +47,8 @@ MAX_TAGS = 4
 
 
 def snapshot(e: Expert) -> dict:
-    return {name: getattr(e, name) for name in FIELDS}
+    # 升级时新加的列在老行里是 NULL（例如 tags、author），按默认值算
+    return from_snapshot({name: getattr(e, name) for name in FIELDS}).model_dump()
 
 
 def normalize(data: dict) -> dict:
@@ -70,15 +71,15 @@ def apply(e: Expert, data: ExpertFields) -> None:
 
 def from_snapshot(snap: dict | None) -> ExpertFields:
     """快照 → 内容。老快照里没有的字段（以后新加的）按默认值补上，已经去掉的字段忽略。"""
-    return ExpertFields.model_validate({k: v for k, v in (snap or {}).items() if k in FIELDS})
+    return ExpertFields.model_validate({k: v for k, v in (snap or {}).items() if k in FIELDS and v is not None})
 
 
 def is_dirty(e: Expert) -> bool:
     """草稿和已发布的不一样。还没发布过的不算（状态已经说明了）。"""
     if not e.version:
         return False
-    published = e.published or {}
-    return any(published.get(name) != getattr(e, name) for name in FIELDS)
+    # 都补齐默认值再比：老快照里没有后来新加的字段，不算改过
+    return from_snapshot(e.published).model_dump() != snapshot(e)
 
 
 def _unique(items: list) -> list[str]:
