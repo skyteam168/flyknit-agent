@@ -441,7 +441,7 @@ public sealed class McpRuntimeManager
                 {
                     while (tar.GetNextEntry() is { } entry)
                     {
-                        if (Destination(entry.Name) is not { } dest)
+                        if (Destination(CutAtNul(entry.Name)) is not { } dest)
                         {
                             continue;
                         }
@@ -464,11 +464,11 @@ public sealed class McpRuntimeManager
                                 break;
                             case TarEntryType.SymbolicLink when !OperatingSystem.IsWindows():
                                 // Windows 版的包里没有链接；其他系统上只建指向包内的链接
-                                var linkTarget = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(dest)!, entry.LinkName));
+                                var linkTarget = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(dest)!, CutAtNul(entry.LinkName)));
                                 if (linkTarget.StartsWith(stagingFull, StringComparison.Ordinal))
                                 {
                                     Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-                                    File.CreateSymbolicLink(dest, entry.LinkName);
+                                    File.CreateSymbolicLink(dest, CutAtNul(entry.LinkName));
                                 }
                                 break;
                         }
@@ -482,6 +482,20 @@ public sealed class McpRuntimeManager
         {
             throw new McpException("运行环境压缩包是空的，或者顶层目录和服务端说的不一样");
         }
+    }
+
+    /// <summary>
+    /// tar 头里的文件名以 \0 结尾，后面可能还留着上一个名字的残字节（python-build-standalone 的包就是这样）。
+    /// .NET 8 的 TarReader 不截断，原样带出来，拼路径时就报「Null character in path」。
+    /// </summary>
+    internal static string CutAtNul(string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return "";
+        }
+        var i = name.IndexOf('\0');
+        return i < 0 ? name : name[..i];
     }
 
     /// <summary>新版本装好了，删掉同一运行环境的旧版本。正在用的删不掉就算了，下次再删。</summary>
