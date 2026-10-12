@@ -327,6 +327,50 @@ public class McpRuntimeTests : IDisposable
         Assert.Throws<McpException>(() => McpRuntimeManager.Extract(archive, "zip", "node-v1", Path.Combine(_root, "out2")));
     }
 
+    [Fact]
+    public void TarNamesWithBytesAfterTheNulTerminatorExtract()
+    {
+        // python-build-standalone 的包：名字字段 \0 之后还留着上一个名字的残字节，.NET 8 读出来会带上它们
+        Directory.CreateDirectory(_root);
+        var archive = Path.Combine(_root, "py.tar.gz");
+        File.WriteAllBytes(archive, RawUstarGz(("python/DLLs/_bz2.pyd\0bz2.pyd", "a"), ("python/python.exe\0xe", "b")));
+        var staging = Path.Combine(_root, "out");
+        McpRuntimeManager.Extract(archive, "tar.gz", "python", staging);
+        Assert.Equal("a", File.ReadAllText(Path.Combine(staging, "DLLs", "_bz2.pyd")));
+        Assert.Equal("b", File.ReadAllText(Path.Combine(staging, "python.exe")));
+    }
+
+    /// <summary>手写 ustar 头，名字字段原样写进去（TarWriter 不让写 \0）。</summary>
+    private static byte[] RawUstarGz(params (string Name, string Content)[] files)
+    {
+        using var ms = new MemoryStream();
+        using (var gz = new GZipStream(ms, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            foreach (var (name, content) in files)
+            {
+                var data = Encoding.UTF8.GetBytes(content);
+                var h = new byte[512];
+                void Put(int at, string text) => Encoding.ASCII.GetBytes(text).CopyTo(h, at);
+                Encoding.UTF8.GetBytes(name).CopyTo(h, 0);
+                Put(100, "0000644\0");
+                Put(108, "0000000\0");
+                Put(116, "0000000\0");
+                Put(124, Convert.ToString(data.Length, 8).PadLeft(11, '0') + "\0");
+                Put(136, "00000000000\0");
+                Put(148, "        ");
+                h[156] = (byte)'0';
+                Put(257, "ustar\0");
+                Put(263, "00");
+                Put(148, Convert.ToString(h.Sum(b => b), 8).PadLeft(6, '0') + "\0 ");
+                gz.Write(h);
+                gz.Write(data);
+                gz.Write(new byte[(512 - data.Length % 512) % 512]);
+            }
+            gz.Write(new byte[1024]);
+        }
+        return ms.ToArray();
+    }
+
     // ---------- 子进程环境、命令查找 ----------
 
     [Fact]
