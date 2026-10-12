@@ -33,6 +33,9 @@ public sealed class LoginWindow : Window
     private readonly WindowsAccount _account = WindowsAccount.Current();
     private readonly WebView2 _web = new() { DefaultBackgroundColor = System.Drawing.Color.FromArgb(0xF5, 0xF8, 0xFF) };
 
+    /// <summary>窗口已经关了（或正在关）：网页控件随之释放，不能再给页面回消息。</summary>
+    private bool _closed;
+
     public LoginWindow(AppSettings settings)
     {
         _settings = settings;
@@ -56,7 +59,11 @@ public sealed class LoginWindow : Window
         });
         Content = _web;
         // 关窗时把浏览器控件也释放掉，别让它的页面在后台一直挂着
-        Closed += (_, _) => _web.Dispose();
+        Closed += (_, _) =>
+        {
+            _closed = true;
+            _web.Dispose();
+        };
         Loaded += async (_, _) =>
         {
             try
@@ -150,12 +157,20 @@ public sealed class LoginWindow : Window
 
     private void Reply(string? id, bool ok, object? data, string? error, string? code)
     {
-        if (id is null)
+        // 「完成」「关闭」会关掉窗口，网页控件跟着释放，这时再回话会抛异常（以前登录成功后弹「出了点问题」就是它）
+        if (id is null || _closed)
         {
             return;
         }
         var json = JsonSerializer.Serialize(new { id, ok, data, error, code });
-        _web.CoreWebView2?.PostWebMessageAsJson(json);
+        try
+        {
+            _web.CoreWebView2?.PostWebMessageAsJson(json);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.Runtime.InteropServices.COMException)
+        {
+            // 窗口正在关闭：页面已经不在了，不用回
+        }
     }
 
     private static string KindName(WindowsAccount account) => account.Kind == LoginKind.Domain ? "domain" : "local";
