@@ -44,9 +44,26 @@ public partial class App : Application
     private DateTime _lastErrorNotice = DateTime.MinValue;
     private int _crashing;
 
+    /// <summary>
+    /// 快捷方式的「起始位置」是程序目录，进程的当前目录就停在那里，起的子进程（更新器、MCP 连接器、命令行）也跟着继承。
+    /// 谁的当前目录在程序目录里，谁就占着它，升级时整个目录挪不动（「被另一个进程占用」）。开机就挪走。
+    /// </summary>
+    private static void LeaveInstallDirectory()
+    {
+        try
+        {
+            Directory.SetCurrentDirectory(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("切换当前目录失败", ex);
+        }
+    }
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        LeaveInstallDirectory();
         DispatcherUnhandledException += (_, ex) =>
         {
             Log.Error("未处理的界面异常", ex.Exception);

@@ -27,6 +27,8 @@ internal static class Program
     {
         var options = Options.Parse(args);
         _log = options.LogFile;
+        // 自己的当前目录不能在要被替换的程序目录里，否则占着它，整个目录挪不动
+        try { Directory.SetCurrentDirectory(Path.GetTempPath()); } catch (Exception) { }
         if (options.Silent)
         {
             return Run(options);
@@ -45,7 +47,7 @@ internal static class Program
             // 装在 Program Files 里的员工端由运维代理替换：这里只等它换好，再把程序打开
             Say($"等运维代理把 {options.Exe} 换成 {options.WaitVersion}");
             var done = WaitForVersion(options.Exe, options.WaitVersion, TimeSpan.FromMinutes(5));
-            Say(done ? "已换成新版本" : "等了 5 分钟还没换好，先打开原来的版本");
+            Say(done ? "已换成新版本" : "没换成新版本，先打开原来的版本");
             Relaunch(options);
             return done ? 0 : 5;
         }
@@ -84,11 +86,22 @@ internal static class Program
 
 
 
+    /// <summary>运维代理写的升级状态（stage：downloading / ready / installed / failed）。</summary>
+    internal static readonly string AgentStatusFile =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Flyknit", "client-update.json");
+
     private static bool WaitForVersion(string exe, string version, TimeSpan timeout)
     {
-        var deadline = DateTime.UtcNow + timeout;
+        var started = DateTime.UtcNow;
+        var deadline = started + timeout;
         while (DateTime.UtcNow < deadline)
         {
+            if (AgentGaveUp(version, started))
+            {
+                // 代理已经说换不上（会在员工端下次退出时再试）：不让员工对着进度条干等
+                Say("运维代理报告这次替换失败");
+                return false;
+            }
             try
             {
                 if (File.Exists(exe) && (FileVersionInfo.GetVersionInfo(exe).ProductVersion ?? "").Split('+')[0].Trim() == version)
@@ -104,6 +117,26 @@ internal static class Program
             Thread.Sleep(2000);
         }
         return false;
+    }
+
+    /// <summary>代理在 since 之后写了「这个版本替换失败」。</summary>
+    internal static bool AgentGaveUp(string version, DateTime since, string? statusFile = null)
+    {
+        try
+        {
+            var file = statusFile ?? AgentStatusFile;
+            if (!File.Exists(file) || File.GetLastWriteTimeUtc(file) < since)
+            {
+                return false;
+            }
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(file));
+            string Str(string name) => doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() ?? "" : "";
+            return Str("stage") == "failed" && Str("version") == version;
+        }
+        catch (Exception)
+        {
+            return false;  // 代理正在写，下一轮再看
+        }
     }
 
     /// <summary>等主程序退出。等不到就不动手——文件锁着，动手只会换出一个半成品。</summary>
@@ -139,7 +172,8 @@ internal static class Program
             Process.Start(new ProcessStartInfo(options.Exe)
             {
                 UseShellExecute = true,
-                WorkingDirectory = Path.GetDirectoryName(options.Exe) ?? "",
+                // 不放在程序目录：员工端开机也会挪开，这里先就不给它占着的机会
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             });
         }
         catch (Exception ex)

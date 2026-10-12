@@ -427,7 +427,8 @@ public sealed class UpdateService : IDisposable
             }
             var runner = Path.Combine(Path.GetTempPath(), $"FlyknitUpdater-{Guid.NewGuid():N}.exe");
             File.Copy(source, runner, overwrite: true);
-            var info = new ProcessStartInfo(runner) { UseShellExecute = false, CreateNoWindow = true };
+            // 当前目录放到临时目录：留在程序目录里会占着它，代理 / 更新器就挪不动
+            var info = new ProcessStartInfo(runner) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() };
             foreach (var a in new[]
             {
                 "--wait-version", State.Version,
@@ -506,7 +507,8 @@ public sealed class UpdateService : IDisposable
                 args.Add("--silent");
             }
 
-            var info = new ProcessStartInfo(runner) { UseShellExecute = false, CreateNoWindow = true };
+            // 当前目录放到临时目录：留在程序目录里会占着它，代理 / 更新器就挪不动
+            var info = new ProcessStartInfo(runner) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() };
             foreach (var a in args)
             {
                 info.ArgumentList.Add(a);
