@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Flyknit.Core.Gateway;
 using Flyknit.Core.Memory;
 using Flyknit.Core.Security;
 using Flyknit.Core.Skills;
@@ -19,6 +20,18 @@ public sealed record ToolResult(bool Ok, string Output)
 
     public ToolResult WithOutputs(params string[] paths) => this with { Outputs = paths };
 
+    /// <summary>工具自己调用了模型（派遣专家）：用掉的 token，计入这次任务的总预算和用量。</summary>
+    public TokenUsage? Usage { get; init; }
+
+    /// <summary>计入预算的 token 数（含上游没报用量时的估算），可能比 <see cref="Usage"/> 多。</summary>
+    public long BudgetTokens { get; init; }
+
+    /// <summary>要求本次运行到此为止（专家交卷）：这一轮剩下的调用不执行，也不再调模型。</summary>
+    public bool EndRun { get; init; }
+
+    /// <summary>执行记录里这一步换个样子记（派遣专家记成 subtask 步骤）。</summary>
+    public ToolTraceNote? Trace { get; init; }
+
     public static ToolResult Success(string output) => new(true, output);
     public static ToolResult Fail(string error) => new(false, error);
 
@@ -33,6 +46,15 @@ public sealed record ToolResult(bool Ok, string Output)
         var tail = Output[^(maxChars / 3)..];
         return this with { Output = $"{head}\n\n…（已省略 {Output.Length - maxChars} 个字符）…\n\n{tail}" };
     }
+}
+
+/// <summary>执行记录里这一步的类型、名字和说明。</summary>
+public sealed record ToolTraceNote(string Kind, string Name, string Summary, string Detail);
+
+/// <summary>执行时间可能超过默认工具超时的工具（派遣专家），自己声明上限。</summary>
+public interface ILongRunningTool
+{
+    TimeSpan Timeout { get; }
 }
 
 public sealed record PlanItem(string Step, string Status);
@@ -117,6 +139,15 @@ public sealed class ToolContext
 
     /// <summary>用户为任务选择的权限模式。</summary>
     public PermissionMode Permission { get; init; } = PermissionMode.Workspace;
+
+    /// <summary>这次运行（员工的一句话引起的一轮）的 ID。派遣专家按它计次。</summary>
+    public string RunId { get; init; } = "";
+
+    /// <summary>这次运行的预算，由 AgentLoop 开始运行时填上。派遣专家前据此预留额度。</summary>
+    public Agent.RunBudget? Budget { get; set; }
+
+    /// <summary>正在执行的工具调用的 ID（工具按顺序一个一个执行）。派遣专家时用它把界面上的卡片和子任务对上。</summary>
+    public string CurrentCallId { get; set; } = "";
 
     private readonly string? _workingDirectory;
 

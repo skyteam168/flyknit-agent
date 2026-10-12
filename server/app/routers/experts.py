@@ -4,6 +4,7 @@
 改的是草稿，员工端不受影响；点「发布」才生效（版本号 +1，历史可回滚）；「下线」后员工端不再显示。
 """
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -11,10 +12,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
-from ..deps import admin_name, require_admin, require_device
-from ..models import Device, Expert, ExpertVersion
+from ..deps import admin_name, require_admin, require_device, require_owner
+from ..models import AdminUser, Device, Expert, ExpertVersion
 from ..schemas import (
     ExpertClientOut,
+    ExpertDelegationIn,
+    ExpertDelegationOut,
     ExpertDraftIn,
     ExpertDraftOut,
     ExpertFields,
@@ -24,8 +27,9 @@ from ..schemas import (
     ExpertPublishIn,
     ExpertVersionOut,
 )
-from ..services import config_events, expert_registry
+from ..services import config_events, expert_registry, security_settings, settings_store
 
+log = logging.getLogger("flyknit.experts")
 admin_router = APIRouter(prefix="/api/v1/admin/experts", tags=["experts"], dependencies=[Depends(require_admin)])
 client_router = APIRouter(prefix="/api/v1/client/experts", tags=["experts"])
 
@@ -57,6 +61,26 @@ async def list_experts(session: AsyncSession = Depends(get_session)):
 @admin_router.get("/options", response_model=ExpertOptionsOut)
 async def expert_options(session: AsyncSession = Depends(get_session)):
     return await expert_registry.options(session)
+
+
+# 「派遣专家」开关放在专家页上，存的是安全中心里的 expert_delegation（全厂默认）。
+# 要写在 /{expert_id} 那几个接口前面，否则 PUT /delegation 会被当成改一位叫 delegation 的专家
+@admin_router.get("/delegation", response_model=ExpertDelegationOut)
+async def get_delegation(session: AsyncSession = Depends(get_session)):
+    shared = await settings_store.get_security(session)
+    merged = security_settings.effective(shared.get("values"), None, shared.get("locks"), None)
+    return ExpertDelegationOut(enabled=bool(merged["expert_delegation"]["value"]))
+
+
+@admin_router.put("/delegation", response_model=ExpertDelegationOut)
+async def set_delegation(data: ExpertDelegationIn, owner: AdminUser | None = Depends(require_owner),
+                         session: AsyncSession = Depends(get_session)):
+    """开关派遣。限超级管理员——和安全中心的其它全厂开关一样。写进安全设置，在线的员工端马上来拉。"""
+    shared = await settings_store.get_security(session)
+    values = {**(shared.get("values") or {}), "expert_delegation": data.enabled}
+    await settings_store.set_security(session, values, shared.get("locks") or {})
+    log.warning("%s %s了「派遣专家」", owner.username if owner else "admin_token", "开启" if data.enabled else "关闭")
+    return await get_delegation(session)
 
 
 @admin_router.post("/draft", response_model=ExpertDraftOut)

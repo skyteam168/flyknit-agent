@@ -202,6 +202,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             rememberable = request.Decision.Rememberable,
             ruleDisplay = request.Decision.Rule?.Display ?? "",
             effect = request.Decision.Effect.ToString().ToLowerInvariant(),
+            // 派遣出去的专家在请求：卡片上标明是哪位专家、要执行什么
+            actor = request.Actor is { } actor
+                ? new { kind = "expert", id = actor.ExpertId, name = actor.Name, avatar = actor.Avatar, subtaskId = actor.SubtaskId, toolName = request.Call.Name, summary = request.Summary }
+                : null,
         });
         ConfirmRequested?.Invoke(pending);
 
@@ -349,6 +353,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                     // 置灰并说明原因——选了却悄悄降级，比不给选更糟
                     sandboxed = _host.Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 };
+
+            case "subtasks.list":
+                return _host.SubtasksOf(Str("conversationId"));
+
+            case "subtasks.get":
+                return _host.Subtask(Str("id"));
 
             case "update.state":
                 return UpdateInfo(_host.Updater.State);

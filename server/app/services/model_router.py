@@ -128,7 +128,8 @@ async def resolve(session: AsyncSession, scene: str, model_id: int | None = None
 
 
 def build_body(body: dict, target: Target) -> dict:
-    out = {k: v for k, v in body.items() if k not in ("scene", "flyknit_model_id")}
+    # flyknit_* 都是给网关自己看的（选模型、子任务 ID……），上游不认，有的还会因为多出来的字段报 400
+    out = {k: v for k, v in body.items() if k != "scene" and not k.startswith("flyknit_")}
     for k, v in target.extra_body.items():
         out.setdefault(k, v)
     out["model"] = target.upstream_model

@@ -60,6 +60,22 @@ public sealed class AgentLoop
     /// 正文里认出来的调用 → 能执行的工具调用。工具列表里有同名的直接用；模型训练时常用的几个名字
     /// （bash、cmd、cat、ls…）映射到对应的工具；其余认不出来，返回 null。
     /// </summary>
+    /// <summary>上游没报用量时估一次调用的 token：发出去的上下文加上这次的回答。宁多勿少。</summary>
+    internal static long EstimateTokens(IReadOnlyList<ChatMessage> history, ChatTurn turn)
+    {
+        long total = 0;
+        foreach (var m in history)
+        {
+            total += Context.TokenEstimator.Estimate(m.Content ?? "");
+        }
+        total += Context.TokenEstimator.Estimate(turn.Content ?? "") + Context.TokenEstimator.Estimate(turn.Reasoning ?? "");
+        foreach (var call in turn.ToolCalls)
+        {
+            total += Context.TokenEstimator.Estimate(call.ArgumentsJson ?? "");
+        }
+        return Math.Max(total, 1);
+    }
+
     public static ToolCall? MapLeaked(LeakedToolCall call, ToolRegistry registry)
     {
         var id = "call_" + Guid.NewGuid().ToString("N")[..16];
@@ -169,6 +185,8 @@ public sealed class AgentLoop
         var outputProblems = 0;
         var outputProblemsAtEnd = 0;
         var budget = new RunBudget { MaxTokens = _options.MaxRunTokens };
+        ctx.Budget = budget; // 派遣专家时据此预留额度，专家用掉的再记回来
+        var endRequested = false; // 专家交卷：本次运行到此为止
         var guardNudges = 0;
         // 工具定义每次请求都要整份发过去（几十个工具能占好几万 token），压缩上下文时要算上
         var toolTokens = tools is null ? 0 : Context.TokenEstimator.Estimate(tools.ToJsonString());
@@ -288,7 +306,15 @@ public sealed class AgentLoop
                     modelStep.Detail = breakdown.Describe(turn.Usage?.PromptTokens ?? 0);
                 }
                 modelStep.Dispose(); // 这一轮的模型调用到此结束，后面是工具执行
-                budget.AddModelCall(turn.Usage);
+                if (turn.Usage is not null)
+                {
+                    budget.AddModelCall(turn.Usage);
+                }
+                else
+                {
+                    // 上游没报用量不能当 0：按字数估一个，预算照样卡得住
+                    budget.AddEstimatedModelCall(EstimateTokens(history, turn));
+                }
 
                 context?.Observe(turn);
                 if (turn.Usage is { } u)
@@ -338,6 +364,11 @@ public sealed class AgentLoop
                         AppendTool(call, "用户已停止任务，未执行");
                         continue;
                     }
+                    if (endRequested)
+                    {
+                        AppendTool(call, "任务已经交卷，这个调用没有执行");
+                        continue;
+                    }
                     var planBefore = call.Name == UpdatePlanName ? ctx.Plan.Select(p => p.Step).ToList() : null;
                     var ok = await HandleCallAsync(call, turn.Content, ctx, observer, trace, ct);
                     if (planBefore is { Count: > 0 } && ok && !planBefore.SequenceEqual(ctx.Plan.Select(p => p.Step)))
@@ -378,6 +409,10 @@ public sealed class AgentLoop
                     }
                 }
 
+                if (endRequested)
+                {
+                    return Result(AgentStopReason.Completed);
+                }
                 if (ctx.Plan.Count(p => p.Status == "completed") > completedBefore || _produced.Count > producedBefore)
                 {
                     progress = true;
@@ -463,6 +498,8 @@ public sealed class AgentLoop
             Replans = budget.Replans,
             MaxNoProgressStreak = budget.MaxNoProgressStreak,
             GuardNudges = guardNudges,
+            BudgetTokens = budget.Tokens,
+            EstimatedCalls = budget.EstimatedCalls,
         };
 
         void Append(ChatMessage m)
@@ -685,9 +722,10 @@ public sealed class AgentLoop
 
             ToolResult result;
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeout.CancelAfter(_options.ToolTimeout);
+            timeout.CancelAfter(tool is ILongRunningTool longRunning ? longRunning.Timeout : _options.ToolTimeout);
             try
             {
+                context.CurrentCallId = call.Id;
                 result = await tool.ExecuteAsync(args, context, timeout.Token);
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
@@ -704,6 +742,24 @@ public sealed class AgentLoop
             }
 
             result = result.Truncate(_options.MaxToolOutputChars);
+            if (result.Usage is { } toolUsage)
+            {
+                // 派遣出去的专家用掉的 token：算进这次运行的用量和预算
+                usage = usage is null ? toolUsage : usage + toolUsage;
+            }
+            budget.AddExternal(result.BudgetTokens);
+            if (result.Trace is { } traceNote)
+            {
+                step.Relabel(traceNote.Kind, traceNote.Name);
+                step.Summary = traceNote.Summary;
+                step.Detail = traceNote.Detail;
+                step.PromptTokens = result.Usage?.PromptTokens ?? 0;
+                step.CompletionTokens = result.Usage?.CompletionTokens ?? 0;
+            }
+            if (result.EndRun && result.Ok)
+            {
+                endRequested = true;
+            }
             audit.Decision = decisionText;
             audit.Status = result.Ok ? "ok" : "error";
             audit.Summary = result.Output.Length > 500 ? result.Output[..500] : result.Output;

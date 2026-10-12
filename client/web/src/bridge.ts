@@ -54,6 +54,7 @@ import type {
   KeepAwakeMode,
   PersonaInfo,
   PersonaUpdate,
+  SubtaskDto,
 } from './types'
 import { createMockHost } from './mockHost'
 import { i18n } from './i18n'
@@ -305,6 +306,10 @@ class Bridge {
     this.call<void>('message.feedback', { conversationId, id, value })
   stop = (conversationId: string) => this.call<void>('chat.stop', { conversationId })
   confirm = (requestId: string, choice: ConfirmChoice) => this.call<void>('tool.confirm', { requestId, choice })
+  /** 对话里派给专家的子任务（不含执行记录）：打开对话、页面重载时恢复专家任务卡片 */
+  subtasksList = (conversationId: string) => this.call<SubtaskDto[]>('subtasks.list', { conversationId })
+  /** 一个子任务的完整结果（含专家的执行记录） */
+  subtasksGet = (id: string) => this.call<SubtaskDto>('subtasks.get', { id })
 
   // ---------- 文件 ----------
   pickFiles = () => this.call<AttachmentRef[]>('files.pick', {}, undefined, 0)

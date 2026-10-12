@@ -345,6 +345,10 @@ export interface AuditLog {
   decision: string
   status: string
   summary: string
+  /** 专家执行时的子任务 ID；主助手自己的调用为空 */
+  subtask_id?: string
+  /** main 或 expert:<专家 ID> */
+  actor?: string
   occurred_at: string
   created_at: string
 }
@@ -559,6 +563,42 @@ export interface Expert extends ExpertIn {
   published_by: string
   updated_by: string
   updated_at: string | null
+}
+
+// ---------- 专家派遣 ----------
+export type SubtaskStatus = 'running' | 'completed' | 'partial' | 'needs_input' | 'failed' | 'cancelled' | 'timed_out'
+
+/** 一次派遣。task / summary / error 属于聊天内容，没有查看聊天内容的权限时为空 */
+export interface Subtask {
+  id: string
+  device_id: number | null
+  machine_name: string
+  user_name: string
+  owner: string
+  conversation_id: string
+  run_id: string
+  seq: number
+  expert_id: string
+  expert_name: string
+  expert_version: number
+  published_version: number
+  task: string
+  status: SubtaskStatus
+  token_cap: number
+  prompt_tokens: number
+  completion_tokens: number
+  estimated_calls: number
+  tool_calls: number
+  local_tokens: number
+  summary: string
+  error_code: string
+  error: string
+  cancel_reason: string
+  result_truncated: boolean
+  created_at: string
+  finished_at: string | null
+  deadline_at: string
+  duration_ms: number | null
 }
 
 export interface ExpertDraft extends ExpertFields {

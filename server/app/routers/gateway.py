@@ -17,7 +17,7 @@ from ..db import get_session
 from ..deps import require_device
 from ..models import ChatRecord, Device
 from ..db import get_sessionmaker
-from ..services import chat_archive, model_router, usage_store
+from ..services import chat_archive, model_router, subtask_store, usage_store
 
 log = logging.getLogger("flyknit.gateway")
 router = APIRouter(prefix="/api/v1", tags=["gateway"])
@@ -59,6 +59,24 @@ async def chat_completions(
         return _error(400, "请求体不是合法的 JSON", "invalid_request_error")
     if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
         return _error(400, "缺少 messages", "invalid_request_error")
+
+    # 专家派遣的子任务：先过子任务的几道闸（已结束、超时、开关关了、预算用完），再走下面的配额和转发
+    subtask_id = body.pop("flyknit_subtask_id", None)
+    subtask_id = str(subtask_id)[:64] if subtask_id not in (None, "") else ""
+    if subtask_id:
+        try:
+            await subtask_store.admit(session, device.id, subtask_id)
+        except subtask_store.Rejected as exc:
+            log.info("subtask rejected device=%s subtask=%s: %s", device.id, subtask_id, exc.kind)
+            return _error(exc.status, exc.message, exc.kind)
+        # 专家不能再派遣
+        subtask_store.strip_tool(body, subtask_store.DELEGATE_TOOL)
+    elif subtask_store.has_tool(body, subtask_store.DELEGATE_TOOL) and not await subtask_store.delegation_enabled(
+            session, device.id):
+        # 开关关着时主助手也不该有这个工具（员工端没来得及拉新配置、或者老版本）
+        subtask_store.strip_tool(body, subtask_store.DELEGATE_TOOL)
+    # 上游不报用量时按字符估算，提示部分要在转发前数
+    subtask_prompt_chars = subtask_store.prompt_chars(body) if subtask_id else 0
 
     scene = str(body.get("scene") or body.get("model") or "chat")
     model_id = body.get("flyknit_model_id")
@@ -135,9 +153,10 @@ async def chat_completions(
 
     async def save_chat(answer: str, prompt: int, completion: int) -> None:
         """把这一轮存档。失败绝不能影响对话本身。"""
-        if not conversation_id:
+        if not conversation_id or subtask_id:
             # 没有会话 id 的都是派生调用：压缩上下文、复盘、生成标题。
-            # 它们不是用户说的话，不进归档。
+            # 专家子任务的「用户消息」是主助手写的任务书，也不是员工说的话。都不进归档
+            # （专家做了什么在派遣记录和审计里）。
             return
         if not user_text and not answer:
             return
@@ -173,6 +192,17 @@ async def chat_completions(
         except Exception:  # noqa: BLE001  统计失败不能影响对话
             log.warning("记录用量失败 device=%s", device_id, exc_info=True)
 
+    async def save_subtask(prompt: int, completion: int, answer_chars: int) -> None:
+        """用量累加到子任务上，预算靠它。上游没给用量就估算。失败绝不能影响对话本身。"""
+        if not subtask_id:
+            return
+        try:
+            p, c, estimated = subtask_store.estimate(prompt, completion, subtask_prompt_chars, answer_chars)
+            async with get_sessionmaker()() as s4:
+                await subtask_store.add_usage(s4, subtask_id, p, c, estimated)
+        except Exception:  # noqa: BLE001  统计失败不能影响对话
+            log.warning("记录子任务用量失败 device=%s subtask=%s", device_id, subtask_id, exc_info=True)
+
     if body.get("stream"):
         headers["Cache-Control"] = "no-cache"
         headers["X-Accel-Buffering"] = "no"
@@ -180,11 +210,14 @@ async def chat_completions(
         async def relay():
             scanner = usage_store.StreamUsageScanner()
             text = chat_archive.StreamTextScanner()
+            counter = subtask_store.StreamCharCounter() if subtask_id else None
             try:
                 try:
                     async for chunk in upstream.aiter_raw():
                         scanner.feed(chunk)
                         text.feed(chunk)
+                        if counter is not None:
+                            counter.feed(chunk)
                         yield chunk
                 except httpx.HTTPError as exc:
                     # 已经回了 200 和一部分内容，改不了状态码，只能在流里补一条错误让客户端提示
@@ -195,6 +228,9 @@ async def chat_completions(
                 # await 一碰就再抛 CancelledError，用量和存档都不会记。存的是已经生成的那部分
                 with anyio.CancelScope(shield=True):
                     await finish_stream(upstream, scanner, text, save_usage, save_chat)
+                    if counter is not None:
+                        counter.finish()
+                        await save_subtask(scanner.prompt, scanner.completion, counter.chars)
 
         return StreamingResponse(
             relay(),
@@ -213,8 +249,13 @@ async def chat_completions(
     prompt, completion = usage_store.extract_usage(content)
     await save_usage(prompt, completion)
     try:
-        await save_chat(chat_archive.assistant_reply(json.loads(content)), prompt, completion)
+        payload = json.loads(content)
     except (ValueError, TypeError):
+        payload = None
+    await save_subtask(prompt, completion, subtask_store.completion_chars(payload))
+    if isinstance(payload, dict):
+        await save_chat(chat_archive.assistant_reply(payload), prompt, completion)
+    else:
         log.debug("上游返回的不是 JSON，跳过归档")
     return Response(
         content=content,

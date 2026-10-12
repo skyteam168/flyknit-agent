@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -180,6 +180,10 @@ class AuditLog(Base):
     decision: Mapped[str] = mapped_column(String(20))  # blocked / approved / remembered / rejected / auto
     status: Mapped[str] = mapped_column(String(20), default="")  # ok / error / skipped
     summary: Mapped[str] = mapped_column(Text, default="")
+    #: 专家执行时的子任务 ID（subtasks.id）；主助手自己的调用为空
+    subtask_id: Mapped[str] = mapped_column(String(40), default="")
+    #: 谁调的工具：main（主助手）或 expert:<专家 ID>
+    actor: Mapped[str] = mapped_column(String(60), default="")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
@@ -550,7 +554,7 @@ class Expert(Base):
     #: 指定用哪个模型（models.id，不设外键：模型删了专家照样能用，回到默认）。空 = 和普通「办事」一样
     model_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     allow_direct: Mapped[bool] = mapped_column(Boolean, default=True)  # 员工可以直接呼叫
-    allow_delegate: Mapped[bool] = mapped_column(Boolean, default=True)  # 主智能体可以派任务给它（以后用）
+    allow_delegate: Mapped[bool] = mapped_column(Boolean, default=True)  # 主助手可以派任务给它（还要安全设置里的 expert_delegation 开着）
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     #: draft（还没发布过）/ published / offline（下线：员工端不再显示）
     status: Mapped[str] = mapped_column(String(10), default="draft")
@@ -621,3 +625,60 @@ class Feedback(Base):
     handled_by: Mapped[str] = mapped_column(String(64), default="")
     handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Subtask(Base):
+    """
+    专家派遣：主助手把一个子任务交给专家执行，这里登记一次。
+
+    员工端负责执行，服务端只管授权、计数、预算上限和审计：登记时查开关和专家，模型网关按这一行
+    拦超时、超预算和已结束的请求，用量也累加在这里。属于审计数据，员工删对话不删，和审计日志同一保留期。
+    """
+
+    __tablename__ = "subtasks"
+    __table_args__ = (
+        # 同一设备同一次主任务最多派 3 次：并发登记靠它兜底，撞了就重算 seq
+        UniqueConstraint("device_id", "run_id", "seq", name="uq_subtask_device_run_seq"),
+        Index("ix_subtasks_expert_created", "expert_id", "created_at"),
+        Index("ix_subtasks_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)  # st_<32 位十六进制>
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    #: 登记时的计算机名和 Windows 账号。设备删了也知道是谁派的
+    machine_name: Mapped[str] = mapped_column(String(200), default="")
+    user_name: Mapped[str] = mapped_column(String(200), default="")
+    conversation_id: Mapped[str] = mapped_column(String(64), default="")
+    #: 主任务运行 ID：员工端每次主助手跑一轮生成一个
+    run_id: Mapped[str] = mapped_column(String(64), default="")
+    #: 这一轮里的第几次派遣（1~3）
+    seq: Mapped[int] = mapped_column(Integer, default=1)
+    #: 不设外键：专家删了记录照样留着
+    expert_id: Mapped[str] = mapped_column(String(40), default="")
+    expert_name: Mapped[str] = mapped_column(String(100), default="")
+    #: 员工端请求时手里的版本，和登记时服务端已发布的版本。两个不一样说明员工端还没拉到新版
+    expert_version: Mapped[int] = mapped_column(Integer, default=0)
+    published_version: Mapped[int] = mapped_column(Integer, default=0)
+    task: Mapped[str] = mapped_column(Text, default="")
+    #: running → completed / partial / needs_input / failed / cancelled / timed_out，终态不再改
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    token_cap: Mapped[int] = mapped_column(Integer, default=0)
+    #: 网关累加的用量（服务端自己解析的，不听员工端的）
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    #: 上游没返回用量、按字符估算的次数
+    estimated_calls: Mapped[int] = mapped_column(Integer, default=0)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_reason: Mapped[str] = mapped_column(String(20), default="")
+    error_code: Mapped[str] = mapped_column(String(40), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    #: 交卷全文（JSON），序列化后超过 64KB 的截断，并标在 result_truncated 上
+    result: Mapped[str] = mapped_column(Text, default="")
+    result_truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: 员工端上报的工具调用次数和本机算的 token（仅供参考，预算按上面服务端的数）
+    tool_calls: Mapped[int] = mapped_column(Integer, default=0)
+    local_tokens: Mapped[int] = mapped_column(Integer, default=0)

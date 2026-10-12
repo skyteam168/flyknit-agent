@@ -243,7 +243,7 @@ export interface PreviewDoc {
 
 export interface TraceStep {
   index: number
-  /** model / tool / compact */
+  /** model / tool / compact / guard / verify / subtask（派遣专家：name 是专家名，detail 是子任务 ID） */
   kind: string
   name: string
   summary: string
@@ -673,6 +673,99 @@ export interface ToolActivity {
   confirm?: ConfirmPrompt
   /** 之前授权过的同样操作，本次自动通过 */
   remembered?: boolean
+  /** 专家执行时请求确认的那一步（不是主助手自己的调用）：不单独画卡片，显示在专家任务卡片里 */
+  actor?: ConfirmActor
+}
+
+/** 谁在请求确认：专家派遣时是哪位专家 */
+export interface ConfirmActor {
+  kind: 'expert'
+  id: string
+  name: string
+  avatar: string
+  subtaskId: string
+}
+
+// ---------- 专家派遣（docs/expert-delegation-contract.md 第 6 节） ----------
+export type SubtaskStatus =
+  | 'running'
+  | 'waiting_confirmation'
+  | 'completed'
+  | 'partial'
+  | 'needs_input'
+  | 'failed'
+  | 'cancelled'
+  | 'timed_out'
+
+/** 终态：到了这几种就不会再变 */
+export const SubtaskFinal: SubtaskStatus[] = ['completed', 'partial', 'needs_input', 'failed', 'cancelled', 'timed_out']
+
+export interface SubtaskExpert {
+  id: string
+  name: string
+  avatar: string
+  version: number
+}
+
+export type FindingVerification = 'supported' | 'source_verified' | 'unverified' | 'verification_failed'
+
+export interface SubtaskFinding {
+  id: string
+  statement: string
+  evidence: { ref: string; kind: 'tool' | 'file'; label: string; check: 'ok' | 'missing' | 'failed_call' }[]
+  verification: FindingVerification
+  note: string
+}
+
+/** 一次专家派遣（子任务）的结果，宿主 subtasks.list / subtasks.get / expert.finished 给的 */
+export interface SubtaskDto {
+  id: string
+  callId: string
+  conversationId: string
+  expert: SubtaskExpert
+  task: string
+  context: string
+  status: SubtaskStatus
+  summary: string
+  findings: SubtaskFinding[]
+  openQuestions: string[]
+  nextSuggestions: string[]
+  artifacts: { path: string; name: string; exists: boolean }[]
+  confidence: number | null
+  toolCalls: { name: string; count: number; failed: number }[]
+  tokens: { prompt: number; completion: number; estimated: boolean }
+  startedAt: string
+  finishedAt: string | null
+  durationMs: number
+  errorCode: string
+  error: string
+  /** TraceDto JSON，和消息上的 trace 同格式。list 不带，get 才带 */
+  trace: string | null
+}
+
+export type ExpertStepKind = 'tool_started' | 'tool_completed' | 'waiting_confirmation' | 'thinking'
+
+export interface ExpertStep {
+  kind: ExpertStepKind
+  name: string
+  summary: string
+  ok?: boolean
+}
+
+/** 界面上一张专家任务卡片的状态（按主助手那次 ask_expert 的 callId 记） */
+export interface SubtaskView {
+  callId: string
+  subtaskId: string
+  /** 已收到的最大 seq，不大于它的事件丢掉 */
+  seq: number
+  status: SubtaskStatus
+  expert: SubtaskExpert | null
+  task: string
+  startedAt: string | null
+  /** 最近一步：卡片上显示「正在调用 xx…」 */
+  step: ExpertStep | null
+  /** 结束后的完整结果 */
+  result: SubtaskDto | null
 }
 
 export interface ConfirmPrompt {
@@ -683,6 +776,8 @@ export interface ConfirmPrompt {
   rememberable: boolean
   ruleDisplay?: string
   effect?: string
+  /** 专家在请求确认（主助手自己的调用为空） */
+  actor?: ConfirmActor
 }
 
 export type ConfirmChoice = 'allowOnce' | 'allowForSession' | 'allowAlways' | 'reject'
@@ -705,7 +800,21 @@ export type HostEvent =
       ruleDisplay?: string
       /** read / write / destructive / unknown */
       effect?: string
+      /** 专家执行时请求的确认 */
+      actor?: ConfirmActor
     }
+  | {
+      type: 'expert.started'
+      conversationId: string
+      callId: string
+      subtaskId: string
+      seq: number
+      expert: SubtaskExpert
+      task: string
+      startedAt: string
+    }
+  | ({ type: 'expert.step'; conversationId: string; callId: string; subtaskId: string; seq: number } & ExpertStep)
+  | { type: 'expert.finished'; conversationId: string; callId: string; subtaskId: string; seq: number; subtask: SubtaskDto }
   | { type: 'tool.finished'; conversationId: string; callId: string; ok: boolean; output: string; decision: string }
   | { type: 'plan.updated'; conversationId: string; plan: PlanItem[] }
   | { type: 'files.produced'; conversationId: string; files: OutputFile[] }

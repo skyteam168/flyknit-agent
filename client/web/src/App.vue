@@ -17,6 +17,7 @@ import UpdateBar from './components/UpdateBar.vue'
 import PlanPanel from './components/PlanPanel.vue'
 import PreviewPane from './components/PreviewPane.vue'
 import TraceDialog from './components/TraceDialog.vue'
+import ExpertTaskDialog from './components/ExpertTaskDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
@@ -27,6 +28,7 @@ import { uploadDropped } from './library'
 import { closeFilesViewer, convFiles } from './conversationFiles'
 import {
   addFiles,
+  backTrace,
   closePreview,
   current,
   currentExpert,
@@ -111,7 +113,8 @@ function wireShortcuts() {
   registerShortcut('chat.stop', () => {
     if (convFiles.viewing) closeFilesViewer()
     else if (state.settingsOpen) state.settingsOpen = false
-    else if (state.trace) state.trace = null
+    else if (state.trace) backTrace()
+    else if (state.subtaskDetail) state.subtaskDetail = null
     else if (state.preview) closePreview()
     else if (currentState.value?.busy) void stop()
   })
@@ -296,6 +299,8 @@ onBeforeUnmount(() => {
       <div><FilePlus2 :size="30" /><span>{{ t('input.drop') }}</span></div>
     </div>
 
+    <!-- 专家任务详情在链路弹窗下面：从详情里点「查看执行记录」时链路盖在上面 -->
+    <ExpertTaskDialog v-if="state.subtaskDetail" />
     <TraceDialog v-if="state.trace" />
     <SettingsDialog v-if="state.settingsOpen" />
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />

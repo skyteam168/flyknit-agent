@@ -109,4 +109,6 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "keep_screen_on",
         # 客户端读这一项决定悬浮球菜单和快捷键里有没有「截图提问」
         "screenshot_ask",
+        # 客户端读这一项决定主助手有没有 ask_expert（派遣专家）
+        "expert_delegation",
     }

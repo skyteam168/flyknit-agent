@@ -32,7 +32,7 @@ public interface IHostEvents
 /// 客户端的核心编排：会话存储、Agent 循环、工具、策略、记忆、Skills、审计。
 /// 与界面无关，界面通过 WebBridge 调用这里。
 /// </summary>
-public sealed class AgentHost : IDisposable
+public sealed partial class AgentHost : IDisposable
 {
     /// <summary>发给模型的最大历史消息数（兜底；正常情况下由上下文压缩控制长度）。</summary>
     private const int HistoryWindow = 300;
@@ -288,6 +288,8 @@ public sealed class AgentHost : IDisposable
         Episodes = new EpisodeStore(AppPaths.Memory, AppPaths.Database);
         LearnedSkillLedger = new Flyknit.Core.Skills.LearnedSkills(AppPaths.LearnedSkills, AppPaths.Database);
         Library = new LibraryService(AppPaths.Database);
+        // 上次退出时还没跑完的专家子任务：如实标成失败，不假装还在跑
+        _ = Task.Run(RecoverInterruptedSubtasksAsync);
         Scheduler = new ScheduleRunner(this);
         RunFinished += Scheduler.OnRunFinished;
         Updater = new UpdateService(Server, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
@@ -435,6 +437,7 @@ public sealed class AgentHost : IDisposable
                 Security.MergeFromServer(config.Security);
                 Security.ApplyLocal(_settings.SecurityChoices);
                 ApplySecurity();
+                OnDelegationSwitchChanged();
             }
             var agent = config.Scenes.FirstOrDefault(s => s.Scene == Scenes.Agent);
             if (agent is { ContextLength: > 0 } && _contextLength == 0)
@@ -648,6 +651,7 @@ public sealed class AgentHost : IDisposable
             }
             var promptBuilder = new PromptBuilder(Memory, Skills, Episodes);
             var persona = PersonaForPrompt();
+            var semantic = conv.Mode == ConversationMode.Translate ? null : await SemanticScoresAsync(text, cts.Token);
             var prompt = promptBuilder.Build(new PromptContext
             {
                 Tone = persona.Tone,
@@ -661,10 +665,16 @@ public sealed class AgentHost : IDisposable
                 Permission = permission,
                 Sandboxed = Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 Query = text,
-                SemanticScores = conv.Mode == ConversationMode.Translate ? null : await SemanticScoresAsync(text, cts.Token),
+                SemanticScores = semantic,
                 McpServers = mcpServers,
                 Expert = expert,
             });
+            // 派遣专家：开关开着、这一轮有候选专家时，主助手才看得到名单和 ask_expert
+            var delegation = DelegationFor(conv, expert, DelegationQuery(stored, text), semantic);
+            if (delegation.Prompt.Length > 0)
+            {
+                prompt += "\n\n" + delegation.Prompt;
+            }
 
             var scene = conv.Mode switch
             {
@@ -733,6 +743,7 @@ public sealed class AgentHost : IDisposable
                 UserRequest = text,
                 Workspace = workspace,
                 Permission = permission,
+                RunId = Guid.NewGuid().ToString("N"),
                 Memory = Memory,
                 Episodes = Episodes,
                 Skills = Skills,
@@ -758,6 +769,16 @@ public sealed class AgentHost : IDisposable
             };
 
             var tools = expert is null ? Tools : Flyknit.Core.Experts.ExpertRuntime.FilterTools(Tools, expert);
+            if (delegation.Tool is { } askExpert)
+            {
+                // 共用的工具表不动（别的对话还在用），这一轮单独拷一份加上派遣工具
+                var withDelegation = new ToolRegistry();
+                foreach (var tool in tools.All)
+                {
+                    withDelegation.Add(tool);
+                }
+                tools = withDelegation.Add(askExpert);
+            }
             var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
@@ -862,7 +883,7 @@ public sealed class AgentHost : IDisposable
         try
         {
             // 技能也一起比：和记忆共用这一次把用户的话向量化
-            var scores = await index.ScoreAsync(query, ct, Skills.SemanticTexts());
+            var scores = await index.ScoreAsync(query, ct, SemanticExtras());
             if (scores is null && index.LastError is { } error)
             {
                 Log.Info($"语义检索暂不可用，按字面匹配：{error}");

@@ -4,8 +4,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadRequestOptions } from 'element-plus'
 import { Clock, Delete, Edit, MagicStick, Plus, Promotion, Refresh, Search, SwitchButton } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { Expert, ExpertFields, ExpertOptions, ExpertVersion } from '@/api/types'
-import { dateTime } from '@/utils/format'
+import type { Expert, ExpertFields, ExpertOptions, ExpertVersion, Subtask, SubtaskStatus } from '@/api/types'
+import { auth } from '@/store/auth'
+import { dateTime, num } from '@/utils/format'
 
 /**
  * 专家：在这里建好、发布，员工端「专家」里就能看到，点一下呼叫。
@@ -281,6 +282,71 @@ async function discard(e: Expert) {
   await load()
 }
 
+// ---------- 专家派遣 ----------
+// 开关存在安全中心的全厂设置里，放开就是全厂一起放开，所以和安全中心一样限超级管理员
+const canSwitch = computed(() => !!auth.user?.is_owner && !auth.user?.must_change_password)
+const delegation = ref(false)
+const switching = ref(false)
+
+async function loadDelegation() {
+  delegation.value = (await api.expertDelegation()).enabled
+}
+
+async function toggleDelegation(next: string | number | boolean) {
+  const on = Boolean(next)
+  if (on) {
+    try {
+      await ElMessageBox.confirm(
+        '开启后，主助手遇到专家擅长的任务时会自己派给专家做（每轮最多 3 次，有 token 和时间上限）。只有已发布、勾选了「可接受派遣」的专家会被派到。单台电脑可以在「设备列表 - 详情」里另外设置。',
+        '允许主助手派遣专家',
+        { confirmButtonText: '开启', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+  }
+  switching.value = true
+  try {
+    delegation.value = (await api.setExpertDelegation(on)).enabled
+    ElMessage.success(on ? '已开启，员工端几秒内生效' : '已关闭，正在执行的派遣会被取消')
+  } finally {
+    switching.value = false
+  }
+}
+
+const subtaskStatus: Record<SubtaskStatus, { label: string; type: 'primary' | 'success' | 'warning' | 'info' | 'danger' }> = {
+  running: { label: '执行中', type: 'primary' },
+  completed: { label: '完成', type: 'success' },
+  partial: { label: '部分完成', type: 'warning' },
+  needs_input: { label: '需要补充信息', type: 'warning' },
+  failed: { label: '失败', type: 'danger' },
+  cancelled: { label: '已取消', type: 'info' },
+  timed_out: { label: '超时', type: 'danger' },
+}
+const subtasks = ref<Subtask[]>([])
+const subtasksLoading = ref(false)
+const subtaskFilter = reactive<{ expert_id: string; status: SubtaskStatus | '' }>({ expert_id: '', status: '' })
+
+async function loadSubtasks() {
+  subtasksLoading.value = true
+  try {
+    subtasks.value = await api.subtasks({ limit: 200, ...subtaskFilter })
+  } finally {
+    subtasksLoading.value = false
+  }
+}
+
+function duration(ms: number | null) {
+  if (ms == null) return '—'
+  const sec = Math.round(ms / 1000)
+  return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`
+}
+
+onMounted(() => {
+  loadDelegation()
+  loadSubtasks()
+})
+
 const toolLabel = (name: string) => options.value.tools.find((t) => t.value === name)?.label ?? name
 const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLabel).join('、') : ''))
 </script>
@@ -300,6 +366,18 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
         <el-button :icon="Refresh" :loading="loading" @click="load" />
         <el-button :icon="MagicStick" @click="draftOpen = true">AI 帮我创建</el-button>
         <el-button type="primary" :icon="Plus" @click="openNew">新建专家</el-button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="switch-row">
+        <div>
+          <strong>允许主助手派遣专家</strong>
+          <p>开启后，主助手遇到专家擅长的任务时可以自己派给专家去做，再汇总结果；只派给已发布、可接受派遣的专家。默认关闭。</p>
+        </div>
+        <el-tooltip :disabled="canSwitch" content="只有超级管理员能改：放开就是全厂所有电脑一起放开" placement="left">
+          <el-switch :model-value="delegation" :loading="switching" :disabled="!canSwitch" @change="toggleDelegation" />
+        </el-tooltip>
       </div>
     </div>
 
@@ -354,6 +432,73 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
           </div>
         </div>
       </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">
+        <h3>派遣记录 <small>主助手派给专家的子任务，和审计日志保留同样长的时间</small></h3>
+        <div class="toolbar">
+          <el-select v-model="subtaskFilter.expert_id" placeholder="全部专家" clearable style="width: 180px" @change="loadSubtasks">
+            <el-option v-for="e in experts" :key="e.id" :label="e.name" :value="e.id" />
+          </el-select>
+          <el-select v-model="subtaskFilter.status" placeholder="全部状态" clearable style="width: 140px" @change="loadSubtasks">
+            <el-option v-for="(v, k) in subtaskStatus" :key="k" :label="v.label" :value="k" />
+          </el-select>
+          <el-button :icon="Refresh" :loading="subtasksLoading" @click="loadSubtasks" />
+        </div>
+      </div>
+      <el-table v-loading="subtasksLoading" :data="subtasks" size="default" empty-text="还没有派遣记录">
+        <el-table-column label="时间" width="150">
+          <template #default="{ row }">{{ dateTime(row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column label="员工 / 电脑" min-width="150">
+          <template #default="{ row }">
+            <div class="who">
+              <span>{{ row.owner || row.user_name || '—' }}</span>
+              <small>{{ row.machine_name }}</small>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="专家" min-width="140">
+          <template #default="{ row }">
+            <div class="who">
+              <span>{{ row.expert_name || row.expert_id }}</span>
+              <small>v{{ row.published_version }} · 第 {{ row.seq }} 次</small>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="120">
+          <template #default="{ row }">
+            <el-tag size="small" :type="subtaskStatus[row.status as SubtaskStatus]?.type ?? 'info'" effect="light">
+              {{ subtaskStatus[row.status as SubtaskStatus]?.label ?? row.status }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="摘要" min-width="220">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.task" :content="row.task" placement="top" popper-class="subtask-tip">
+              <span class="clip">{{ row.summary || row.task }}</span>
+            </el-tooltip>
+            <span v-else class="muted">{{ row.summary || '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Token" width="130" align="right">
+          <template #default="{ row }">
+            <el-tooltip :content="`提示 ${num(row.prompt_tokens)} · 回答 ${num(row.completion_tokens)} · 上限 ${num(row.token_cap)}`" placement="top">
+              <span>{{ num(row.prompt_tokens + row.completion_tokens) }}<template v-if="row.estimated_calls">（含估算）</template></span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+        <el-table-column label="耗时" width="100">
+          <template #default="{ row }">{{ duration(row.duration_ms) }}</template>
+        </el-table-column>
+        <el-table-column label="错误" min-width="140">
+          <template #default="{ row }">
+            <span v-if="row.error_code || row.error" class="clip err" :title="row.error">{{ row.error || row.error_code }}</span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
 
     <!-- AI 起草 -->
@@ -484,7 +629,7 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
         </el-form-item>
         <el-form-item label="可接受派遣">
           <el-switch v-model="form.allow_delegate" />
-          <p class="hint">以后的版本里，主智能体遇到这位专家擅长的任务时可以交给它做。</p>
+          <p class="hint">开启页面顶部的「允许主助手派遣专家」后，主助手遇到这位专家擅长的任务时可以交给它做。</p>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -531,6 +676,31 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
 </template>
 
 <style scoped>
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.switch-row strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.switch-row p {
+  margin: 4px 0 0;
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.clip {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.err {
+  color: var(--el-color-danger);
+}
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -725,6 +895,10 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
 </style>
 
 <style>
+.subtask-tip {
+  max-width: 420px;
+  white-space: pre-wrap;
+}
 /* 下拉框挂在 body 上，scoped 样式管不到。技能说明往往很长：下拉和输入框一样宽，说明一行放不下就省略，鼠标停上去看全文 */
 .expert-opt-popper .el-select-dropdown__item {
   display: flex;

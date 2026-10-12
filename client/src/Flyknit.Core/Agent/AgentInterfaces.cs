@@ -32,7 +32,13 @@ public sealed class ConfirmRequest
 
     /// <summary>模型在调用工具前给出的说明，作为“理由”显示给用户。</summary>
     public string Rationale { get; init; } = "";
+
+    /// <summary>谁在请求：为空是主助手自己；派遣出去的专家在干活时填专家。</summary>
+    public ConfirmActor? Actor { get; init; }
 }
+
+/// <summary>请求确认的专家（确认卡片上显示「XX 专家 请求执行」）。</summary>
+public sealed record ConfirmActor(string ExpertId, string Name, string Avatar, string SubtaskId);
 
 public interface IConfirmationHandler
 {
@@ -174,4 +180,10 @@ public sealed class AgentRunResult
 
     /// <summary>空转 / 预算提醒了几次（链路和统计用）。</summary>
     public int GuardNudges { get; init; }
+
+    /// <summary>计入预算的 token（含估算和派遣专家用掉的）。</summary>
+    public long BudgetTokens { get; init; }
+
+    /// <summary>上游没报用量、按估算计的模型调用次数。</summary>
+    public int EstimatedCalls { get; init; }
 }

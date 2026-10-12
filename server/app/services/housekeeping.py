@@ -4,6 +4,7 @@
 留存期；备份靠人记得做，等于没有备份。
 
 清理：聊天记录和审计日志过了保留期就删。存得越久越是负担，不是资产。
+专家派遣记录属于审计数据，跟审计日志同一保留期（员工删对话时不删它）。
 备份：每天一份快照。聊天内容进库之后，丢掉这个库的代价比以前高得多。
 """
 
@@ -19,7 +20,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AdminAccess, AdminSession, AuditLog, ChatRecord
+from ..models import AdminAccess, AdminSession, AuditLog, ChatRecord, Subtask
 
 log = logging.getLogger("flyknit.housekeeping")
 
@@ -49,6 +50,7 @@ async def purge(session: AsyncSession, retention: dict | None = None) -> dict[st
     for name, model, days in (
         ("chat", ChatRecord, conf["chat_days"]),
         ("audit", AuditLog, conf["audit_days"]),
+        ("subtasks", Subtask, conf["audit_days"]),
         ("access", AdminAccess, conf["access_days"]),
     ):
         result = await session.execute(delete(model).where(model.created_at < cutoff(days)))

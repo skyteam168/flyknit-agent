@@ -82,6 +82,9 @@ public sealed class SecuritySettings
     /// <summary>截图提问（悬浮球菜单、全局快捷键）。</summary>
     public const string ScreenshotAsk = "screenshot_ask";
 
+    /// <summary>允许主助手派遣专家。IT 在后台开，默认关；读取时没下发按关算。</summary>
+    public const string ExpertDelegation = "expert_delegation";
+
     private readonly Dictionary<string, SecurityItem> _items;
 
     public SecuritySettings(Dictionary<string, SecurityItem>? items = null)
