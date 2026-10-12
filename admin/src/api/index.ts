@@ -39,6 +39,7 @@ import type {
   RouteRule,
   SecurityCatalogItem,
   SecurityDefaults,
+  LandingDownload,
   Skill,
   SkillDraft,
   SkillSource,
@@ -103,6 +104,9 @@ export const api = {
   updateSkill: (name: string, body: Partial<{ required: boolean; enabled: boolean }>) =>
     patch<Skill>(`/skills/${encodeURIComponent(name)}`, body),
   deleteSkill: (name: string) => del(`/skills/${encodeURIComponent(name)}`),
+  landing: () => get<LandingDownload>('/landing'),
+  setLanding: (enabled: boolean, server_url: string) => put<LandingDownload>('/landing', { enabled, server_url }),
+  rotateLanding: () => post<LandingDownload>('/landing/rotate'),
   skillSource: (name: string) => get<SkillSource>(`/skills/${encodeURIComponent(name)}/source`),
   draftSkill: (text: string, name?: string) => post<SkillDraft>('/skills/draft', { text, name: name || null }),
   createSkill: (body: { name: string; skill_md: string; files: { path: string; content: string }[]; required: boolean; origin: string }) =>
