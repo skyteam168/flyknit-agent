@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -14,15 +16,18 @@ public sealed class StdioTransport : McpTransport
 
     private readonly McpServerConfig _config;
     private readonly string? _workingDirectory;
+    private readonly McpRuntimeEnvironment? _runtime;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly StringBuilder _stderr = new();
     private Process? _process;
     private Task? _stdoutLoop;
 
-    public StdioTransport(McpServerConfig config, string? workingDirectory = null)
+    /// <param name="runtime">公司服务器提供的运行环境（Node.js / uv / Python 和 npm、PyPI 镜像），没有就用这台电脑自己的。</param>
+    public StdioTransport(McpServerConfig config, string? workingDirectory = null, McpRuntimeEnvironment? runtime = null)
     {
         _config = config;
         _workingDirectory = workingDirectory;
+        _runtime = runtime;
     }
 
     /// <summary>最近的标准错误输出（截尾）。</summary>
@@ -39,7 +44,14 @@ public sealed class StdioTransport : McpTransport
 
     public override Task StartAsync(CancellationToken ct)
     {
-        var (file, args) = ResolveCommand(_config.Command, _config.Args, OperatingSystem.IsWindows(), FindOnPath);
+        var windows = OperatingSystem.IsWindows();
+        var managed = _runtime?.PathDirs ?? Array.Empty<string>();
+        string? Find(string f) => FindIn(managed, f) ?? FindOnPath(f);
+        if (!CanFind(_config.Command, windows, Find))
+        {
+            throw new McpException(McpRuntimeManager.MissingMessage(_config.Command));
+        }
+        var (file, args) = ResolveCommand(_config.Command, _config.Args, windows, Find);
         var psi = new ProcessStartInfo(file)
         {
             RedirectStandardInput = true,
@@ -48,17 +60,22 @@ public sealed class StdioTransport : McpTransport
             UseShellExecute = false,
             CreateNoWindow = true,
             StandardOutputEncoding = new UTF8Encoding(false),
-            StandardErrorEncoding = new UTF8Encoding(false),
+            // 标准错误按字节原样读进来（Latin1 一个字节对一个字符），每行再判断是 UTF-8 还是 GBK，见 ConsoleText
+            StandardErrorEncoding = Encoding.Latin1,
             StandardInputEncoding = new UTF8Encoding(false),
         };
-        foreach (var a in args)
+        if (windows && file == "cmd.exe" && args.Count >= 3 && args[0] == "/d" && args[1] == "/s" && args[2] == "/c")
         {
-            psi.ArgumentList.Add(a);
+            psi.Arguments = CmdArguments(args.Skip(3).ToList());
         }
-        foreach (var (k, v) in _config.Env)
+        else
         {
-            psi.Environment[k] = v;
+            foreach (var a in args)
+            {
+                psi.ArgumentList.Add(a);
+            }
         }
+        ApplyEnvironment(psi.Environment, _runtime, _config.Env);
         if (!string.IsNullOrEmpty(_workingDirectory) && Directory.Exists(_workingDirectory))
         {
             psi.WorkingDirectory = _workingDirectory;
@@ -81,7 +98,7 @@ public sealed class StdioTransport : McpTransport
             }
             lock (_stderr)
             {
-                _stderr.AppendLine(e.Data);
+                _stderr.AppendLine(ConsoleText.FromLatin1(e.Data));
                 if (_stderr.Length > StderrKeep * 2)
                 {
                     _stderr.Remove(0, _stderr.Length - StderrKeep);
@@ -197,28 +214,133 @@ public sealed class StdioTransport : McpTransport
     /// Windows 上 npx、uvx 这些其实是 .cmd 批处理，不经过 cmd.exe 起不来——
     /// Claude Code 文档里让用户手写 `cmd /c npx`，这里替用户做掉。
     /// 已经写了扩展名的 .exe、或者找到的是 .exe 的，直接起。
+    /// findOnPath 先找托管运行环境的目录再找 PATH；找到的用完整路径，因为子进程的 PATH 起进程时不算数。
     /// </summary>
     public static (string File, IReadOnlyList<string> Args) ResolveCommand(
         string command, IReadOnlyList<string> args, bool windows, Func<string, string?> findOnPath)
     {
         if (!windows)
         {
-            return (command, args);
+            return (findOnPath(command) is { } found && !Path.IsPathRooted(command) && !command.Contains('/') ? found : command, args);
         }
+        IReadOnlyList<string> ViaCmd(string target) => new[] { "/d", "/s", "/c", target }.Concat(args).ToList();
         var ext = Path.GetExtension(command).ToLowerInvariant();
         if (ext is ".cmd" or ".bat")
         {
-            return ("cmd.exe", new[] { "/d", "/s", "/c", command }.Concat(args).ToList());
+            return ("cmd.exe", ViaCmd(findOnPath(command) ?? command));
         }
-        if (ext == ".exe" || command.Equals("cmd", StringComparison.OrdinalIgnoreCase))
+        if (command.Equals("cmd", StringComparison.OrdinalIgnoreCase))
         {
             return (command, args);
         }
-        if (ext.Length == 0 && findOnPath(command + ".exe") is { } exe)
+        if (ext == ".exe")
+        {
+            return (findOnPath(command) ?? command, args);
+        }
+        if (findOnPath(command + ".exe") is { } exe)
         {
             return (exe, args);
         }
-        return ("cmd.exe", new[] { "/d", "/s", "/c", command }.Concat(args).ToList());
+        if ((findOnPath(command + ".cmd") ?? findOnPath(command + ".bat")) is { } shim)
+        {
+            return ("cmd.exe", ViaCmd(shim));
+        }
+        return ("cmd.exe", ViaCmd(command));
+    }
+
+    /// <summary>起进程之前先看看命令在不在（托管目录 + PATH，Windows 上带 .exe/.cmd/.bat），不在就直接说清楚。</summary>
+    public static bool CanFind(string command, bool windows, Func<string, string?> findOnPath)
+    {
+        if (command.Length == 0)
+        {
+            return false;
+        }
+        if (Path.IsPathRooted(command) || command.Contains('/') || command.Contains('\\'))
+        {
+            return true; // 写了路径的交给 Process.Start 报错
+        }
+        if (!windows)
+        {
+            return findOnPath(command) is not null;
+        }
+        if (command.Equals("cmd", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        var ext = Path.GetExtension(command).ToLowerInvariant();
+        if (ext is ".exe" or ".cmd" or ".bat" or ".com")
+        {
+            return findOnPath(command) is not null;
+        }
+        return new[] { ".exe", ".cmd", ".bat", ".com" }.Any(e => findOnPath(command + e) is not null);
+    }
+
+    /// <summary>
+    /// cmd.exe /d /s /c 的参数：整条命令再包一层引号，/s 会去掉最外面这层——
+    /// 否则 C:\Users\John Smith\...\npx.cmd 这种带空格的路径会被 cmd 拆错。
+    /// </summary>
+    public static string CmdArguments(IReadOnlyList<string> command) =>
+        "/d /s /c \"" + string.Join(" ", command.Select(QuoteArgument)) + "\"";
+
+    /// <summary>按 Windows 命令行规则给一个参数加引号（和 .NET ArgumentList 的规则一样）。</summary>
+    public static string QuoteArgument(string arg)
+    {
+        if (arg.Length > 0 && arg.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0)
+        {
+            return arg;
+        }
+        var sb = new StringBuilder("\"");
+        var backslashes = 0;
+        foreach (var c in arg)
+        {
+            if (c == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+            sb.Append('\\', c == '"' ? backslashes * 2 + 1 : backslashes);
+            backslashes = 0;
+            sb.Append(c);
+        }
+        sb.Append('\\', backslashes * 2).Append('"');
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 子进程的环境变量：托管运行环境的目录加到 PATH 最前面，再设它的变量，最后是连接器自己的 env（优先）。
+    /// </summary>
+    public static void ApplyEnvironment(IDictionary<string, string?> env, McpRuntimeEnvironment? runtime, IReadOnlyDictionary<string, string> vendorEnv)
+    {
+        if (runtime is not null)
+        {
+            if (runtime.PathDirs.Count > 0)
+            {
+                var key = env.Keys.FirstOrDefault(k => k.Equals("PATH", StringComparison.OrdinalIgnoreCase)) ?? "PATH";
+                var old = env.TryGetValue(key, out var v) ? v : null;
+                env[key] = string.Join(Path.PathSeparator, runtime.PathDirs) + (string.IsNullOrEmpty(old) ? "" : Path.PathSeparator + old);
+            }
+            foreach (var (k, v) in runtime.Env)
+            {
+                env[k] = v;
+            }
+        }
+        foreach (var (k, v) in vendorEnv)
+        {
+            env[k] = v;
+        }
+    }
+
+    private static string? FindIn(IReadOnlyList<string> dirs, string file)
+    {
+        foreach (var dir in dirs)
+        {
+            var candidate = Path.Combine(dir, file);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private static string? FindOnPath(string file)
@@ -244,4 +366,69 @@ public sealed class StdioTransport : McpTransport
         }
         return null;
     }
+}
+
+/// <summary>
+/// 命令行程序标准错误的编码：node、python 写 UTF-8，cmd.exe 和 Windows 自带的工具写 OEM 代码页（中文系统是 GBK 936）。
+/// 按字节读进来，每行先按严格 UTF-8 解，解不了就当 OEM 代码页，「'npx' 不是内部或外部命令」就不会变成乱码。
+/// </summary>
+public static class ConsoleText
+{
+    private static readonly UTF8Encoding StrictUtf8 = new(false, throwOnInvalidBytes: true);
+
+    static ConsoleText()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
+    /// <summary>这台电脑控制台用的 OEM 代码页。</summary>
+    public static int OemCodePage
+    {
+        get
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    return (int)GetOEMCP();
+                }
+                catch (Exception)
+                {
+                    // 退回按区域设置
+                }
+            }
+            return CultureInfo.CurrentCulture.TextInfo.OEMCodePage;
+        }
+    }
+
+    /// <summary>一行按 Latin1 读进来的文字（每个字符就是一个字节）还原成正确的文字。</summary>
+    public static string FromLatin1(string line, int? oemCodePage = null) =>
+        Decode(Encoding.Latin1.GetBytes(line), oemCodePage ?? OemCodePage);
+
+    public static string Decode(byte[] bytes, int oemCodePage)
+    {
+        if (bytes.All(b => b < 0x80))
+        {
+            return Encoding.ASCII.GetString(bytes);
+        }
+        try
+        {
+            return StrictUtf8.GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            // 不是 UTF-8
+        }
+        try
+        {
+            return Encoding.GetEncoding(oemCodePage).GetString(bytes);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            return Encoding.UTF8.GetString(bytes);
+        }
+    }
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetOEMCP();
 }

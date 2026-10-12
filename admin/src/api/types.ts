@@ -595,3 +595,22 @@ export interface LandingDownload {
   ticket_uses: number
   version: string
 }
+
+/** MCP 运行环境（便携版 Node.js / uv / Python）与 npm、PyPI 缓存代理 */
+export interface McpRuntimeItem {
+  name: 'node' | 'uv' | 'python'
+  title: string
+  version: string
+  url: string
+  cached: boolean
+  size: number
+}
+export interface McpRuntimeConf {
+  enabled: boolean
+  npm: 'official' | 'npmmirror'
+  pypi: 'official' | 'tuna'
+  node_dist: 'official' | 'npmmirror'
+  overrides: Record<string, { version?: string; url?: string }>
+  runtimes: McpRuntimeItem[]
+  mirror_size: number
+}

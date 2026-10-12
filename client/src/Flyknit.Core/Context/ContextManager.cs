@@ -18,11 +18,16 @@ public sealed class ContextOptions
 
     /// <summary>超过预算的这个比例时，把较早的对话压缩成摘要（自动压缩）。</summary>
     /// <remarks>
-    /// 参照 Cursor/Claude Code 的设计，200K 上下文在约 187K 时触发（约 93%）。
-    /// 但对于 128K 上下文，如果等到 75% 才压缩（~92K tokens），用户很难看到压缩动画。
-    /// 降低到 50% 可以让压缩更早发生，同时后台 Session Memory 会提前准备好摘要。
+    /// 以前是 50%：系统提示词和工具定义每次都要带、压不掉，它们本身就可能占到预算的一半左右，
+    /// 压完还是超过 50%，下一步马上又压——一个任务里一分钟压好几次。参照 Claude Code（约 90% 才压），取 75%。
     /// </remarks>
-    public double CompactRatio { get; init; } = 0.50;
+    public double CompactRatio { get; init; } = 0.75;
+
+    /// <summary>两次压缩之间，上下文至少要再长出预算的这个比例。刚压缩完就算还偏大，也先只裁剪工具输出，不再压。</summary>
+    public double MinGrowthRatio { get; init; } = 0.15;
+
+    /// <summary>能压缩的对话（不含系统提示词、工具定义和保留的最近内容）不到预算的这个比例时不压缩：省下的不值一次模型调用。</summary>
+    public double MinCompressibleRatio { get; init; } = 0.10;
 
     /// <summary>压缩时保留原文的最近内容占预算的比例。</summary>
     public double KeepRecentRatio { get; init; } = 0.25;
@@ -54,7 +59,7 @@ public sealed class CompactionInfo
 /// <summary>
 /// 短期记忆（工作上下文）管理，参照 Claude Code 的 auto-compact：
 /// 1. 微压缩：上下文超过预算一半时，较早的大段工具输出只保留开头，需要时让模型重新读取；
-/// 2. 自动压缩：超过 75% 时，用模型把较早的对话整理成结构化摘要，最近几轮保留原文；
+/// 2. 自动压缩：超过 75% 时（两次之间对话至少再长 15%），用模型把较早的对话整理成结构化摘要，最近几轮保留原文；
 /// 3. 兜底：摘要失败时更激进地裁剪工具输出，保证请求不超长。
 /// 
 /// 优化：后台渐进式 Session Memory
@@ -92,6 +97,9 @@ public sealed class ContextManager
 
     /// <summary>上次发出去时估算的大小（history + 工具定义），和模型返回的真实值一比就知道估算偏了多少。</summary>
     private int _lastEstimate;
+
+    /// <summary>上次压缩（或压缩失败）之后的上下文大小，用来控制两次压缩的间隔。0 = 这一轮还没压过。</summary>
+    private int _lastCompactAt;
 
     /// <summary>真实 / 估算。估算器按字符数粗算，中文、JSON、代码的实际 token 往往更多；用真实值把它拉回来。</summary>
     private double _calibration = 1.0;
@@ -214,6 +222,18 @@ public sealed class ContextManager
             _sessionMemory?.CheckAndTrigger(history, before);
             return null;
         }
+        // 刚压缩过、对话还没长多少：先不压（压不掉的系统提示词和工具定义会让它一直偏大，
+        // 以前每一步都重新压一次）。快顶到上限时只做更狠的裁剪兜底
+        var now = Measure(history);
+        if (_lastCompactAt > 0 && now - _lastCompactAt < Budget * _options.MinGrowthRatio)
+        {
+            if (now > Budget * 0.9)
+            {
+                PruneToolOutputs(history, keepRecent: 1, keepChars: 400);
+            }
+            return null;
+        }
+
         // 这一轮马上要同步压缩：不再另起后台摘要。否则同一段对话会被摘要两次（多花一次模型调用），
         // 而后台那份这次压缩又用不上
 
@@ -235,6 +255,8 @@ public sealed class ContextManager
         {
             PruneToolOutputs(history, keepRecent: 1, keepChars: 400);
         }
+        // 成功、失败、没什么可压都记下来：下一次至少等对话再长一截
+        _lastCompactAt = Measure(history);
         return info;
     }
 
@@ -298,6 +320,11 @@ public sealed class ContextManager
         }
         var old = history.Skip(start).Take(boundary - start).ToList();
         if (old.Count == 0)
+        {
+            return null;
+        }
+        // 能压的太少（大头是压不掉的系统提示词和工具定义）：压了也省不下多少，不值一次模型调用
+        if (TokenEstimator.Estimate(old) * _calibration < Budget * _options.MinCompressibleRatio)
         {
             return null;
         }

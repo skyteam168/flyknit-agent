@@ -285,6 +285,59 @@ public class MemorySystemTests : IDisposable
     }
 
     [Fact]
+    public async Task CompactionDoesNotRepeatEveryStep()
+    {
+        // 压不掉的工具定义很大：压完仍然偏大。以前下一步马上又压，一分钟压好几次
+        var gateway = new FakeGateway(_ => new ChatTurn { Content = "## 进展\n读完了数据" });
+        var manager = new ContextManager(gateway, "系统提示", contextLength: 20000,
+            options: new ContextOptions { ReserveOutputTokens = 2000 }, enableSessionMemory: false) { ToolTokens = 9000 };
+        var history = new List<ChatMessage> { ChatMessage.System("系统提示") };
+        for (var i = 0; i < 20; i++)
+        {
+            history.Add(ChatMessage.User($"第 {i} 步 " + new string('问', 300)));
+            history.Add(ChatMessage.Assistant($"第 {i} 步完成 " + new string('答', 300)));
+        }
+        Assert.NotNull(await manager.PrepareAsync(history, CancellationToken.None));
+        Assert.Single(gateway.Requests);
+
+        // 接下来几步只多了一点内容：不再压缩
+        for (var i = 0; i < 3; i++)
+        {
+            history.Add(ChatMessage.User("继续 " + new string('问', 100)));
+            history.Add(ChatMessage.Assistant("好的 " + new string('答', 100)));
+            Assert.Null(await manager.PrepareAsync(history, CancellationToken.None));
+        }
+        Assert.Single(gateway.Requests);
+
+        // 对话又长了一大截：再压一次
+        for (var i = 0; i < 12; i++)
+        {
+            history.Add(ChatMessage.User($"新的第 {i} 步 " + new string('问', 300)));
+            history.Add(ChatMessage.Assistant($"新的第 {i} 步完成 " + new string('答', 300)));
+        }
+        Assert.NotNull(await manager.PrepareAsync(history, CancellationToken.None));
+        Assert.Equal(2, gateway.Requests.Count);
+    }
+
+    [Fact]
+    public async Task NothingWorthCompactingSkipsTheModelCall()
+    {
+        // 大头是工具定义，对话本身很短：压缩省不下什么，不调模型
+        var gateway = new FakeGateway(_ => throw new InvalidOperationException("不应调用"));
+        var manager = new ContextManager(gateway, "系统提示", contextLength: 20000,
+            options: new ContextOptions { ReserveOutputTokens = 2000 }, enableSessionMemory: false) { ToolTokens = 15000 };
+        var history = new List<ChatMessage> { ChatMessage.System("系统提示") };
+        for (var i = 0; i < 4; i++)
+        {
+            history.Add(ChatMessage.User($"第 {i} 步 " + new string('问', 60)));
+            history.Add(ChatMessage.Assistant($"第 {i} 步完成 " + new string('答', 60)));
+        }
+        Assert.True(manager.Measure(history) > manager.Budget * 0.75);
+        Assert.Null(await manager.PrepareAsync(history, CancellationToken.None));
+        Assert.Equal(9, history.Count);
+    }
+
+    [Fact]
     public async Task BackgroundSessionMemoryStillRunsWhenNoCompactionIsNeeded()
     {
         var gateway = new FakeGateway(_ => new ChatTurn { Content = "## 当前任务\n整理日报" });

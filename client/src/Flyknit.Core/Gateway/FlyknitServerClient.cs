@@ -154,7 +154,7 @@ internal sealed class InstructionStartResult
 }
 
 /// <summary>与 Flyknit 服务端通信：模型网关、设备注册、配置、审计。</summary>
-public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
+public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flyknit.Core.Mcp.IMcpRuntimeSource
 {
     private HttpClient _http;
     private string? _token;
@@ -461,6 +461,41 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         {
             await file.WriteAsync(buffer.AsMemory(0, read), ct);
         }
+    }
+
+    /// <summary>MCP 运行环境清单（便携 Node.js / uv / Python 和 npm、PyPI 镜像地址）。旧服务端没有这个接口，返回 null。</summary>
+    public async Task<Flyknit.Core.Mcp.McpRuntimeManifest?> GetMcpRuntimesAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/runtimes");
+        using var resp = await SendAsync(req, ct);
+        if ((int)resp.StatusCode == 404)
+        {
+            return null;
+        }
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<Flyknit.Core.Mcp.McpRuntimeManifest>(cancellationToken: ct);
+    }
+
+    /// <summary>
+    /// 下载一个运行环境的压缩包。服务端第一次要先去上游拉，响应头可能要等好几分钟。
+    /// 返回响应头 X-Runtime-Sha256（服务端知道的话），调用方拿来校验。
+    /// </summary>
+    public async Task<string?> DownloadMcpRuntimeAsync(string name, string destination, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/runtimes/{Uri.EscapeDataString(name)}/download");
+        using var resp = await SendAsync(req, HttpCompletionOption.ResponseHeadersRead, TimeSpan.FromMinutes(10), ct);
+        await EnsureOk(resp, ct);
+        var sha = resp.Headers.TryGetValues("X-Runtime-Sha256", out var values) ? values.FirstOrDefault()?.Trim() : null;
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        await using var file = File.Create(destination);
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var buffer = new byte[128 * 1024];
+        int read;
+        while ((read = await ReadIdleAsync(stream, buffer, idle, ct)) > 0)
+        {
+            await file.WriteAsync(buffer.AsMemory(0, read), ct);
+        }
+        return string.IsNullOrEmpty(sha) ? null : sha;
     }
 
     /// <summary>有没有比 currentVersion 更新的版本。</summary>

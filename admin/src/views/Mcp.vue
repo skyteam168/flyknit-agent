@@ -6,6 +6,7 @@ import { CircleCheckFilled, Delete, DocumentCopy, Edit, Plus, Refresh, Search, C
 import { api } from '@/api'
 import type { McpDraft, McpField, McpTestResult, McpVendor, McpVendorIn } from '@/api/types'
 import { dateTime } from '@/utils/format'
+import McpRuntimePanel from '@/components/McpRuntimePanel.vue'
 
 /**
  * MCP 连接器：引入厂商的 MCP 服务，员工在客户端「连接器」里点一下就能用。
@@ -376,6 +377,8 @@ async function runTest() {
     </div>
 
     <!-- 编辑 -->
+    <McpRuntimePanel />
+
     <el-dialog v-model="editing" :title="isNew ? '新增连接器' : `编辑 · ${form.name}`" width="min(960px, 94vw)" top="4vh" :close-on-click-modal="false">
       <el-form label-width="96px" class="form">
         <h4>展示</h4>

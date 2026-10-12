@@ -7,7 +7,8 @@ import { state } from '../store'
 // 上下文压缩进度：对话太长时会把较早的内容提炼成摘要，这期间让用户知道在干什么
 const { t } = useI18n()
 
-const info = computed(() => state.compacting)
+// 只显示当前对话的：别的对话在后台压缩，不该出现在这里
+const info = computed(() => (state.currentId ? state.compacting[state.currentId] ?? null : null))
 const label = computed(() => {
   const c = info.value
   if (!c) return ''

@@ -39,6 +39,7 @@ public sealed class McpService : IDisposable
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
     private readonly ConcurrentDictionary<string, Runtime> _runtime = new();
     private readonly CancellationTokenSource _life = new();
+    private readonly McpRuntimeManager _runtimes;
     private HttpClient _http;
     private List<McpVendor> _vendors = new();
     private DateTime _vendorsAt;
@@ -55,6 +56,7 @@ public sealed class McpService : IDisposable
         _clientVersion = clientVersion;
         _http = CreateHttp(settings);
         _store = Store.Load();
+        _runtimes = new McpRuntimeManager(server, AppPaths.Runtimes);
     }
 
     public static string StoreFile => Path.Combine(AppPaths.Root, "mcp-connections.json");
@@ -357,9 +359,25 @@ public sealed class McpService : IDisposable
     {
         // 「填写密钥」的用自己的头；其余的有登录令牌就带上（标成「不用登录」但对方其实要 OAuth 的，登录过一次后也能用）
         Func<CancellationToken, Task<string?>>? bearer = vendor.Auth != "fields" ? token => BearerAsync(vendor.Id, token) : null;
+
+        // stdio 连接器：先从公司服务器准备好 Node.js / uv / Python（第一次要下载），并把 npm、PyPI 指到公司镜像
+        McpRuntimeEnvironment? runtime = null;
+        if (config.Transport == "stdio")
+        {
+            var reported = false;
+            runtime = await _runtimes.EnsureAsync(config, message =>
+            {
+                reported = true;
+                Set(vendor.Id, rt, McpStatus.Connecting, message);
+            }, ct);
+            if (reported)
+            {
+                Set(vendor.Id, rt, McpStatus.Connecting, "");
+            }
+        }
         try
         {
-            return await McpConnection.ConnectAsync(config, _http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct);
+            return await McpConnection.ConnectAsync(config, _http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime);
         }
         catch (McpAuthRequiredException ex) when (interactive && WantsBrowserLogin(vendor, ex))
         {
@@ -368,7 +386,7 @@ public sealed class McpService : IDisposable
             await AuthorizeAsync(vendor, new Uri(config.Url), ex.WwwAuthenticate, ct);
             try
             {
-                return await McpConnection.ConnectAsync(config, _http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct);
+                return await McpConnection.ConnectAsync(config, _http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime);
             }
             catch (McpAuthRequiredException again)
             {
