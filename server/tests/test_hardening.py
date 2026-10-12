@@ -267,7 +267,8 @@ async def test_successful_login_resets_username_counter(client):
 
 
 async def test_login_is_rate_limited_per_ip(client):
-    for i in range(20):
+    from app.services import login_guard
+    for i in range(login_guard.MAX_PER_IP):
         await client.post("/api/v1/admin/login", json={"username": f"guess{i}", "password": "x"})
     r = await client.post("/api/v1/admin/login", json={"username": "someone-else", "password": "x"})
     assert r.status_code == 429
