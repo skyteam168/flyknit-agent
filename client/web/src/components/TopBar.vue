@@ -78,7 +78,8 @@ function startNew() {
 
     <ConversationFiles />
 
-    <div class="window">
+    <!-- 和系统标题栏按钮一样，点了不拿焦点：否则最大化、还原后窗口把焦点还给页面时，按钮外会多出一圈焦点框 -->
+    <div class="window" @mousedown.prevent>
       <button type="button" class="icon-btn" :class="{ active: topmost }" :title="t('topbar.pinWindow')" @click="pin"><Pin :size="16" /></button>
       <button type="button" class="icon-btn" :title="t('topbar.minimize')" @click="bridge.minimizeWindow().catch(fail)"><Minus :size="17" /></button>
       <button

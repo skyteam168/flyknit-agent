@@ -8,6 +8,13 @@ import { fail } from './store'
 window.addEventListener('dragover', (e) => e.preventDefault())
 window.addEventListener('drop', (e) => e.preventDefault())
 
+// 记下最近一次是用键盘还是鼠标操作的：焦点框只给键盘用户看（base.css）
+const root = document.documentElement
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab' || e.key.startsWith('Arrow')) root.dataset.input = 'keyboard'
+}, true)
+window.addEventListener('pointerdown', () => { root.dataset.input = 'pointer' }, true)
+
 const app = createApp(App).use(i18n)
 
 /**
