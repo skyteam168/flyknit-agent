@@ -42,6 +42,14 @@ public sealed class ClientUpdater(AgentConfig config, Func<ServerApi> api)
     /// <summary>已经下好、校验过、解开的新版本，等员工端退出就换上。</summary>
     private (string Version, string Root)? _ready;
 
+    /// <summary>
+    /// 替换失败（文件被占用之类）而原来的程序完好时，新版本留着、隔一会儿再试。
+    /// 连续失败几次就把状态写成 failed，员工那边等着的更新器看到就不再干等、先把程序打开。
+    /// </summary>
+    private int _applyFailures;
+    private DateTime _retryApplyAt = DateTime.MinValue;
+    private const int FailuresBeforeGivingUp = 3;
+
     public async Task RunAsync(CancellationToken ct)
     {
         var nextCheck = DateTime.UtcNow.AddMinutes(2);  // 开机先让别的事跑起来
@@ -130,7 +138,22 @@ public sealed class ClientUpdater(AgentConfig config, Func<ServerApi> api)
     /// <summary>员工端都退出了才换：正在运行的 exe 和 dll 是锁着的，硬换只会换出半个程序。</summary>
     private void TryApply()
     {
-        if (_ready is not { } ready || Process.GetProcessesByName("FlyknitBuddy").Length > 0)
+        if (_ready is not { } ready)
+        {
+            return;
+        }
+        if (Process.GetProcessesByName("FlyknitBuddy").Length > 0)
+        {
+            if (_applyFailures >= FailuresBeforeGivingUp)
+            {
+                // 上次没换成、员工端又开起来了：重新显示「新版本就绪」，下次退出立刻再试
+                _applyFailures = 0;
+                _retryApplyAt = DateTime.MinValue;
+                WriteStatus(ready.Version, "", "ready");
+            }
+            return;
+        }
+        if (DateTime.UtcNow < _retryApplyAt)
         {
             return;
         }
@@ -145,7 +168,21 @@ public sealed class ClientUpdater(AgentConfig config, Func<ServerApi> api)
         }
         var backup = ClientDir + ".old";
         var result = Swap.Replace(ready.Root, ClientDir, backup);
+        if (!result.Ok && Swap.HasPayload(ClientDir))
+        {
+            // 原来的程序还在（没挪动或已回滚）：新版本留着，5 秒、10 秒、20 秒……最多 5 分钟后再试
+            _applyFailures++;
+            _retryApplyAt = DateTime.UtcNow + TimeSpan.FromSeconds(Math.Min(300, 5 << Math.Min(_applyFailures - 1, 6)));
+            AgentLog.Warn($"替换员工端失败（第 {_applyFailures} 次），稍后重试：{result.Message}");
+            if (_applyFailures == FailuresBeforeGivingUp)
+            {
+                WriteStatus(ready.Version, "", "failed");
+            }
+            return;
+        }
         _ready = null;
+        _applyFailures = 0;
+        _retryApplyAt = DateTime.MinValue;
         Swap.Delete(Path.Combine(Staging, ready.Version));
         if (!result.Ok)
         {
