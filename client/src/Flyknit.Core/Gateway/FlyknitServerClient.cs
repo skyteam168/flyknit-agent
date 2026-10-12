@@ -180,6 +180,19 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         _token = deviceToken;
     }
 
+    /// <summary>等响应头最多这么久（流式请求、下载）。服务端拿到上游的响应头就会回，正常几秒内。</summary>
+    public TimeSpan ResponseTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>流式读取时这么久一点数据都没收到，就当连接已经悄悄断了。</summary>
+    public TimeSpan StreamIdleTimeout { get; set; } = TimeSpan.FromSeconds(120);
+
+    /// <summary>普通请求（含非流式的模型调用）整体最多等这么久，兜住连接悄悄断掉一直挂着的情况。</summary>
+    public TimeSpan RequestTimeout { get; set; } = TimeSpan.FromMinutes(5);
+
+    internal const string TimeoutMessage = "连接模型服务超时，请检查网络后重试";
+    internal const string BrokenMessage = "与服务器的连接中断了，请重试";
+    internal const string TruncatedMessage = "回答被中断了，请重试";
+
     public bool IsRegistered => !string.IsNullOrEmpty(_token);
 
     public string ServerUrl => _serverUrl.TrimEnd('/');
@@ -203,7 +216,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task LogoutAsync(CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Post, "api/v1/devices/logout");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
     }
 
@@ -241,14 +254,16 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     /// <summary>用户协议和隐私政策（登录界面显示，还没登录所以不带令牌）。原样返回服务端的 JSON。</summary>
     public async Task<string> GetLegalAsync(CancellationToken ct)
     {
-        using var resp = await _http.GetAsync("api/v1/legal", ct);
+        using var req = new HttpRequestMessage(HttpMethod.Get, "api/v1/legal");
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadAsStringAsync(ct);
     }
 
     private async Task<DeviceRegistration> PostRegistrationAsync(object body, CancellationToken ct)
     {
-        using var resp = await _http.PostAsJsonAsync("api/v1/devices/register", body, ct);
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/v1/devices/register") { Content = JsonContent.Create(body) };
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         var reg = await resp.Content.ReadFromJsonAsync<DeviceRegistration>(cancellationToken: ct)
                   ?? throw new GatewayException("注册返回为空");
@@ -259,7 +274,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task<ClientConfig> GetConfigAsync(CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Get, "api/v1/client/config");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<ClientConfig>(cancellationToken: ct) ?? new ClientConfig();
     }
@@ -271,7 +286,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task<int> WaitForConfigChangeAsync(int revision, CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Get, $"api/v1/client/config/wait?rev={revision}");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         var doc = await resp.Content.ReadFromJsonAsync<WaitResult>(cancellationToken: ct);
         return doc?.Revision ?? revision;
@@ -290,7 +305,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     {
         using var req = Authorized(HttpMethod.Post, "api/v1/devices/heartbeat");
         req.Content = JsonContent.Create(info);
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
     }
 
@@ -298,7 +313,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task<List<ClientModel>> GetModelsAsync(CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Get, "api/v1/client/models");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<List<ClientModel>>(cancellationToken: ct) ?? new();
     }
@@ -311,7 +326,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         }
         using var req = Authorized(HttpMethod.Post, "api/v1/audit");
         req.Content = JsonContent.Create(new { items });
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
     }
 
@@ -319,7 +334,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task<List<ClientInstruction>> PollInstructionsAsync(CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Get, "api/v1/client/instructions");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         var result = await resp.Content.ReadFromJsonAsync<ClientInstructionPoll>(cancellationToken: ct);
         return result?.Instructions ?? new();
@@ -329,7 +344,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task<bool> StartInstructionAsync(int runId, CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Post, $"api/v1/client/instructions/{runId}/start");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         var result = await resp.Content.ReadFromJsonAsync<InstructionStartResult>(cancellationToken: ct);
         return result?.Ok ?? false;
@@ -345,13 +360,13 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
             error,
             conversation_id = conversationId,
         });
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
     }
     public async Task<UsageStats> GetUsageAsync(CancellationToken ct, int days = 7)
     {
         using var req = Authorized(HttpMethod.Get, $"api/v1/client/usage?days={days}");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<UsageStats>(cancellationToken: ct) ?? new UsageStats();
     }
@@ -368,7 +383,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
 
         using var req = Authorized(HttpMethod.Post, "api/v1/speech/transcribe");
         req.Content = content;
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<TranscriptResult>(cancellationToken: ct) ?? new TranscriptResult();
     }
@@ -392,7 +407,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         }
         using var req = Authorized(HttpMethod.Post, "api/v1/client/feedback");
         req.Content = content;
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
     }
 
@@ -400,7 +415,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task<List<Flyknit.Core.Mcp.McpVendor>> GetMcpVendorsAsync(CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Get, "api/v1/client/mcp/vendors");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Mcp.McpVendor>>(cancellationToken: ct) ?? new();
     }
@@ -409,7 +424,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task<List<Flyknit.Core.Experts.Expert>> GetExpertsAsync(CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Get, "api/v1/client/experts");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Experts.Expert>>(cancellationToken: ct) ?? new();
     }
@@ -418,7 +433,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task ReportExpertUseAsync(string expertId, CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Post, $"api/v1/client/experts/{Uri.EscapeDataString(expertId)}/use");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
     }
 
@@ -426,7 +441,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task<List<ServerSkill>> GetSkillsAsync(CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Get, "api/v1/client/skills");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<List<ServerSkill>>(cancellationToken: ct) ?? new();
     }
@@ -435,11 +450,17 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     public async Task DownloadSkillAsync(string name, string destination, CancellationToken ct)
     {
         using var req = Authorized(HttpMethod.Get, $"api/v1/client/skills/{Uri.EscapeDataString(name)}/download");
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var resp = await SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ResponseTimeout, ct);
         await EnsureOk(resp, ct);
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);
         await using var file = File.Create(destination);
-        await stream.CopyToAsync(file, ct);
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var buffer = new byte[81920];
+        int read;
+        while ((read = await ReadIdleAsync(stream, buffer, idle, ct)) > 0)
+        {
+            await file.WriteAsync(buffer.AsMemory(0, read), ct);
+        }
     }
 
     /// <summary>有没有比 currentVersion 更新的版本。</summary>
@@ -447,7 +468,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     {
         using var req = Authorized(HttpMethod.Get,
             $"api/v1/client/update?version={Uri.EscapeDataString(currentVersion)}");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<ClientUpdate>(cancellationToken: ct) ?? new();
     }
@@ -460,7 +481,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
     {
         using var req = Authorized(HttpMethod.Get,
             $"api/v1/client/update/download?version={Uri.EscapeDataString(version)}");
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var resp = await SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ResponseTimeout, ct);
         await EnsureOk(resp, ct);
 
         var total = resp.Content.Headers.ContentLength ?? 0;
@@ -469,7 +490,8 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         var buffer = new byte[128 * 1024];
         long done = 0;
         int read;
-        while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        while ((read = await ReadIdleAsync(stream, buffer, idle, ct)) > 0)
         {
             await file.WriteAsync(buffer.AsMemory(0, read), ct);
             done += read;
@@ -529,11 +551,12 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         HttpResponseMessage resp;
         try
         {
-            resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            // 流式：服务端拿到上游响应头就回，等不到就是连接有问题；非流式要等模型整段答完才回
+            resp = await SendAsync(req, HttpCompletionOption.ResponseHeadersRead, request.Stream ? ResponseTimeout : RequestTimeout, ct);
         }
         catch (HttpRequestException ex)
         {
-            throw new GatewayException($"无法连接 Flyknit 服务器：{ex.Message}", null, ex);
+            throw new GatewayException($"无法连接 Flyknit 服务器：{ex.Message}", null, ex) { IsNetworkError = true };
         }
 
         using (resp)
@@ -546,23 +569,64 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
                 ? len
                 : 0;
             var acc = new SseAccumulator(sink);
+            using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
             if (!request.Stream)
             {
-                acc.FeedChunk(await resp.Content.ReadAsStringAsync(ct));
+                idle.CancelAfter(StreamIdleTimeout);
+                string text;
+                try
+                {
+                    text = await resp.Content.ReadAsStringAsync(idle.Token);
+                }
+                catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+                {
+                    throw new GatewayException(TimeoutMessage, null, ex) { IsNetworkError = true };
+                }
+                catch (Exception ex) when (ex is IOException or HttpRequestException)
+                {
+                    throw new GatewayException(BrokenMessage, null, ex) { IsNetworkError = true };
+                }
+                try
+                {
+                    acc.FeedChunk(text);
+                }
+                catch (JsonException ex)
+                {
+                    throw new GatewayException(BrokenMessage, null, ex) { IsNetworkError = true };
+                }
                 return acc.Build(model, context);
             }
 
-            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            while (!acc.Done)
+            // 每读一行都重新计时：连接悄悄断掉（没有 FIN/RST）时不会一直挂着
+            try
             {
-                var line = await reader.ReadLineAsync(ct);
-                if (line is null)
+                await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                while (!acc.Done)
                 {
-                    break;
+                    idle.CancelAfter(StreamIdleTimeout);
+                    var line = await reader.ReadLineAsync(idle.Token);
+                    if (line is null)
+                    {
+                        break;
+                    }
+                    acc.FeedLine(line);
                 }
-                acc.FeedLine(line);
+            }
+            catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                throw new GatewayException(TimeoutMessage, null, ex) { IsNetworkError = true };
+            }
+            catch (Exception ex) when (ex is IOException or HttpRequestException or JsonException)
+            {
+                // HttpIOException 也是 IOException。包成 GatewayException，AgentLoop 才会保存已做完的步骤、按失败结束
+                throw new GatewayException(BrokenMessage, null, ex) { IsNetworkError = true };
+            }
+            // 既没有 [DONE] 也没有 finish_reason：流被截断了，不能把半截当成完整回答
+            if (!acc.Done && acc.FinishReason is null)
+            {
+                throw new GatewayException(TruncatedMessage);
             }
             return acc.Build(model, context);
         }
@@ -581,7 +645,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         HttpResponseMessage resp;
         try
         {
-            resp = await _http.SendAsync(req, ct);
+            resp = await SendAsync(req, ct);
         }
         catch (HttpRequestException ex)
         {
@@ -614,6 +678,38 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         }
     }
 
+    private Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct) =>
+        SendAsync(req, HttpCompletionOption.ResponseContentRead, RequestTimeout, ct);
+
+    /// <summary>发请求，最多等 timeout（ResponseContentRead 时含读完响应体）。超时抛 GatewayException，调用方自己取消的照常抛 OperationCanceledException。</summary>
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, HttpCompletionOption option, TimeSpan timeout, CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(timeout);
+        try
+        {
+            return await _http.SendAsync(req, option, cts.Token);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new GatewayException(TimeoutMessage, null, ex) { IsNetworkError = true };
+        }
+    }
+
+    /// <summary>下载时读一块：这么久一点数据都没收到就算超时。</summary>
+    private async Task<int> ReadIdleAsync(Stream stream, byte[] buffer, CancellationTokenSource idle, CancellationToken ct)
+    {
+        idle.CancelAfter(StreamIdleTimeout);
+        try
+        {
+            return await stream.ReadAsync(buffer, idle.Token);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new GatewayException(TimeoutMessage, null, ex) { IsNetworkError = true };
+        }
+    }
+
     private HttpRequestMessage Authorized(HttpMethod method, string path)
     {
         if (string.IsNullOrEmpty(_token))
@@ -631,12 +727,26 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         {
             return;
         }
-        var text = await resp.Content.ReadAsStringAsync(ct);
-        var message = text;
+        var code = (int)resp.StatusCode;
+        string text;
+        try
+        {
+            text = await resp.Content.ReadAsStringAsync(ct);
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException)
+        {
+            text = ""; // 错误体读不出来就只看状态码
+        }
+        string? message = null;
         try
         {
             using var doc = JsonDocument.Parse(text);
-            if (doc.RootElement.TryGetProperty("error", out var err) && err.TryGetProperty("message", out var m))
+            message = text;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                // 数组、字符串之类的照原样给
+            }
+            else if (doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.Object && err.TryGetProperty("message", out var m))
             {
                 message = m.GetString() ?? text;
             }
@@ -647,8 +757,20 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway
         }
         catch (JsonException)
         {
-            // 非 JSON 错误体，原样返回
+            // 非 JSON 错误体（比如 nginx 的 502 网页）：不往界面上塞 HTML，按状态码给一句短话
         }
-        throw new GatewayException(string.IsNullOrWhiteSpace(message) ? $"HTTP {(int)resp.StatusCode}" : message, (int)resp.StatusCode);
+        throw new GatewayException(string.IsNullOrWhiteSpace(message) ? StatusText(code) : message, code);
     }
+
+    /// <summary>服务端没给可读的错误说明时，按状态码说一句。</summary>
+    internal static string StatusText(int code) => code switch
+    {
+        401 or 403 => $"服务器拒绝了请求（HTTP {code}）",
+        404 => $"服务器上没有这个功能（HTTP {code}），可能需要升级服务端",
+        413 => $"内容太大，服务器不接收（HTTP {code}）",
+        429 => $"请求太频繁或已达用量上限（HTTP {code}），请稍后再试",
+        502 or 503 or 504 => $"服务器暂时不可用（HTTP {code}），请稍后再试",
+        >= 500 => $"服务器出错（HTTP {code}）",
+        _ => $"请求失败（HTTP {code}）",
+    };
 }

@@ -41,6 +41,8 @@ public partial class App : Application
     private bool _cleanedUp;
     private int _activeRuns;
     private int _pendingConfirms;
+    private DateTime _lastErrorNotice = DateTime.MinValue;
+    private int _crashing;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -49,14 +51,116 @@ public partial class App : Application
         {
             Log.Error("未处理的界面异常", ex.Exception);
             ex.Handled = true;
+            NotifyUnexpectedError();
         };
-        AppDomain.CurrentDomain.UnhandledException += (_, ex) => Log.Error("未处理的异常", ex.ExceptionObject as Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, ex) =>
+        {
+            Log.Error("未处理的异常", ex.ExceptionObject as Exception);
+            // 进程马上就没了：至少让员工知道发生了什么。只弹一次，弹框本身出错也不要再进来
+            if (Interlocked.Exchange(ref _crashing, 1) == 0)
+            {
+                try
+                {
+                    System.Windows.MessageBox.Show(
+                        $"FlyknitBuddy 遇到严重错误，即将退出：{(ex.ExceptionObject as Exception)?.Message}\n\n日志在 {AppPaths.Logs}。请重新打开 FlyknitBuddy，如果反复出现请把日志发给 IT。",
+                        "FlyknitBuddy", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                catch (Exception)
+                {
+                    // 弹不出来就算了，日志已经记下
+                }
+            }
+        };
         TaskScheduler.UnobservedTaskException += (_, ex) =>
         {
             Log.Error("未观察到的任务异常", ex.Exception);
             ex.SetObserved();
         };
 
+        try
+        {
+            await StartAsync(e);
+        }
+        catch (Exception ex)
+        {
+            FailStartup(ex);
+        }
+    }
+
+    /// <summary>
+    /// 启动中途出错：以前进程会隐身挂着、一直占着单实例锁，之后再怎么双击都没反应。
+    /// 现在告诉员工，收拾干净后退出，下次能正常打开。
+    /// </summary>
+    private void FailStartup(Exception ex)
+    {
+        Log.Error("启动失败", ex);
+        try
+        {
+            System.Windows.MessageBox.Show(
+                $"FlyknitBuddy 启动失败：{ex.Message}\n\n日志在 {AppPaths.Logs}。请把日志发给 IT，或重启电脑后再试。",
+                "FlyknitBuddy", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        catch (Exception boxEx)
+        {
+            Log.Warn("显示启动失败提示出错", boxEx);
+        }
+        // 已经起来的托盘、悬浮球、后台服务收掉；已经下好的更新顺带装上，修复版本才送得到
+        try
+        {
+            Cleanup(applyUpdate: true);
+        }
+        catch (Exception cleanupEx)
+        {
+            Log.Warn("启动失败后清理出错", cleanupEx);
+        }
+        // Cleanup 中途出错时单实例锁可能还没放
+        try { _mutex?.ReleaseMutex(); }
+        catch (Exception) { /* 已经放掉了，或者本来就不是我们的 */ }
+        _mutex?.Dispose();
+        _mutex = null;
+        Shutdown(1);
+    }
+
+    /// <summary>界面线程上的意外错误：已经兜住了，提醒一下员工。30 秒内最多一次，免得连着弹。</summary>
+    private void NotifyUnexpectedError()
+    {
+        var now = DateTime.UtcNow;
+        if (now - _lastErrorNotice < TimeSpan.FromSeconds(30))
+        {
+            return;
+        }
+        _lastErrorNotice = now;
+        try
+        {
+            _tray?.ShowBalloonTip(5000, "FlyknitBuddy", "出了点问题，已记录日志。如果功能不正常，请重启 FlyknitBuddy。", System.Windows.Forms.ToolTipIcon.Warning);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("显示错误提示失败", ex);
+        }
+    }
+
+    /// <summary>Windows 注销、关机：和正常退出一样收拾、保存设置。</summary>
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        base.OnSessionEnding(e);
+        if (e.Cancel)
+        {
+            return;
+        }
+        Log.Info($"Windows 正在{(e.ReasonSessionEnding == ReasonSessionEnding.Shutdown ? "关机" : "注销")}，退出");
+        try
+        {
+            Cleanup(applyUpdate: false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("注销/关机时清理出错", ex);
+        }
+    }
+
+    private async Task StartAsync(StartupEventArgs e)
+    {
         // 单实例：已运行时通知原实例显示窗口
         _mutex = new Mutex(true, MutexName, out var isFirst);
         if (!isFirst)
@@ -428,6 +532,12 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Warn("截图提问失败", ex);
+            // 截之前把主窗口藏起来了，出错也要拿回来，不然员工以为程序没了
+            if (mainVisible)
+            {
+                try { _main.ShowAndFocus(); }
+                catch (Exception showEx) { Log.Warn("恢复主窗口失败", showEx); }
+            }
         }
         finally
         {

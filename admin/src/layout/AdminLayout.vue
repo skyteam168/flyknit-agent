@@ -192,7 +192,10 @@ function toggleTheme() {
 .shell {
   display: grid;
   grid-template-columns: var(--aside-w) 1fr;
+  /* 一行占满视口：侧栏和内容各自滚动，整个页面不出滚动条 */
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
+  overflow: hidden;
   transition: grid-template-columns 0.2s ease;
 }
 .shell.collapsed {
@@ -202,6 +205,7 @@ function toggleTheme() {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--cloth);
 }
@@ -241,6 +245,7 @@ function toggleTheme() {
 }
 .menu-scroll {
   flex: 1;
+  min-height: 0;
 }
 .menu {
   --el-menu-bg-color: transparent;

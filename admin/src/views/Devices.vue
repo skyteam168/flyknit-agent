@@ -196,11 +196,18 @@ async function openDetail(d: Row) {
   }
 }
 
+// 防止连点下发好几条采集任务
+const collecting = ref(false)
 async function collectNow() {
-  if (!detail.value) return
-  await api.createJob({ kind: 'collect_info', agent_ids: [detail.value.id] })
-  ElMessage.success('已下发采集任务，稍后刷新查看')
-  detailRuns.value = await api.agentRuns(detail.value.id)
+  if (!detail.value || collecting.value) return
+  collecting.value = true
+  try {
+    await api.createJob({ kind: 'collect_info', agent_ids: [detail.value.id] })
+    ElMessage.success('已下发采集任务，稍后刷新查看')
+    detailRuns.value = await api.agentRuns(detail.value.id)
+  } finally {
+    collecting.value = false
+  }
 }
 
 async function toggleAgent(disabled: boolean) {
@@ -367,7 +374,7 @@ function summaryText(): string {
               <small>v{{ detail?.agent_version || detailDevice.agent.agent_version || '—' }} · 最后心跳 {{ relative(detailDevice.agent.last_seen) }}</small>
             </div>
             <div v-if="canDispatch" class="agent-actions">
-              <el-button size="small" @click="collectNow">立即采集</el-button>
+              <el-button size="small" :loading="collecting" @click="collectNow">立即采集</el-button>
               <el-button
                 size="small"
                 :type="detail?.disabled ? 'success' : 'danger'"

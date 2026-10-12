@@ -22,6 +22,7 @@ import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
 import ExpertAvatar from './components/ExpertAvatar.vue'
 import ExpertDetail from './components/ExpertDetail.vue'
+import BrandLoader from './components/BrandLoader.vue'
 import { uploadDropped } from './library'
 import {
   addFiles,
@@ -230,13 +231,11 @@ onBeforeUnmount(() => {
   <div v-if="initError" class="init-error">
     <strong>FlyknitBuddy</strong>
     <p>{{ initError }}</p>
-    <button type="button" class="btn primary" @click="reload">Reload</button>
+    <button type="button" class="btn primary" @click="reload">{{ t('ui.common.reload') }}</button>
   </div>
   <div v-else-if="!ready" class="boot">
-    <div class="boot-card" role="status" aria-live="polite">
-      <span class="spinner" />
-      <p class="boot-title">{{ t('ui.loading.title') }}</p>
-      <p class="boot-sub">{{ t('ui.loading.subtitle') }}</p>
+    <div class="boot-card">
+      <BrandLoader size="lg" :text="t('ui.loading.title').replace(/[.…]+$/, '')" :sub="t('ui.loading.subtitle')" />
     </div>
   </div>
   <div
@@ -334,32 +333,6 @@ onBeforeUnmount(() => {
   background: #fff;
   box-shadow: 0 12px 32px -10px rgba(27, 36, 64, 0.18);
   text-align: center;
-}
-.spinner {
-  display: block;
-  width: 40px;
-  height: 40px;
-  margin: 0 auto 20px;
-  border-radius: 50%;
-  border: 4px solid #e9ebf2;
-  border-top-color: #3446c9;
-  animation: spin 900ms linear infinite;
-}
-.boot-title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  color: #1f2330;
-}
-.boot-sub {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: #7a8092;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 .shell {
   display: flex;

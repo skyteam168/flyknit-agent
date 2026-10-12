@@ -20,7 +20,7 @@ import {
   X,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { loadSkills, state, toast } from '../store'
+import { fail, loadSkills, state, toast } from '../store'
 import type { LibrarySkill, SkillInfo } from '../types'
 
 const emit = defineEmits<{ use: [name: string] }>()
@@ -163,7 +163,19 @@ const close = () => (state.skillsOpen = false)
       <div class="body">
         <!-- 已安装 -->
         <template v-if="tab === 'installed'">
-          <p v-if="installed.length === 0" class="empty">{{ t('ui.skills.empty') }}</p>
+          <template v-if="!state.loaded.skills && installed.length === 0">
+            <div v-for="i in 4" :key="i" class="card" aria-hidden="true">
+            <div class="row">
+              <span class="skel" style="width: 30px; height: 30px; border-radius: 8px" />
+              <span class="main">
+                <span class="skel line" style="width: 40%" />
+                <span class="skel line" style="width: 75%; margin-top: 4px" />
+              </span>
+              <span class="skel" style="width: 34px; height: 20px; border-radius: 999px" />
+            </div>
+          </div>
+          </template>
+          <p v-else-if="installed.length === 0" class="empty">{{ t('ui.skills.empty') }}</p>
           <div v-for="s in installed" :key="s.name" class="card" :class="{ off: !s.enabled, open: expanded === s.name }">
             <div class="row">
               <span class="icons">
@@ -225,7 +237,7 @@ const close = () => (state.skillsOpen = false)
 
               <div class="actions">
                 <button type="button" class="btn" @click="emit('use', s.name)">{{ t('ui.skills.useInChat') }}</button>
-                <button type="button" class="btn" @click="bridge.openSkillsFolder(s.directory)"><FolderOpen :size="15" /> {{ t('ui.skills.openSkill') }}</button>
+                <button type="button" class="btn" @click="bridge.openSkillsFolder(s.directory).catch(fail)"><FolderOpen :size="15" /> {{ t('ui.skills.openSkill') }}</button>
                 <span class="spacer" />
                 <button v-if="!s.organization" type="button" class="btn danger-text" @click="removing = s">
                   <Trash2 :size="15" /> {{ t('ui.skills.uninstall') }}
@@ -241,7 +253,18 @@ const close = () => (state.skillsOpen = false)
             <p class="tab-hint">{{ t('ui.skills.libraryHint') }}</p>
             <button type="button" class="icon-btn" :title="t('ui.model.title')" @click="loadLibrary"><RefreshCw :size="15" /></button>
           </div>
-          <p v-if="busy === 'library'" class="empty"><Loader2 :size="18" class="spin" /> {{ t('ui.skills.loading') }}</p>
+          <template v-if="busy === 'library'">
+            <div v-for="i in 4" :key="i" class="card" aria-hidden="true">
+            <div class="row">
+              <span class="skel" style="width: 30px; height: 30px; border-radius: 8px" />
+              <span class="main">
+                <span class="skel line" style="width: 40%" />
+                <span class="skel line" style="width: 75%; margin-top: 4px" />
+              </span>
+              <span class="skel" style="width: 34px; height: 20px; border-radius: 999px" />
+            </div>
+          </div>
+          </template>
           <p v-else-if="libraryError" class="empty">{{ t('ui.skills.libraryError', { msg: libraryError }) }}</p>
           <p v-else-if="library && library.length === 0" class="empty">{{ t('ui.skills.libraryEmpty') }}</p>
           <div v-for="s in library ?? []" :key="s.name" class="card">
@@ -307,7 +330,7 @@ const close = () => (state.skillsOpen = false)
       </div>
 
       <footer>
-        <button type="button" class="btn" @click="bridge.openSkillsFolder()"><FolderOpen :size="15" /> {{ t('ui.skills.openFolder') }}</button>
+        <button type="button" class="btn" @click="bridge.openSkillsFolder().catch(fail)"><FolderOpen :size="15" /> {{ t('ui.skills.openFolder') }}</button>
         <span class="spacer" />
         <button type="button" class="btn primary" @click="close">{{ t('settings.close') }}</button>
       </footer>

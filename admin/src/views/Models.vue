@@ -77,6 +77,8 @@ function openModel(m?: ModelConfig) {
   })
   modelDialog.value = true
 }
+// 保存中：按钮转圈，防止连点建出两条
+const savingModel = ref(false)
 async function saveModel() {
   let extra_body: Record<string, unknown>
   try {
@@ -91,8 +93,14 @@ async function saveModel() {
   }
   const body = { ...modelForm, name: modelForm.name.trim(), model: modelForm.model.trim(), extra_body }
   delete (body as Partial<typeof body>).extra
-  if (editingModel.value) await api.updateModel(editingModel.value.id, body)
-  else await api.createModel(body)
+  if (savingModel.value) return
+  savingModel.value = true
+  try {
+    if (editingModel.value) await api.updateModel(editingModel.value.id, body)
+    else await api.createModel(body)
+  } finally {
+    savingModel.value = false
+  }
   modelDialog.value = false
   ElMessage.success('已保存')
   await load()
@@ -127,17 +135,24 @@ function openProvider(p?: Provider) {
   Object.assign(providerForm, { name: p?.name ?? '', base_url: p?.base_url ?? '', api_key: '', enabled: p?.enabled ?? true })
   providerDialog.value = true
 }
+const savingProvider = ref(false)
 async function saveProvider() {
   if (!providerForm.name.trim() || !providerForm.base_url.trim()) {
     ElMessage.error('请填写名称和接口地址')
     return
   }
-  if (editingProvider.value) {
-    const body: Partial<typeof providerForm> = { name: providerForm.name, base_url: providerForm.base_url, enabled: providerForm.enabled }
-    if (providerForm.api_key) body.api_key = providerForm.api_key
-    await api.updateProvider(editingProvider.value.id, body)
-  } else {
-    await api.createProvider({ ...providerForm })
+  if (savingProvider.value) return
+  savingProvider.value = true
+  try {
+    if (editingProvider.value) {
+      const body: Partial<typeof providerForm> = { name: providerForm.name, base_url: providerForm.base_url, enabled: providerForm.enabled }
+      if (providerForm.api_key) body.api_key = providerForm.api_key
+      await api.updateProvider(editingProvider.value.id, body)
+    } else {
+      await api.createProvider({ ...providerForm })
+    }
+  } finally {
+    savingProvider.value = false
   }
   providerDialog.value = false
   ElMessage.success('已保存')
@@ -314,7 +329,7 @@ async function syncModels(p: Provider) {
       </el-form>
       <template #footer>
         <el-button @click="modelDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveModel">保存</el-button>
+        <el-button type="primary" :loading="savingModel" @click="saveModel">保存</el-button>
       </template>
     </el-dialog>
 
@@ -336,7 +351,7 @@ async function syncModels(p: Provider) {
       </el-form>
       <template #footer>
         <el-button @click="providerDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveProvider">保存</el-button>
+        <el-button type="primary" :loading="savingProvider" @click="saveProvider">保存</el-button>
       </template>
     </el-dialog>
   </div>

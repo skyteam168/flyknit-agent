@@ -338,7 +338,7 @@ public sealed class TranslatePopup : Window
             {
                 GatewayException { StatusCode: 401 or 403 } => NativeStrings.T("sel.error.auth"),
                 GatewayException { StatusCode: 429 } => NativeStrings.T("sel.error.busy"),
-                HttpRequestException or TaskCanceledException => NativeStrings.T("sel.error.network"),
+                GatewayException { IsNetworkError: true } or HttpRequestException or TaskCanceledException => NativeStrings.T("sel.error.network"),
                 _ => string.Format(NativeStrings.T("sel.error.failed"), ex.Message),
             };
             _result.Foreground = _palette.Subtle;

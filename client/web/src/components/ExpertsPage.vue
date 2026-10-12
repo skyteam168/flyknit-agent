@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronLeft, ChevronRight, Eye, History, Search, Sparkles, UsersRound, X, Zap } from '@lucide/vue'
 import ExpertAvatar from './ExpertAvatar.vue'
-import { state } from '../store'
+import { loadExperts, state } from '../store'
 import { compactNumber, hueOf } from '../experts'
 import type { Expert } from '../types'
 
@@ -89,7 +89,31 @@ const open = (e: Expert) => (state.expertDetail = e)
     </div>
 
     <div class="content">
-      <p v-if="state.experts.length === 0" class="empty">{{ t('ui.experts.empty') }}</p>
+      <!-- 第一次加载：骨架屏，避免白屏 -->
+      <div v-if="!state.loaded.experts && state.experts.length === 0" class="grid" aria-busy="true">
+        <div v-for="i in 6" :key="i" class="card skel-card">
+          <div class="top">
+            <span class="skel round" style="width: 52px; height: 52px" />
+            <div class="name" style="flex: 1">
+              <span class="skel line lg" style="width: 60%" />
+              <span class="skel line" style="width: 85%; margin-top: 8px" />
+            </div>
+          </div>
+          <div class="tags">
+            <span class="skel" style="width: 56px; height: 20px; border-radius: 999px" />
+            <span class="skel" style="width: 68px; height: 20px; border-radius: 999px" />
+          </div>
+          <div class="foot">
+            <span class="skel line" style="width: 40px" />
+            <span class="skel line" style="width: 52px" />
+          </div>
+        </div>
+      </div>
+      <div v-else-if="state.expertsError && state.experts.length === 0" class="empty">
+        <p>{{ t('ui.experts.loadFailed', { msg: state.expertsError }) }}</p>
+        <button type="button" class="btn" @click="loadExperts()">{{ t('ui.common.retry') }}</button>
+      </div>
+      <p v-else-if="state.experts.length === 0" class="empty">{{ t('ui.experts.empty') }}</p>
       <template v-else>
         <!-- 专题：每个分类一张 -->
         <div v-if="showFeatured" class="rail-wrap">
@@ -447,6 +471,9 @@ h2 {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 14px;
+}
+.skel-card {
+  pointer-events: none;
 }
 .card {
   display: flex;

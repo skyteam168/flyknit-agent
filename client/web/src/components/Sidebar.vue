@@ -39,7 +39,6 @@ import KnitMark from './KnitMark.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
 import Popover from './Popover.vue'
-import { bridge } from '../bridge'
 import { openLibrary } from '../library'
 import {
   addWorkspace,
@@ -57,6 +56,7 @@ import {
   reorderConversations,
   reorderWorkspaces,
   restoreConversation,
+  openPath,
   runStatus,
   selectedWorkspace,
   state,
@@ -732,7 +732,7 @@ onBeforeUnmount(() => {
         <button v-if="wsMenu.group.exists" role="menuitem" type="button" @click="(startNewIn(wsMenu.group.path), (wsMenu = null))">
           <MessageSquarePlus :size="15" /> {{ t('ui.workspace.newHere') }}
         </button>
-        <button v-if="wsMenu.group.exists" role="menuitem" type="button" @click="(bridge.openPath(wsMenu.group.path), (wsMenu = null))">
+        <button v-if="wsMenu.group.exists" role="menuitem" type="button" @click="(openPath(wsMenu.group.path), (wsMenu = null))">
           <ExternalLink :size="15" /> {{ t('ui.workspace.open') }}
         </button>
         <button v-if="!wsMenu.group.isDefault" role="menuitem" type="button" class="danger" @click="removeGroup(wsMenu.group)">

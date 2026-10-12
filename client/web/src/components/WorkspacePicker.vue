@@ -3,8 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Check, ChevronDown, ExternalLink, Folder, FolderPlus, X } from '@lucide/vue'
 import Popover from './Popover.vue'
-import { bridge } from '../bridge'
-import { addWorkspace, loadWorkspaces, removeWorkspace, selectWorkspace, selectedWorkspace, state } from '../store'
+import { addWorkspace, loadWorkspaces, openPath, removeWorkspace, selectWorkspace, selectedWorkspace, state } from '../store'
 
 const { t } = useI18n()
 
@@ -55,7 +54,7 @@ function onToggle(toggle: () => void) {
           <Check v-if="same(w.path, selectedWorkspace)" :size="15" class="tick" />
         </button>
         <span class="row-actions">
-          <button v-if="w.exists" type="button" class="mini" :title="t('ui.workspace.open')" @click="bridge.openPath(w.path)">
+          <button v-if="w.exists" type="button" class="mini" :title="t('ui.workspace.open')" @click="openPath(w.path)">
             <ExternalLink :size="13" />
           </button>
           <button v-if="!w.isDefault" type="button" class="mini" :title="t('ui.workspace.remove')" @click="removeWorkspace(w.path)">

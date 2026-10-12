@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
 import { bridge } from './bridge'
 import { i18n } from './i18n'
-import { newConversation, send, state, toast } from './store'
+import { errorText, newConversation, send, state, toast } from './store'
 import type { LibraryFolder, LibraryItem, LibraryTab } from './types'
 
 // 资料库页面的状态。和对话互不干扰：从资料库「围绕此内容展开对话」时才把文件交给输入框。
@@ -35,6 +35,8 @@ export const lib = reactive({
   folders: [] as LibraryFolder[],
   selected: [] as string[],
   loading: false,
+  /** 列表没加载出来的原因（页面上显示「重试」，不要误显示成「没有文件」） */
+  error: '',
   /** 正在查看的文件 */
   viewing: null as LibraryItem | null,
 })
@@ -42,7 +44,7 @@ export const lib = reactive({
 const t = (key: string, params?: Record<string, unknown>) => i18n.global.t(key, params ?? {})
 
 function fail(e: unknown) {
-  toast(t('error.generic', { msg: e instanceof Error ? e.message : String(e) }))
+  toast(t('error.generic', { msg: errorText(e) }))
 }
 
 let seq = 0
@@ -61,9 +63,13 @@ export async function loadLibrary() {
     if (mine !== seq) return // 已经切到别的标签了，丢掉旧结果
     lib.items = r.items
     lib.folders = r.folders
+    lib.error = ''
     lib.selected = lib.selected.filter((id) => r.items.some((i) => i.id === id))
   } catch (e) {
-    fail(e)
+    if (mine !== seq) return
+    // 已经有列表时保留旧的，只提示一下；第一次就没加载出来才在页面上显示错误和重试
+    if (lib.items.length === 0) lib.error = errorText(e)
+    else fail(e)
   } finally {
     if (mine === seq) lib.loading = false
   }

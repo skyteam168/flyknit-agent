@@ -2,10 +2,9 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
-import { bridge } from '../bridge'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
-import { current, currentState, editAndResend, openTrace, regenerate, setFeedback, state } from '../store'
+import { current, currentState, editAndResend, openConversation, openPath, openTrace, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 import OutputFiles from './OutputFiles.vue'
@@ -45,7 +44,8 @@ useRichBlocks(scroller, () => [visible.value.map((m) => m.id + m.content.length)
 function traceSeconds(json: string | null | undefined): string {
   try {
     const ms = (JSON.parse(json ?? '{}') as { durationMs?: number }).durationMs ?? 0
-    return ms >= 1000 ? (ms / 1000).toFixed(1) : '0.' + Math.round(ms / 100)
+    // 统一保留一位小数（950ms → 1.0）；很短但不是 0 的至少显示 0.1
+    return (ms > 0 && ms < 100 ? 0.1 : Math.max(0, ms) / 1000).toFixed(1)
   } catch {
     return '0'
   }
@@ -211,12 +211,31 @@ const isImage = (mime: string) => mime.startsWith('image/')
 
 <template>
   <div ref="scroller" class="scroller" @scroll="onScroll">
-    <div v-if="s" class="column" @click="onContentClick">
+    <!-- 打开旧对话、消息还没读出来：先画出对话的样子，避免一片白 -->
+    <div v-if="s && !s.loaded && s.messages.length === 0" class="column" aria-busy="true">
+      <div v-if="s.loadError" class="load-error">
+        <OctagonAlert :size="18" />
+        <p>{{ t('ui.chat.loadFailed', { msg: s.loadError }) }}</p>
+        <button type="button" class="btn" @click="current && openConversation(current.id)">{{ t('ui.common.retry') }}</button>
+      </div>
+      <div v-else class="skel-chat" aria-hidden="true">
+        <template v-for="i in 2" :key="i">
+          <div class="skel-user"><span class="skel" :style="{ width: i === 1 ? '46%' : '32%', height: '40px', borderRadius: '14px' }" /></div>
+          <div class="skel-assistant">
+            <span class="skel line lg" style="width: 92%" />
+            <span class="skel line lg" style="width: 86%" />
+            <span class="skel line lg" style="width: 64%" />
+            <span v-if="i === 1" class="skel" style="width: 58%; height: 54px; border-radius: 10px" />
+          </div>
+        </template>
+      </div>
+    </div>
+    <div v-else-if="s" class="column" @click="onContentClick">
       <template v-for="(m, i) in visible" :key="m.id">
         <!-- 用户消息 -->
         <div v-if="m.role === 'user'" class="user" :class="{ editing: editingId === m.id }">
           <div v-if="m.attachments?.length" class="files">
-            <button v-for="a in m.attachments" :key="a.localPath" type="button" class="file" :title="a.localPath" @click="bridge.openPath(a.localPath)">
+            <button v-for="a in m.attachments" :key="a.localPath" type="button" class="file" :title="a.localPath" @click="openPath(a.localPath)">
               <img v-if="a.preview" :src="a.preview" alt="" />
               <component :is="isImage(a.mime) ? ImageIcon : FileText" v-else :size="16" />
               <span>{{ a.fileName }}</span>
@@ -463,6 +482,33 @@ const isImage = (mime: string) => mime.startsWith('image/')
   max-width: var(--column);
   margin: 0 auto;
   padding: 28px 32px 40px;
+}
+.skel-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.skel-user {
+  display: flex;
+  justify-content: flex-end;
+  margin: 8px 0 6px;
+}
+.skel-assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 60px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.load-error p {
+  margin: 0;
 }
 .user {
   display: flex;

@@ -5,7 +5,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .config import get_settings
+from .config import Settings, get_settings
 from .crypto import hash_token
 from .db import get_session
 from .models import AdminSession, AdminUser, Device, MachineAgent
@@ -25,9 +25,25 @@ async def _session_user(session: AsyncSession, token: str) -> AdminUser | None:
     return None if user is None or user.disabled else user
 
 
+#: 出厂默认的 admin_token。谁都知道它，所以没改过就当共享令牌不存在
+DEFAULT_ADMIN_TOKEN = Settings.model_fields["admin_token"].default
+
+
 def _is_shared_token(token: str) -> bool:
     """共享的 admin_token。命令行脚本和初次部署用它，它是这套权限的「破窗」入口。"""
-    return hmac.compare_digest(token.encode("utf-8"), get_settings().admin_token.encode("utf-8"))
+    configured = get_settings().admin_token
+    if configured == DEFAULT_ADMIN_TOKEN:
+        return False
+    return hmac.compare_digest(token.encode("utf-8"), configured.encode("utf-8"))
+
+
+def _invalid_admin_token(token: str) -> HTTPException:
+    """令牌不对。拿的正好是出厂默认值时说清楚原因，免得部署的人以为是自己抄错了。"""
+    if hmac.compare_digest(token.encode("utf-8"), DEFAULT_ADMIN_TOKEN.encode("utf-8")):
+        return HTTPException(
+            status.HTTP_403_FORBIDDEN, "默认的管理员令牌已停用：请在 server/.env 里设置 FLYKNIT_ADMIN_TOKEN 后重启"
+        )
+    return HTTPException(status.HTTP_403_FORBIDDEN, "管理员令牌无效")
 
 
 def _check_password_changed(user: AdminUser) -> AdminUser:
@@ -56,7 +72,7 @@ async def require_admin(
         return
     user = await _session_user(session, token)
     if user is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员令牌无效")
+        raise _invalid_admin_token(token)
     _check_password_changed(user)
 
 
@@ -171,7 +187,7 @@ async def require_owner(
         return None
     user = await _session_user(session, token)
     if user is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员令牌无效")
+        raise _invalid_admin_token(token)
     _check_password_changed(user)
     if not user.is_owner:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "只有超级管理员能做这个操作")

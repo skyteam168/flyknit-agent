@@ -146,7 +146,17 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
       </div>
 
       <div class="body">
-        <p v-if="state.mcp.length === 0" class="empty">{{ t('ui.mcp.empty') }}</p>
+        <div v-if="!state.loaded.mcp && state.mcp.length === 0" class="grid" aria-busy="true">
+          <div v-for="i in 6" :key="i" class="card" aria-hidden="true" style="pointer-events: none">
+            <div class="top">
+              <span class="skel" style="width: 36px; height: 36px; border-radius: 10px" />
+              <span class="skel line lg" style="width: 45%" />
+            </div>
+            <span class="skel line" style="width: 90%; margin-top: 10px" />
+            <span class="skel line" style="width: 60%; margin-top: 6px" />
+          </div>
+        </div>
+        <p v-else-if="state.mcp.length === 0" class="empty">{{ t('ui.mcp.empty') }}</p>
         <p v-else-if="list.length === 0" class="empty">{{ t('ui.mcp.noMatch') }}</p>
         <div class="grid">
           <div

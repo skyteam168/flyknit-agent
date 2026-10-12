@@ -287,7 +287,10 @@ async def probe_asr(request: Request, save: bool = False, session: AsyncSession 
 
     if chosen and save:
         route = await session.get(RouteRule, "asr")
-        model = await session.get(ModelConfig, route.model_id)
+        model = await session.get(ModelConfig, route.model_id) if route and route.model_id else None
+        if model is None:
+            # 只配了备用模型时探测走的是备用，写哪条都说不准，不如让管理员先把主模型补上
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "「语音转文字」场景没有指定主模型，无法保存探测结果")
         extra = dict(model.extra_body or {})
         extra["asr_transport"] = chosen
         model.extra_body = extra

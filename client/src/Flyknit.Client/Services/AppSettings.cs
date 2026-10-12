@@ -193,6 +193,21 @@ public sealed class AppSettings
                 }
             }
         }
+        catch (JsonException ex)
+        {
+            // 文件坏了（断电写了一半之类）：先留一份再用默认设置，下次保存会把它覆盖掉
+            Log.Error("设置文件已损坏，改用默认设置", ex);
+            try
+            {
+                var backup = $"{AppPaths.SettingsFile}.corrupt-{DateTime.Now:yyyyMMddHHmmss}";
+                File.Copy(AppPaths.SettingsFile, backup, overwrite: true);
+                Log.Info($"损坏的设置文件已另存为 {backup}");
+            }
+            catch (Exception copyEx)
+            {
+                Log.Warn("备份损坏的设置文件失败", copyEx);
+            }
+        }
         catch (Exception ex)
         {
             Log.Error("读取设置失败", ex);

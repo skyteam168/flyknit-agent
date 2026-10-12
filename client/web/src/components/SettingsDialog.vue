@@ -23,8 +23,9 @@ import {
 } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { uiLanguages } from '../i18n'
-import { setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
+import { errorText, fail, setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
 import type { ApprovalInfo, KeepAwakeMode, StorageInfo, Theme } from '../types'
+import BrandLoader from './BrandLoader.vue'
 import AuditLog from './AuditLog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import FeedbackDialog from './FeedbackDialog.vue'
@@ -79,7 +80,7 @@ async function logout() {
     await bridge.logout()
   } catch (e) {
     loggingOut.value = false
-    toast(e instanceof Error ? e.message : String(e))
+    fail(e)
   }
 }
 
@@ -96,7 +97,7 @@ async function checkUpdate() {
       toast(t(`settings.updateResult.${r.outcome}`, { v: r.outcome === 'upToDate' ? r.current : r.version }))
     }
   } catch (e) {
-    toast(t('settings.updateResult.failed', { msg: e instanceof Error ? e.message : String(e) }))
+    toast(t('settings.updateResult.failed', { msg: errorText(e) }))
   } finally {
     checkingUpdate.value = false
   }
@@ -114,17 +115,41 @@ function close() {
 
 // ---------- 自动执行规则 ----------
 const approvals = ref<ApprovalInfo[]>([])
+const approvalsLoading = ref(true)
+/** 规则没读出来的原因（显示重试，不要误显示成「还没有规则」） */
+const approvalsError = ref('')
 
 async function loadApprovals() {
-  approvals.value = await bridge.listApprovals().catch(() => [])
+  approvalsLoading.value = true
+  approvalsError.value = ''
+  try {
+    approvals.value = await bridge.listApprovals()
+  } catch (e) {
+    approvalsError.value = errorText(e)
+  } finally {
+    approvalsLoading.value = false
+  }
 }
+// 先从界面上拿掉，宿主没删成就放回去
 async function revoke(a: ApprovalInfo) {
-  approvals.value = approvals.value.filter((x) => x.id !== a.id)
-  await bridge.revokeApproval(a.id).catch(() => {})
+  const before = approvals.value
+  approvals.value = before.filter((x) => x.id !== a.id)
+  try {
+    await bridge.revokeApproval(a.id)
+  } catch (e) {
+    approvals.value = before
+    fail(e)
+  }
 }
 async function clearAll() {
+  const before = approvals.value
   approvals.value = []
-  await bridge.clearApprovals().catch(() => {})
+  try {
+    await bridge.clearApprovals()
+  } catch (e) {
+    approvals.value = before
+    fail(e)
+  }
 }
 
 // ---------- 字号 ----------
@@ -142,11 +167,16 @@ const autoStart = ref(false)
 const explorerMenu = ref(true)
 async function toggleExplorerMenu(on: boolean) {
   explorerMenu.value = on
-  await bridge.setExplorerMenu(on).catch(() => {})
-  if (state.app) state.app.explorerMenu = on
+  try {
+    await bridge.setExplorerMenu(on)
+    if (state.app) state.app.explorerMenu = on
+  } catch (e) {
+    explorerMenu.value = !on
+    fail(e)
+  }
 }
 async function toggleAutoStart(on: boolean) {
-  const r = await bridge.setAutoStart(on).catch(() => ({ ok: false, message: '设置失败', enabled: autoStart.value }))
+  const r = await bridge.setAutoStart(on).catch(() => ({ ok: false, message: t('ui.common.setFailed'), enabled: autoStart.value }))
   autoStart.value = r.enabled
   if (!r.ok && r.message) toast(r.message)
 }
@@ -162,7 +192,7 @@ function keepAwakeLocked(mode: KeepAwakeMode) {
 async function changeKeepAwake(mode: KeepAwakeMode) {
   const before = keepAwake.value
   keepAwake.value = mode
-  const r = await bridge.setKeepAwake(mode).catch(() => ({ ok: false, message: '设置失败', mode: before }))
+  const r = await bridge.setKeepAwake(mode).catch(() => ({ ok: false, message: t('ui.common.setFailed'), mode: before }))
   keepAwake.value = r.mode
   if (state.app) state.app.keepAwake = r.mode
   if (!r.ok && r.message) toast(r.message)
@@ -178,7 +208,7 @@ const proxyTesting = ref(false)
 async function saveProxy() {
   const r = await bridge
     .setProxy(proxyMode.value, proxyUrl.value, proxyUser.value, proxyPassword.value)
-    .catch(() => ({ ok: false, message: '保存失败' }))
+    .catch(() => ({ ok: false, message: t('ui.common.saveFailed') }))
   if (!r.ok) {
     toast(r.message)
     return
@@ -189,7 +219,7 @@ async function saveProxy() {
 async function testProxy() {
   proxyTesting.value = true
   try {
-    const r = await bridge.testProxy().catch(() => ({ ok: false, message: '测试失败' }))
+    const r = await bridge.testProxy().catch(() => ({ ok: false, message: t('ui.common.testFailed') }))
     toast(r.ok ? t('settings.proxyOk') : t('settings.proxyFail', { msg: r.message }))
   } finally {
     proxyTesting.value = false
@@ -199,6 +229,20 @@ async function testProxy() {
 // ---------- 存储 ----------
 const storage = ref<StorageInfo | null>(null)
 const storageLoading = ref(true)
+const storageError = ref('')
+
+async function loadStorage() {
+  storageLoading.value = true
+  storageError.value = ''
+  try {
+    storage.value = await bridge.storageInfo()
+  } catch (e) {
+    storage.value = null
+    storageError.value = errorText(e)
+  } finally {
+    storageLoading.value = false
+  }
+}
 
 function gb(bytes: number) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
@@ -215,29 +259,28 @@ const diskPercent = computed(() => {
 
 async function changeWorkspace() {
   // addWorkspace 不带参数时会弹系统的选文件夹对话框，并把选中的目录加进工作区列表
-  const picked = await bridge.addWorkspace().catch(() => null)
+  const picked = await bridge.addWorkspace().catch((e) => (fail(e), null))
   if (!picked) return
-  await bridge.setDefaultWorkspace(picked).catch(() => {})
+  try {
+    await bridge.setDefaultWorkspace(picked)
+  } catch (e) {
+    fail(e)
+    return
+  }
   if (state.app) state.app.defaultWorkspace = picked
   storage.value = await bridge.storageInfo().catch(() => storage.value)
   toast(t('settings.workspaceChanged'))
 }
 
 onMounted(async () => {
-  await loadApprovals()
+  // 先把本地已有的设置填上，不要等宿主回话（不然开关会先显示成默认值再跳一下）
   autoStart.value = state.app?.autoStart ?? false
   explorerMenu.value = state.app?.explorerMenu ?? true
   keepAwake.value = state.app?.keepAwake ?? 'tasks'
   proxyMode.value = state.app?.proxyMode ?? 'system'
   proxyUrl.value = state.app?.proxyUrl ?? ''
   proxyUser.value = state.app?.proxyUser ?? ''
-  try {
-    storage.value = await bridge.storageInfo()
-  } catch {
-    storage.value = null
-  } finally {
-    storageLoading.value = false
-  }
+  await Promise.all([loadApprovals(), loadStorage()])
 })
 </script>
 
@@ -436,7 +479,7 @@ onMounted(async () => {
                 class="btn preview"
                 :disabled="(state.app?.notificationSound ?? 'none') === 'none'"
                 :title="t('settings.soundPreview')"
-                @click="bridge.previewSound(state.app?.notificationSound ?? 'none')"
+                @click="bridge.previewSound(state.app?.notificationSound ?? 'none').catch(fail)"
               >
                 <Volume2 :size="14" /> {{ t('settings.soundPreview') }}
               </button>
@@ -503,7 +546,7 @@ onMounted(async () => {
                 <strong>{{ t('settings.memory') }}</strong>
                 <small>{{ t('settings.memoryHint') }}</small>
               </span>
-              <button type="button" class="btn" @click="bridge.openMemoryFolder()">
+              <button type="button" class="btn" @click="bridge.openMemoryFolder().catch(fail)">
                 <FolderOpen :size="15" /> {{ t('settings.openMemory') }}
               </button>
             </div>
@@ -516,7 +559,11 @@ onMounted(async () => {
           <section class="card">
             <h3>{{ t('settings.storage') }}</h3>
             <p v-if="storageLoading" class="hint">{{ t('settings.storageLoading') }}</p>
-            <template v-else-if="storage">
+            <div v-else-if="!storage" class="load-failed">
+              <p>{{ t('ui.common.loadFailed', { msg: storageError }) }}</p>
+              <button type="button" class="btn" @click="loadStorage">{{ t('ui.common.retry') }}</button>
+            </div>
+            <template v-else>
               <div class="store-head">
                 <strong>{{ t('settings.dataDir') }}</strong>
                 <span>{{ t('settings.storageUsed', { size: gb(storage.bytes), p: ((storage.bytes / (storage.diskTotal || 1)) * 100).toFixed(2) }) }}</span>
@@ -526,18 +573,19 @@ onMounted(async () => {
                 <span class="dot app" />{{ t('settings.appUses', { size: gb(storage.bytes) }) }}
                 <span class="dot used" />{{ t('settings.diskUsed', { size: gb(storage.diskUsed) }) }}
                 <span class="dot free" />{{ t('settings.diskFree', { size: gb(storage.diskFree) }) }}
-                <button type="button" class="link" @click="bridge.openDataFolder()">
+                <button type="button" class="link" @click="bridge.openDataFolder().catch(fail)">
                   <FolderOpen :size="14" /> {{ t('settings.openFolder') }}
                 </button>
               </div>
             </template>
           </section>
 
-          <section v-if="storage" class="card">
+          <!-- 存储信息读不出来也要能改默认工作区 -->
+          <section v-if="!storageLoading" class="card">
             <h3>{{ t('settings.workspaceTitle') }}</h3>
             <p class="hint">{{ t('settings.workspaceHint') }}</p>
             <div class="path-row">
-              <code>{{ state.app?.defaultWorkspace ?? storage.workspace }}</code>
+              <code>{{ state.app?.defaultWorkspace || storage?.workspace || '' }}</code>
               <button type="button" class="btn" @click="changeWorkspace">{{ t('settings.change') }}</button>
             </div>
           </section>
@@ -553,7 +601,12 @@ onMounted(async () => {
               <button v-if="approvals.length" type="button" class="link" @click="clearAll">{{ t('settings.clearAll') }}</button>
             </h3>
             <p class="hint">{{ t('settings.approvalsHint') }}</p>
-            <p v-if="approvals.length === 0" class="empty">{{ t('settings.approvalsEmpty') }}</p>
+            <BrandLoader v-if="approvalsLoading && approvals.length === 0" class="loader" :text="t('ui.common.loading').replace(/[.…]+$/, '')" />
+            <div v-else-if="approvalsError" class="load-failed">
+              <p>{{ t('ui.common.loadFailed', { msg: approvalsError }) }}</p>
+              <button type="button" class="btn" @click="loadApprovals">{{ t('ui.common.retry') }}</button>
+            </div>
+            <p v-else-if="approvals.length === 0" class="empty">{{ t('settings.approvalsEmpty') }}</p>
             <ul v-else class="approvals">
               <li v-for="a in approvals" :key="a.id">
                 <TerminalSquare :size="15" class="ico" />

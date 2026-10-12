@@ -31,6 +31,8 @@ import type {
 interface ConversationState {
   messages: UiMessage[]
   loaded: boolean
+  /** 打开对话时消息没加载出来的原因（界面上显示重试） */
+  loadError?: string
   busy: boolean
   /** 正在流式输出的回答 */
   draft: { content: string; reasoning: string } | null
@@ -57,6 +59,10 @@ export const state = reactive({
   view: 'chat' as 'chat' | 'library' | 'experts',
   /** 管理员发布的专家 */
   experts: [] as Expert[],
+  /** 第一次加载完没有：没加载完显示骨架屏，加载完是空的才显示「没有」 */
+  loaded: { experts: false, skills: false, mcp: false },
+  /** 专家列表加载失败的原因（列表页显示「重试」） */
+  expertsError: '',
   /** 正在看详情的专家 */
   expertDetail: null as Expert | null,
   /** 要放进输入框的文字（Composer 接走后清空），例如专家详情里点的示例问题 */
@@ -228,13 +234,23 @@ export function closePreview() {
 }
 
 export async function launchFile(file: OutputFile) {
-  const r = await bridge.launchFile(file.path).catch(() => ({ ok: false, message: '打开失败' }))
+  const r = await bridge.launchFile(file.path).catch(() => ({ ok: false, message: i18n.global.t('ui.common.openFailed') }))
   if (!r.ok && r.message) toast(r.message)
 }
 
 export async function revealFile(file: OutputFile) {
-  const r = await bridge.revealFile(file.path).catch(() => ({ ok: false, message: '打开失败' }))
+  const r = await bridge.revealFile(file.path).catch(() => ({ ok: false, message: i18n.global.t('ui.common.openFailed') }))
   if (!r.ok && r.message) toast(r.message)
+}
+
+/** 在资源管理器里打开文件夹 / 定位文件。文件不在了宿主返回原因，提示给用户 */
+export async function openPath(path: string) {
+  try {
+    const r = await bridge.openPath(path)
+    if (r && !r.ok) toast(r.message || i18n.global.t('ui.common.openFailed'))
+  } catch (e) {
+    fail(e)
+  }
 }
 
 /** 今日额度用掉的百分比；管理员没设上限时返回 0 */
@@ -282,8 +298,14 @@ export function toast(text: string) {
   toastTimer = window.setTimeout(() => (state.toast = ''), 3200)
 }
 
-function fail(e: unknown) {
-  toast(i18n.global.t('error.generic', { msg: e instanceof Error ? e.message : String(e) }))
+/** 宿主抛出来的异常常带着类型名（「InvalidOperationException: …」），给用户看时去掉 */
+export function errorText(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  return msg.replace(/^\s*(?:[A-Za-z_][\w]*\.)*[A-Za-z_]\w*(?:Exception|Error):\s*/, '')
+}
+
+export function fail(e: unknown) {
+  toast(i18n.global.t('error.generic', { msg: errorText(e) }))
 }
 
 // ---------- 主题 ----------
@@ -366,14 +388,20 @@ export async function loadMcp(refresh = false, quiet = false) {
     state.mcp = await bridge.listMcp(refresh)
   } catch (e) {
     if (!quiet) fail(e)
+  } finally {
+    state.loaded.mcp = true
   }
 }
 
 export async function loadExperts() {
   try {
     state.experts = await bridge.listExperts()
-  } catch {
-    state.experts = []
+    state.expertsError = ''
+  } catch (e) {
+    // 已经有列表时保留旧的，只有第一次加载失败才显示错误
+    if (state.experts.length === 0) state.expertsError = errorText(e)
+  } finally {
+    state.loaded.experts = true
   }
 }
 
@@ -404,8 +432,10 @@ export const expertWithdrawn = computed(() => !!current.value?.expertId && curre
 export async function loadSkills() {
   try {
     state.skills = await bridge.listSkills()
-  } catch {
-    state.skills = []
+  } catch (e) {
+    if (state.skills.length === 0) fail(e)
+  } finally {
+    state.loaded.skills = true
   }
 }
 
@@ -483,6 +513,7 @@ export async function openConversation(id: string) {
   state.currentId = id
   const s = convState(id)
   if (!s.loaded) {
+    s.loadError = ''
     try {
       const messages = await bridge.loadMessages(id)
       s.messages = messages
@@ -491,7 +522,7 @@ export async function openConversation(id: string) {
       // 任务计划跟着对话保存，重新打开时还能看到做到哪一步
       if (!s.plan.length) s.plan = await bridge.loadPlan(id).catch(() => [])
     } catch (e) {
-      fail(e)
+      s.loadError = errorText(e)
     }
   }
 }
@@ -708,9 +739,13 @@ export async function translateText(text: string, from: string, to: string) {
 }
 
 // ---------- 发送 ----------
-export async function send(text: string) {
+/**
+ * 发送一条消息。返回 false 表示没发出去、界面上也没留下这条消息（例如新对话没建成），
+ * 输入框要把文字放回去，免得用户辛苦打的字丢了。
+ */
+export async function send(text: string): Promise<boolean> {
   const body = text.trim()
-  if (!body && state.pending.length === 0) return
+  if (!body && state.pending.length === 0) return false
   let id = state.currentId
   try {
     if (!id) {
@@ -732,7 +767,7 @@ export async function send(text: string) {
       convState(id).loaded = true
     }
     const s = convState(id)
-    if (s.busy) return
+    if (s.busy) return false
     const attachments = state.pending.slice()
     state.pending = []
     const messageId = newMessageId()
@@ -744,11 +779,13 @@ export async function send(text: string) {
       const s = convState(id)
       s.busy = false
       s.draft = null
-      s.notice = { kind: 'error', text: e instanceof Error ? e.message : String(e) }
+      s.notice = { kind: 'error', text: errorText(e) }
     } else {
       fail(e)
+      return false
     }
   }
+  return true
 }
 
 function beginRun(s: ConversationState) {
@@ -785,7 +822,7 @@ export async function regenerate() {
   } catch (e) {
     s.busy = false
     s.draft = null
-    s.notice = { kind: 'error', text: e instanceof Error ? e.message : String(e) }
+    s.notice = { kind: 'error', text: errorText(e) }
   }
 }
 
@@ -808,16 +845,23 @@ export async function editAndResend(messageId: string, text: string) {
   } catch (e) {
     s.busy = false
     s.draft = null
-    s.notice = { kind: 'error', text: e instanceof Error ? e.message : String(e) }
+    s.notice = { kind: 'error', text: errorText(e) }
   }
 }
 
 /** 赞 / 踩；再次点击同一个按钮取消 */
 export async function setFeedback(m: UiMessage, value: 1 | -1) {
   const next = m.feedback === value ? null : value
+  const prev = m.feedback ?? null
   m.feedback = next
   if (!state.currentId) return
-  await bridge.feedback(state.currentId, m.id, next).catch(fail)
+  try {
+    await bridge.feedback(state.currentId, m.id, next)
+  } catch (e) {
+    m.feedback = prev
+    fail(e)
+    return
+  }
   if (next === 1) toast(i18n.global.t('ui.feedback.thanks'))
   if (next === -1) toast(i18n.global.t('ui.feedback.learn'))
 }
@@ -914,16 +958,40 @@ function readAsDataUrl(blob: Blob): Promise<string> {
 }
 
 // ---------- 宿主事件 ----------
+/**
+ * 不是从界面发起的运行（定时任务「立即运行」、宿主让打开的对话、后台指令）：
+ * 收到第一段输出时补上「运行中」，这样草稿能显示出来，也能点停止。
+ */
+function markRunning(conversationId: string): ConversationState {
+  const s = convState(conversationId)
+  if (!s.busy) {
+    s.busy = true
+    s.notice = null
+    s.notices = []
+  }
+  return s
+}
+
+/** 一轮结束（正常结束或出错）：还在跑、还在等确认的工具卡片都算失败，收起压缩进度，刷新列表和用量 */
+function finishRun(s: ConversationState, conversationId: string) {
+  s.busy = false
+  s.draft = null
+  for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
+  if (state.compacting?.conversationId === conversationId) state.compacting = null
+  void refreshList()
+  void refreshUsage()
+}
+
 function onHostEvent(e: HostEvent) {
   switch (e.type) {
     case 'chat.delta': {
-      const s = convState(e.conversationId)
+      const s = markRunning(e.conversationId)
       s.draft ??= { content: '', reasoning: '' }
       s.draft.content += e.text
       break
     }
     case 'chat.reasoning': {
-      const s = convState(e.conversationId)
+      const s = markRunning(e.conversationId)
       s.draft ??= { content: '', reasoning: '' }
       s.draft.reasoning += e.text
       break
@@ -935,7 +1003,7 @@ function onHostEvent(e: HostEvent) {
       break
     }
     case 'tool.started':
-      convState(e.conversationId).tools[e.callId] = {
+      markRunning(e.conversationId).tools[e.callId] = {
         callId: e.callId,
         name: e.name,
         summary: e.summary,
@@ -975,26 +1043,20 @@ function onHostEvent(e: HostEvent) {
       break
     case 'chat.done': {
       const s = convState(e.conversationId)
-      s.busy = false
-      s.draft = null
       if (e.stopReason === 'Cancelled') s.notice = { kind: 'stopped' }
       else if (e.stopReason === 'Failed') s.notice = { kind: 'failed' }
       else if (e.stopReason === 'MaxSteps') s.notice = { kind: 'maxSteps' }
       else if (e.stopReason === 'TooManyFailures') s.notice = { kind: 'tooManyFailures' }
       else if (e.stopReason === 'Stuck') s.notice = { kind: 'stuck' }
       else if (e.stopReason === 'Budget') s.notice = { kind: 'budget' }
-      for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
       if (e.modelName && state.app) state.app.modelName = e.modelName
-      if (state.compacting?.conversationId === e.conversationId) state.compacting = null
-      void refreshList()
-      void refreshUsage()
+      finishRun(s, e.conversationId)
       break
     }
     case 'chat.error': {
       const s = convState(e.conversationId)
-      s.busy = false
-      s.draft = null
-      s.notice = { kind: 'error', text: e.message }
+      s.notice = { kind: 'error', text: errorText(e.message) }
+      finishRun(s, e.conversationId)
       break
     }
     case 'conversation.updated': {
@@ -1181,7 +1243,7 @@ export function mcpArgsPreview(a: unknown): string {
   const parts: string[] = []
   for (const [k, v] of Object.entries(a as Record<string, unknown>)) {
     const value =
-      typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : Array.isArray(v) ? `[${v.length} 项]` : v ? '{…}' : ''
+      typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : Array.isArray(v) ? i18n.global.t('ui.common.items', { n: v.length }) : v ? '{…}' : ''
     if (!value) continue
     parts.push(`${k}：${value.length > 60 ? value.slice(0, 60) + '…' : value}`)
     if (parts.length === 3) break

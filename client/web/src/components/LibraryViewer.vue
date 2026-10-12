@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BrandLoader from './BrandLoader.vue'
 import { ArrowUp, Download, ExternalLink, FolderOpen, MoreHorizontal, Pencil, Save, Share2, Star, StarOff, Trash2, X } from '@lucide/vue'
 import Popover from './Popover.vue'
 import HtmlFrame from './HtmlFrame.vue'
@@ -150,7 +151,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
     <div ref="body" class="body" :class="{ media: isMedia }">
       <p v-if="!item.exists" class="hint">{{ t('library.missing') }}</p>
-      <p v-else-if="loading" class="hint">{{ t('ui.preview.loading') }}</p>
+      <BrandLoader v-else-if="loading" class="loader" :text="t('ui.preview.loading').replace(/[.…]+$/, '')" />
 
       <img v-else-if="item.kind === 'image'" :src="item.url" :alt="item.name" class="image" />
       <audio v-else-if="item.kind === 'audio'" :src="item.url" controls class="audio" />

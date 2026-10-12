@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Check, CircleAlert, Loader, Minus, RefreshCw, X } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { toast } from '../store'
+import { fail, toast } from '../store'
 import type { CheckStatus, NetworkCheck, NetworkReport } from '../types'
 
 // 设置 → 网络 → 网络检测：代理、hosts、DNS、服务连通性、设备认证、TCP、丢包，一项项排查，
@@ -85,8 +85,8 @@ const proxyMode = computed(() => {
 })
 
 async function exportReport() {
-  const r = await bridge.exportNetworkReport()
-  if (r.ok) toast(t('network.exported', { path: r.path }))
+  const r = await bridge.exportNetworkReport().catch((e) => (fail(e), null))
+  if (r?.ok) toast(t('network.exported', { path: r.path }))
 }
 
 const badge: Record<CheckStatus, string> = { pass: 'network.pass', warn: 'network.warn', fail: 'network.fail', skip: 'network.skip' }
@@ -165,13 +165,13 @@ const badge: Record<CheckStatus, string> = { pass: 'network.pass', warn: 'networ
       <h4>{{ t('network.support') }}</h4>
       <div class="item">
         <span class="label"><strong>{{ t('network.reportDir') }}</strong><small class="path">{{ report.reportDir }}</small></span>
-        <button type="button" class="link" @click="bridge.openNetworkReports()">{{ t('network.open') }}</button>
+        <button type="button" class="link" @click="bridge.openNetworkReports().catch(fail)">{{ t('network.open') }}</button>
       </div>
       <div v-if="report.reportPath" class="item">
         <span class="label"><strong>{{ t('network.latestReport') }}</strong><small class="path">{{ reportName }}</small></span>
         <span class="links">
           <button type="button" class="link" @click="exportReport">{{ t('network.export') }}</button>
-          <button type="button" class="link" @click="bridge.revealNetworkReport()">{{ t('network.reveal') }}</button>
+          <button type="button" class="link" @click="bridge.revealNetworkReport().catch(fail)">{{ t('network.reveal') }}</button>
         </span>
       </div>
     </template>

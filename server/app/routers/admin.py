@@ -51,27 +51,40 @@ from ..schemas import (
     DeviceUsageOut,
     QuotaIn,
     QuotaOut,
+    SkillCreateIn,
+    SkillDraftIn,
+    SkillDraftOut,
     SkillImportIn,
     SkillImportResult,
     SkillOut,
     SkillPatch,
+    SkillSourceIn,
+    SkillSourceOut,
     SmbIn,
     SmbOut,
     SyncResult,
 )
-from ..services import config_events, device_identity, legal_store, security_settings, settings_store, skill_library, usage_store
+from ..services import config_events, device_identity, expert_registry, legal_store, security_settings, settings_store, skill_author, skill_library, usage_store
 from ..services.model_router import NON_CHAT_MODEL, Target, build_body, headers_for
 
 log = logging.getLogger("flyknit.admin")
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
+#: 密钥解不开时列表里显示这句，别让整个提供方列表 500
+UNDECRYPTABLE_KEY = "（密钥无法解密，请重新填写）"
+
+
 def _provider_out(p: Provider) -> ProviderOut:
+    try:
+        masked = mask(decrypt(p.api_key_enc))
+    except ValueError:
+        masked = UNDECRYPTABLE_KEY
     return ProviderOut(
         id=p.id,
         name=p.name,
         base_url=p.base_url,
-        api_key_masked=mask(decrypt(p.api_key_enc)),
+        api_key_masked=masked,
         enabled=p.enabled,
         created_at=p.created_at,
     )
@@ -140,7 +153,10 @@ async def sync_models(
 ):
     """从提供方的 /models 接口拉取模型列表，新增的模型默认启用，已存在的保持不变。"""
     p = await _get_or_404(session, Provider, provider_id)
-    key = decrypt(p.api_key_enc)
+    try:
+        key = decrypt(p.api_key_enc)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该提供方的密钥无法解密，请重新填写") from exc
     headers = {"Authorization": f"Bearer {key}"} if key else {}
     try:
         resp = await request.app.state.http.get(f"{p.base_url.rstrip('/')}/models", headers=headers, timeout=30)
@@ -148,11 +164,18 @@ async def sync_models(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"无法访问模型列表：{exc}") from exc
     if resp.status_code >= 400:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"模型列表接口返回 {resp.status_code}：{resp.text[:300]}")
-    data = resp.json()
-    ids = sorted({str(item.get("id")) for item in data.get("data", []) if isinstance(item, dict) and item.get("id")})
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "模型服务返回的不是 JSON") from exc
+    items = data.get("data") if isinstance(data, dict) else None
+    ids = sorted({str(item.get("id")) for item in items or [] if isinstance(item, dict) and item.get("id")})
 
-    inc = re.compile(include, re.I) if include else None
-    exc_re = re.compile(exclude, re.I) if exclude else None
+    try:
+        inc = re.compile(include, re.I) if include else None
+        exc_re = re.compile(exclude, re.I) if exclude else None
+    except re.error as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"筛选正则无效：{exc}") from exc
     existing = set((await session.scalars(select(ModelConfig.model).where(ModelConfig.provider_id == p.id))).all())
     added, skipped = [], 0
     for model_id in ids:
@@ -215,12 +238,16 @@ async def test_model(model_id: int, request: Request, session: AsyncSession = De
     )
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+    try:
+        api_key = decrypt(m.provider.api_key_enc)
+    except ValueError:
+        return {"ok": False, "error": "该提供方的密钥无法解密，请重新填写"}
     target = Target(
         model_id=m.id,
         display_name=m.name,
         upstream_model=m.model,
         url=f"{m.provider.base_url.rstrip('/')}/chat/completions",
-        api_key=decrypt(m.provider.api_key_enc),
+        api_key=api_key,
         extra_body=dict(m.extra_body or {}),
         supports_vision=m.supports_vision,
     )
@@ -289,7 +316,10 @@ def _normalize_domain(raw: str) -> str:
 
 @router.put("/policy")
 async def put_policy(policy: dict, session: AsyncSession = Depends(get_session)):
-    for pattern in policy.get("blocked_patterns", []):
+    patterns = policy.get("blocked_patterns", [])
+    if not isinstance(patterns, list) or not all(isinstance(p, str) for p in patterns):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "blocked_patterns 必须是字符串列表")
+    for pattern in patterns:
         try:
             re.compile(pattern)
         except re.error as exc:
@@ -307,7 +337,10 @@ async def put_policy(policy: dict, session: AsyncSession = Depends(get_session))
         policy["allowed_domains"] = domains
     if "allow_private_network" in policy:
         policy["allow_private_network"] = bool(policy["allow_private_network"])
-    policy["version"] = int(policy.get("version", 0)) + 1
+    try:
+        policy["version"] = int(policy.get("version") or 0) + 1
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "version 必须是整数") from exc
     await settings_store.set_value(session, settings_store.POLICY_KEY, policy)
     return policy
 
@@ -442,6 +475,97 @@ async def upload_skill(
     return SkillImportResult(imported=saved)
 
 
+def _read_zip(name: str) -> bytes:
+    path = _skill_dir() / f"{name}.zip"
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "技能包文件丢失，请重新导入或重新编写")
+    return path.read_bytes()
+
+
+def _store(skill: SkillPackage, parsed: skill_library.ParsedSkill) -> None:
+    (_skill_dir() / f"{parsed.name}.zip").write_bytes(parsed.data)
+    skill.description = parsed.description
+    skill.version = parsed.version
+    skill.author = parsed.author
+    skill.size = len(parsed.data)
+    skill.file_count = len(parsed.files)
+
+
+@router.post("/skills/draft", response_model=SkillDraftOut)
+async def draft_skill(data: SkillDraftIn, request: Request, session: AsyncSession = Depends(get_session)):
+    """描述想要的能力，AI 写出 SKILL.md 和需要的脚本；带 name 时是在已有技能上按描述修改。管理员确认后再保存。"""
+    current = None
+    if data.name:
+        await _get_or_404(session, SkillPackage, data.name)
+        try:
+            current = {"name": data.name, **skill_library.read_source(_read_zip(data.name))}
+        except skill_library.SkillError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    try:
+        result = await skill_author.draft(session, request.app.state.http, data.text, current)
+    except expert_registry.DraftError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    if not data.name and result["name"] and await session.get(SkillPackage, result["name"]) is not None:
+        result["notes"].append(f"技能标识 {result['name']} 已经有了，保存前换一个，或者去编辑那个技能")
+    return result
+
+
+@router.post("/skills", response_model=SkillOut, status_code=201)
+async def create_skill(data: SkillCreateIn, session: AsyncSession = Depends(get_session)):
+    """在后台手写或用 AI 生成的技能。"""
+    if await session.get(SkillPackage, data.name) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"技能 {data.name} 已经存在")
+    skill_md = data.skill_md
+    meta, _ = skill_library.split_frontmatter(skill_md)
+    if not meta.get("version"):
+        skill_md = skill_library.set_meta(skill_md, "version", "1.0.0")
+    try:
+        parsed = skill_library.build_package(data.name, skill_md, [(f.path, f.content) for f in data.files])
+    except skill_library.SkillError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    skill = SkillPackage(name=parsed.name, origin=data.origin, required=bool(data.required))
+    _store(skill, parsed)
+    session.add(skill)
+    await session.commit()
+    log.info("后台新建技能 %s", parsed.name)
+    return skill
+
+
+@router.get("/skills/{name}/source", response_model=SkillSourceOut)
+async def skill_source(name: str, session: AsyncSession = Depends(get_session)):
+    """技能包的内容，给编辑器用。图片之类不能编辑的文件只列出来。"""
+    await _get_or_404(session, SkillPackage, name)
+    try:
+        return {"name": name, **skill_library.read_source(_read_zip(name))}
+    except skill_library.SkillError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.put("/skills/{name}/source", response_model=SkillOut)
+async def save_skill_source(name: str, data: SkillSourceIn, session: AsyncSession = Depends(get_session)):
+    """
+    保存编辑后的技能。版本号没改就自动加一：员工电脑按版本号判断要不要重新下载，不加的话改了也不会更新。
+    """
+    skill = await _get_or_404(session, SkillPackage, name)
+    old = _read_zip(name)
+    skill_md = data.skill_md
+    meta, _ = skill_library.split_frontmatter(skill_md)
+    if (meta.get("version") or "") in ("", skill.version):
+        skill_md = skill_library.set_meta(skill_md, "version", skill_library.bump_version(skill.version))
+    removed = {p.replace("\\", "/").lower() for p in data.remove}
+    try:
+        keep = {p: raw for p, raw in skill_library.binary_files(old).items() if p.lower() not in removed}
+        parsed = skill_library.build_package(name, skill_md, [(f.path, f.content) for f in data.files], keep)
+    except skill_library.SkillError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    _store(skill, parsed)
+    if data.required is not None:
+        skill.required = data.required
+    await session.commit()
+    log.info("后台修改技能 %s，版本 %s", name, parsed.version)
+    return skill
+
+
 @router.patch("/skills/{name}", response_model=SkillOut)
 async def update_skill(name: str, data: SkillPatch, session: AsyncSession = Depends(get_session)):
     skill = await _get_or_404(session, SkillPackage, name)
@@ -521,8 +645,8 @@ async def list_audit(
     decision: str | None = None,
     device_id: int | None = None,
     conversation_id: str | None = None,
-    limit: int = Query(100, le=1000),
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     reader: AdminUser | None = Depends(chat_reader_or_none),
     session: AsyncSession = Depends(get_session),
 ):

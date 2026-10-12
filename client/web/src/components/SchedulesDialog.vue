@@ -16,13 +16,29 @@ import {
   X,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { loadSchedules, openConversation, state, toast } from '../store'
+import { errorText, fail, loadSchedules, openConversation, state, toast } from '../store'
+import BrandLoader from './BrandLoader.vue'
 import type { Permission, ScheduledTask, ScheduleKind } from '../types'
 
 const { t } = useI18n()
 const editing = ref<Partial<ScheduledTask> | null>(null)
 const busy = ref('')
 const removing = ref<ScheduledTask | null>(null)
+/** 打开面板时的第一次加载：加载中显示动画，失败显示原因和重试，不要误显示成「还没有定时任务」 */
+const loading = ref(true)
+const loadError = ref('')
+
+async function firstLoad() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    state.schedules = await bridge.listSchedules()
+  } catch (e) {
+    loadError.value = errorText(e)
+  } finally {
+    loading.value = false
+  }
+}
 
 const kinds: ScheduleKind[] = ['manual', 'hourly', 'daily', 'weekdays', 'weekly', 'monthly', 'once']
 const permissions: Permission[] = ['readonly', 'workspace', 'full']
@@ -107,14 +123,14 @@ async function save() {
     editing.value = null
     await loadSchedules()
   } catch (e) {
-    toast(String(e))
+    fail(e)
   } finally {
     busy.value = ''
   }
 }
 
 async function toggle(task: ScheduledTask) {
-  await bridge.setScheduleEnabled(task.id, !task.enabled).catch(() => {})
+  await bridge.setScheduleEnabled(task.id, !task.enabled).catch(fail)
   await loadSchedules()
 }
 
@@ -130,7 +146,7 @@ async function runNow(task: ScheduledTask) {
     state.schedulesOpen = false
     if (r.conversationId) await openConversation(r.conversationId)
   } catch (e) {
-    toast(String(e))
+    fail(e)
   } finally {
     busy.value = ''
     await loadSchedules()
@@ -141,7 +157,7 @@ async function confirmRemove() {
   const task = removing.value
   removing.value = null
   if (!task) return
-  await bridge.deleteSchedule(task.id).catch(() => {})
+  await bridge.deleteSchedule(task.id).catch(fail)
   await loadSchedules()
 }
 
@@ -170,7 +186,7 @@ function describe(task: ScheduledTask) {
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 const statusText = (s: string) => (s ? t(`ui.schedules.status.${s}`, s) : '')
 
-onMounted(loadSchedules)
+onMounted(firstLoad)
 const close = () => (state.schedulesOpen = false)
 </script>
 
@@ -269,7 +285,12 @@ const close = () => (state.schedulesOpen = false)
 
       <!-- 列表 -->
       <div v-else class="body">
-        <template v-if="state.schedules.length">
+        <BrandLoader v-if="loading && !state.schedules.length" class="loader" :text="t('ui.common.loading').replace(/[.…]+$/, '')" />
+        <div v-else-if="loadError && !state.schedules.length" class="load-failed">
+          <p>{{ t('ui.common.loadFailed', { msg: loadError }) }}</p>
+          <button type="button" class="btn" @click="firstLoad">{{ t('ui.common.retry') }}</button>
+        </div>
+        <template v-else-if="state.schedules.length">
           <div v-for="task in state.schedules" :key="task.id" class="card" :class="{ off: !task.enabled }">
             <div class="row-main">
               <span class="ico"><CalendarClock :size="16" /></span>
@@ -299,7 +320,7 @@ const close = () => (state.schedulesOpen = false)
                 <component :is="busy === task.id ? Loader2 : Play" :size="14" :class="{ spin: busy === task.id }" />
                 {{ t('ui.schedules.runNow') }}
               </button>
-              <button type="button" class="btn" @click="openEdit(task)">{{ t('menu.rename') }}</button>
+              <button type="button" class="btn" @click="openEdit(task)">{{ t('ui.common.edit') }}</button>
               <button
                 v-if="task.lastConversationId"
                 type="button"

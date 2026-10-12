@@ -138,8 +138,8 @@ async def heartbeat(
     # 空字符串表示这次没采到，不要用它覆盖掉上次采到的好数据
     for field in ("machine_name", "user_name", "domain", "os_version", "client_version", "ui_language"):
         value = getattr(data, field, "")
-        if value:
-            setattr(device, field, value[:200])
+        if value:  # 长度在 MachineInfoIn 里已经按列宽截好了
+            setattr(device, field, value)
     if data.ip_addresses:
         device.ip_addresses = ",".join(data.ip_addresses)[:300]
     if data.mac_address:

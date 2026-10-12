@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BrandLoader from './BrandLoader.vue'
 import { ChevronRight, Download, FolderOpen, Globe, Lock, Trash2, TriangleAlert } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { toast } from '../store'
+import { errorText, fail, toast } from '../store'
 import { auditType } from '../audit'
 import type { NetworkAllowlist, SecurityEvent, SecurityItem } from '../types'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -58,9 +59,16 @@ function sub(item: SecurityItem) {
 /** 有多少项是 IT 锁住的。摆在标题旁边，一眼看出这台机器被管得多紧 */
 const lockedCount = computed(() => items.value.filter((i) => i.locked).length)
 
+/** 安全设置没读出来的原因（显示重试） */
+const loadError = ref('')
+
 async function load() {
   loading.value = true
-  items.value = await bridge.securitySettings().catch(() => [])
+  loadError.value = ''
+  items.value = await bridge.securitySettings().catch((e) => {
+    loadError.value = errorText(e)
+    return []
+  })
   events.value = await bridge.securityEvents('', 3).catch(() => [])
   network.value = await bridge.networkAllowlist().catch(() => null)
   loading.value = false
@@ -87,7 +95,7 @@ function onToggle(item: SecurityItem, next: boolean) {
 }
 
 async function apply(key: string, value: boolean | number) {
-  const r = await bridge.setSecurityItem(key, value).catch(() => null)
+  const r = await bridge.setSecurityItem(key, value).catch((e) => (fail(e), null))
   if (!r) return
   if (r.items) items.value = r.items
   if (!r.ok) toast(r.message)
@@ -97,8 +105,12 @@ async function apply(key: string, value: boolean | number) {
 const confirmClear = ref(false)
 async function clearEvents() {
   confirmClear.value = false
-  await bridge.clearSecurityEvents().catch(() => {})
-  events.value = []
+  try {
+    await bridge.clearSecurityEvents()
+    events.value = []
+  } catch (e) {
+    fail(e)
+  }
 }
 
 async function confirmOff() {
@@ -127,7 +139,11 @@ onMounted(load)
       </span>
     </header>
 
-    <p v-if="loading" class="empty">{{ t('ui.security.loading') }}</p>
+    <BrandLoader v-if="loading" class="loader" :text="t('ui.security.loading').replace(/[.…]+$/, '')" />
+    <div v-else-if="loadError" class="load-failed">
+      <p>{{ t('ui.common.loadFailed', { msg: loadError }) }}</p>
+      <button type="button" class="btn" @click="load">{{ t('ui.common.retry') }}</button>
+    </div>
     <p v-else-if="items.length === 0" class="empty">{{ t('ui.security.unavailable') }}</p>
 
     <section v-for="g in grouped" :key="g.id" class="card">
@@ -178,7 +194,7 @@ onMounted(load)
       </template>
 
       <div v-if="g.id === 'data'" class="card-foot">
-        <button type="button" class="btn" @click="bridge.openBackupFolder()">
+        <button type="button" class="btn" @click="bridge.openBackupFolder().catch(fail)">
           <FolderOpen :size="14" /> {{ t('ui.security.openBackups') }}
         </button>
       </div>

@@ -10,16 +10,19 @@
     <div id="app">
       <style>
         @keyframes fk-spin { to { transform: rotate(360deg) } }
+        @keyframes fk-breathe { 0%, 100% { transform: scale(.92) } 50% { transform: scale(1) } }
         @keyframes fk-in { from { opacity: 0; transform: translateY(6px) } }
         .fk-boot { position: fixed; inset: 0; display: grid; place-items: center; background: #f4f6f9; font-family: 'Be Vietnam Pro', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', sans-serif; }
         .fk-card { width: 380px; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 32px 36px; border-radius: 16px; background: #fff; border: 1px solid #e6e8ee; box-shadow: 0 12px 32px -10px rgba(27, 36, 64, .18); text-align: center; animation: fk-in .2s ease-out; }
-        .fk-spin { width: 40px; height: 40px; margin: 0 auto 20px; border-radius: 50%; border: 4px solid #e9ebf2; border-top-color: #3446c9; box-sizing: border-box; animation: fk-spin .9s linear infinite; }
+        .fk-orbit { position: relative; display: grid; place-items: center; width: 76px; height: 76px; margin: 0 auto 18px; }
+        .fk-spin { position: absolute; inset: 0; border-radius: 50%; border: 3px solid #e9ebf2; border-top-color: #3446c9; box-sizing: border-box; animation: fk-spin 1.1s linear infinite; }
+        .fk-logo { width: 50px; height: 50px; object-fit: contain; animation: fk-breathe 1.8s ease-in-out infinite; }
         .fk-title { margin: 0; font-size: 17px; font-weight: 600; color: #1f2330; }
         .fk-sub { margin: 8px 0 0; font-size: 13px; color: #7a8092; }
       </style>
       <div class="fk-boot">
         <div class="fk-card">
-          <div class="fk-spin"></div>
+          <div class="fk-orbit"><div class="fk-spin"></div><img class="fk-logo" src="/src/assets/flyknitbuddy-mark.png" alt="" /></div>
           <p class="fk-title" id="fk-title">正在启动 FlyknitBuddy…</p>
           <p class="fk-sub" id="fk-sub">准备就绪后将自动打开工作区。</p>
         </div>

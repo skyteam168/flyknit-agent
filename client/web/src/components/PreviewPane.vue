@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BrandLoader from './BrandLoader.vue'
 import { ExternalLink, FolderOpen, X } from '@lucide/vue'
 import { renderMarkdown } from '../markdown'
 import { closePreview, launchFile, revealFile, setPreviewWidth, state } from '../store'
@@ -111,7 +112,7 @@ function onKeyResize(e: KeyboardEvent) {
     </nav>
 
     <div ref="body" class="body">
-      <p v-if="preview.loading" class="hint">{{ t('ui.preview.loading') }}</p>
+      <BrandLoader v-if="preview.loading" class="loader" :text="t('ui.preview.loading').replace(/[.…]+$/, '')" />
 
       <template v-else-if="doc">
         <p v-if="doc.notice" class="notice">{{ doc.notice }}</p>

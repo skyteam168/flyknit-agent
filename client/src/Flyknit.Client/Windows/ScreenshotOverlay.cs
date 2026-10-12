@@ -198,7 +198,14 @@ public sealed class ScreenshotOverlay : Window
             finished = true;
             foreach (var w in windows)
             {
-                w.Close();
+                try
+                {
+                    w.Close();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("关闭截图框选层失败", ex);
+                }
             }
             string? path = null;
             try
@@ -224,19 +231,29 @@ public sealed class ScreenshotOverlay : Window
             tcs.TrySetResult(path);
         }
 
-        foreach (var screen in System.Windows.Forms.Screen.AllScreens)
+        try
         {
-            var b = screen.Bounds;
-            var crop = new System.Drawing.Rectangle(b.Left - virtualScreen.Left, b.Top - virtualScreen.Top, b.Width, b.Height);
-            using var part = desktop.Clone(crop, desktop.PixelFormat);
-            var overlay = new ScreenshotOverlay(b, ToBitmapSource(part), hint, Finish);
-            windows.Add(overlay);
-            overlay.Show();
+            foreach (var screen in System.Windows.Forms.Screen.AllScreens)
+            {
+                var b = screen.Bounds;
+                var crop = new System.Drawing.Rectangle(b.Left - virtualScreen.Left, b.Top - virtualScreen.Top, b.Width, b.Height);
+                using var part = desktop.Clone(crop, desktop.PixelFormat);
+                var overlay = new ScreenshotOverlay(b, ToBitmapSource(part), hint, Finish);
+                windows.Add(overlay);
+                overlay.Show();
+            }
+            // 鼠标所在的那块屏幕拿到焦点，Esc 才有效
+            var cursor = System.Windows.Forms.Cursor.Position;
+            var active = windows.Find(w => w._screen.Contains(cursor)) ?? (windows.Count > 0 ? windows[0] : null);
+            active?.Activate();
         }
-        // 鼠标所在的那块屏幕拿到焦点，Esc 才有效
-        var cursor = System.Windows.Forms.Cursor.Position;
-        var active = windows.Find(w => w._screen.Contains(cursor)) ?? (windows.Count > 0 ? windows[0] : null);
-        active?.Activate();
+        catch (Exception ex)
+        {
+            // 某块屏幕的框选层没建起来：已经盖上去的也收掉，不然全屏遮罩会一直挡着
+            Log.Warn("显示截图框选层失败", ex);
+            Finish(null);
+            return tcs.Task;
+        }
         if (windows.Count == 0)
         {
             Finish(null);
