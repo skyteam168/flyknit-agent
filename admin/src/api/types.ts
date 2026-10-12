@@ -546,6 +546,8 @@ export interface ExpertFields {
   model_id: number | null
   allow_direct: boolean
   allow_delegate: boolean
+  /** 通用辅助：总在主助手的候选专家里（不看和问题相不相关） */
+  helper: boolean
   sort_order: number
 }
 

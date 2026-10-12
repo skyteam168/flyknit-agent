@@ -33,8 +33,16 @@ public class DelegationTests : IDisposable
         public readonly ConcurrentBag<ChatRequest> ChildRequests = new();
         public readonly ConcurrentBag<ChatRequest> ParentRequests = new();
 
+        /// <summary>设了就由它回答专家的调用（几位专家同时跑时按请求内容分辨是谁）。</summary>
+        public Func<ChatRequest, CancellationToken, Task<ChatTurn>>? ChildRouter;
+
         public Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct)
         {
+            if (request.SubtaskId is not null && ChildRouter is { } router)
+            {
+                ChildRequests.Add(request);
+                return router(request, ct);
+            }
             if (request.SubtaskId is null)
             {
                 ParentRequests.Add(request);
@@ -168,6 +176,7 @@ public class DelegationTests : IDisposable
     {
         private readonly Func<JsonElement, CancellationToken, Task<ToolResult>> _run;
         public RiskLevel Risk = RiskLevel.Auto;
+        public ApprovalCandidate? Rule;
         public int Executed;
         public FakeTool(string name, Func<JsonElement, CancellationToken, Task<ToolResult>> run)
         {
@@ -180,7 +189,7 @@ public class DelegationTests : IDisposable
         public string Name { get; }
         public string Description => Name;
         public JsonObject Parameters => new() { ["type"] = "object" };
-        public PolicyDecision Assess(JsonElement args, ToolContext ctx) => new(Risk, "测试");
+        public PolicyDecision Assess(JsonElement args, ToolContext ctx) => new(Risk, "测试") { Rule = Rule };
         public string Describe(JsonElement args) => Name;
 
         public async Task<ToolResult> ExecuteAsync(JsonElement args, ToolContext ctx, CancellationToken ct)
@@ -960,5 +969,178 @@ public class DelegationTests : IDisposable
 
         Assert.Empty(ExpertCandidates.Pick(many, "今天天气怎么样", null));
         Assert.Equal("", ExpertCandidates.PromptSection(Array.Empty<Expert>()));
+    }
+
+    // ---------- 只读专家并行、通用辅助、只读免确认 ----------
+
+    /// <summary>
+    /// 主助手一轮里派两位专家。每位专家第一次调模型时停 300ms，记下同时在跑的最多几位，然后交卷。
+    /// </summary>
+    private async Task<(Harness H, AgentRunResult Result, int MaxConcurrent)> RunTwoExperts(bool readOnly)
+    {
+        var h = new Harness();
+        h.Experts.Clear();
+        h.Experts["a"] = new Expert { Id = "a", Name = "甲专家", Description = "查甲", AllowDelegate = true, ReadOnly = readOnly };
+        h.Experts["b"] = new Expert { Id = "b", Name = "乙专家", Description = "查乙", AllowDelegate = true, ReadOnly = readOnly };
+        var active = 0;
+        var max = 0;
+        h.Gateway.ChildRouter = async (request, ct) =>
+        {
+            var now = Interlocked.Increment(ref active);
+            lock (h) max = Math.Max(max, now);
+            await Task.Delay(300, ct);
+            Interlocked.Decrement(ref active);
+            var who = request.Messages[0].Content!.Contains("甲") ? "甲" : "乙";
+            return Call(SubmitResultTool.ToolName, Submit(statement: who + "查完了"));
+        };
+        h.Gateway.Parents(
+            new ChatTurn
+            {
+                ToolCalls = new[]
+                {
+                    new ToolCall("call_a", AskExpertTool.ToolName, JsonSerializer.Serialize(new { expert = "a", task = "查一下甲车间 10 月的订单延期情况" })),
+                    new ToolCall("call_b", AskExpertTool.ToolName, JsonSerializer.Serialize(new { expert = "b", task = "查一下乙车间 10 月的订单延期情况" })),
+                },
+                Usage = new TokenUsage(100, 20),
+            },
+            Say("两个车间都查完了。"));
+        var tools = new ToolRegistry().Add(new AskExpertTool(h.Dispatcher, h.Experts.Values.ToList()));
+        var loop = new AgentLoop(h.Gateway, tools, h.Host.Confirmer, new AuditLog());
+        var ctx = Ctx();
+        var result = await loop.RunAsync(new List<ChatMessage> { ChatMessage.User("对比两个车间") }, Scenes.Agent, ctx,
+            new NullObserver(), true, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.Equal(0, ctx.Budget!.Reserved); // 占着的预算都放回去了
+        return (h, result, max);
+    }
+
+    [Fact]
+    public async Task ReadOnlyExpertsInOneTurnRunAtTheSameTime()
+    {
+        var (h, result, max) = await RunTwoExperts(readOnly: true);
+
+        Assert.Equal(2, max);
+        Assert.Equal(AgentStopReason.Completed, result.StopReason);
+        // 每个子任务记对了自己的调用 ID（同时跑时 CurrentCallId 会被覆盖）
+        var records = h.Store.Records.Values.ToDictionary(r => r.ExpertId);
+        Assert.Equal("call_a", records["a"].CallId);
+        Assert.Equal("call_b", records["b"].CallId);
+        Assert.All(records.Values, r => Assert.Equal("completed", r.Status));
+        // 结果按模型发起调用的顺序写回，各是各的
+        var toolMessages = result.NewMessages.Where(m => m.Role == ChatRole.Tool).ToList();
+        Assert.Equal(new[] { "call_a", "call_b" }, toolMessages.Select(m => m.ToolCallId));
+        Assert.Contains("甲查完了", toolMessages[0].Content);
+        Assert.Contains("乙查完了", toolMessages[1].Content);
+        Assert.Equal(2, result.Trace!.Steps.Count(s => s.Kind == "subtask"));
+        // 专家用掉的 token 两份都算进主任务：主助手 2 次 + 两位专家各 1 次
+        Assert.Equal(4 * 120, result.BudgetTokens);
+    }
+
+    [Fact]
+    public async Task ExpertsThatCanChangeThingsStillRunOneAtATime()
+    {
+        var (h, result, max) = await RunTwoExperts(readOnly: false);
+
+        Assert.Equal(1, max);
+        Assert.Equal(AgentStopReason.Completed, result.StopReason);
+        Assert.Equal(2, h.Store.Records.Values.Count(r => r.Status == "completed"));
+    }
+
+    [Fact]
+    public async Task ReadOnlyExpertsNeverAskForConfirmation()
+    {
+        var h = new Harness();
+        h.Experts["mes"].ReadOnly = true;
+        var risky = new FakeTool("mes_change", "改好了") { Risk = RiskLevel.Confirm };
+        h.Host.AllTools.Add(risky);
+        h.Gateway.Children(Call("mes_change", new { }), Call(SubmitResultTool.ToolName, Submit("needs_input")));
+
+        await Dispatch(h, Ctx(PermissionMode.Full));
+
+        Assert.Empty(h.Host.Confirmer.Requests);
+        Assert.Equal(0, risky.Executed);
+        var blocked = h.Gateway.ChildRequests.SelectMany(r => r.Messages).Last(m => m.Role == ChatRole.Tool && m.ToolCallId != null && m.Content!.Contains("只读专家"));
+        Assert.Contains("open_questions", blocked.Content);
+        Assert.Equal("needs_input", h.Only.Status);
+    }
+
+    [Fact]
+    public async Task ReadOnlyExpertsMayUseOperationsTheEmployeeAlwaysAllows()
+    {
+        var h = new Harness();
+        h.Experts["mes"].ReadOnly = true;
+        var rule = new ApprovalCandidate("mes_lookup", "*", "mes_lookup", "mes_lookup", "*", "MES · 查询");
+        h.Host.Approvals.Add(rule);
+        var lookup = new FakeTool("mes_lookup", "订单 1001：包装工序延误 6.5h") { Risk = RiskLevel.Confirm, Rule = rule };
+        h.Host.AllTools.Add(lookup);
+        h.Gateway.Children(Call("mes_lookup", new { }), Call(SubmitResultTool.ToolName, Submit()));
+
+        await Dispatch(h, Ctx());
+
+        Assert.Empty(h.Host.Confirmer.Requests);
+        Assert.Equal(1, lookup.Executed);
+    }
+
+    [Fact]
+    public async Task ExpertsThatCanChangeThingsStillAskForConfirmation()
+    {
+        var h = new Harness();
+        var risky = new FakeTool("mes_change", "改好了") { Risk = RiskLevel.Confirm };
+        h.Host.AllTools.Add(risky);
+        h.Gateway.Children(Call("mes_change", new { }), Call(SubmitResultTool.ToolName, Submit()));
+
+        await Dispatch(h, Ctx());
+
+        Assert.Single(h.Host.Confirmer.Requests);
+        Assert.Equal(1, risky.Executed);
+    }
+
+    [Fact]
+    public void ParallelBudgetReservationsNeverOverlap()
+    {
+        var budget = new RunBudget { MaxTokens = 500_000 };
+        var first = budget.TryReserve(400_000, 30_000, 20_000);
+        var second = budget.TryReserve(400_000, 30_000, 20_000);
+        var third = budget.TryReserve(400_000, 30_000, 20_000);
+
+        Assert.Equal(400_000, first);
+        Assert.Equal(70_000, second);
+        Assert.Equal(0, third); // 剩下的要留给主助手收尾
+        Assert.True(first + second + 30_000 <= budget.MaxTokens);
+
+        budget.Release(second);
+        Assert.Equal(70_000, budget.TryReserve(400_000, 30_000, 20_000));
+    }
+
+    [Fact]
+    public void HelpersAreAlwaysCandidatesAndMarkedInThePrompt()
+    {
+        var many = Enumerable.Range(0, 10).Select(i => new Expert { Id = $"x{i}", Name = $"财务专家{i}", Description = "报销、发票、预算", AllowDelegate = true }).ToList();
+        many.Add(new Expert { Id = "researcher", Name = "信息调查员", Description = "查资料、汇总来源", AllowDelegate = true, Helper = true, ReadOnly = true });
+        many.Add(new Expert { Id = "off", Name = "停用的辅助", Description = "x", AllowDelegate = false, Helper = true });
+
+        var picked = ExpertCandidates.Pick(many, "今天天气怎么样", null);
+        Assert.Equal(new[] { "researcher" }, picked.Select(e => e.Id));
+
+        var finance = ExpertCandidates.Pick(many, "这个月的报销发票预算", null);
+        Assert.Contains(finance, e => e.Id == "researcher");
+        Assert.Equal(ExpertCandidates.TopK, finance.Count(e => !e.Helper)); // 不占业务专家的名额
+
+        var prompt = ExpertCandidates.PromptSection(picked);
+        Assert.Contains("researcher｜信息调查员[只读][通用辅助]", prompt);
+        Assert.Contains("同时执行", prompt);
+    }
+
+    [Fact]
+    public void OnlyReadOnlyExpertsCanRunInParallel()
+    {
+        var experts = new List<Expert>
+        {
+            new() { Id = "r", Name = "只读", ReadOnly = true, AllowDelegate = true },
+            new() { Id = "w", Name = "能改", AllowDelegate = true },
+        };
+        var tool = new AskExpertTool(new Harness().Dispatcher, experts);
+        Assert.True(tool.CanRunInParallel(JsonSerializer.SerializeToElement(new { expert = "r", task = "x" })));
+        Assert.False(tool.CanRunInParallel(JsonSerializer.SerializeToElement(new { expert = "w", task = "x" })));
+        Assert.False(tool.CanRunInParallel(JsonSerializer.SerializeToElement(new { expert = "nobody", task = "x" })));
     }
 }

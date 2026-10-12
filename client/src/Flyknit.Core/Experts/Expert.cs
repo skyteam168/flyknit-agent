@@ -56,6 +56,9 @@ public sealed class Expert
     [JsonPropertyName("model_id")] public int? ModelId { get; set; }
     [JsonPropertyName("allow_direct")] public bool AllowDirect { get; set; } = true;
     [JsonPropertyName("allow_delegate")] public bool AllowDelegate { get; set; } = true;
+
+    /// <summary>通用辅助（调查、读文件、评审之类，不限业务领域）：开着派遣时总在主助手的候选名单里。</summary>
+    [JsonPropertyName("helper")] public bool Helper { get; set; }
     [JsonPropertyName("sort_order")] public int SortOrder { get; set; }
 
     /// <summary>全公司累计使用次数（员工每向专家发一句话算一次）。</summary>

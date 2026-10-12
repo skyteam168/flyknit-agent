@@ -83,6 +83,39 @@ public sealed class RunBudget
     /// <summary>离上限还剩多少（没有上限时是 long.MaxValue）。</summary>
     public long Remaining => MaxTokens > 0 ? Math.Max(0, MaxTokens - Tokens) : long.MaxValue;
 
+    private readonly object _reserveGate = new();
+
+    /// <summary>派出去还在跑的专家占着的预算。</summary>
+    public long Reserved { get; private set; }
+
+    /// <summary>
+    /// 给一位专家占预算：最多 <paramref name="max"/>，并给主任务自己留 <paramref name="keep"/>。
+    /// 能占到的不足 <paramref name="min"/> 时不占，返回 0。几位专家同时派出时各占各的，不会重复算同一份余量。
+    /// </summary>
+    public long TryReserve(long max, long keep, long min)
+    {
+        lock (_reserveGate)
+        {
+            var free = Remaining == long.MaxValue ? long.MaxValue : Remaining - Reserved - keep;
+            var amount = Math.Min(max, free);
+            if (amount < min)
+            {
+                return 0;
+            }
+            Reserved += amount;
+            return amount;
+        }
+    }
+
+    /// <summary>专家跑完：放回占着的预算（实际用掉的由 <see cref="AddExternal"/> 记入）。</summary>
+    public void Release(long amount)
+    {
+        lock (_reserveGate)
+        {
+            Reserved = Math.Max(0, Reserved - amount);
+        }
+    }
+
     /// <summary>
     /// 一轮工具执行完后调用。progress：这一轮至少有一个成功的、之前没做过的操作，或者完成了计划里的一步、产出了文件。
     /// </summary>

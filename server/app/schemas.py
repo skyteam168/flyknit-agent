@@ -744,6 +744,8 @@ class ExpertFields(BaseModel):
     model_id: int | None = None
     allow_direct: bool = True
     allow_delegate: bool = True
+    #: 通用辅助：总在主助手的候选专家里（不看和问题相不相关）
+    helper: bool = False
     sort_order: int = 0
 
 

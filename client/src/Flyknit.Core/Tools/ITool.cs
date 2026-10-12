@@ -57,6 +57,15 @@ public interface ILongRunningTool
     TimeSpan Timeout { get; }
 }
 
+/// <summary>
+/// 可以和同一轮里相邻的同类调用同时执行的工具（目前只有派遣只读专家）。
+/// 判定、确认仍然按顺序做；执行时 <see cref="ToolContext.CurrentCallId"/> 只在 ExecuteAsync 第一个 await 之前可靠，工具要当场取走。
+/// </summary>
+public interface IParallelTool
+{
+    bool CanRunInParallel(JsonElement args);
+}
+
 public sealed record PlanItem(string Step, string Status);
 
 /// <summary>任务计划的保存格式与原样呈现。</summary>

@@ -35,6 +35,9 @@ public sealed class AgentLoop
 
     private const string UpdatePlanName = "update_plan";
 
+    /// <summary>一次最多同时执行几个可以并行的调用（只读专家）。</summary>
+    public const int MaxParallelTools = 3;
+
     // ---------- 模型把工具调用写进正文 ----------
 
     public const string LeakRetryNotice = "模型返回的格式不对，正在重新生成回答…";
@@ -356,26 +359,9 @@ public sealed class AgentLoop
                 var progress = false;
                 var completedBefore = ctx.Plan.Count(p => p.Status == "completed");
                 var producedBefore = _produced.Count;
-                foreach (var call in turn.ToolCalls)
+                // 每个调用做完后的记账：失败计数、空转检测、有没有新进展
+                void AfterCall(ToolCall call, bool ok)
                 {
-                    if (ct.IsCancellationRequested)
-                    {
-                        // 已经发起的工具调用必须有结果，否则下一轮请求会被模型服务拒绝
-                        AppendTool(call, "用户已停止任务，未执行");
-                        continue;
-                    }
-                    if (endRequested)
-                    {
-                        AppendTool(call, "任务已经交卷，这个调用没有执行");
-                        continue;
-                    }
-                    var planBefore = call.Name == UpdatePlanName ? ctx.Plan.Select(p => p.Step).ToList() : null;
-                    var ok = await HandleCallAsync(call, turn.Content, ctx, observer, trace, ct);
-                    if (planBefore is { Count: > 0 } && ok && !planBefore.SequenceEqual(ctx.Plan.Select(p => p.Step)))
-                    {
-                        // 要做的事变了（不是勾掉完成的步骤）：重新规划
-                        budget.ObserveReplan();
-                    }
                     failures = ok ? 0 : failures + 1;
                     toolCalls++;
                     if (call.Name != UpdatePlanName)
@@ -407,6 +393,47 @@ public sealed class AgentLoop
                         }
                         verdict = (LoopVerdict)Math.Max((int)verdict, (int)v);
                     }
+                }
+
+                var calls = turn.ToolCalls;
+                for (var i = 0; i < calls.Count;)
+                {
+                    var call = calls[i];
+                    if (ct.IsCancellationRequested)
+                    {
+                        // 已经发起的工具调用必须有结果，否则下一轮请求会被模型服务拒绝
+                        AppendTool(call, "用户已停止任务，未执行");
+                        i++;
+                        continue;
+                    }
+                    if (endRequested)
+                    {
+                        AppendTool(call, "任务已经交卷，这个调用没有执行");
+                        i++;
+                        continue;
+                    }
+                    var run = ParallelRun(calls, i);
+                    if (run > 0)
+                    {
+                        // 连着几个只读专家：同时派出去，结果按原来的顺序写回
+                        var batch = calls.Skip(i).Take(run).ToList();
+                        var oks = await HandleParallelAsync(batch, turn.Content, ctx, observer, trace, ct);
+                        for (var k = 0; k < batch.Count; k++)
+                        {
+                            AfterCall(batch[k], oks[k]);
+                        }
+                        i += run;
+                        continue;
+                    }
+                    var planBefore = call.Name == UpdatePlanName ? ctx.Plan.Select(p => p.Step).ToList() : null;
+                    var ok = await HandleCallAsync(call, turn.Content, ctx, observer, trace, ct);
+                    if (planBefore is { Count: > 0 } && ok && !planBefore.SequenceEqual(ctx.Plan.Select(p => p.Step)))
+                    {
+                        // 要做的事变了（不是勾掉完成的步骤）：重新规划
+                        budget.ObserveReplan();
+                    }
+                    AfterCall(call, ok);
+                    i++;
                 }
 
                 if (endRequested)
@@ -616,12 +643,67 @@ public sealed class AgentLoop
 
         async Task<bool> HandleCallAsync(ToolCall call, string rationale, ToolContext context, IAgentObserver obs, Trace trace, CancellationToken token)
         {
-            using var step = trace.Begin("tool", call.Name);
+            var prepared = await PrepareCallAsync(call, rationale, context, obs, trace, token);
+            if (!prepared.Ready)
+            {
+                return prepared.Ok;
+            }
+            return FinishCall(prepared, await ExecuteCallAsync(prepared, context, token), obs, trace);
+        }
+
+        // 连着几个都能同时跑的调用（只读专家）：先按顺序判定、确认，再一起执行，最后按原来的顺序收尾。
+        // 收尾（记审计、通知界面、写进上下文）还是一个一个来，结果的顺序和模型发起调用的顺序一致
+        async Task<List<bool>> HandleParallelAsync(IReadOnlyList<ToolCall> batch, string rationale, ToolContext context, IAgentObserver obs, Trace trace, CancellationToken token)
+        {
+            var prepared = new List<PreparedCall>();
+            foreach (var call in batch)
+            {
+                prepared.Add(await PrepareCallAsync(call, rationale, context, obs, trace, token));
+            }
+            // 一个一个启动：每个工具在开始执行时取走自己的调用 ID（CurrentCallId），之后才 await
+            var running = prepared.Select(p => p.Ready ? ExecuteCallAsync(p, context, token) : Task.FromResult<ToolResult?>(null)).ToList();
+            await Task.WhenAll(running);
+            var oks = new List<bool>();
+            for (var k = 0; k < prepared.Count; k++)
+            {
+                oks.Add(prepared[k].Ready ? FinishCall(prepared[k], running[k].Result!, obs, trace) : prepared[k].Ok);
+            }
+            return oks;
+        }
+
+        // 第几个调用开始，连着有几个可以同时执行（至少 2 个才算，最多 MaxParallelTools 个）
+        int ParallelRun(IReadOnlyList<ToolCall> calls, int from)
+        {
+            var n = 0;
+            while (from + n < calls.Count && n < MaxParallelTools && _tools.Get(calls[from + n].Name) is IParallelTool parallel)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(calls[from + n].ArgumentsJson) ? "{}" : calls[from + n].ArgumentsJson);
+                    if (!parallel.CanRunInParallel(doc.RootElement))
+                    {
+                        break;
+                    }
+                }
+                catch (JsonException)
+                {
+                    break;
+                }
+                n++;
+            }
+            return n >= 2 ? n : 0;
+        }
+
+        // 判定风险、请员工确认。不需要执行的（工具不存在、参数不对、被拦截、被拒绝）在这里就写好结果
+        async Task<PreparedCall> PrepareCallAsync(ToolCall call, string rationale, ToolContext context, IAgentObserver obs, Trace trace, CancellationToken token)
+        {
+            var step = trace.Begin("tool", call.Name);
             var tool = _tools.Get(call.Name);
             if (tool is null)
             {
                 AppendTool(call, $"错误：不存在名为 {call.Name} 的工具");
-                return false;
+                step.Dispose();
+                return PreparedCall.Done(call, false);
             }
 
             JsonElement args;
@@ -633,7 +715,8 @@ public sealed class AgentLoop
             catch (JsonException ex)
             {
                 AppendTool(call, $"错误：参数不是合法的 JSON（{ex.Message}），请修正后重试");
-                return false;
+                step.Dispose();
+                return PreparedCall.Done(call, false);
             }
 
             PolicyDecision decision;
@@ -646,7 +729,8 @@ public sealed class AgentLoop
             catch (Exception ex)
             {
                 AppendTool(call, $"错误：{ex.Message}");
-                return false;
+                step.Dispose();
+                return PreparedCall.Done(call, false);
             }
 
             obs.OnToolStarted(call, summary, decision);
@@ -668,7 +752,8 @@ public sealed class AgentLoop
                 var blocked = ToolResult.Fail($"已被安全策略阻止：{decision.Reason}。请不要尝试用其他方式绕过，向用户说明原因即可。");
                 obs.OnToolFinished(call, blocked, "blocked");
                 AppendTool(call, blocked.Output);
-                return true; // 被阻止不算失败，模型应向用户解释
+                step.Dispose();
+                return PreparedCall.Done(call, true); // 被阻止不算失败，模型应向用户解释
             }
 
             var decisionText = "auto";
@@ -704,7 +789,8 @@ public sealed class AgentLoop
                         var rejected = ToolResult.Fail("用户拒绝了这个操作。请询问用户希望怎么做，不要重复同样的操作。");
                         obs.OnToolFinished(call, rejected, "rejected");
                         AppendTool(call, rejected.Output);
-                        return true;
+                        step.Dispose();
+                        return PreparedCall.Done(call, true);
                     }
                     // 3. 处理持久化规则（AllowAlways）
                     if (choice == ConfirmChoice.AllowAlways && decision.Rule is not null)
@@ -719,29 +805,39 @@ public sealed class AgentLoop
                     decisionText = "approved";
                 }
             }
+            return new PreparedCall(call, tool, args, decisionText, audit, step);
+        }
 
-            ToolResult result;
+        // 真正执行。调用 ID 在第一个 await 之前交给工具，几个同时执行的工具各拿各的
+        async Task<ToolResult?> ExecuteCallAsync(PreparedCall p, ToolContext context, CancellationToken token)
+        {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeout.CancelAfter(tool is ILongRunningTool longRunning ? longRunning.Timeout : _options.ToolTimeout);
+            timeout.CancelAfter(p.Tool! is ILongRunningTool longRunning ? longRunning.Timeout : _options.ToolTimeout);
             try
             {
-                context.CurrentCallId = call.Id;
-                result = await tool.ExecuteAsync(args, context, timeout.Token);
+                context.CurrentCallId = p.Call.Id;
+                return await p.Tool.ExecuteAsync(p.Args, context, timeout.Token);
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
-                result = ToolResult.Fail("工具执行超时");
+                return ToolResult.Fail("工具执行超时");
             }
             catch (OperationCanceledException)
             {
-                result = ToolResult.Fail("用户已停止任务");
+                return ToolResult.Fail("用户已停止任务");
             }
             catch (Exception ex)
             {
-                result = ToolResult.Fail($"执行失败：{ex.Message}");
+                return ToolResult.Fail($"执行失败：{ex.Message}");
             }
+        }
 
-            result = result.Truncate(_options.MaxToolOutputChars);
+        // 收尾：用量和预算、执行记录、审计、通知界面、产出文件检查，最后把结果写进上下文
+        bool FinishCall(PreparedCall p, ToolResult? executed, IAgentObserver obs, Trace trace)
+        {
+            using var step = p.Step!;
+            var call = p.Call;
+            var result = (executed ?? ToolResult.Fail("执行失败")).Truncate(_options.MaxToolOutputChars);
             if (result.Usage is { } toolUsage)
             {
                 // 派遣出去的专家用掉的 token：算进这次运行的用量和预算
@@ -760,12 +856,13 @@ public sealed class AgentLoop
             {
                 endRequested = true;
             }
-            audit.Decision = decisionText;
+            var audit = p.Audit!;
+            audit.Decision = p.DecisionText;
             audit.Status = result.Ok ? "ok" : "error";
             audit.Summary = result.Output.Length > 500 ? result.Output[..500] : result.Output;
             _audit.Record(audit);
 
-            obs.OnToolFinished(call, result, decisionText);
+            obs.OnToolFinished(call, result, p.DecisionText);
             var text = result.Output;
             if (result.Outputs.Count > 0)
             {
@@ -834,5 +931,36 @@ public sealed class AgentLoop
             var key = SessionApprovalKey(toolName, summary);
             _sessionApprovals.Add(key);
         }
+    }
+    /// <summary>一个已经判定、确认过的工具调用，等着执行；Ready 为 false 时结果已经写好了。</summary>
+    private sealed class PreparedCall
+    {
+        public PreparedCall(ToolCall call, ITool tool, JsonElement args, string decisionText, AuditEntry audit, Trace.StepTimer step)
+        {
+            Call = call;
+            Tool = tool;
+            Args = args;
+            DecisionText = decisionText;
+            Audit = audit;
+            Step = step;
+            Ready = true;
+        }
+
+        private PreparedCall(ToolCall call, bool ok)
+        {
+            Call = call;
+            Ok = ok;
+        }
+
+        public static PreparedCall Done(ToolCall call, bool ok) => new(call, ok);
+
+        public ToolCall Call { get; }
+        public ITool? Tool { get; }
+        public JsonElement Args { get; }
+        public string DecisionText { get; } = "";
+        public AuditEntry? Audit { get; }
+        public Trace.StepTimer? Step { get; }
+        public bool Ready { get; }
+        public bool Ok { get; }
     }
 }
