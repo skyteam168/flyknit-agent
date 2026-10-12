@@ -648,6 +648,9 @@ public partial class App : Application
             return;
         }
         _cleanedUp = true;
+        // 停后台服务可能要好几秒：先把窗口收起来，别让员工对着一个不动的窗口等
+        _main?.Hide();
+        _ball?.Hide();
         _pipeCts.Cancel();
         UnregisterHotkey();
         _translatePopup?.Close();

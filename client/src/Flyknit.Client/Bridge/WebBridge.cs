@@ -360,7 +360,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 {
                     return new { ok = false, message = "更新没能启动，请联系 IT" };
                 }
-                _host.RequestExit();
+                // 先让这句回话送到页面再退出：退出排在回话前面的话，页面收不到回音，20 秒后误报「更新没能启动」
+                _dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(_host.RequestExit));
                 return new { ok = true, message = "" };
             }
 
