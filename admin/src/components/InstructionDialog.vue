@@ -52,9 +52,16 @@ function useTemplate(t: InstructionTemplate) {
 // 保存当前内容为模板
 const saveTplOpen = ref(false)
 const tplName = ref('')
+const savingTpl = ref(false)
 async function saveTemplate() {
-  if (!tplName.value.trim() || !prompt.value.trim()) return
-  const t = await api.createInstructionTemplate({ name: tplName.value.trim(), prompt: prompt.value.trim() })
+  if (!tplName.value.trim() || !prompt.value.trim() || savingTpl.value) return
+  savingTpl.value = true
+  let t: InstructionTemplate
+  try {
+    t = await api.createInstructionTemplate({ name: tplName.value.trim(), prompt: prompt.value.trim() })
+  } finally {
+    savingTpl.value = false
+  }
   templates.value.unshift(t)
   saveTplOpen.value = false
   tplName.value = ''
@@ -157,7 +164,7 @@ async function submit() {
       </el-form>
       <template #footer>
         <el-button @click="saveTplOpen = false">取消</el-button>
-        <el-button type="primary" :disabled="!tplName.trim()" @click="saveTemplate">保存</el-button>
+        <el-button type="primary" :loading="savingTpl" :disabled="!tplName.trim()" @click="saveTemplate">保存</el-button>
       </template>
     </el-dialog>
   </el-dialog>

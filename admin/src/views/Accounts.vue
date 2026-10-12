@@ -44,10 +44,18 @@ function openCreate() {
   Object.assign(form, { username: '', display_name: '', can_read_chats: false, can_dispatch: false, is_owner: false })
   createDialog.value = true
 }
+// 防止连点建出两个号
+const creating = ref(false)
 async function create() {
+  if (creating.value) return
   if (!(await formRef.value?.validate().catch(() => false))) return
   const password = randomPassword()
-  await api.createUser({ ...form, username: form.username.trim(), password })
+  creating.value = true
+  try {
+    await api.createUser({ ...form, username: form.username.trim(), password })
+  } finally {
+    creating.value = false
+  }
   createDialog.value = false
   showPassword(form.username.trim(), password)
   await load()
@@ -219,7 +227,7 @@ async function resetPassword(u: AdminUser) {
       <p class="hint">系统会生成一个随机初始密码，对方首次登录时必须修改。</p>
       <template #footer>
         <el-button @click="createDialog = false">取消</el-button>
-        <el-button type="primary" @click="create">创建</el-button>
+        <el-button type="primary" :loading="creating" @click="create">创建</el-button>
       </template>
     </el-dialog>
 

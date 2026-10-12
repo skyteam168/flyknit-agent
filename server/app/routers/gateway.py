@@ -193,7 +193,7 @@ async def chat_completions(
             finally:
                 # 用户点「停止」时连接断开，这个生成器会被取消；不屏蔽取消的话，下面的
                 # await 一碰就再抛 CancelledError，用量和存档都不会记。存的是已经生成的那部分
-                with anyio.CancelScope(shield=False):
+                with anyio.CancelScope(shield=True):
                     await finish_stream(upstream, scanner, text, save_usage, save_chat)
 
         return StreamingResponse(
