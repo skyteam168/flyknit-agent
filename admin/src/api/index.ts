@@ -40,6 +40,7 @@ import type {
   SecurityCatalogItem,
   SecurityDefaults,
   LandingDownload,
+  McpRuntimeConf,
   Skill,
   SkillDraft,
   SkillSource,
@@ -104,6 +105,14 @@ export const api = {
   updateSkill: (name: string, body: Partial<{ required: boolean; enabled: boolean }>) =>
     patch<Skill>(`/skills/${encodeURIComponent(name)}`, body),
   deleteSkill: (name: string) => del(`/skills/${encodeURIComponent(name)}`),
+  mcpRuntime: () => get<McpRuntimeConf>('/mcp-runtime'),
+  saveMcpRuntime: (body: Omit<McpRuntimeConf, 'runtimes' | 'mirror_size'>) => put<McpRuntimeConf>('/mcp-runtime', body),
+  prefetchMcpRuntime: (name: string) => post<McpRuntimeConf>(`/mcp-runtime/${name}/prefetch`),
+  uploadMcpRuntime: (name: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<McpRuntimeConf>(`/mcp-runtime/${name}/upload`, { method: 'POST', body: form })
+  },
   landing: () => get<LandingDownload>('/landing'),
   setLanding: (enabled: boolean, server_url: string) => put<LandingDownload>('/landing', { enabled, server_url }),
   rotateLanding: () => post<LandingDownload>('/landing/rotate'),

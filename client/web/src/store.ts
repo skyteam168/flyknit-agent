@@ -83,7 +83,8 @@ export const state = reactive({
   schedules: [] as ScheduledTask[],
   maximized: false,
   /** 正在压缩上下文的会话（界面上显示进度条） */
-  compacting: null as { conversationId: string; percent: number; phase: string; messages: number } | null,
+  /** 正在压缩上下文的对话（按对话分开：同时有几个对话在跑时互不干扰，只在自己的对话里显示） */
+  compacting: {} as Record<string, { percent: number; phase: string; messages: number }>,
   /** 今日用量，用于输入框上方的提醒条 */
   usage: null as UsageStats | null,
   /** 用户关掉提醒条后，这一档不再提醒 */
@@ -977,7 +978,7 @@ function finishRun(s: ConversationState, conversationId: string) {
   s.busy = false
   s.draft = null
   for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
-  if (state.compacting?.conversationId === conversationId) state.compacting = null
+  delete state.compacting[conversationId]
   void refreshList()
   void refreshUsage()
 }
@@ -1147,14 +1148,13 @@ function onHostEvent(e: HostEvent) {
       break
     }
     case 'context.compacting': {
+      const id = e.conversationId
+      state.compacting[id] = { percent: e.phase === 'done' ? 100 : e.percent, phase: e.phase, messages: e.messages }
       if (e.phase === 'done') {
         // 进度条跑到 100% 停一下再消失，不然一闪而过看不清
-        state.compacting = { conversationId: e.conversationId, percent: 100, phase: e.phase, messages: e.messages }
         setTimeout(() => {
-          if (state.compacting?.phase === 'done') state.compacting = null
+          if (state.compacting[id]?.phase === 'done') delete state.compacting[id]
         }, 1200)
-      } else {
-        state.compacting = { conversationId: e.conversationId, percent: e.percent, phase: e.phase, messages: e.messages }
       }
       break
     }

@@ -31,9 +31,11 @@ public sealed class McpConnection : IAsyncDisposable
     public event Action? ToolsChanged;
 
     /// <param name="bearer">OAuth 连接器：每次发请求前取一下当前的 access_token（过期会先刷新）。</param>
+    /// <param name="runtime">stdio 连接器用的托管运行环境（见 McpRuntimeManager），没有就用这台电脑自己的。</param>
     public static async Task<McpConnection> ConnectAsync(
         McpServerConfig config, HttpClient http, string clientVersion,
-        Func<CancellationToken, Task<string?>>? bearer, string? workingDirectory, CancellationToken ct)
+        Func<CancellationToken, Task<string?>>? bearer, string? workingDirectory, CancellationToken ct,
+        McpRuntimeEnvironment? runtime = null)
     {
         var connection = new McpConnection(config);
         async Task<IReadOnlyDictionary<string, string>> Headers(CancellationToken token)
@@ -49,7 +51,7 @@ public sealed class McpConnection : IAsyncDisposable
         switch (config.Transport)
         {
             case "stdio":
-                await connection.StartAsync(new StdioTransport(config, workingDirectory), "stdio", clientVersion, ct);
+                await connection.StartAsync(new StdioTransport(config, workingDirectory, runtime), "stdio", clientVersion, ct);
                 break;
             case "sse":
                 await connection.StartAsync(new LegacySseTransport(http, ParseUrl(config.Url), Headers), "sse", clientVersion, ct);

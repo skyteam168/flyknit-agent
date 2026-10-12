@@ -437,21 +437,21 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
               <h4 class="collapse-title">能力与限制 <small>默认全部沿用，大多数专家不用改</small></h4>
             </template>
             <el-form-item label="优先技能">
-              <el-select v-model="form.preferred_skills" multiple filterable placeholder="不选 = 自己按需查找" style="width: 100%">
-                <el-option v-for="s in options.skills" :key="s.value" :label="s.label" :value="s.value">
+              <el-select v-model="form.preferred_skills" multiple filterable placeholder="不选 = 自己按需查找" style="width: 100%" fit-input-width popper-class="expert-opt-popper">
+                <el-option v-for="s in options.skills" :key="s.value" :label="s.label" :value="s.value" :title="s.detail">
                   <span>{{ s.label }}</span><span class="opt-detail">{{ s.detail }}</span>
                 </el-option>
               </el-select>
               <p class="hint">只是提示专家优先用这些，不是限制：技能库里别的技能照样能找到、能用。</p>
             </el-form-item>
             <el-form-item label="只用这些连接器">
-              <el-select v-model="form.mcp_servers" multiple filterable placeholder="不选 = 员工连上的全部都能用" style="width: 100%">
+              <el-select v-model="form.mcp_servers" multiple filterable placeholder="不选 = 员工连上的全部都能用" style="width: 100%" fit-input-width popper-class="expert-opt-popper">
                 <el-option v-for="m in options.mcp" :key="m.value" :label="m.label" :value="m.value" />
               </el-select>
               <p class="hint">只在专家明确只该碰某几个系统时才选。以后接入的新系统，不选时自动可用。</p>
             </el-form-item>
             <el-form-item label="不让用的工具">
-              <el-select v-model="form.disallowed_tools" multiple placeholder="不选 = 全部沿用" style="width: 100%">
+              <el-select v-model="form.disallowed_tools" multiple placeholder="不选 = 全部沿用" style="width: 100%" fit-input-width popper-class="expert-opt-popper">
                 <el-option v-for="t in options.tools" :key="t.value" :label="t.label" :value="t.value">
                   <span>{{ t.label }}</span><span class="opt-detail">{{ t.value }}</span>
                 </el-option>
@@ -466,9 +466,9 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
               </p>
             </el-form-item>
             <el-form-item label="模型">
-              <el-select v-model="form.model" placeholder="跟随「办事」场景" clearable style="width: 100%">
+              <el-select v-model="form.model" placeholder="跟随「办事」场景" clearable style="width: 100%" fit-input-width popper-class="expert-opt-popper">
                 <el-option label="跟随「办事」场景" value="" />
-                <el-option v-for="m in options.models" :key="m.value" :label="m.label" :value="m.value">
+                <el-option v-for="m in options.models" :key="m.value" :label="m.label" :value="m.value" :title="m.detail">
                   <span>{{ m.label }}</span><span class="opt-detail">{{ m.detail }}</span>
                 </el-option>
               </el-select>
@@ -721,5 +721,30 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
 .who small {
   color: var(--ink-faint);
   font-size: 12px;
+}
+</style>
+
+<style>
+/* 下拉框挂在 body 上，scoped 样式管不到。技能说明往往很长：下拉和输入框一样宽，说明一行放不下就省略，鼠标停上去看全文 */
+.expert-opt-popper .el-select-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+.expert-opt-popper .el-select-dropdown__item > span:first-child {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.expert-opt-popper .opt-detail {
+  flex: 1;
+  min-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
