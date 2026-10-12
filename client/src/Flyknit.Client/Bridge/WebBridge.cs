@@ -1585,6 +1585,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 {
                     Tab = Str("tab") is { Length: > 0 } tab ? tab : "all",
                     FolderId = OptStr("folderId"),
+                    ConversationId = OptStr("conversationId"),
                     Search = Str("search"),
                     Kind = Str("kind"),
                     Sort = Str("sort") is { Length: > 0 } sort ? sort : "updated",

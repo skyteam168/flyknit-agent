@@ -151,6 +151,7 @@ const zh = {
   },
   plan: { title: '任务计划', progress: '{done} / {total} 已完成' },
   topbar: { pinWindow: '窗口置顶', maximize: '最大化', restore: '还原', minimize: '最小化', close: '收起到悬浮球', menu: '对话列表', rename: '双击修改标题' },
+  convFiles: { title: '本对话的文件', count: '本对话有 {n} 个文件', outputs: '输出', uploads: '上传的文件', downloadAll: '全部下载', back: '返回文件列表' },
   status: { connected: '已连接 · {model}', offline: '离线' },
   settings: {
     title: '设置',
@@ -1246,6 +1247,7 @@ const vi: Messages = {
   },
   plan: { title: 'Kế hoạch', progress: 'Đã xong {done} / {total}' },
   topbar: { pinWindow: 'Luôn ở trên cùng', maximize: 'Phóng to', restore: 'Khôi phục', minimize: 'Thu nhỏ', close: 'Thu về nút nổi', menu: 'Danh sách', rename: 'Nhấp đúp để đổi tên' },
+  convFiles: { title: 'Tệp trong cuộc trò chuyện', count: 'Cuộc trò chuyện có {n} tệp', outputs: 'Kết quả', uploads: 'Tệp đã tải lên', downloadAll: 'Tải tất cả', back: 'Quay lại danh sách tệp' },
   status: { connected: 'Đã kết nối · {model}', offline: 'Ngoại tuyến' },
   settings: {
     title: 'Cài đặt',
@@ -2346,6 +2348,7 @@ const en: Messages = {
   },
   plan: { title: 'Plan', progress: '{done} of {total} done' },
   topbar: { pinWindow: 'Keep on top', maximize: 'Maximize', restore: 'Restore', minimize: 'Minimize', close: 'Collapse to bubble', menu: 'Chats', rename: 'Double-click to rename' },
+  convFiles: { title: 'Files in this chat', count: '{n} files in this chat', outputs: 'Outputs', uploads: 'Uploaded files', downloadAll: 'Download all', back: 'Back to file list' },
   status: { connected: 'Connected · {model}', offline: 'Offline' },
   settings: {
     title: 'Settings',

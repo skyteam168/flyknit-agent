@@ -7,6 +7,7 @@ const props = withDefaults(defineProps<{ placement?: 'up' | 'down'; align?: 'sta
   align: 'start',
   width: 280,
 })
+const emit = defineEmits<{ change: [open: boolean] }>()
 const open = ref(false)
 const root = ref<HTMLElement>()
 
@@ -17,6 +18,7 @@ function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') open.value = false
 }
 watch(open, (v) => {
+  emit('change', v)
   if (v) {
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
@@ -28,7 +30,8 @@ watch(open, (v) => {
 onBeforeUnmount(() => (open.value = false))
 
 const close = () => (open.value = false)
-defineExpose({ close })
+const show = () => (open.value = true)
+defineExpose({ close, show })
 </script>
 
 <template>

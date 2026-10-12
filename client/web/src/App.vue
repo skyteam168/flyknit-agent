@@ -24,6 +24,7 @@ import ExpertAvatar from './components/ExpertAvatar.vue'
 import ExpertDetail from './components/ExpertDetail.vue'
 import BrandLoader from './components/BrandLoader.vue'
 import { uploadDropped } from './library'
+import { closeFilesViewer, convFiles } from './conversationFiles'
 import {
   addFiles,
   closePreview,
@@ -108,7 +109,8 @@ function wireShortcuts() {
   registerShortcut('conversation.prev', () => moveConversation(-1))
   registerShortcut('conversation.next', () => moveConversation(1))
   registerShortcut('chat.stop', () => {
-    if (state.settingsOpen) state.settingsOpen = false
+    if (convFiles.viewing) closeFilesViewer()
+    else if (state.settingsOpen) state.settingsOpen = false
     else if (state.trace) state.trace = null
     else if (state.preview) closePreview()
     else if (currentState.value?.busy) void stop()

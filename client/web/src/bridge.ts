@@ -312,7 +312,7 @@ class Bridge {
   addDroppedFiles = (files: File[]) => this.call<AttachmentRef[]>('files.dropped', {}, files)
 
   // ---------- 资料库 ----------
-  libraryList = (q: { tab: string; folderId?: string | null; search?: string; kind?: string; sort?: string; hidden?: boolean }) =>
+  libraryList = (q: { tab: string; folderId?: string | null; conversationId?: string | null; search?: string; kind?: string; sort?: string; hidden?: boolean }) =>
     this.call<{ items: LibraryItem[]; folders: LibraryFolder[] }>('library.list', q)
   // 先弹文件选择框，再上传：等用户选文件的时间不限
   libraryUpload = (folderId: string | null, accept?: 'image') => this.call<LibraryItem[]>('library.upload', { folderId, accept }, undefined, 0)

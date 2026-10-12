@@ -14,8 +14,9 @@ import { toast } from '../store'
 import { kindIcon } from '../libraryIcons'
 import type { LibraryItem, PreviewDoc } from '../types'
 
-// 资料库里打开一个文件：在资料库页面里整页显示（不是弹窗），底部可以直接就这个文件提问
-const props = defineProps<{ item: LibraryItem }>()
+// 资料库里打开一个文件：在资料库页面里整页显示（不是弹窗），底部可以直接就这个文件提问。
+// embedded：嵌在对话「本对话的文件」弹窗里，不显示底部提问框，面包屑显示分组名，下载按钮直接放在顶栏
+const props = defineProps<{ item: LibraryItem; embedded?: boolean; crumb?: string }>()
 const emit = defineEmits<{ close: []; rename: [item: LibraryItem] }>()
 const { t } = useI18n()
 
@@ -115,34 +116,38 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <div class="viewer">
+  <div class="viewer" :class="{ embedded }">
     <header>
-      <button type="button" class="icon-btn" :aria-label="t('library.close')" @click="emit('close')"><X :size="20" /></button>
+      <button v-if="!embedded" type="button" class="icon-btn" :aria-label="t('library.close')" @click="emit('close')"><X :size="20" /></button>
+      <slot name="lead" />
       <nav class="crumbs">
-        <button type="button" class="crumb" @click="emit('close')">{{ t('library.title') }}</button>
+        <button type="button" class="crumb" @click="emit('close')">{{ crumb ?? t('library.title') }}</button>
         <span class="sep">/</span>
         <strong :title="item.name">{{ item.name }}</strong>
       </nav>
       <span class="meta">{{ formatSize(item.size) }}</span>
       <button v-if="editable && !editing" type="button" class="pill ghost" @click="startEdit"><Pencil :size="15" /> {{ t('library.edit') }}</button>
       <button v-if="editing" type="button" class="pill" :disabled="saving" @click="save"><Save :size="15" /> {{ t('library.save') }}</button>
+      <button v-else-if="embedded" type="button" class="pill" @click="download([item.id])"><Download :size="15" /> {{ t('library.download') }}</button>
       <button v-else type="button" class="pill" @click="share([item.id])"><Share2 :size="15" /> {{ t('library.share') }}</button>
       <Popover placement="down" align="end" :width="220">
         <template #trigger="{ toggle }">
           <button type="button" class="icon-btn" :aria-label="t('library.more')" @click="toggle"><MoreHorizontal :size="20" /></button>
         </template>
         <template #default="{ close }">
-          <button type="button" class="opt" @click="(close(), download([item.id]))"><Download :size="16" /> {{ t('library.download') }}</button>
+          <button v-if="embedded" type="button" class="opt" @click="(close(), share([item.id]))"><Share2 :size="16" /> {{ t('library.share') }}</button>
+          <button v-else type="button" class="opt" @click="(close(), download([item.id]))"><Download :size="16" /> {{ t('library.download') }}</button>
           <button type="button" class="opt" @click="(close(), setFavorite([item.id], !item.favorite))">
             <component :is="item.favorite ? StarOff : Star" :size="16" /> {{ item.favorite ? t('library.unfavorite') : t('library.favorite') }}
           </button>
-          <button type="button" class="opt" @click="(close(), emit('rename', item))"><Pencil :size="16" /> {{ t('library.rename') }}</button>
+          <button v-if="!embedded" type="button" class="opt" @click="(close(), emit('rename', item))"><Pencil :size="16" /> {{ t('library.rename') }}</button>
           <button type="button" class="opt" @click="(close(), launch())"><ExternalLink :size="16" /> {{ t('library.openWith') }}</button>
           <button type="button" class="opt" @click="(close(), reveal())"><FolderOpen :size="16" /> {{ t('library.reveal') }}</button>
           <hr />
           <button type="button" class="opt danger" @click="(close(), remove())"><Trash2 :size="16" /> {{ t('library.delete') }}</button>
         </template>
       </Popover>
+      <button v-if="embedded" type="button" class="icon-btn" :aria-label="t('library.close')" @click="emit('close')"><X :size="20" /></button>
     </header>
 
     <nav v-if="sections.length > 1 && !editing" class="tabs">
@@ -195,7 +200,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <p v-else class="hint">{{ error || t('ui.preview.unsupported') }}</p>
     </div>
 
-    <form class="ask" @submit.prevent="ask">
+    <form v-if="!embedded" class="ask" @submit.prevent="ask">
       <input v-model="question" :placeholder="t('library.askPlaceholder')" maxlength="2000" />
       <button type="submit" class="send" :disabled="!question.trim()" :aria-label="t('library.startChat')"><ArrowUp :size="18" /></button>
     </form>
@@ -443,6 +448,41 @@ td.head {
 }
 .editor:focus {
   border-color: var(--indigo);
+}
+/* 嵌在弹窗里：没有底部提问框，不用给它留位置；图片、PDF 按弹窗高度缩放 */
+.embedded header {
+  padding: 10px 12px 10px 16px;
+}
+.embedded .body {
+  padding-bottom: 16px;
+}
+.embedded .body.media {
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  padding: 16px;
+}
+.embedded .image,
+.embedded .video {
+  max-height: 100%;
+}
+.embedded .body.media:has(.pdf) {
+  display: block;
+  padding: 0;
+}
+.embedded .pdf {
+  height: 100%;
+  border-radius: 0;
+}
+.crumb {
+  flex: none;
+  white-space: nowrap;
+}
+/* 弹窗在很窄的窗口里：只留文件名和按钮 */
+@media (max-width: 520px) {
+  .embedded .crumb,
+  .embedded .sep,
+  .embedded .meta {
+    display: none;
+  }
 }
 .ask {
   position: absolute;
