@@ -43,6 +43,10 @@ public static class AppPaths
 
     public static string Temp { get; } = Path.Combine(Path.GetTempPath(), "Flyknit");
 
+    /// <summary>MCP 连接器用的便携 Node.js / uv / Python（从公司服务器下载），以及 npm、uv 的缓存。</summary>
+    public static string Runtimes { get; } =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Flyknit", "runtimes");
+
     public static string WebViewData { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Flyknit", "WebView2");
 }

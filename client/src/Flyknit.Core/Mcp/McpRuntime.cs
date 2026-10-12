@@ -213,6 +213,21 @@ public sealed class McpRuntimeManager
             env["UV_PYTHON_DOWNLOADS"] = "never";
         }
         env["UV_CACHE_DIR"] = Path.Combine(root, "uv-cache");
+
+        // 电脑上设了代理（HTTP_PROXY）时，npm、uv 会连公司服务器也走代理，内网地址常常走不通：把服务器加进 NO_PROXY
+        var hosts = new[] { manifest.NpmRegistry, manifest.PypiIndex }
+            .Select(u => Uri.TryCreate(u, UriKind.Absolute, out var uri) ? uri.Host : null)
+            .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (hosts.Count > 0)
+        {
+            var existing = Environment.GetEnvironmentVariable("NO_PROXY") ?? Environment.GetEnvironmentVariable("no_proxy") ?? "";
+            var noProxy = string.Join(",", existing.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Concat(hosts).Distinct(StringComparer.OrdinalIgnoreCase));
+            env["NO_PROXY"] = noProxy;
+            env["no_proxy"] = noProxy;
+        }
         env["PYTHONUTF8"] = "1";
         env["PYTHONIOENCODING"] = "utf-8";
         return new McpRuntimeEnvironment { PathDirs = dirs, Env = env };
@@ -316,7 +331,7 @@ public sealed class McpRuntimeManager
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException and not McpException)
                 {
-                    throw new McpException($"下载 {display} 运行环境失败：{ex.Message}", ex);
+                    throw new McpException($"下载 {display} 运行环境失败：{ex.Message}。请稍后重试，或联系 IT", ex);
                 }
             }
 
