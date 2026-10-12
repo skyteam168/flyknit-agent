@@ -93,7 +93,12 @@ async function submit() {
   text.value = ''
   await nextTick()
   resize()
-  await send(value)
+  // 没发出去（例如新对话没建成）就把文字放回输入框；附件在发送成功前不会从待发列表里拿走
+  if (!(await send(value)) && !text.value) {
+    text.value = value
+    await nextTick()
+    resize()
+  }
 }
 
 function onKey(e: KeyboardEvent) {

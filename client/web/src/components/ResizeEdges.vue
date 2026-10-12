@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { bridge } from '../bridge'
-import { state } from '../store'
+import { fail, state } from '../store'
 
 /**
  * 窗口四边和四角的透明拖拽热区。
@@ -12,7 +12,7 @@ const edges = ['top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomL
 function start(direction: string, e: MouseEvent) {
   if (e.button !== 0) return
   e.preventDefault()
-  void bridge.startResize(direction)
+  void bridge.startResize(direction).catch(fail)
 }
 </script>
 

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import BrandLoader from './BrandLoader.vue'
 import { ChevronLeft, Download, Search, Trash2, X } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { toast } from '../store'
+import { errorText, fail, toast } from '../store'
 import { auditType, auditTypes, inRange, type AuditRange } from '../audit'
 import type { SecurityDecision, SecurityEvent } from '../types'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -15,6 +15,8 @@ const { t } = useI18n()
 
 const events = ref<SecurityEvent[]>([])
 const loading = ref(true)
+/** 没加载出来的原因（显示重试，不要误显示成「没有记录」） */
+const loadError = ref('')
 const type = ref('')
 const result = ref('')
 const range = ref('')
@@ -27,10 +29,18 @@ const confirmClear = ref(false)
 const decisions: SecurityDecision[] = ['blocked', 'approved', 'remembered', 'allowed', 'rejected', 'changed']
 const ranges: AuditRange[] = ['today', 'week', 'month']
 
-onMounted(async () => {
-  events.value = await bridge.securityEvents('', 500).catch(() => [])
-  loading.value = false
-})
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    events.value = await bridge.securityEvents('', 500)
+  } catch (e) {
+    loadError.value = errorText(e)
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
 
 // 下拉里只列出记录里真有的类型和结果，免得选了一项永远是空的
 const typeOptions = computed(() => [
@@ -88,8 +98,13 @@ async function exportEvents() {
 
 async function clearEvents() {
   confirmClear.value = false
-  await bridge.clearSecurityEvents().catch(() => {})
-  events.value = []
+  // 宿主清掉了才清界面，失败时记录还在
+  try {
+    await bridge.clearSecurityEvents()
+    events.value = []
+  } catch (e) {
+    fail(e)
+  }
 }
 
 const fmtTime = (s: string) => new Date(s).toLocaleString()
@@ -134,6 +149,10 @@ const fmtTime = (s: string) => new Date(s).toLocaleString()
         <span class="time">{{ t('ui.audit.time') }}</span>
       </div>
       <BrandLoader v-if="loading" class="loader" :text="t('ui.security.loading').replace(/[.…]+$/, '')" />
+      <div v-else-if="loadError" class="load-failed">
+        <p>{{ t('ui.common.loadFailed', { msg: loadError }) }}</p>
+        <button type="button" class="btn" @click="load">{{ t('ui.common.retry') }}</button>
+      </div>
       <p v-else-if="filtered.length === 0" class="empty">
         {{ events.length === 0 ? t('ui.audit.empty') : t('ui.audit.noMatch') }}
       </p>

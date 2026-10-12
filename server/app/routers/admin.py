@@ -71,12 +71,20 @@ log = logging.getLogger("flyknit.admin")
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
+#: 密钥解不开时列表里显示这句，别让整个提供方列表 500
+UNDECRYPTABLE_KEY = "（密钥无法解密，请重新填写）"
+
+
 def _provider_out(p: Provider) -> ProviderOut:
+    try:
+        masked = mask(decrypt(p.api_key_enc))
+    except ValueError:
+        masked = UNDECRYPTABLE_KEY
     return ProviderOut(
         id=p.id,
         name=p.name,
         base_url=p.base_url,
-        api_key_masked=mask(decrypt(p.api_key_enc)),
+        api_key_masked=masked,
         enabled=p.enabled,
         created_at=p.created_at,
     )
@@ -145,7 +153,10 @@ async def sync_models(
 ):
     """从提供方的 /models 接口拉取模型列表，新增的模型默认启用，已存在的保持不变。"""
     p = await _get_or_404(session, Provider, provider_id)
-    key = decrypt(p.api_key_enc)
+    try:
+        key = decrypt(p.api_key_enc)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该提供方的密钥无法解密，请重新填写") from exc
     headers = {"Authorization": f"Bearer {key}"} if key else {}
     try:
         resp = await request.app.state.http.get(f"{p.base_url.rstrip('/')}/models", headers=headers, timeout=30)
@@ -153,11 +164,18 @@ async def sync_models(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"无法访问模型列表：{exc}") from exc
     if resp.status_code >= 400:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"模型列表接口返回 {resp.status_code}：{resp.text[:300]}")
-    data = resp.json()
-    ids = sorted({str(item.get("id")) for item in data.get("data", []) if isinstance(item, dict) and item.get("id")})
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "模型服务返回的不是 JSON") from exc
+    items = data.get("data") if isinstance(data, dict) else None
+    ids = sorted({str(item.get("id")) for item in items or [] if isinstance(item, dict) and item.get("id")})
 
-    inc = re.compile(include, re.I) if include else None
-    exc_re = re.compile(exclude, re.I) if exclude else None
+    try:
+        inc = re.compile(include, re.I) if include else None
+        exc_re = re.compile(exclude, re.I) if exclude else None
+    except re.error as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"筛选正则无效：{exc}") from exc
     existing = set((await session.scalars(select(ModelConfig.model).where(ModelConfig.provider_id == p.id))).all())
     added, skipped = [], 0
     for model_id in ids:
@@ -220,12 +238,16 @@ async def test_model(model_id: int, request: Request, session: AsyncSession = De
     )
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+    try:
+        api_key = decrypt(m.provider.api_key_enc)
+    except ValueError:
+        return {"ok": False, "error": "该提供方的密钥无法解密，请重新填写"}
     target = Target(
         model_id=m.id,
         display_name=m.name,
         upstream_model=m.model,
         url=f"{m.provider.base_url.rstrip('/')}/chat/completions",
-        api_key=decrypt(m.provider.api_key_enc),
+        api_key=api_key,
         extra_body=dict(m.extra_body or {}),
         supports_vision=m.supports_vision,
     )
@@ -294,7 +316,10 @@ def _normalize_domain(raw: str) -> str:
 
 @router.put("/policy")
 async def put_policy(policy: dict, session: AsyncSession = Depends(get_session)):
-    for pattern in policy.get("blocked_patterns", []):
+    patterns = policy.get("blocked_patterns", [])
+    if not isinstance(patterns, list) or not all(isinstance(p, str) for p in patterns):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "blocked_patterns 必须是字符串列表")
+    for pattern in patterns:
         try:
             re.compile(pattern)
         except re.error as exc:
@@ -312,7 +337,10 @@ async def put_policy(policy: dict, session: AsyncSession = Depends(get_session))
         policy["allowed_domains"] = domains
     if "allow_private_network" in policy:
         policy["allow_private_network"] = bool(policy["allow_private_network"])
-    policy["version"] = int(policy.get("version", 0)) + 1
+    try:
+        policy["version"] = int(policy.get("version") or 0) + 1
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "version 必须是整数") from exc
     await settings_store.set_value(session, settings_store.POLICY_KEY, policy)
     return policy
 
@@ -617,8 +645,8 @@ async def list_audit(
     decision: str | None = None,
     device_id: int | None = None,
     conversation_id: str | None = None,
-    limit: int = Query(100, le=1000),
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     reader: AdminUser | None = Depends(chat_reader_or_none),
     session: AsyncSession = Depends(get_session),
 ):

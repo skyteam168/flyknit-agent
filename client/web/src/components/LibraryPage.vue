@@ -177,9 +177,11 @@ async function newNote() {
 }
 
 // ---------- 菜单动作 ----------
-function act(fn: () => unknown) {
+/** 菜单里的动作：先记下点的是哪一项再关菜单（关了 menu 就是 null 了） */
+function act(fn: (item: LibraryItem) => unknown) {
+  const item = menu.value?.item
   closeMenu()
-  void fn()
+  if (item) void fn(item)
 }
 function moveMenuItems(): string[] {
   return menu.value?.item ? [menu.value.item.id] : lib.selected.slice()
@@ -379,6 +381,10 @@ const emptyText = computed(() => {
 
         <template v-else>
           <BrandLoader v-if="lib.loading && lib.items.length === 0" class="loader" :text="t('ui.skills.loading').replace(/[.…]+$/, '')" />
+          <div v-else-if="lib.error && lib.items.length === 0" class="load-failed">
+            <p>{{ t('ui.common.loadFailed', { msg: lib.error }) }}</p>
+            <button type="button" class="btn" @click="loadLibrary()">{{ t('ui.common.retry') }}</button>
+          </div>
           <p v-else-if="!lib.loading && lib.items.length === 0" class="empty">
             <FolderOpen :size="34" />
             <span>{{ emptyText }}</span>
@@ -519,24 +525,24 @@ const emptyText = computed(() => {
 
         <!-- 回收站里的文件 -->
         <template v-else-if="menu.item && inTrash">
-          <button role="menuitem" type="button" @click="act(() => restoreItems([menu!.item!.id]))"><RotateCcw :size="15" /> {{ t('library.restore') }}</button>
+          <button role="menuitem" type="button" @click="act((it) => restoreItems([it.id]))"><RotateCcw :size="15" /> {{ t('library.restore') }}</button>
           <button role="menuitem" type="button" class="danger" @click="askPurge([menu.item.id])"><Trash2 :size="15" /> {{ t('library.purge') }}</button>
         </template>
 
         <!-- 文件 -->
         <template v-else-if="menu.item">
-          <button role="menuitem" type="button" @click="act(() => chatAbout([menu!.item!.id]))"><MessageSquarePlus :size="15" /> {{ t('library.chatAbout') }}</button>
-          <button role="menuitem" type="button" @click="act(() => setFavorite([menu!.item!.id], !menu!.item!.favorite))">
+          <button role="menuitem" type="button" @click="act((it) => chatAbout([it.id]))"><MessageSquarePlus :size="15" /> {{ t('library.chatAbout') }}</button>
+          <button role="menuitem" type="button" @click="act((it) => setFavorite([it.id], !it.favorite))">
             <component :is="menu.item.favorite ? StarOff : Star" :size="15" /> {{ menu.item.favorite ? t('library.unfavorite') : t('library.favorite') }}
           </button>
-          <button role="menuitem" type="button" @click="act(() => download([menu!.item!.id]))"><Download :size="15" /> {{ t('library.download') }}</button>
-          <button role="menuitem" type="button" @click="act(() => share([menu!.item!.id]))"><Share2 :size="15" /> {{ t('library.share') }}</button>
+          <button role="menuitem" type="button" @click="act((it) => download([it.id]))"><Download :size="15" /> {{ t('library.download') }}</button>
+          <button role="menuitem" type="button" @click="act((it) => share([it.id]))"><Share2 :size="15" /> {{ t('library.share') }}</button>
           <button role="menuitem" type="button" @click="askRename(menu.item)"><Pencil :size="15" /> {{ t('library.rename') }}</button>
           <button role="menuitem" type="button" @click="menu.moving = true"><FolderInput :size="15" /> {{ t('library.moveTo') }}</button>
           <button role="menuitem" type="button" @click="reveal(menu.item)"><FolderOpen :size="15" /> {{ t('library.reveal') }}</button>
           <button role="menuitem" type="button" @click="launch(menu.item)"><ChevronRight :size="15" /> {{ t('library.openWith') }}</button>
           <hr />
-          <button role="menuitem" type="button" class="danger" @click="act(() => removeItems([menu!.item!.id]))"><Trash2 :size="15" /> {{ t('library.delete') }}</button>
+          <button role="menuitem" type="button" class="danger" @click="act((it) => removeItems([it.id]))"><Trash2 :size="15" /> {{ t('library.delete') }}</button>
           <p class="menu-meta">{{ t(`library.sources.${menu.item.source}`) }} · {{ formatSize(menu.item.size) }}</p>
         </template>
       </div>

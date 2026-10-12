@@ -7,6 +7,7 @@ import json
 import logging
 from urllib.parse import quote
 
+import anyio
 import httpx
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -24,6 +25,26 @@ router = APIRouter(prefix="/api/v1", tags=["gateway"])
 
 def _error(status: int, message: str, kind: str = "flyknit_error") -> JSONResponse:
     return JSONResponse({"error": {"message": message, "type": kind}}, status_code=status)
+
+
+#: 流式回复中途上游断开时补发给客户端的一条错误
+STREAM_BROKEN = (
+    "data: "
+    + json.dumps({"error": {"message": "模型服务中途断开，请重试", "type": "upstream_error"}}, ensure_ascii=False)
+    + "\n\n"
+).encode("utf-8")
+
+
+async def finish_stream(upstream, scanner, text, save_usage, save_chat) -> None:
+    """流式转发结束后的收尾：关上游、记用量、存档。调用方要在屏蔽取消的范围里调它。"""
+    try:
+        await upstream.aclose()
+    except Exception:  # noqa: BLE001  关不掉也要接着记用量
+        log.debug("关闭上游连接失败", exc_info=True)
+    scanner.finish()
+    text.finish()
+    await save_usage(scanner.prompt, scanner.completion)
+    await save_chat(text.text, scanner.prompt, scanner.completion)
 
 
 @router.post("/chat/completions")
@@ -92,8 +113,13 @@ async def chat_completions(
     }
 
     if upstream.status_code >= 400:
-        content = await upstream.aread()
-        await upstream.aclose()
+        try:
+            content = await upstream.aread()
+        except httpx.HTTPError as exc:
+            log.warning("读取上游错误响应失败 scene=%s device=%s: %s", scene, device.id, exc)
+            return _error(502, "模型服务读取超时或连接中断，请重试")
+        finally:
+            await upstream.aclose()
         return Response(
             content=content,
             status_code=upstream.status_code,
@@ -155,17 +181,20 @@ async def chat_completions(
             scanner = usage_store.StreamUsageScanner()
             text = chat_archive.StreamTextScanner()
             try:
-                async for chunk in upstream.aiter_raw():
-                    scanner.feed(chunk)
-                    text.feed(chunk)
-                    yield chunk
+                try:
+                    async for chunk in upstream.aiter_raw():
+                        scanner.feed(chunk)
+                        text.feed(chunk)
+                        yield chunk
+                except httpx.HTTPError as exc:
+                    # 已经回了 200 和一部分内容，改不了状态码，只能在流里补一条错误让客户端提示
+                    log.warning("上游中途断开 scene=%s device=%s: %s", scene, device_id, exc)
+                    yield STREAM_BROKEN
             finally:
-                await upstream.aclose()
-                scanner.finish()
-                text.finish()
-                await save_usage(scanner.prompt, scanner.completion)
-                # 用户中途停止时这里也会跑到，存的是已经生成的那部分，正是想要的
-                await save_chat(text.text, scanner.prompt, scanner.completion)
+                # 用户点「停止」时连接断开，这个生成器会被取消；不屏蔽取消的话，下面的
+                # await 一碰就再抛 CancelledError，用量和存档都不会记。存的是已经生成的那部分
+                with anyio.CancelScope(shield=False):
+                    await finish_stream(upstream, scanner, text, save_usage, save_chat)
 
         return StreamingResponse(
             relay(),
@@ -174,8 +203,13 @@ async def chat_completions(
             headers=headers,
         )
 
-    content = await upstream.aread()
-    await upstream.aclose()
+    try:
+        content = await upstream.aread()
+    except httpx.HTTPError as exc:
+        log.warning("读取上游响应失败 scene=%s device=%s: %s", scene, device.id, exc)
+        return _error(502, "模型服务读取超时或连接中断，请重试")
+    finally:
+        await upstream.aclose()
     prompt, completion = usage_store.extract_usage(content)
     await save_usage(prompt, completion)
     try:

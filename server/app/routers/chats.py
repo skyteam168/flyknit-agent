@@ -8,7 +8,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from ..crypto import hash_token, hash_password, new_token, verify_password
 from ..db import get_session
 from ..deps import require_admin, require_admin_user, require_chat_reader, require_owner
 from ..models import AdminAccess, AdminSession, AdminUser, ChatRecord
+from ..services import login_guard
 from ..schemas import (
     AdminLoginIn,
     AdminLoginOut,
@@ -69,13 +70,20 @@ async def list_users(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/login", response_model=AdminLoginOut)
-async def login(data: AdminLoginIn, session: AsyncSession = Depends(get_session)):
+async def login(data: AdminLoginIn, request: Request, session: AsyncSession = Depends(get_session)):
+    # 只认连接上看到的地址：X-Forwarded-For 谁都能伪造，拿它计数等于没限
+    ip = request.client.host if request.client else ""
+    if login_guard.blocked(data.username, ip):
+        log.warning("登录失败次数过多，暂时拒绝 user=%s ip=%s", data.username[:64], ip)
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "登录失败次数过多，请 10 分钟后再试")
     user = await session.scalar(select(AdminUser).where(AdminUser.username == data.username))
     # 用户名不存在时也走一次哈希校验，否则响应快慢会暴露哪些用户名是真的
     stored = user.password_hash if user else hash_password("placeholder")
     ok = verify_password(data.password, stored)
     if user is None or not ok:
+        login_guard.failed(data.username, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户名或密码不正确")
+    login_guard.succeeded(data.username)
     if user.disabled:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "该账号已被停用")
 

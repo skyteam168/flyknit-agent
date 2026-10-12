@@ -82,6 +82,9 @@ public sealed class GatewayException : Exception
 {
     public int? StatusCode { get; }
 
+    /// <summary>网络层面的失败（连不上、超时、连接中断），不是服务端明确返回的错误。</summary>
+    public bool IsNetworkError { get; init; }
+
     public GatewayException(string message, int? statusCode = null, Exception? inner = null)
         : base(message, inner)
     {

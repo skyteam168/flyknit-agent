@@ -293,7 +293,11 @@ async def from_registry(http: httpx.AsyncClient, name: str) -> list[LinkDraft]:
         raise McpConfigError(f"连不上 MCP 官方注册表：{exc}") from exc
     if resp.status_code != 200:
         raise McpConfigError(f"MCP 官方注册表返回 HTTP {resp.status_code}")
-    items = (resp.json() or {}).get("servers") or []
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise McpConfigError("MCP 官方注册表返回的不是 JSON") from exc
+    items = (data.get("servers") if isinstance(data, dict) else None) or []
     servers = [i.get("server", i) for i in items if isinstance(i, dict)]
     exact = [s for s in servers if s.get("name") == name]
     pick = (exact or servers)[:1]

@@ -231,7 +231,7 @@ onBeforeUnmount(() => {
   <div v-if="initError" class="init-error">
     <strong>FlyknitBuddy</strong>
     <p>{{ initError }}</p>
-    <button type="button" class="btn primary" @click="reload">Reload</button>
+    <button type="button" class="btn primary" @click="reload">{{ t('ui.common.reload') }}</button>
   </div>
   <div v-else-if="!ready" class="boot">
     <div class="boot-card">

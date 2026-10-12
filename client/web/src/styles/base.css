@@ -343,3 +343,20 @@ button {
 .brand-loader.loader {
   padding: 48px 0;
 }
+
+/* 加载失败：原因 + 「重试」按钮，代替误导人的「暂无内容」 */
+.load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 16px;
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+  text-align: center;
+}
+.load-failed p {
+  margin: 0;
+  max-width: 420px;
+  overflow-wrap: anywhere;
+}

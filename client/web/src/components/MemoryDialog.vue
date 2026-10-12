@@ -3,7 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { BookOpenCheck, Brain, CalendarCheck, FolderOpen, Heart, History, Info, Lightbulb, Loader2, Pin, PinOff, Plus, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, Trash2, Wand2, X } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { setLearning, state, toast } from '../store'
+import { errorText, fail, openPath, setLearning, state, toast } from '../store'
+import BrandLoader from './BrandLoader.vue'
 import type { MemoryKind, MemoryMetrics, MemoryOverview } from '../types'
 
 const { t, locale } = useI18n()
@@ -15,6 +16,9 @@ const draft = ref('')
 const openEpisode = ref<string | null>(null)
 const openHistory = ref<string | null>(null)
 const tidying = ref(false)
+const loading = ref(false)
+/** 第一次就没加载出来的原因（显示重试，不要误显示成「还没有记忆」） */
+const loadError = ref('')
 
 const tabs: { key: Tab; icon: unknown }[] = [
   { key: 'preference', icon: Heart },
@@ -25,10 +29,16 @@ const tabs: { key: Tab; icon: unknown }[] = [
 ]
 
 async function load() {
+  loading.value = true
   try {
     data.value = await bridge.memoryOverview()
+    loadError.value = ''
   } catch (e) {
-    toast(String(e))
+    // 已经有内容时保留旧的，只提示一下
+    if (data.value) fail(e)
+    else loadError.value = errorText(e)
+  } finally {
+    loading.value = false
   }
   // 指标拿不到不影响使用
   metrics.value = await bridge.memoryMetrics().catch(() => null)
@@ -41,7 +51,7 @@ const compact = (x: number) => new Intl.NumberFormat(locale.value, { notation: '
 async function reviveSkill(name: string) {
   const k = data.value?.skills.find((s) => s.name === name)
   if (!k) return
-  const ok = await bridge.setLearnedSkillStatus(name, 'active').catch(() => false)
+  const ok = await bridge.setLearnedSkillStatus(name, 'active').catch((e) => (fail(e), false))
   if (ok) {
     k.status = 'active'
     k.uses = k.successes = k.failures = 0
@@ -60,7 +70,7 @@ const items = computed(() => {
 async function renew(id: string) {
   const item = data.value?.items.find((i) => i.id === id)
   if (!item) return
-  const ok = await bridge.renewMemory(id).catch(() => false)
+  const ok = await bridge.renewMemory(id).catch((e) => (fail(e), false))
   if (ok) {
     toast(t('ui.memory.renewed'))
     await load()
@@ -72,7 +82,7 @@ async function togglePin(id: string) {
   if (!item) return
   const next = !item.pinned
   item.pinned = next
-  const ok = await bridge.pinMemory(id, next).catch(() => false)
+  const ok = await bridge.pinMemory(id, next).catch((e) => (fail(e), false))
   if (!ok) item.pinned = !next
   else toast(next ? t('ui.memory.pinned') : t('ui.memory.unpinned'))
 }
@@ -86,29 +96,58 @@ function count(k: Tab) {
   return d.items.filter((i) => i.kind === k).length
 }
 
+// 删除先从界面上拿掉，宿主删失败了再放回原处
 async function removeItem(id: string) {
-  if (!data.value) return
-  data.value.items = data.value.items.filter((i) => i.id !== id)
-  await bridge.deleteMemory(id).catch(() => {})
+  const d = data.value
+  if (!d) return
+  const before = d.items
+  d.items = before.filter((i) => i.id !== id)
+  try {
+    await bridge.deleteMemory(id)
+  } catch (e) {
+    d.items = before
+    fail(e)
+  }
 }
 
 async function removeEpisode(id: string) {
-  if (!data.value) return
-  data.value.episodes = data.value.episodes.filter((e) => e.id !== id)
-  await bridge.deleteEpisode(id).catch(() => {})
+  const d = data.value
+  if (!d) return
+  const before = d.episodes
+  d.episodes = before.filter((e) => e.id !== id)
+  try {
+    await bridge.deleteEpisode(id)
+  } catch (e) {
+    d.episodes = before
+    fail(e)
+  }
 }
 
 async function removeSkill(name: string) {
-  if (!data.value) return
-  data.value.skills = data.value.skills.filter((s) => s.name !== name)
-  await bridge.deleteLearnedSkill(name).catch(() => {})
+  const d = data.value
+  if (!d) return
+  const before = d.skills
+  d.skills = before.filter((s) => s.name !== name)
+  try {
+    await bridge.deleteLearnedSkill(name)
+  } catch (e) {
+    d.skills = before
+    fail(e)
+  }
 }
 
 async function add() {
   const text = draft.value.trim()
   if (!text || (tab.value !== 'preference' && tab.value !== 'fact')) return
-  const res = await bridge.addMemory(tab.value as MemoryKind, text).catch((e) => ({ outcome: 'rejected' as const, reason: String(e) }))
-  draft.value = ''
+  let res
+  try {
+    res = await bridge.addMemory(tab.value as MemoryKind, text)
+  } catch (e) {
+    // 没加上就把输入的内容留着，改一改还能再加
+    fail(e)
+    return
+  }
+  if (res.outcome !== 'rejected' && draft.value.trim() === text) draft.value = ''
   if (res.outcome === 'reinforced') toast(t('ui.memory.duplicate'))
   else if (res.outcome === 'rejected') toast(t('ui.memory.rejected', { reason: res.reason ?? '' }))
   await load()
@@ -123,7 +162,7 @@ async function tidy() {
     else toast(r.groups ? t('ui.memory.tidyDone', { groups: r.groups, merged: r.merged }) : t('ui.memory.tidyNone'))
     await load()
   } catch (e) {
-    toast(String(e))
+    fail(e)
   } finally {
     tidying.value = false
   }
@@ -215,8 +254,13 @@ const close = () => (state.memoryOpen = false)
       <p class="tab-hint">{{ t(`ui.memory.hints.${tab}`) }}</p>
 
       <div class="body">
+        <BrandLoader v-if="!data && !loadError" class="loader" :text="t('ui.common.loading').replace(/[.…]+$/, '')" />
+        <div v-else-if="!data" class="load-failed">
+          <p>{{ t('ui.common.loadFailed', { msg: loadError }) }}</p>
+          <button type="button" class="btn" :disabled="loading" @click="load">{{ t('ui.common.retry') }}</button>
+        </div>
         <!-- 偏好、信息、经验教训 -->
-        <template v-if="tab === 'preference' || tab === 'fact' || tab === 'experience'">
+        <template v-else-if="tab === 'preference' || tab === 'fact' || tab === 'experience'">
           <form v-if="tab !== 'experience'" class="add" @submit.prevent="add">
             <input v-model="draft" :placeholder="t(`ui.memory.addPlaceholder.${tab}`)" maxlength="300" />
             <button type="submit" class="btn primary" :disabled="!draft.trim()"><Plus :size="15" /> {{ t('ui.memory.add') }}</button>
@@ -293,7 +337,7 @@ const close = () => (state.memoryOpen = false)
               </span>
               <span class="status" :class="k.status" :title="t(`ui.memory.skillStatusHint.${k.status}`)">{{ t(`ui.memory.skillStatus.${k.status}`) }}</span>
               <button v-if="k.status === 'retired'" type="button" class="mini keep" :title="t('ui.memory.skillRevive')" @click="reviveSkill(k.name)"><RotateCcw :size="14" /></button>
-              <button type="button" class="mini" :title="t('ui.workspace.open')" @click="bridge.openPath(k.path)"><FolderOpen :size="14" /></button>
+              <button type="button" class="mini" :title="t('ui.workspace.open')" @click="openPath(k.path)"><FolderOpen :size="14" /></button>
               <button type="button" class="mini" :title="t('ui.memory.delete')" @click="removeSkill(k.name)"><Trash2 :size="14" /></button>
             </li>
           </ul>
@@ -301,7 +345,7 @@ const close = () => (state.memoryOpen = false)
       </div>
 
       <footer>
-        <button type="button" class="btn" @click="bridge.openMemoryFolder()"><FolderOpen :size="15" /> {{ t('settings.openMemory') }}</button>
+        <button type="button" class="btn" @click="bridge.openMemoryFolder().catch(fail)"><FolderOpen :size="15" /> {{ t('settings.openMemory') }}</button>
         <button type="button" class="btn" :disabled="tidying" :title="t('ui.memory.tidyHint')" @click="tidy">
           <Loader2 v-if="tidying" :size="15" class="spin" /><Wand2 v-else :size="15" />
           {{ tidying ? t('ui.memory.tidying') : t('ui.memory.tidy') }}

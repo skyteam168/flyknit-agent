@@ -22,7 +22,7 @@ import {
   X,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { mcpToolLabel, state, toast } from '../store'
+import { errorText, fail, mcpToolLabel, state, toast } from '../store'
 import type { SecurityDecision, SecurityEvent, UsageStats } from '../types'
 import ConfirmDialog from './ConfirmDialog.vue'
 
@@ -34,6 +34,9 @@ const events = ref<SecurityEvent[]>([])
 const filter = ref<'' | SecurityDecision>('')
 const loading = ref(false)
 const error = ref('')
+/** 安全记录单独加载：加载中、失败都要和「没有记录」区分开 */
+const eventsLoading = ref(false)
+const eventsError = ref('')
 
 const fmt = new Intl.NumberFormat()
 const sceneIcons: Record<string, unknown> = { agent: Wrench, chat: MessageSquare, translate: Languages }
@@ -52,23 +55,46 @@ async function load() {
   try {
     usage.value = await bridge.usageStats()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = errorText(e)
   }
-  events.value = await bridge.securityEvents(filter.value).catch(() => [])
+  await loadEvents()
   loading.value = false
 }
 onMounted(load)
 
+let eventsSeq = 0
+async function loadEvents() {
+  const mine = ++eventsSeq
+  eventsLoading.value = true
+  eventsError.value = ''
+  try {
+    const list = await bridge.securityEvents(filter.value)
+    if (mine === eventsSeq) events.value = list
+  } catch (e) {
+    if (mine === eventsSeq) {
+      events.value = []
+      eventsError.value = errorText(e)
+    }
+  } finally {
+    if (mine === eventsSeq) eventsLoading.value = false
+  }
+}
+
 async function setFilter(f: '' | SecurityDecision) {
   filter.value = f
-  events.value = await bridge.securityEvents(f).catch(() => [])
+  await loadEvents()
 }
 
 const confirmClear = ref(false)
 async function clearEvents() {
   confirmClear.value = false
-  events.value = []
-  await bridge.clearSecurityEvents().catch(() => {})
+  // 宿主清掉了才清界面，失败时记录还在
+  try {
+    await bridge.clearSecurityEvents()
+    events.value = []
+  } catch (e) {
+    fail(e)
+  }
 }
 
 const exporting = ref(false)
@@ -133,7 +159,10 @@ const close = () => (state.usageOpen = false)
       <div class="body">
         <!-- 用量 -->
         <template v-if="tab === 'usage'">
-          <p v-if="error" class="empty">{{ t('ui.usagePanel.error', { msg: error }) }}</p>
+          <div v-if="error" class="load-failed">
+            <p>{{ t('ui.usagePanel.error', { msg: error }) }}</p>
+            <button type="button" class="btn" :disabled="loading" @click="load">{{ t('ui.common.retry') }}</button>
+          </div>
           <template v-else-if="usage">
             <div class="today" :class="{ warn: usage.exceeded }">
               <div class="today-head">
@@ -201,7 +230,12 @@ const close = () => (state.usageOpen = false)
             <button type="button" :class="{ on: filter === 'remembered' }" @click="setFilter('remembered')">{{ t('ui.usagePanel.decisions.remembered') }}</button>
             <button type="button" :class="{ on: filter === 'rejected' }" @click="setFilter('rejected')">{{ t('ui.usagePanel.decisions.rejected') }}</button>
           </div>
-          <p v-if="events.length === 0" class="empty">{{ t('ui.usagePanel.noEvents') }}</p>
+          <BrandLoader v-if="eventsLoading && events.length === 0" class="loader" :text="t('ui.common.loading').replace(/[.…]+$/, '')" />
+          <div v-else-if="eventsError" class="load-failed">
+            <p>{{ t('ui.common.loadFailed', { msg: eventsError }) }}</p>
+            <button type="button" class="btn" @click="loadEvents">{{ t('ui.common.retry') }}</button>
+          </div>
+          <p v-else-if="events.length === 0" class="empty">{{ t('ui.usagePanel.noEvents') }}</p>
           <ul v-else class="events">
             <li v-for="e in events" :key="e.id" :class="e.decision">
               <span class="ico"><component :is="decisionIcons[e.decision]" :size="15" /></span>

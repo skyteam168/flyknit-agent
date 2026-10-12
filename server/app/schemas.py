@@ -1,12 +1,18 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, HttpUrl
 
 Scene = Literal["chat", "agent", "translate", "title", "vision", "asr"]
 # asr 是语音转文字，和对话模型不通用，所以它没有回退场景
 # embedding：把文字转成向量，员工端用来按意思检索记忆；没配置时员工端只按字面匹配
 SCENES: tuple[str, ...] = ("chat", "agent", "translate", "title", "vision", "asr", "embedding")
+
+
+def Clip(n: int):  # noqa: N802  当类型用
+    """员工端上报的字符串：超过数据库列宽就截断，不拒收。
+    PostgreSQL 对超长值直接报错（SQLite 不管），拒收的话老版本员工端会一直重试同一批。"""
+    return Annotated[str, AfterValidator(lambda v: v[:n])]
 
 
 # ---------- 模型提供方 ----------
@@ -100,10 +106,10 @@ class DeviceRegisterIn(BaseModel):
     #: 同意的协议版本，原样回传 GET /legal 给的 versions
     agreed_legal: str = Field(default="", max_length=200)
     machine_name: str = Field(min_length=1, max_length=200)
-    user_name: str = ""
-    os_version: str = ""
-    client_version: str = ""
-    ui_language: str = "zh-CN"
+    user_name: Clip(200) = ""
+    os_version: Clip(200) = ""
+    client_version: Clip(50) = ""
+    ui_language: Clip(10) = "zh-CN"
     #: 系统标识（HKLM MachineGuid）。同一台电脑上同一个员工重新登录时，沿用原来那条设备记录
     machine_guid: str = Field(default="", max_length=64)
 
@@ -111,15 +117,15 @@ class DeviceRegisterIn(BaseModel):
 class MachineInfoIn(BaseModel):
     """客户端定期上报的本机信息。全部可选——采不到的字段不该让整次上报失败。"""
 
-    machine_name: str = ""
-    user_name: str = ""
-    domain: str = ""
-    os_version: str = ""
-    client_version: str = ""
-    ui_language: str = ""
+    machine_name: Clip(200) = ""
+    user_name: Clip(200) = ""
+    domain: Clip(200) = ""
+    os_version: Clip(200) = ""
+    client_version: Clip(50) = ""
+    ui_language: Clip(10) = ""
     ip_addresses: list[str] = Field(default_factory=list, max_length=16)
-    mac_address: str = ""
-    machine_guid: str = ""
+    mac_address: Clip(64) = ""
+    machine_guid: Clip(64) = ""
 
 
 class DeviceRegisterOut(BaseModel):
@@ -219,13 +225,13 @@ class SmbOut(BaseModel):
 
 # ---------- 审计 ----------
 class AuditItem(BaseModel):
-    conversation_id: str = ""
-    tool_name: str
+    conversation_id: Clip(64) = ""
+    tool_name: Clip(100)
     arguments: str = ""
     risk: Literal["blocked", "confirm", "auto"]
-    scene: str = ""
+    scene: Clip(20) = ""
     decision: Literal["blocked", "approved", "remembered", "rejected", "auto"]
-    status: str = ""
+    status: Clip(20) = ""
     summary: str = ""
     occurred_at: datetime | None = None
 

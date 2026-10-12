@@ -56,6 +56,7 @@ import type {
   PersonaUpdate,
 } from './types'
 import { createMockHost } from './mockHost'
+import { i18n } from './i18n'
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void }
 type Listener = (e: HostEvent) => void
@@ -111,14 +112,21 @@ class Bridge {
     }
   }
 
+  /** timeoutMs 为 0 表示不限时（弹系统对话框等用户操作的调用） */
   private call<T>(method: string, params: Record<string, unknown> = {}, files?: File[], timeoutMs = 20000): Promise<T> {
     const id = `r${++this.seq}`
     const message = { kind: 'request', id, method, params }
     return new Promise<T>((resolve, reject) => {
-      // 宿主 20 秒未响应视为失败，避免界面一直空白；要等浏览器登录这类调用自己给更长的时间
-      const timer = window.setTimeout(() => {
-        if (this.pending.delete(id)) reject(new Error(`宿主未响应：${method}`))
-      }, timeoutMs)
+      // 宿主 20 秒未响应视为失败，避免界面一直空白；要等浏览器登录这类调用自己给更长的时间。
+      // 给用户看的是一句友好的话，具体是哪个调用写到控制台里
+      const timer =
+        timeoutMs > 0
+          ? window.setTimeout(() => {
+              if (!this.pending.delete(id)) return
+              console.warn(`[flyknit] host timeout: ${method} (${timeoutMs}ms)`)
+              reject(new Error(i18n.global.t('ui.common.hostTimeout')))
+            }, timeoutMs)
+          : undefined
       this.pending.set(id, {
         resolve: (v) => {
           clearTimeout(timer)
@@ -178,7 +186,7 @@ class Bridge {
     this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission, expertId })
   listExperts = () => this.call<Expert[]>('experts.list')
   enhancePrompt = (text: string, mode: Mode, conversationId: string | null, expertId: string | null) =>
-    this.call<{ text: string }>('prompt.enhance', { text, mode, conversationId, expertId }, undefined, 70_000)
+    this.call<{ text: string }>('prompt.enhance', { text, mode, conversationId, expertId }, undefined, 90_000)
   setWorkspace = (id: string, path: string | null) => this.call<void>('conversation.setWorkspace', { id, path })
   setPermission = (id: string, permission: Permission) => this.call<void>('conversation.setPermission', { id, permission })
   setModel = (id: string, modelId: number | null) => this.call<void>('conversation.setModel', { id, modelId })
@@ -199,14 +207,16 @@ class Bridge {
   setDefaultModel = (modelId: number | null) => this.call<void>('settings.setDefaultModel', { modelId })
   listSkills = () => this.call<SkillInfo[]>('skills.list')
   /** 不传路径时弹文件夹选择框 */
-  openSkillsFolder = (path?: string) => this.call<void>('skills.openFolder', path ? { path } : {})
+  openSkillsFolder = (path?: string) => this.call<void>('skills.openFolder', path ? { path } : {}, undefined, path ? undefined : 0)
   setSkillEnabled = (name: string, enabled: boolean) => this.call<SkillActionResult>('skills.setEnabled', { name, enabled })
   uninstallSkill = (name: string) => this.call<SkillActionResult>('skills.uninstall', { name })
   /** 选择 zip 文件安装；取消选择返回 null */
-  inspectSkill = (path?: string) => this.call<{ path: string; inspection: SkillInspection } | null>('skills.inspect', path ? { path } : {})
-  installSkill = (path?: string) => this.call<SkillInstallOutcome | null>('skills.install', path ? { path } : {})
-  installSkillFolder = (path?: string) => this.call<SkillInstallOutcome | null>('skills.installFolder', path ? { path } : {})
-  installSkillFromUrl = (url: string) => this.call<SkillInstallOutcome>('skills.installFromUrl', { url })
+  inspectSkill = (path?: string) =>
+    this.call<{ path: string; inspection: SkillInspection } | null>('skills.inspect', path ? { path } : {}, undefined, path ? 60_000 : 0)
+  installSkill = (path?: string) => this.call<SkillInstallOutcome | null>('skills.install', path ? { path } : {}, undefined, path ? 180_000 : 0)
+  installSkillFolder = (path?: string) =>
+    this.call<SkillInstallOutcome | null>('skills.installFolder', path ? { path } : {}, undefined, path ? 180_000 : 0)
+  installSkillFromUrl = (url: string) => this.call<SkillInstallOutcome>('skills.installFromUrl', { url }, undefined, 200_000)
   skillLibrary = () => this.call<LibrarySkill[]>('skills.library')
 
   // ---------- MCP 连接器（和技能是两组调用，互不影响） ----------
@@ -216,12 +226,13 @@ class Bridge {
     this.call<{ ok: boolean; message: string; vendor: McpVendor | null }>('mcp.connect', { id, values }, undefined, 6 * 60_000)
   cancelMcp = (id: string) => this.call<void>('mcp.cancel', { id })
   disconnectMcp = (id: string, forget: boolean) => this.call<McpVendor | null>('mcp.disconnect', { id, forget })
-  installSkillFromLibrary = (name: string) => this.call<SkillInstallOutcome>('skills.installFromLibrary', { name })
+  // 从技能库下载安装，宿主最多等 3 分钟
+  installSkillFromLibrary = (name: string) => this.call<SkillInstallOutcome>('skills.installFromLibrary', { name }, undefined, 200_000)
 
   // ---------- 工作区与权限 ----------
   listWorkspaces = () => this.call<WorkspaceInfo[]>('workspaces.list')
   /** 不传 path 时弹出文件夹选择框；取消返回 null */
-  addWorkspace = (path?: string) => this.call<string | null>('workspaces.add', path ? { path } : {})
+  addWorkspace = (path?: string) => this.call<string | null>('workspaces.add', path ? { path } : {}, undefined, path ? undefined : 0)
   removeWorkspace = (path: string) => this.call<WorkspaceInfo[]>('workspaces.remove', { path })
   reorderWorkspaces = (paths: string[]) => this.call<WorkspaceInfo[]>('workspaces.reorder', { paths })
   reorderConversations = (ids: string[]) => this.call<void>('conversations.reorder', { ids })
@@ -272,13 +283,13 @@ class Bridge {
   /** 在资源管理器中定位 */
   revealFile = (path: string) => this.call<{ ok: boolean; message: string }>('files.reveal', { path })
   /** 读取预览内容 */
-  previewFile = (path: string) => this.call<PreviewDoc>('files.preview', { path })
+  previewFile = (path: string) => this.call<PreviewDoc>('files.preview', { path }, undefined, 40_000)
   /** 告诉宿主当前打开的是哪个任务（决定要不要弹系统通知） */
   setActiveConversation = (id: string | null) => this.call<void>('ui.activeConversation', { id })
   securityEvents = (decision = '', limit?: number) => this.call<SecurityEvent[]>('security.list', { decision, limit })
   clearSecurityEvents = () => this.call<void>('security.clear')
   /** 把本机安全记录导出成 CSV（宿主弹另存为对话框） */
-  exportSecurityEvents = (ids?: number[]) => this.call<ExportResult>('security.export', ids ? { ids } : {})
+  exportSecurityEvents = (ids?: number[]) => this.call<ExportResult>('security.export', ids ? { ids } : {}, undefined, 0)
   networkAllowlist = () => this.call<NetworkAllowlist>('security.network')
   listApprovals = () => this.call<ApprovalInfo[]>('approvals.list')
   revokeApproval = (id: string) => this.call<void>('approvals.revoke', { id })
@@ -296,14 +307,15 @@ class Bridge {
   confirm = (requestId: string, choice: ConfirmChoice) => this.call<void>('tool.confirm', { requestId, choice })
 
   // ---------- 文件 ----------
-  pickFiles = () => this.call<AttachmentRef[]>('files.pick')
+  pickFiles = () => this.call<AttachmentRef[]>('files.pick', {}, undefined, 0)
   /** 拖入窗口的文件：WebView2 通过 additionalObjects 把真实路径交给宿主 */
   addDroppedFiles = (files: File[]) => this.call<AttachmentRef[]>('files.dropped', {}, files)
 
   // ---------- 资料库 ----------
   libraryList = (q: { tab: string; folderId?: string | null; search?: string; kind?: string; sort?: string; hidden?: boolean }) =>
     this.call<{ items: LibraryItem[]; folders: LibraryFolder[] }>('library.list', q)
-  libraryUpload = (folderId: string | null, accept?: 'image') => this.call<LibraryItem[]>('library.upload', { folderId, accept }, undefined, 10 * 60_000)
+  // 先弹文件选择框，再上传：等用户选文件的时间不限
+  libraryUpload = (folderId: string | null, accept?: 'image') => this.call<LibraryItem[]>('library.upload', { folderId, accept }, undefined, 0)
   libraryAddDropped = (files: File[], folderId: string | null) => this.call<LibraryItem[]>('library.addDropped', { folderId }, files, 10 * 60_000)
   libraryAddNote = (title: string, text: string, folderId: string | null) => this.call<LibraryItem>('library.addNote', { title, text, folderId })
   libraryUpdateNote = (id: string, text: string) => this.call<boolean>('library.updateNote', { id, text })
@@ -317,7 +329,8 @@ class Bridge {
   libraryCreateFolder = (name: string) => this.call<LibraryFolder>('library.createFolder', { name })
   libraryRenameFolder = (id: string, name: string) => this.call<boolean>('library.renameFolder', { id, name })
   libraryDeleteFolder = (id: string) => this.call<boolean>('library.deleteFolder', { id })
-  libraryDownload = (ids: string[]) => this.call<number>('library.download', { ids }, undefined, 10 * 60_000)
+  // 弹另存为对话框后再复制文件，不限时
+  libraryDownload = (ids: string[]) => this.call<number>('library.download', { ids }, undefined, 0)
   libraryShare = (ids: string[]) => this.call<number>('library.share', { ids })
   libraryReveal = (id: string) => this.call<{ ok: boolean; message: string }>('library.reveal', { id })
   libraryPreview = (id: string) => this.call<PreviewDoc>('library.preview', { id }, undefined, 40_000)
@@ -325,7 +338,8 @@ class Bridge {
   /** 粘贴的截图等没有路径的内容，以 base64 交给宿主保存为临时文件 */
   saveBlob = (fileName: string, mime: string, base64: string) =>
     this.call<AttachmentRef>('files.saveBlob', { fileName, mime, base64 })
-  openPath = (path: string) => this.call<void>('files.open', { path })
+  /** 文件不存在时宿主返回 ok=false 和原因 */
+  openPath = (path: string) => this.call<{ ok: boolean; message?: string } | void>('files.open', { path })
 
   // ---------- 自动更新 ----------
   updateState = () => this.call<UpdateInfo>('update.state')
@@ -336,14 +350,14 @@ class Bridge {
   logout = () => this.call<void>('account.logout')
   /** 网络检测：最近一次的结果（没测过为 null）/ 重新检测 / 报告目录 / 导出 / 定位 */
   lastNetworkReport = () => this.call<NetworkReport | null>('network.last')
-  diagnoseNetwork = () => this.call<NetworkReport>('network.diagnose')
+  diagnoseNetwork = () => this.call<NetworkReport>('network.diagnose', {}, undefined, 90_000)
   openNetworkReports = () => this.call<void>('network.openReports')
   revealNetworkReport = () => this.call<void>('network.revealReport')
-  exportNetworkReport = () => this.call<{ ok: boolean; path: string }>('network.exportReport')
+  exportNetworkReport = () => this.call<{ ok: boolean; path: string }>('network.exportReport', {}, undefined, 0)
   checkUpdate = () => this.call<UpdateCheckResult>('update.check')
   /** 意见反馈。images 是 data: URL；logs 为 true 时宿主把最近几天的日志打包一起传 */
   submitFeedback = (req: { content: string; images: string[]; logs: boolean }) =>
-    this.call<{ ok: boolean; message: string }>('feedback.submit', { ...req })
+    this.call<{ ok: boolean; message: string }>('feedback.submit', { ...req }, undefined, 90_000)
   /** 服务器上 IT 维护的用户协议 / 隐私政策（Markdown） */
   legal = (kind: 'terms' | 'privacy') => this.call<{ title: string; content: string } | null>('legal.get', { kind })
 }

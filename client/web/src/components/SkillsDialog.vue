@@ -20,7 +20,7 @@ import {
   X,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { loadSkills, state, toast } from '../store'
+import { fail, loadSkills, state, toast } from '../store'
 import type { LibrarySkill, SkillInfo } from '../types'
 
 const emit = defineEmits<{ use: [name: string] }>()
@@ -237,7 +237,7 @@ const close = () => (state.skillsOpen = false)
 
               <div class="actions">
                 <button type="button" class="btn" @click="emit('use', s.name)">{{ t('ui.skills.useInChat') }}</button>
-                <button type="button" class="btn" @click="bridge.openSkillsFolder(s.directory)"><FolderOpen :size="15" /> {{ t('ui.skills.openSkill') }}</button>
+                <button type="button" class="btn" @click="bridge.openSkillsFolder(s.directory).catch(fail)"><FolderOpen :size="15" /> {{ t('ui.skills.openSkill') }}</button>
                 <span class="spacer" />
                 <button v-if="!s.organization" type="button" class="btn danger-text" @click="removing = s">
                   <Trash2 :size="15" /> {{ t('ui.skills.uninstall') }}
@@ -330,7 +330,7 @@ const close = () => (state.skillsOpen = false)
       </div>
 
       <footer>
-        <button type="button" class="btn" @click="bridge.openSkillsFolder()"><FolderOpen :size="15" /> {{ t('ui.skills.openFolder') }}</button>
+        <button type="button" class="btn" @click="bridge.openSkillsFolder().catch(fail)"><FolderOpen :size="15" /> {{ t('ui.skills.openFolder') }}</button>
         <span class="spacer" />
         <button type="button" class="btn primary" @click="close">{{ t('settings.close') }}</button>
       </footer>

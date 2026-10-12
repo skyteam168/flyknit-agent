@@ -298,6 +298,8 @@ public sealed class AgentHost : IDisposable
 
     public async Task InitializeAsync()
     {
+        // 自动更新最先起：后面哪一步出错（库坏了、目录建不了），修复版本照样送得到
+        Updater.Start();
         Memory.EnsureDefaults();
         Library.Initialize(Store);
         _settings.EnsureWorkspaces();
@@ -308,9 +310,11 @@ public sealed class AgentHost : IDisposable
         Skills.Changed += () => SkillsChanged?.Invoke();
         Skills.StartWatching();
         await Task.Run(() => Store.PurgeExpired());
-        await RefreshConfigAsync();
+        // 服务器连不上时拉配置要等到超时（15 秒）：最多等 3 秒就让窗口先出来，剩下的在后台继续，
+        // 拉到了会通过 StatusChanged 刷新界面。任务开始前会等这一次拉完，安全策略不会漏掉
+        _initialConfig = RefreshConfigAsync();
+        await Task.WhenAny(_initialConfig, Task.Delay(TimeSpan.FromSeconds(3)));
         Scheduler.Start();
-        Updater.Start();
         // 锁屏运行：任务开始、结束时重新算；每分钟再算一次（定时任务快到点时提前挡住睡眠）
         ActiveRunsChanged += _ => RefreshKeepAwake();
         _keepAwakeTimer = new Timer(_ => RefreshKeepAwake(), null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
@@ -319,6 +323,9 @@ public sealed class AgentHost : IDisposable
         // 长轮询监听配置变更，IT 一改安全中心/策略就近乎即时拉取生效
         _ = Task.Run(ConfigWatchLoopAsync);
     }
+
+    /// <summary>启动时那一次拉配置。WhenAny 不会抛异常，只是等它结束。</summary>
+    private Task _initialConfig = Task.CompletedTask;
 
     /// <summary>长轮询监听服务端配置版本号，一变就立刻重新拉取配置（安全策略即时生效）。</summary>
     private async Task ConfigWatchLoopAsync()
@@ -483,12 +490,20 @@ public sealed class AgentHost : IDisposable
         catch (Exception ex)
         {
             Connected = false;
-            ServerMessage = ex.Message;
+            ServerMessage = DescribeServerError(ex);
             Log.Warn("拉取服务端配置失败", ex);
             _configTimer.Change(TimeSpan.FromMinutes(1), Timeout.InfiniteTimeSpan);
         }
         StatusChanged?.Invoke();
     }
+
+    /// <summary>连服务端失败时给界面看的一句话，不把英文异常原文直接摆出来。</summary>
+    private static string DescribeServerError(Exception ex) => ex switch
+    {
+        GatewayException { IsNetworkError: true } or HttpRequestException or OperationCanceledException => "无法连接服务器，请检查网络",
+        GatewayException { StatusCode: >= 500 } g => $"服务器出错（HTTP {g.StatusCode}）",
+        _ => ex.Message,
+    };
 
     public bool IsRunning(string conversationId) => _runs.ContainsKey(conversationId);
 
@@ -590,6 +605,7 @@ public sealed class AgentHost : IDisposable
         var observer = new RunObserver(id, events);
         try
         {
+            await Task.WhenAny(_initialConfig); // 启动后立刻发的任务：等 IT 的安全策略先拉下来
             if (newUser is not null)
             {
                 Store.AddMessages(id, new[] { newUser });
@@ -811,6 +827,13 @@ public sealed class AgentHost : IDisposable
                 var previous = stored.Take(stored.Count - 1).LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
                 _ = Task.Run(() => ReflectAsync(conv, workspace, text, previous, result.NewMessages, result.StopReason.ToString(), 0, uiLanguage, events));
             }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            // 还没进 Agent 循环（语义检索等准备步骤）就按了停止：和循环里停止一样，算正常结束，不报错
+            Log.Info($"对话 {id} 在准备阶段被停止");
+            events.Post(new { type = "chat.done", conversationId = id, stopReason = AgentStopReason.Cancelled.ToString() });
+            RunFinished?.Invoke(new RunFinishedInfo(id, Store.Get(id)?.Title ?? "", "", AgentStopReason.Cancelled));
         }
         catch (Exception ex)
         {
@@ -1172,6 +1195,7 @@ public sealed class AgentHost : IDisposable
         ActiveRunsChanged?.Invoke(_runs.Count);
         try
         {
+            await Task.WhenAny(_initialConfig);
             var uiLanguage = _settings.ResolveUiLanguage();
             var user = NewUserMessage(null, prompt, Array.Empty<Attachment>());
             Store.AddMessages(conv.Id, new[] { user });

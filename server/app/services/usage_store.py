@@ -9,7 +9,8 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ChatRecord, Device, UsageDaily, UsageModelDaily
@@ -78,15 +79,8 @@ async def record(
         return
     day = today()
     scene = scene if scene in SCENES else "chat"
-    row = await session.scalar(
-        select(UsageDaily).where(UsageDaily.device_id == device_id, UsageDaily.day == day, UsageDaily.scene == scene)
-    )
-    if row is None:
-        row = UsageDaily(device_id=device_id, day=day, scene=scene, prompt_tokens=0, completion_tokens=0, requests=0)
-        session.add(row)
-    row.prompt_tokens += max(0, prompt)
-    row.completion_tokens += max(0, completion)
-    row.requests += 1
+    await _bump(session, UsageDaily, {"device_id": device_id, "day": day, "scene": scene},
+                {"prompt_tokens": max(0, prompt), "completion_tokens": max(0, completion), "requests": 1})
     if model_name:
         await _add_model_usage(session, day, model_id, model_name, scene, max(0, prompt), max(0, completion), 1)
     await session.commit()
@@ -97,20 +91,33 @@ async def _add_model_usage(
     prompt: int, completion: int, requests: int,
 ) -> None:
     name = model_name.strip()[:200] or "未知模型"
-    row = await session.scalar(
-        select(UsageModelDaily).where(
-            UsageModelDaily.day == day, UsageModelDaily.model_name == name, UsageModelDaily.scene == scene
-        )
+    await _bump(session, UsageModelDaily, {"day": day, "model_name": name, "scene": scene},
+                {"prompt_tokens": prompt, "completion_tokens": completion, "requests": requests},
+                {"model_id": model_id} if model_id is not None else {})
+
+
+async def _bump(session: AsyncSession, model, keys: dict, add: dict[str, int], also: dict | None = None) -> None:
+    """
+    原子地累加一行计数。
+
+    原来是「读出来、加上、写回去」，两个请求同时结束时后写的会盖掉先写的，用量少记。
+    现在直接 UPDATE col = col + n；这一行还没有就插入。两个请求同时插当天第一行时，
+    慢的那个会撞唯一约束——回滚到保存点，再 UPDATE 一次就行。
+    """
+    also = also or {}
+    stmt = (
+        update(model)
+        .where(*(getattr(model, k) == v for k, v in keys.items()))
+        .values({**{k: getattr(model, k) + v for k, v in add.items()}, **also})
+        .execution_options(synchronize_session=False)
     )
-    if row is None:
-        row = UsageModelDaily(day=day, model_id=model_id, model_name=name, scene=scene,
-                              prompt_tokens=0, completion_tokens=0, requests=0)
-        session.add(row)
-    if model_id is not None:
-        row.model_id = model_id
-    row.prompt_tokens += prompt
-    row.completion_tokens += completion
-    row.requests += requests
+    if (await session.execute(stmt)).rowcount:
+        return
+    try:
+        async with session.begin_nested():
+            session.add(model(**keys, **add, **also))
+    except IntegrityError:
+        await session.execute(stmt)
 
 
 MODEL_BACKFILL_KEY = "migration.usage_by_model_v1"
@@ -154,15 +161,8 @@ async def backfill_model_usage(session: AsyncSession, tz_offset_hours: int = 8) 
 
 async def record_request(session: AsyncSession, device_id: int, scene: str) -> None:
     """只记一次调用，不计 token。语音转文字按音频时长计费，没有 token 可记。"""
-    day = today()
     scene = scene if scene in SCENES else "chat"
-    row = await session.scalar(
-        select(UsageDaily).where(UsageDaily.device_id == device_id, UsageDaily.day == day, UsageDaily.scene == scene)
-    )
-    if row is None:
-        row = UsageDaily(device_id=device_id, day=day, scene=scene, prompt_tokens=0, completion_tokens=0, requests=0)
-        session.add(row)
-    row.requests += 1
+    await _bump(session, UsageDaily, {"device_id": device_id, "day": today(), "scene": scene}, {"requests": 1})
     await session.commit()
 
 

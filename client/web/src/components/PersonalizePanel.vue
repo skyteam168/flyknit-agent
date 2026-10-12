@@ -3,7 +3,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Check, Lock } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { toast } from '../store'
+import { errorText, toast } from '../store'
+import BrandLoader from './BrandLoader.vue'
 import type { PersonaInfo, PersonaUpdate } from '../types'
 
 // 个性化：回复语气、称呼和名字、关于我。
@@ -26,10 +27,22 @@ function apply(p: PersonaInfo) {
   Object.assign(about, p.about)
 }
 
-onMounted(async () => {
-  const p = await bridge.getPersona().catch(() => null)
-  if (p) apply(p)
-})
+const loading = ref(true)
+/** 没读出来的原因：显示重试，而不是整块空白 */
+const loadError = ref('')
+
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    apply(await bridge.getPersona())
+  } catch (e) {
+    loadError.value = errorText(e)
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
 
 /** 预设加上最后的“自定义” */
 const options = computed(() => [...(info.value?.presets ?? []).map((p) => ({ key: p.key, playful: p.playful })), { key: 'custom', playful: false }])
@@ -42,7 +55,7 @@ function locked(key: string) {
 }
 
 async function save(update: PersonaUpdate, done?: string) {
-  const r = await bridge.setPersona(update).catch((e) => ({ ok: false, message: String(e), persona: null }))
+  const r = await bridge.setPersona(update).catch((e) => ({ ok: false, message: errorText(e), persona: null }))
   if (r.persona) apply(r.persona)
   if (!r.ok) toast(r.message)
   else if (done) toast(done)
@@ -80,7 +93,12 @@ const aboutFields = ['department', 'position', 'language', 'systems', 'folders']
 </script>
 
 <template>
-  <div v-if="info" class="panel">
+  <BrandLoader v-if="!info && loading" class="loader" :text="t('ui.common.loading').replace(/[.…]+$/, '')" />
+  <div v-else-if="!info" class="load-failed">
+    <p>{{ t('ui.common.loadFailed', { msg: loadError }) }}</p>
+    <button type="button" class="btn" @click="load">{{ t('ui.common.retry') }}</button>
+  </div>
+  <div v-else class="panel">
     <section class="card">
       <h3>{{ t('ui.persona.tone') }}</h3>
       <p class="hint">{{ t('ui.persona.toneHint') }}</p>

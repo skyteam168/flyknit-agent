@@ -38,6 +38,9 @@ async def _reset_pg(url: str) -> None:
 
 @pytest_asyncio.fixture
 async def client(tmp_path):
+    from app.services import login_guard
+
+    login_guard.reset()  # 登录失败计数在进程内存里，别让上一个用例的失败挡住这一个
     if PG_URL:
         await _reset_pg(PG_URL)
         get_settings().database_url = PG_URL

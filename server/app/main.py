@@ -7,8 +7,9 @@ from typing import NamedTuple
 
 import httpx
 from dotenv.parser import parse_stream
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import make_url
 
@@ -69,7 +70,10 @@ async def lifespan(app: FastAPI):
         log.error(".env 第 %d 行没有生效，这一项用的是默认值 —— %s", line.number, line.hint)
     # 只点名真正还是默认值的那几项。原来不管哪个没改都念一遍「ADMIN_TOKEN / SECRET_KEY」，
     # 改了一个的人会以为自己没改成功，反过来也会以为改全了
-    for name in ("admin_token", "secret_key", "enrollment_key"):
+    if settings.admin_token == Settings.model_fields["admin_token"].default:
+        # 默认值人人知道，拿它当万能钥匙等于没锁门：直接停用，具名账号照常登录
+        log.error("仍在使用默认的 FLYKNIT_ADMIN_TOKEN，共享管理员令牌已停用；请在 .env 中修改后重启")
+    for name in ("secret_key", "enrollment_key"):
         if getattr(settings, name) == Settings.model_fields[name].default:
             log.warning("仍在使用默认的 FLYKNIT_%s，请在 .env 中修改%s", name.upper(),
                         "（拿到它就能冒充任意机器注册）" if name == "enrollment_key" else "")
@@ -132,6 +136,14 @@ app.include_router(experts.admin_router)
 app.include_router(experts.client_router)
 app.include_router(feedback.client_router)
 app.include_router(feedback.admin_router)
+
+
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+    """没预料到的异常：堆栈进日志，给调用方一句看得懂的中文，而不是光秃秃的 Internal Server Error。
+    HTTPException 和参数校验错误有各自的处理器，不会走到这里。"""
+    logging.getLogger("flyknit").error("未处理的异常 %s %s", request.method, request.url.path, exc_info=exc)
+    return JSONResponse({"detail": "服务器内部错误，请联系 IT 管理员查看日志"}, status_code=500)
 
 
 @app.get("/healthz", tags=["system"])

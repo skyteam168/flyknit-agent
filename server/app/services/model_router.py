@@ -1,5 +1,6 @@
 """根据场景选择模型，并把请求转发到上游 OpenAI 兼容接口。"""
 
+import logging
 import re
 from dataclasses import dataclass
 
@@ -11,6 +12,8 @@ from sqlalchemy.orm import joinedload
 from ..crypto import decrypt
 from ..models import ModelConfig, RouteRule
 from ..schemas import SCENES
+
+log = logging.getLogger("flyknit.router")
 
 # 这些状态码视为“上游不可用”，会切换到备用模型
 RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
@@ -39,14 +42,20 @@ class NoRouteError(Exception):
     pass
 
 
-def _to_target(m: ModelConfig) -> Target:
+def _to_target(m: ModelConfig) -> Target | None:
+    """密钥解不开（FLYKNIT_SECRET_KEY 改过）就返回 None，调用方跳过这个模型。"""
     base = m.provider.base_url.rstrip("/")
+    try:
+        api_key = decrypt(m.provider.api_key_enc)
+    except ValueError:
+        log.error("模型提供方「%s」(#%s) 的密钥无法解密，已跳过；请在管理后台重新填写", m.provider.name, m.provider.id)
+        return None
     return Target(
         model_id=m.id,
         display_name=m.name,
         upstream_model=m.model,
         url=f"{base}/chat/completions",
-        api_key=decrypt(m.provider.api_key_enc),
+        api_key=api_key,
         extra_body=dict(m.extra_body or {}),
         supports_vision=m.supports_vision,
         context_length=m.context_length or 131072,
@@ -85,8 +94,9 @@ async def resolve(session: AsyncSession, scene: str, model_id: int | None = None
 
     if model_id is not None:
         chosen = await load_model(session, model_id)
-        if _usable(chosen):
-            targets = [_to_target(chosen)]
+        first = _to_target(chosen) if _usable(chosen) else None
+        if first is not None:
+            targets = [first]
             try:
                 for t in await resolve(session, scene):
                     if t.model_id != chosen.id and len(targets) < 2:
@@ -110,8 +120,8 @@ async def resolve(session: AsyncSession, scene: str, model_id: int | None = None
         targets: list[Target] = []
         for mid in (rule.model_id, rule.fallback_model_id):
             m = await load_model(session, mid)
-            if _usable(m):
-                targets.append(_to_target(m))
+            if _usable(m) and (t := _to_target(m)) is not None:
+                targets.append(t)
         if targets:
             return targets
     raise NoRouteError(f"场景 {scene} 尚未配置可用模型，请在管理后台配置路由")

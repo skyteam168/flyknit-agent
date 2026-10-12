@@ -17,6 +17,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+import anyio
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
@@ -102,6 +103,8 @@ async def upload_release(
                 out.write(chunk)
         if size == 0:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件是空的")
+        if not zipfile.is_zipfile(tmp):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "上传的不是 zip 文件")
         # 程序自己报的版本号是编译时写进 exe 的，不是这里填的。两个对不上的话，
         # 员工电脑装完还报旧版本号，就会一直觉得「有新版本」，反复下载重装
         built = _built_version(tmp)
@@ -245,22 +248,25 @@ async def download_client_package(
     if latest is None or not _release_path(latest).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "还没有已发布的员工端版本：先在下面上传一个版本并发布")
 
-    with zipfile.ZipFile(_release_path(latest)) as zf:
-        folder = _exe_folder(zf)
-    if folder is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"版本 {latest.version} 的 zip 里找不到 FlyknitBuddy.exe")
-
     # 先确认能做成安装程序，再发凭证：做不成就别留一张没人用的凭证
     stub: bytes | None = None
-    if data.format == "exe":
+    try:
         with zipfile.ZipFile(_release_path(latest)) as zf:
-            name = next((n for n in zf.namelist() if n.replace("\\", "/").lower() == (folder + SETUP_EXE).lower()), None)
-            if name is None:
-                raise HTTPException(
-                    status.HTTP_400_BAD_REQUEST,
-                    f"版本 {latest.version} 的包里没有安装程序（{SETUP_EXE}）。用新版 publish-client.ps1 重新打包上传，或者先选 zip",
-                )
-            stub = zf.read(name)
+            folder = _exe_folder(zf)
+            if folder is None:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"版本 {latest.version} 的 zip 里找不到 FlyknitBuddy.exe")
+            if data.format == "exe":
+                name = next((n for n in zf.namelist() if n.replace("\\", "/").lower() == (folder + SETUP_EXE).lower()), None)
+                if name is None:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        f"版本 {latest.version} 的包里没有安装程序（{SETUP_EXE}）。用新版 publish-client.ps1 重新打包上传，或者先选 zip",
+                    )
+                stub = zf.read(name)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, f"版本 {latest.version} 的安装包文件已损坏，请重新上传这个版本"
+        ) from exc
 
     who = owner.username if owner else "admin_token"
     token = new_token()
@@ -275,7 +281,8 @@ async def download_client_package(
 
     # 复制一份再追加一个文件：不用把 100 多 MB 重新压一遍
     out = _release_dir() / f".package-{new_token()[:16]}.zip"
-    shutil.copyfile(_release_path(latest), out)
+    # 一百多 MB 的复制放到线程里，别把整个服务的事件循环卡住
+    await anyio.to_thread.run_sync(shutil.copyfile, _release_path(latest), out)
     provision = {
         "server_url": server_url,
         "ticket": token,
@@ -283,8 +290,12 @@ async def download_client_package(
         "version": latest.version,
         "issued_at": datetime.now(timezone.utc).isoformat(),
     }
-    with zipfile.ZipFile(out, "a", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(folder + PROVISION_FILE, json.dumps(provision, ensure_ascii=False, indent=2))
+    try:
+        with zipfile.ZipFile(out, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(folder + PROVISION_FILE, json.dumps(provision, ensure_ascii=False, indent=2))
+    except (zipfile.BadZipFile, OSError) as exc:
+        out.unlink(missing_ok=True)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "生成安装包失败，请重新上传这个版本后再试") from exc
     log.warning("%s 下载了员工端安装包 %s（%s，凭证 #%s，服务器 %s）", who, latest.version, data.format, ticket.id, server_url)
     if stub is None:
         return FileResponse(
@@ -296,12 +307,16 @@ async def download_client_package(
     # 安装程序 = 安装程序外壳 + 上面这个 zip + 结尾 32 字节的标记（记着 zip 从哪开始、多长），
     # 外壳运行时从自己身上读出 zip。在服务端拼，每次下载都带一张新凭证
     exe = out.with_suffix(".exe")
-    try:
+
+    def build_exe() -> None:
         with exe.open("wb") as dst:
             dst.write(stub)
             with out.open("rb") as src:
                 shutil.copyfileobj(src, dst, 1024 * 1024)
             dst.write(setup_trailer(len(stub), out.stat().st_size))
+
+    try:
+        await anyio.to_thread.run_sync(build_exe)
     finally:
         out.unlink(missing_ok=True)
     return FileResponse(

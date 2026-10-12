@@ -2,10 +2,9 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
-import { bridge } from '../bridge'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
-import { current, currentState, editAndResend, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
+import { current, currentState, editAndResend, openConversation, openPath, openTrace, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 import OutputFiles from './OutputFiles.vue'
@@ -45,7 +44,8 @@ useRichBlocks(scroller, () => [visible.value.map((m) => m.id + m.content.length)
 function traceSeconds(json: string | null | undefined): string {
   try {
     const ms = (JSON.parse(json ?? '{}') as { durationMs?: number }).durationMs ?? 0
-    return ms >= 1000 ? (ms / 1000).toFixed(1) : '0.' + Math.round(ms / 100)
+    // 统一保留一位小数（950ms → 1.0）；很短但不是 0 的至少显示 0.1
+    return (ms > 0 && ms < 100 ? 0.1 : Math.max(0, ms) / 1000).toFixed(1)
   } catch {
     return '0'
   }
@@ -235,7 +235,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
         <!-- 用户消息 -->
         <div v-if="m.role === 'user'" class="user" :class="{ editing: editingId === m.id }">
           <div v-if="m.attachments?.length" class="files">
-            <button v-for="a in m.attachments" :key="a.localPath" type="button" class="file" :title="a.localPath" @click="bridge.openPath(a.localPath)">
+            <button v-for="a in m.attachments" :key="a.localPath" type="button" class="file" :title="a.localPath" @click="openPath(a.localPath)">
               <img v-if="a.preview" :src="a.preview" alt="" />
               <component :is="isImage(a.mime) ? ImageIcon : FileText" v-else :size="16" />
               <span>{{ a.fileName }}</span>
