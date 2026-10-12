@@ -149,7 +149,12 @@ public sealed class UpdateService : IDisposable
 
     private void RefreshFromAgent()
     {
+        var exists = File.Exists(AgentStatusFile);
         var status = ReadAgentStatus();
+        if (exists && status is null)
+        {
+            return;  // 代理正在写这个文件，读不了：保持原样，别把「就绪」误当成「没有更新」
+        }
         if (status is null || !IsNewer(status.Value.Version, _currentVersion))
         {
             if (State.Stage != UpdateStage.None)
@@ -414,8 +419,11 @@ public sealed class UpdateService : IDisposable
     /// </summary>
     private bool WaitForAgent()
     {
+        // 界面上的「就绪」最多是一分钟前读的：点的这一刻再看一眼代理的状态
+        RefreshFromAgent();
         if (State.Stage != UpdateStage.Ready)
         {
+            Log.Warn($"重启升级：代理那边的新版本不是就绪状态（{State.Stage}），不退出");
             return false;
         }
         try
@@ -423,6 +431,7 @@ public sealed class UpdateService : IDisposable
             var source = Path.Combine(InstallDirectory, "FlyknitUpdater.exe");
             if (!File.Exists(source))
             {
+                Log.Warn($"重启升级：找不到 {source}");
                 return false;
             }
             var runner = Path.Combine(Path.GetTempPath(), $"FlyknitUpdater-{Guid.NewGuid():N}.exe");
