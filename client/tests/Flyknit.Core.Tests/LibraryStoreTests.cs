@@ -90,6 +90,27 @@ public class LibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void ConversationFilterListsOnlyThatConversationsFiles()
+    {
+        var store = NewStore();
+        var upload = store.Add(Write("a/需求.pdf", "req"), "upload", copy: true, conversationId: "c1")!;
+        var shot = store.Add(Write("a/截图.png", "png"), "paste", copy: true, conversationId: "c1")!;
+        var report = store.Add(Write("ws/output/报告.zip", "zip"), "output", copy: false, conversationId: "c1")!;
+        var scratch = store.Add(Write("ws/_work/tmp.py", "py"), "output", copy: false, conversationId: "c1")!;
+        var gone = store.Add(Write("ws/output/旧稿.docx", "old"), "output", copy: false, conversationId: "c1")!;
+        store.Add(Write("b/别的.txt", "other"), "upload", copy: true, conversationId: "c2");
+        store.Add(Write("b/资料库里的.txt", "lib"), "library", copy: true);
+        store.Delete(new[] { gone.Id });
+
+        var ids = store.List(new LibraryQuery { ConversationId = "c1" }).Select(i => i.Id).ToHashSet();
+        Assert.Equal(new[] { upload.Id, shot.Id, report.Id }.ToHashSet(), ids); // 删掉的、隐藏的不算
+        Assert.Contains(store.List(new LibraryQuery { ConversationId = "c1", IncludeHidden = true }), i => i.Id == scratch.Id);
+        Assert.Single(store.List(new LibraryQuery { ConversationId = "c2" }));
+        Assert.Empty(store.List(new LibraryQuery { ConversationId = "c3" }));
+        Assert.Equal(6, store.List(new LibraryQuery { IncludeHidden = true }).Count); // 不传就不过滤
+    }
+
+    [Fact]
     public void TrashRestoreAndPurge()
     {
         var store = NewStore();

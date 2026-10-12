@@ -56,6 +56,10 @@ public sealed class LibraryQuery
     public string Tab { get; init; } = "all";
 
     public string? FolderId { get; init; }
+
+    /// <summary>只看某个对话里的文件（对话顶栏的“本对话文件”用），为空不过滤。</summary>
+    public string? ConversationId { get; init; }
+
     public string Search { get; init; } = "";
 
     /// <summary>只看某一类（image、document…），为空不过滤。</summary>
@@ -248,6 +252,11 @@ public sealed class LibraryStore
         {
             where.Add("folder_id = $folder");
             args.Add(("$folder", q.FolderId));
+        }
+        if (!string.IsNullOrEmpty(q.ConversationId))
+        {
+            where.Add("conversation_id = $conv");
+            args.Add(("$conv", q.ConversationId));
         }
         switch (q.Tab)
         {

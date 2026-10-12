@@ -355,6 +355,7 @@ export function createMockHost(): HostTransport {
       { id: uid(), role: 'user', content: title, createdAt: c.updatedAt },
       { id: uid(), role: 'assistant', content: '这是一段历史对话的示例内容。', createdAt: c.updatedAt },
     ])
+    return c.id
   }
 
   function makeConversation(mode: Mode): Conversation {
@@ -377,10 +378,21 @@ export function createMockHost(): HostTransport {
   }
 
   seed('车间排班表翻译成越南语', 'translate', 0, true)
-  seed('整理 D 盘的日报文件', 'agent', 0)
-  seed('质检数据周报', 'agent', 1, false, 'D:\\')
+  const dailyId = seed('整理 D 盘的日报文件', 'agent', 0)
+  const qcId = seed('质检数据周报', 'agent', 1, false, 'D:\\')
   seed('Email gửi nhà cung cấp', 'chat', 3)
   seed('安装 ERP 客户端', 'agent', 12, false, 'C:\\Users\\demo\\Documents\\Flyknit')
+  // 顶栏「本对话的文件」的演示数据：两个对话里有上传、截图和产出
+  library.push(
+    libItem('q1', '质检周报-第41周.zip', 'archive', 'output', 1, { conversationId: qcId, size: 2_380_000 }),
+    libItem('q2', '质检周报-第41周.docx', 'document', 'output', 1, { conversationId: qcId }),
+    libItem('q3', '不良率趋势.png', 'image', 'output', 1, { conversationId: qcId, thumbUrl: svg('#0e9a8e', '#3446c9', 400, 260, '不良率'), url: svg('#0e9a8e', '#3446c9', 1200, 780, '不良率趋势') }),
+    libItem('q4', '各工序不良明细（按产线、班次、缺陷类型汇总）.xlsx', 'sheet', 'output', 1, { conversationId: qcId }),
+    libItem('q5', 'analyze.py', 'code', 'output', 1, { conversationId: qcId, hidden: true }),
+    libItem('q6', '九月质检记录.xlsx', 'sheet', 'upload', 1, { conversationId: qcId }),
+    libItem('q7', '截图 2026-10-11 093012.png', 'image', 'paste', 1, { conversationId: qcId, thumbUrl: svg('#312e81', '#f0a43a', 400, 250, '截图'), url: svg('#312e81', '#f0a43a', 1280, 800, 'MES 截图') }),
+    libItem('q8', '日报汇总.xlsx', 'sheet', 'output', 0, { conversationId: dailyId }),
+  )
 
   async function stream(conversationId: string, text: string) {
     for (const piece of text.match(/.{1,6}/gsu) ?? []) {
@@ -838,6 +850,7 @@ export function createMockHost(): HostTransport {
       case 'library.list': {
         const pool = p.tab === 'trash' ? libTrash : library
         let items = pool.filter((i) => p.hidden || !i.hidden || p.tab === 'trash')
+        if (p.conversationId) items = items.filter((i) => i.conversationId === p.conversationId)
         if (p.folderId) items = items.filter((i) => i.folderId === p.folderId)
         if (p.tab === 'favorites') items = items.filter((i) => i.favorite)
         if (p.tab === 'images') items = items.filter((i) => i.kind === 'image')
@@ -917,7 +930,15 @@ export function createMockHost(): HostTransport {
       case 'library.preview': {
         const item = library.find((i) => i.id === p.id)
         const text = '# ' + (item?.name ?? '') + '\n\n下面是演示内容：\n\n- engine.py 76-84\n- build_ast → chunk → metadata\n\n```python\nast = build_ast(body)\nchunks = chunk_document(doc_id, body, ast=ast)\n```\n'
-        return { path: item?.path ?? '', name: item?.name ?? '', kind: item?.kind === 'note' ? 'markdown' : 'text', text, sections: [] }
+        if (item?.kind === 'sheet') {
+          const rows = [['工序', '产线', '检验数', '不良数', '不良率'], ['裁剪', 'A1', '1,200', '18', '1.5%'], ['缝制', 'A2', '1,180', '41', '3.5%'], ['鞋面', 'B1', '960', '12', '1.3%'], ['成型', 'B2', '1,020', '27', '2.6%']]
+          return { path: item.path, name: item.name, kind: 'table', sections: [{ title: 'Sheet1', rows }, { title: '汇总', rows: rows.slice(0, 2) }] }
+        }
+        if (item?.kind === 'archive') {
+          const rows = [['名称', '大小'], ['质检周报-第41周.docx', '86 KB'], ['不良率趋势.png', '214 KB'], ['各工序不良明细.xlsx', '1.9 MB']]
+          return { path: item.path, name: item.name, kind: 'listing', sections: [{ title: item.name, rows }] }
+        }
+        return { path: item?.path ?? '', name: item?.name ?? '', kind: item?.kind === 'note' || item?.kind === 'document' ? 'markdown' : 'text', text, sections: [] }
       }
       case 'library.attachments':
         return library.filter((i) => p.ids.includes(i.id)).map((i) => ({ fileName: i.name, localPath: i.path, mime: i.mime, size: i.size }))
