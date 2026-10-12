@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace Flyknit.Core.Mcp;
 
@@ -51,7 +52,16 @@ public sealed class McpConnection : IAsyncDisposable
         switch (config.Transport)
         {
             case "stdio":
-                await connection.StartAsync(new StdioTransport(config, workingDirectory, runtime), "stdio", clientVersion, ct);
+                var stdio = new StdioTransport(config, workingDirectory, runtime);
+                try
+                {
+                    await connection.StartAsync(stdio, "stdio", clientVersion, ct);
+                }
+                catch (McpException) when (BrokenNpxInstall(stdio.StderrTail) is { } broken && TryDeleteDirectory(broken))
+                {
+                    // npx 上次装到一半被打断，留下缺文件的包，之后每次都会「找不到模块」：删掉重装一次
+                    await connection.StartAsync(new StdioTransport(config, workingDirectory, runtime), "stdio", clientVersion, ct);
+                }
                 break;
             case "sse":
                 await connection.StartAsync(new LegacySseTransport(http, ParseUrl(config.Url), Headers), "sse", clientVersion, ct);
@@ -71,9 +81,60 @@ public sealed class McpConnection : IAsyncDisposable
         return connection;
     }
 
+    /// <summary>这些命令第一次运行要先下载安装包，经服务器转一道的话一两分钟很正常。</summary>
+    private static readonly HashSet<string> PackageRunners = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "npx", "pnpx", "bunx", "uvx", "pipx", "pnpm", "yarn", "bun", "uv",
+    };
+
+    internal static readonly TimeSpan FirstInstallHandshake = TimeSpan.FromMinutes(5);
+
+    internal static bool InstallsPackages(McpServerConfig config) =>
+        config.Transport == "stdio" && PackageRunners.Contains(Path.GetFileNameWithoutExtension(config.Command.Trim().Trim('"').Replace('\\', '/').Split('/')[^1]));
+
+    private static readonly Regex NpxDir = new(
+        @"(?:file:///(?=[A-Za-z]:)|file://)?((?:[A-Za-z]:)?[\\/][^'""\s]*?[\\/]_npx[\\/][0-9a-fA-F]{8,})[\\/]node_modules[\\/]",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// npx 装到一半被打断（超时被结束、断网），_npx 下留着缺文件的包；npx 看到目录在就不再装，之后每次启动都报找不到模块。
+    /// 从错误输出里认出这种情况，返回那个 _npx\&lt;hash&gt; 目录。
+    /// </summary>
+    internal static string? BrokenNpxInstall(string stderr)
+    {
+        if (!stderr.Contains("ERR_MODULE_NOT_FOUND", StringComparison.Ordinal) && !stderr.Contains("Cannot find module", StringComparison.Ordinal)
+            && !stderr.Contains("Cannot find package", StringComparison.Ordinal))
+        {
+            return null;
+        }
+        var m = NpxDir.Match(stderr);
+        if (!m.Success)
+        {
+            return null;
+        }
+        var dir = Uri.UnescapeDataString(m.Groups[1].Value).Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+        return Directory.Exists(dir) ? dir : null;
+    }
+
+    private static bool TryDeleteDirectory(string dir)
+    {
+        try
+        {
+            Directory.Delete(dir, recursive: true);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     private async Task StartAsync(McpTransport transport, string kind, string clientVersion, CancellationToken ct)
     {
-        var client = new McpClient(transport, Config.Timeout);
+        var client = new McpClient(transport, Config.Timeout)
+        {
+            HandshakeTimeout = InstallsPackages(Config) ? FirstInstallHandshake : null,
+        };
         try
         {
             await client.ConnectAsync(clientVersion, ct);

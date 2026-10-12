@@ -39,6 +39,9 @@ public sealed class McpClient : IAsyncDisposable
 
     public string NegotiatedVersion { get; private set; } = ProtocolVersion;
 
+    /// <summary>等握手回应多久。默认不超过 30 秒；npx / uvx 第一次要先下载安装包，调用方会放宽。</summary>
+    public TimeSpan? HandshakeTimeout { get; init; }
+
     /// <summary>对方说工具列表变了。</summary>
     public event Action? ToolsChanged;
 
@@ -67,7 +70,7 @@ public sealed class McpClient : IAsyncDisposable
             ["protocolVersion"] = ProtocolVersion,
             ["capabilities"] = new JsonObject(),
             ["clientInfo"] = new JsonObject { ["name"] = "FlyknitBuddy", ["version"] = clientVersion },
-        }, Min(_timeout, TimeSpan.FromSeconds(30)), ct) as JsonObject ?? throw new McpException("对方没有回应握手");
+        }, HandshakeTimeout ?? Min(_timeout, TimeSpan.FromSeconds(30)), ct) as JsonObject ?? throw new McpException("对方没有回应握手");
 
         var version = result["protocolVersion"]?.ToString() ?? "";
         if (!KnownVersions.Contains(version))

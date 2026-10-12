@@ -526,6 +526,70 @@ public class McpTests
     }
 
     [Fact]
+    public async Task AHalfInstalledNpxPackageIsRemovedAndReinstalled()
+    {
+        if (FindPython() is not { } python)
+        {
+            return;
+        }
+        var dir = Path.Combine(Path.GetTempPath(), "flyknit-mcp-" + Guid.NewGuid().ToString("N"));
+        var broken = Path.Combine(dir, "npm-cache", "_npx", "eea2bd7412d4593b");
+        Directory.CreateDirectory(Path.Combine(broken, "node_modules", "@modelcontextprotocol", "core"));
+        var script = Path.Combine(dir, "server.py");
+        // 缓存目录还在就像 npx 那样报「找不到模块」退出；删掉以后（相当于重新装好）正常提供服务
+        var missing = new Uri(Path.Combine(broken, "node_modules", "@modelcontextprotocol", "core", "dist", "internal.mjs")).AbsoluteUri;
+        await File.WriteAllTextAsync(script,
+            "import os, sys\n" +
+            $"if os.path.isdir({System.Text.Json.JsonSerializer.Serialize(broken)}):\n" +
+            $"    sys.stderr.write(\"Error [ERR_MODULE_NOT_FOUND]: Cannot find module\\n  code: 'ERR_MODULE_NOT_FOUND',\\n  url: '{missing}'\\n\")\n" +
+            "    sys.exit(1)\n" + PythonServer);
+        try
+        {
+            var config = new McpServerConfig
+            {
+                Id = "py", Name = "Py", Transport = "stdio", Command = python, Args = new[] { "-u", script },
+                Env = new Dictionary<string, string> { ["PYTHONIOENCODING"] = "utf-8" },
+                Timeout = TimeSpan.FromSeconds(20),
+            };
+            await using var conn = await McpConnection.ConnectAsync(config, new HttpClient(), "1.0", null, dir, CancellationToken.None);
+            Assert.Equal("echo", conn.Tools.Single().Name);
+            Assert.False(Directory.Exists(broken));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
+    public void OnlyNpxCacheDirectoriesAreTreatedAsBrokenInstalls()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "flyknit-npx-" + Guid.NewGuid().ToString("N"), "_npx", "0123456789abcdef");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var url = new Uri(Path.Combine(dir, "node_modules", "x", "index.mjs")).AbsoluteUri;
+            Assert.Equal(dir, McpConnection.BrokenNpxInstall($"code: 'ERR_MODULE_NOT_FOUND',\n  url: '{url}'"));
+            // 别的错误、别的目录都不动
+            Assert.Null(McpConnection.BrokenNpxInstall($"Error: connect ECONNREFUSED\n  url: '{url}'"));
+            Assert.Null(McpConnection.BrokenNpxInstall("code: 'ERR_MODULE_NOT_FOUND', url: 'file:///tmp/project/node_modules/x.mjs'"));
+        }
+        finally
+        {
+            try { Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(dir))!, true); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
+    public void PackageRunnersGetTimeToInstallOnFirstRun()
+    {
+        Assert.True(McpConnection.InstallsPackages(new McpServerConfig { Id = "x", Name = "X", Transport = "stdio", Command = "npx" }));
+        Assert.True(McpConnection.InstallsPackages(new McpServerConfig { Id = "x", Name = "X", Transport = "stdio", Command = @"C:\rt\node\npx.cmd" }));
+        Assert.True(McpConnection.InstallsPackages(new McpServerConfig { Id = "x", Name = "X", Transport = "stdio", Command = "uvx" }));
+        Assert.False(McpConnection.InstallsPackages(new McpServerConfig { Id = "x", Name = "X", Transport = "stdio", Command = "python" }));
+    }
+
+    [Fact]
     public async Task AMissingCommandSaysSoInsteadOfHanging()
     {
         var config = new McpServerConfig
