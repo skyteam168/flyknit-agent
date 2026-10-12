@@ -15,7 +15,7 @@ from sqlalchemy.engine import make_url
 
 from . import __version__, db
 from .config import Settings, get_settings
-from .routers import admin, agents, chats, client, console, experts, feedback, gateway, instructions, mcp, releases, speech
+from .routers import admin, agents, chats, client, console, experts, feedback, gateway, instructions, landing, mcp, releases, speech
 from .services import housekeeping, usage_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -130,6 +130,7 @@ app.include_router(console.router)
 app.include_router(agents.router)
 app.include_router(instructions.router)
 app.include_router(releases.router)
+app.include_router(landing.router)
 app.include_router(mcp.admin_router)
 app.include_router(mcp.client_router)
 app.include_router(experts.admin_router)
@@ -155,3 +156,9 @@ async def healthz():
 _admin_dist = Path(__file__).resolve().parent / "static" / "admin"
 if _admin_dist.is_dir():
     app.mount("/admin", StaticFiles(directory=_admin_dist, html=True), name="admin")
+
+# 产品页（落地页）：直接打开 http://服务器:8000/ 就是。静态文件，改完刷新就生效。
+# 挂在最后：前面的接口、/admin、/healthz 都优先匹配
+_landing = Path(__file__).resolve().parent / "static" / "landing"
+if _landing.is_dir():
+    app.mount("/", StaticFiles(directory=_landing, html=True), name="landing")

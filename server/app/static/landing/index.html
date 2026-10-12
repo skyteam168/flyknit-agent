@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FlyknitBuddy · 工厂办公电脑上的 AI 助手</title>
+  <meta name="description" content="FlyknitBuddy：用中文、越南语或英语说出要做的事，AI 帮你整理文件、分析表格、写文档、翻译、操作电脑。数据留在公司内网，IT 统一管理。" />
+  <meta name="theme-color" content="#3446c9" />
+  <link rel="icon" type="image/png" href="assets/favicon.png" />
+  <link rel="stylesheet" href="assets/landing.css" />
+</head>
+<body>
+  <!-- 图标：只用一套线条图标，内联进来，内网没有外部资源也能显示 -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+      <symbol id="i-languages" viewBox="0 0 24 24"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-5"/><path d="M12 16V8"/><path d="M17 16v-9"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+      <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M19.44 7.85c-.49.49-1.32.39-1.68-.2a2.5 2.5 0 1 0-3.41 3.41c.59.36.69 1.19.2 1.68l-1.85 1.85a1.2 1.2 0 0 1-1.7 0l-1.32-1.32a2.5 2.5 0 1 0-3.54 3.54l1.32 1.32a1.2 1.2 0 0 1 0 1.7L5.6 21.6a1.2 1.2 0 0 1-1.7 0L2.4 20.1a1.2 1.2 0 0 1 0-1.7L12.3 8.5a1.2 1.2 0 0 1 1.7 0l.74.74c.49.49 1.32.39 1.68-.2a2.5 2.5 0 1 1 3.41-3.41c.59.36.69 1.19.2 1.68Z"/></symbol>
+      <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+      <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+      <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+      <symbol id="i-windows" viewBox="0 0 24 24"><path d="M3 5.5 10.5 4.5v7H3z"/><path d="M12 4.3 21 3v8.5h-9z"/><path d="M3 12.5h7.5v7L3 18.5z"/><path d="M12 12.5h9V21l-9-1.3z"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/></symbol>
+      <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/></symbol>
+      <symbol id="i-mouse" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="7"/><path d="M12 6v4"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="nav" id="top">
+    <div class="wrap nav-in">
+      <a class="brand" href="#top" aria-label="FlyknitBuddy">
+        <img src="assets/logo.png" alt="" width="34" height="34" />
+        <span>FlyknitBuddy</span>
+      </a>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="#features" data-i18n="nav.features">功能</a>
+        <a href="#scenes" data-i18n="nav.scenes">场景</a>
+        <a href="#experts" data-i18n="nav.experts">专家</a>
+        <a href="#security" data-i18n="nav.security">安全</a>
+        <a href="#faq" data-i18n="nav.faq">常见问题</a>
+      </nav>
+      <div class="nav-right">
+        <div class="lang" role="group" aria-label="Language">
+          <svg class="ic sm"><use href="#i-globe" /></svg>
+          <button type="button" data-lang="zh" class="on">中文</button>
+          <button type="button" data-lang="vi">VI</button>
+          <button type="button" data-lang="en">EN</button>
+        </div>
+        <a class="btn primary sm" href="#download"><svg class="ic sm"><use href="#i-download" /></svg><span data-i18n="nav.download">下载</span></a>
+        <button type="button" class="menu-btn" aria-label="菜单" aria-expanded="false"><svg class="ic"><use href="#i-menu" /></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============ 首屏 ============ -->
+    <section class="hero">
+      <div class="hero-bg" aria-hidden="true">
+        <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+        <span class="grid-lines"></span>
+      </div>
+      <div class="wrap hero-in">
+        <p class="eyebrow reveal"><span class="dot"></span><span data-i18n="hero.eyebrow">工厂办公电脑上的 AI 助手 · 支持中文 / Tiếng Việt / English</span></p>
+        <h1 class="reveal" data-i18n-html="hero.title">说出要做的事，<br /><span class="grad">剩下的交给 FlyknitBuddy</span></h1>
+        <p class="lead reveal" data-i18n="hero.lead">整理文件、分析 Excel、写邮件和报告、翻译、安装软件、操作电脑——用你习惯的语言说一句，它就去办。数据留在公司内网，IT 统一管理。</p>
+        <div class="hero-cta reveal">
+          <a class="btn primary lg" href="#download"><svg class="ic"><use href="#i-windows" /></svg><span data-i18n="hero.download">下载 Windows 版</span></a>
+          <a class="btn ghost lg" href="#features"><span data-i18n="hero.more">看看它能做什么</span><svg class="ic sm"><use href="#i-arrow" /></svg></a>
+        </div>
+        <ul class="hero-badges reveal">
+          <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="hero.b1">Windows 10 / 11</span></li>
+          <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="hero.b2">公司内网部署</span></li>
+          <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="hero.b3">域账号一键登录</span></li>
+        </ul>
+
+        <!-- 产品画面：真实界面截图 + 浮动的结果卡片 -->
+        <div class="showcase reveal">
+          <div class="typing" aria-hidden="true">
+            <svg class="ic sm"><use href="#i-sparkles" /></svg>
+            <span class="typing-text" id="typing"></span><span class="caret"></span>
+          </div>
+          <div class="window">
+            <div class="window-bar"><i></i><i></i><i></i><span>FlyknitBuddy</span></div>
+            <img src="assets/img/agent-run.webp" width="1600" height="1000" alt="FlyknitBuddy 办事模式：把九月日报按车间汇总成 Excel，并画出产量对比图" />
+          </div>
+          <div class="float f1">
+            <span class="f-ic green"><svg class="ic sm"><use href="#i-file" /></svg></span>
+            <div><strong data-i18n="float.f1t">已生成 九月产量汇总.xlsx</strong><small data-i18n="float.f1s">3 个车间 · 30 天 · 含趋势图</small></div>
+          </div>
+          <div class="float f2">
+            <span class="f-ic blue"><svg class="ic sm"><use href="#i-languages" /></svg></span>
+            <div><strong>Đề nghị các tổ trưởng…</strong><small data-i18n="float.f2s">已翻译成越南语 · 保留原格式</small></div>
+          </div>
+          <div class="float f3">
+            <span class="f-ic red"><svg class="ic sm"><use href="#i-shield" /></svg></span>
+            <div><strong data-i18n="float.f3t">危险命令已拦截</strong><small data-i18n="float.f3s">Remove-Item -Recurse C:\Windows</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 数字 ============ -->
+    <section class="stats">
+      <div class="wrap stats-in">
+        <div class="stat reveal"><strong><span class="count" data-to="3">3</span></strong><span data-i18n="stats.s1">种界面语言，中越英随时切换</span></div>
+        <div class="stat reveal"><strong><span class="count" data-to="3">3</span></strong><span data-i18n="stats.s2">种模式：办事、对话、翻译</span></div>
+        <div class="stat reveal"><strong><span class="count" data-to="100">100</span>%</strong><span data-i18n="stats.s3">数据留在公司内网服务器</span></div>
+        <div class="stat reveal"><strong>24<small>h</small></strong><span data-i18n="stats.s4">定时任务，下班后也能跑</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 功能 ============ -->
+    <section class="section" id="features">
+      <div class="wrap">
+        <div class="head reveal">
+          <p class="kicker" data-i18n="feat.kicker">功能</p>
+          <h2 data-i18n="feat.title">一个助手，覆盖办公室里的大部分杂事</h2>
+          <p data-i18n="feat.sub">不用学新软件、不用写公式和命令。说清楚要什么，它会自己拆步骤、动手做、把结果交给你。</p>
+        </div>
+        <div class="cards">
+          <article class="card reveal"><span class="c-ic indigo"><svg class="ic"><use href="#i-wrench" /></svg></span><h3 data-i18n="feat.c1t">办事：替你操作电脑</h3><p data-i18n="feat.c1p">读写文件、整理文件夹、执行命令、打开软件。每一步都看得见，改动前自动备份，删除进回收站。</p></article>
+          <article class="card reveal"><span class="c-ic teal"><svg class="ic"><use href="#i-chart" /></svg></span><h3 data-i18n="feat.c2t">Excel / Word / PPT</h3><p data-i18n="feat.c2p">汇总报表、画图表、写周报、做汇报 PPT。直接生成文件，放在你指定的文件夹。</p></article>
+          <article class="card reveal"><span class="c-ic blue"><svg class="ic"><use href="#i-languages" /></svg></span><h3 data-i18n="feat.c3t">中越英翻译</h3><p data-i18n="feat.c3p">整段、整份文件都能翻，保留原格式。工厂术语表统一用词，选中文字按 Ctrl+Alt+T 就地翻译。</p></article>
+          <article class="card reveal"><span class="c-ic violet"><svg class="ic"><use href="#i-users" /></svg></span><h3 data-i18n="feat.c4t">专家</h3><p data-i18n="feat.c4p">IT 为生产、质检、行政等业务配置好的 AI 专家，懂流程、懂术语，选一位直接说事。</p></article>
+          <article class="card reveal"><span class="c-ic amber"><svg class="ic"><use href="#i-folder" /></svg></span><h3 data-i18n="feat.c5t">资料库</h3><p data-i18n="feat.c5p">对话里用过、生成的文件自动收好，按图片、文档、收藏分类，下次一句话就能找到并继续用。</p></article>
+          <article class="card reveal"><span class="c-ic pink"><svg class="ic"><use href="#i-puzzle" /></svg></span><h3 data-i18n="feat.c6t">技能与连接器</h3><p data-i18n="feat.c6p">公司技能库里的标准流程一键安装；连上 MES、ERP 等系统后，AI 能直接查数据、办业务。</p></article>
+          <article class="card reveal"><span class="c-ic green"><svg class="ic"><use href="#i-clock" /></svg></span><h3 data-i18n="feat.c7t">定时任务</h3><p data-i18n="feat.c7p">每天早上汇总昨日产量、每周五出质检周报——设好时间，到点自动执行，完成后通知你。</p></article>
+          <article class="card reveal"><span class="c-ic slate"><svg class="ic"><use href="#i-sparkles" /></svg></span><h3 data-i18n="feat.c8t">越用越懂你</h3><p data-i18n="feat.c8p">记住你的习惯和常用信息，同类任务做顺了会总结成技能，下次更快更准。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 办事 ============ -->
+    <section class="section split">
+      <div class="wrap split-in">
+        <div class="split-text reveal">
+          <p class="kicker" data-i18n="agent.kicker">办事模式</p>
+          <h2 data-i18n="agent.title">从一句话，到一份交得出去的报表</h2>
+          <p data-i18n="agent.sub">它会先看清楚文件、拆好步骤，再一步步做完。需要动到重要文件时先问你，做完把文件和结论一起交给你。</p>
+          <ol class="steps">
+            <li><b>1</b><div><strong data-i18n="agent.s1t">说出要做的事</strong><span data-i18n="agent.s1p">「把 D:\日报 里 9 月的日报按车间汇总，再画一张趋势图」</span></div></li>
+            <li><b>2</b><div><strong data-i18n="agent.s2t">它自己拆步骤、动手</strong><span data-i18n="agent.s2p">读取 30 份日报 → 按车间汇总 → 生成 Excel → 画图表</span></div></li>
+            <li><b>3</b><div><strong data-i18n="agent.s3t">结果直接交到手上</strong><span data-i18n="agent.s3p">文件保存在工作区，图表和结论显示在对话里，点一下就能打开</span></div></li>
+          </ol>
+        </div>
+        <div class="split-media reveal">
+          <div class="window tilt">
+            <div class="window-bar"><i></i><i></i><i></i><span data-i18n="agent.win">办事 · 九月产量汇总</span></div>
+            <img src="assets/img/agent-run.webp" width="1600" height="1000" loading="lazy" alt="" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 翻译 ============ -->
+    <section class="section split alt">
+      <div class="wrap split-in reverse">
+        <div class="split-text reveal">
+          <p class="kicker" data-i18n="tr.kicker">翻译</p>
+          <h2 data-i18n="tr.title">中文、越南语、英语，车间和办公室说同一种话</h2>
+          <p data-i18n="tr.sub">通知、排班表、邮件、整份 Word 和 Excel 都能翻。原文已经是你的语言时，自动换成另一种。</p>
+          <ul class="ticks">
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="tr.t1">工厂术语表统一用词，翻得专业</span></li>
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="tr.t2">在任何软件里选中文字，Ctrl+Alt+T 就地出译文</span></li>
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="tr.t3">资源管理器里右键文件「用 FlyknitBuddy 翻译」</span></li>
+          </ul>
+        </div>
+        <div class="split-media reveal">
+          <div class="tr-demo" aria-label="翻译示例">
+            <div class="tr-src">
+              <span class="tag">中文</span>
+              <p>本周五起二车间改为两班倒，早班 7:00–15:00，晚班 15:00–23:00，请各组长通知到每位员工。</p>
+            </div>
+            <div class="tr-arrow"><svg class="ic"><use href="#i-languages" /></svg></div>
+            <div class="tr-out">
+              <div class="tr-line" style="--d:0s"><span class="tag vi">Tiếng Việt</span><p>Từ thứ Sáu tuần này, Xưởng 2 chuyển sang làm hai ca: ca sáng 7:00–15:00, ca tối 15:00–23:00. Đề nghị các tổ trưởng thông báo đến từng công nhân.</p></div>
+              <div class="tr-line" style="--d:.5s"><span class="tag en">English</span><p>Starting this Friday, Workshop 2 will run two shifts: 7:00–15:00 and 15:00–23:00. Team leaders, please inform every worker.</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 专家 ============ -->
+    <section class="section split" id="experts">
+      <div class="wrap split-in">
+        <div class="split-text reveal">
+          <p class="kicker" data-i18n="ex.kicker">专家</p>
+          <h2 data-i18n="ex.title">公司的业务专家，人人随叫随到</h2>
+          <p data-i18n="ex.sub">IT 在后台按业务配置专家：工作方式、知识、能用哪些系统，一次配好、全员可用。新员工也能像老员工一样办事。</p>
+          <div class="chips">
+            <span data-i18n="ex.c1">MES 生产分析</span><span data-i18n="ex.c2">质检数据分析</span><span data-i18n="ex.c3">生产排程</span>
+            <span data-i18n="ex.c4">IT 运维</span><span data-i18n="ex.c5">ERP 操作指导</span><span data-i18n="ex.c6">报表助手</span>
+          </div>
+        </div>
+        <div class="split-media reveal">
+          <div class="window tilt-r">
+            <div class="window-bar"><i></i><i></i><i></i><span data-i18n="ex.win">专家</span></div>
+            <img src="assets/img/experts.webp" width="1600" height="1000" loading="lazy" alt="" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 场景 ============ -->
+    <section class="section alt" id="scenes">
+      <div class="wrap">
+        <div class="head reveal">
+          <p class="kicker" data-i18n="sc.kicker">场景</p>
+          <h2 data-i18n="sc.title">每个岗位，都有用得上的地方</h2>
+          <p data-i18n="sc.sub">点一个岗位，看看大家平时都让它做什么。</p>
+        </div>
+        <div class="tabs reveal" role="tablist">
+          <button type="button" role="tab" class="on" data-tab="prod" data-i18n="sc.prod">生产</button>
+          <button type="button" role="tab" data-tab="qc" data-i18n="sc.qc">质检</button>
+          <button type="button" role="tab" data-tab="office" data-i18n="sc.office">行政 / 人事</button>
+          <button type="button" role="tab" data-tab="buy" data-i18n="sc.buy">采购 / 业务</button>
+          <button type="button" role="tab" data-tab="it" data-i18n="sc.it">IT</button>
+        </div>
+        <div class="panels reveal">
+          <div class="panel on" data-panel="prod">
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.p1">把昨天三个车间的产量日报汇总成一张表，标出没达标的产线</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.p2">根据下周订单交期，排一个各产线的生产计划草稿</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.p3">每天早上 8 点把昨日产量和设备停机时间发到我的资料库</span></div>
+          </div>
+          <div class="panel" data-panel="qc">
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.q1">分析 9 月的质检数据，按缺陷类型画帕累托图</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.q2">把这份客户投诉翻译成中文，并整理成 8D 报告的初稿</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.q3">每周五下午生成质检周报，保存到 D:\报表</span></div>
+          </div>
+          <div class="panel" data-panel="office">
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.o1">把这份通知翻译成越南语，排版成可以打印张贴的 Word</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.o2">整理这个月的考勤表，统计每个部门的加班时长</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.o3">把这几份会议记录整理成会议纪要，列出待办和负责人</span></div>
+          </div>
+          <div class="panel" data-panel="buy">
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.b1">给供应商写一封英文邮件，询问 10 月面料交期能否提前一周</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.b2">对比这三家的报价单，列出单价、交期和付款条件</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.b3">根据这份订单数据做一份季度汇报 PPT</span></div>
+          </div>
+          <div class="panel" data-panel="it">
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.i1">打印机连不上了，帮我检查一下是什么问题</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.i2">从共享盘安装 ERP 客户端，装好后打开</span></div>
+            <div class="prompt"><svg class="ic sm"><use href="#i-chat" /></svg><span data-i18n="sc.i3">C 盘快满了，看看哪些大文件可以清理（先列出来，别删）</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 资料库 ============ -->
+    <section class="section split">
+      <div class="wrap split-in reverse">
+        <div class="split-text reveal">
+          <p class="kicker" data-i18n="lib.kicker">资料库</p>
+          <h2 data-i18n="lib.title">做过的东西，都在这里</h2>
+          <p data-i18n="lib.sub">发给 AI 的附件、它生成的报表和文档、截图，自动归档。按收藏、文件夹、图片浏览，或者直接说「把上周那份产量表再改一下」。</p>
+        </div>
+        <div class="split-media reveal">
+          <div class="window tilt">
+            <div class="window-bar"><i></i><i></i><i></i><span data-i18n="lib.win">资料库</span></div>
+            <img src="assets/img/library.webp" width="1600" height="1000" loading="lazy" alt="" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 随手可用 ============ -->
+    <section class="section alt">
+      <div class="wrap">
+        <div class="head reveal">
+          <p class="kicker" data-i18n="hand.kicker">随手可用</p>
+          <h2 data-i18n="hand.title">不用切换窗口，在哪都能叫它</h2>
+        </div>
+        <div class="cards four">
+          <article class="card reveal"><span class="c-ic indigo"><img src="assets/logo.png" alt="" width="26" height="26" /></span><h3 data-i18n="hand.c1t">桌面悬浮球</h3><p data-i18n="hand.c1p">点一下打开，拖文件到球上直接发给 AI，右键还有对话浮窗、划词翻译、截图提问。</p></article>
+          <article class="card reveal"><span class="c-ic blue"><svg class="ic"><use href="#i-languages" /></svg></span><h3 data-i18n="hand.c2t">划词翻译</h3><p data-i18n="hand.c2p">在任何软件里选中文字，按 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>，鼠标旁弹出译文。</p></article>
+          <article class="card reveal"><span class="c-ic teal"><svg class="ic"><use href="#i-camera" /></svg></span><h3 data-i18n="hand.c3t">截图提问</h3><p data-i18n="hand.c3p">按 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>S</kbd> 框选屏幕上看不懂的报错、表格，直接问。</p></article>
+          <article class="card reveal"><span class="c-ic violet"><svg class="ic"><use href="#i-mouse" /></svg></span><h3 data-i18n="hand.c4t">右键菜单</h3><p data-i18n="hand.c4p">在文件上右键「发给 FlyknitBuddy 提问 / 总结 / 翻译」，在文件夹里「在这里办事」。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 安全 ============ -->
+    <section class="section dark" id="security">
+      <div class="wrap">
+        <div class="head reveal">
+          <p class="kicker" data-i18n="sec.kicker">安全可控</p>
+          <h2 data-i18n="sec.title">能动手，也守规矩</h2>
+          <p data-i18n="sec.sub">AI 能操作电脑，所以每一层都有护栏。规则由 IT 统一配置，实时下发到每台电脑。</p>
+        </div>
+        <div class="cards three">
+          <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-server" /></svg></span><h3 data-i18n="sec.c1t">数据不出厂</h3><p data-i18n="sec.c1p">服务端和模型网关部署在公司内网，对话、文件、记忆都在公司自己的服务器和员工电脑上。</p></article>
+          <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-lock" /></svg></span><h3 data-i18n="sec.c2t">工作区隔离</h3><p data-i18n="sec.c2p">默认只能在你选的工作区里读写文件，越界访问先问你；网络访问走白名单。</p></article>
+          <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-ban" /></svg></span><h3 data-i18n="sec.c3t">危险命令拦截</h3><p data-i18n="sec.c3p">格式化、批量删除、改注册表这类高危操作直接拦下，重要操作执行前请你确认。</p></article>
+          <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-trash" /></svg></span><h3 data-i18n="sec.c4t">改错了能找回</h3><p data-i18n="sec.c4p">修改文件前自动备份，删除的文件进回收站，随时还原。</p></article>
+          <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-list" /></svg></span><h3 data-i18n="sec.c5t">全程留痕</h3><p data-i18n="sec.c5p">每一次执行命令、写文件、被拦截都记入审计日志，员工自己能看，IT 后台能查。</p></article>
+          <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-settings" /></svg></span><h3 data-i18n="sec.c6t">IT 统一管理</h3><p data-i18n="sec.c6p">模型、额度、专家、技能、安全策略在管理后台一处配置；新版本自动推送，无需逐台安装。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 下载 ============ -->
+    <section class="section download" id="download">
+      <div class="wrap">
+        <div class="dl-card reveal">
+          <div class="dl-glow" aria-hidden="true"></div>
+          <img class="dl-logo" src="assets/logo.png" alt="" width="88" height="88" />
+          <h2 data-i18n="dl.title">现在就开始用 FlyknitBuddy</h2>
+          <p class="dl-sub" data-i18n="dl.sub">下载安装后用公司域账号一键登录，不用填服务器地址。</p>
+          <div class="dl-actions" id="dl-actions">
+            <a class="btn primary lg" id="dl-exe" href="/api/v1/public/download?format=exe"><svg class="ic"><use href="#i-windows" /></svg><span data-i18n="dl.exe">下载安装程序（.exe）</span></a>
+            <a class="btn ghost lg" id="dl-zip" href="/api/v1/public/download?format=zip"><svg class="ic"><use href="#i-download" /></svg><span data-i18n="dl.zip">免安装版（.zip）</span></a>
+          </div>
+          <p class="dl-meta" id="dl-meta"><span data-i18n="dl.checking">正在查询最新版本…</span></p>
+          <p class="dl-closed" id="dl-closed" hidden><span data-i18n="dl.closed">下载暂未开放。请联系 IT 信息科技部获取安装包。</span></p>
+          <div class="dl-steps">
+            <div><b>1</b><span data-i18n="dl.s1">下载并运行安装程序</span></div>
+            <div><b>2</b><span data-i18n="dl.s2">用公司域账号一键登录</span></div>
+            <div><b>3</b><span data-i18n="dl.s3">点开右下角的悬浮球，说出要做的事</span></div>
+          </div>
+          <p class="dl-req" data-i18n="dl.req">系统要求：Windows 10 / 11（64 位）· 需要连接公司内网 · 安装程序需要管理员权限；没有权限时请用免安装版</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 常见问题 ============ -->
+    <section class="section faq" id="faq">
+      <div class="wrap narrow">
+        <div class="head reveal">
+          <p class="kicker" data-i18n="faq.kicker">常见问题</p>
+          <h2 data-i18n="faq.title">你可能想知道</h2>
+        </div>
+        <details class="reveal"><summary data-i18n="faq.q1">需要付费吗？要自己申请账号吗？</summary><p data-i18n="faq.a1">不需要。FlyknitBuddy 是公司内部工具，安装后用公司域账号登录即可，每天有一定的使用额度，用完了可以联系 IT 调整。</p></details>
+        <details class="reveal"><summary data-i18n="faq.q2">我的对话和文件会被别人看到吗？</summary><p data-i18n="faq.a2">对话和文件保存在你的电脑和公司内网服务器上，不会发到公司外部。按公司制度，IT 在必要时可以查阅审计记录。</p></details>
+        <details class="reveal"><summary data-i18n="faq.q3">AI 会不会乱删我的文件？</summary><p data-i18n="faq.a3">默认只能在你选的工作区里操作；删除的文件进回收站，修改前自动备份；高危操作会被直接拦截，重要操作执行前会先问你。</p></details>
+        <details class="reveal"><summary data-i18n="faq.q4">没有管理员权限能装吗？</summary><p data-i18n="faq.a4">可以下载免安装版（.zip），解压后双击 FlyknitBuddy.exe 即可。安装程序（.exe）需要管理员权限，安装后会自动更新。</p></details>
+        <details class="reveal"><summary data-i18n="faq.q5">它支持哪些语言？</summary><p data-i18n="faq.a5">界面支持中文、越南语、英语，随时在设置里切换。对话时用哪种语言提问，它就用哪种语言回答。</p></details>
+        <details class="reveal"><summary data-i18n="faq.q6">遇到问题找谁？</summary><p data-i18n="faq.a6">在程序里点「反馈」可以直接把问题和截图发给 IT；也可以联系 IT 信息科技部。</p></details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-in">
+      <div class="f-brand">
+        <a class="brand" href="#top"><img src="assets/logo.png" alt="" width="30" height="30" /><span>FlyknitBuddy</span></a>
+        <p data-i18n="foot.tag">工厂办公电脑上的 AI 助手</p>
+      </div>
+      <nav class="f-links" aria-label="页脚导航">
+        <a href="#features" data-i18n="nav.features">功能</a>
+        <a href="#scenes" data-i18n="nav.scenes">场景</a>
+        <a href="#security" data-i18n="nav.security">安全</a>
+        <a href="#download" data-i18n="nav.download">下载</a>
+        <a href="#faq" data-i18n="nav.faq">常见问题</a>
+      </nav>
+    </div>
+    <div class="wrap copyright">
+      <p>© <span id="year">2026</span> <span>越南特种面料厂 IT信息科技部 研发 · 版权所有</span></p>
+    </div>
+  </footer>
+
+  <script src="assets/landing.js" defer></script>
+</body>
+</html>

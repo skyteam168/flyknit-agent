@@ -586,3 +586,12 @@ export interface ExpertOptions {
   mcp: ExpertOption[]
   models: ExpertOption[]
 }
+
+/** 产品页（落地页）下载 */
+export interface LandingDownload {
+  enabled: boolean
+  server_url: string
+  ticket_id: number | null
+  ticket_uses: number
+  version: string
+}

@@ -228,6 +228,70 @@ def _exe_folder(zf: zipfile.ZipFile) -> str | None:
     return None
 
 
+def _package_stub(latest: ClientRelease, fmt: str) -> tuple[str, bytes | None]:
+    """
+    检查发布的 zip 能不能做成安装包，返回（程序所在的文件夹, 安装程序外壳）。zip 格式外壳是 None。
+    先确认能做成，再发凭证：做不成就别留一张没人用的凭证。
+    """
+    try:
+        with zipfile.ZipFile(_release_path(latest)) as zf:
+            folder = _exe_folder(zf)
+            if folder is None:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"版本 {latest.version} 的 zip 里找不到 FlyknitBuddy.exe")
+            if fmt != "exe":
+                return folder, None
+            name = next((n for n in zf.namelist() if n.replace("\\", "/").lower() == (folder + SETUP_EXE).lower()), None)
+            if name is None:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"版本 {latest.version} 的包里没有安装程序（{SETUP_EXE}）。用新版 publish-client.ps1 重新打包上传，或者先选 zip",
+                )
+            return folder, zf.read(name)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, f"版本 {latest.version} 的安装包文件已损坏，请重新上传这个版本"
+        ) from exc
+
+
+async def _build_package(latest: ClientRelease, folder: str, stub: bytes | None, provision: dict, dest: Path) -> None:
+    """
+    把发布的 zip 加上 flyknit.provision.json 做成安装包，写到 dest。
+    stub 不为空时做成安装程序：外壳 + zip + 结尾 32 字节的标记（记着 zip 从哪开始、多长），外壳运行时从自己身上读出 zip。
+    """
+    # 复制一份再追加一个文件：不用把 100 多 MB 重新压一遍
+    out = _release_dir() / f".package-{new_token()[:16]}.zip"
+    # 一百多 MB 的复制放到线程里，别把整个服务的事件循环卡住
+    await anyio.to_thread.run_sync(shutil.copyfile, _release_path(latest), out)
+    try:
+        try:
+            with zipfile.ZipFile(out, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(folder + PROVISION_FILE, json.dumps(provision, ensure_ascii=False, indent=2))
+        except (zipfile.BadZipFile, OSError) as exc:
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "生成安装包失败，请重新上传这个版本后再试") from exc
+        if stub is None:
+            out.replace(dest)
+            return
+
+        def build_exe() -> None:
+            with dest.open("wb") as dst:
+                dst.write(stub)
+                with out.open("rb") as src:
+                    shutil.copyfileobj(src, dst, 1024 * 1024)
+                dst.write(setup_trailer(len(stub), out.stat().st_size))
+
+        await anyio.to_thread.run_sync(build_exe)
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def _package_response(path: Path, version: str, fmt: str, *, delete_after: bool) -> FileResponse:
+    background = BackgroundTask(path.unlink, missing_ok=True) if delete_after else None
+    if fmt == "exe":
+        return FileResponse(path, media_type="application/vnd.microsoft.portable-executable",
+                            filename=f"FlyknitBuddy-Setup-{version}.exe", background=background)
+    return FileResponse(path, media_type="application/zip", filename=f"FlyknitBuddy-{version}.zip", background=background)
+
+
 @router.post("/admin/client-package")
 async def download_client_package(
     data: TicketIn,
@@ -247,26 +311,7 @@ async def download_client_package(
     latest = await _latest(session)
     if latest is None or not _release_path(latest).exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "还没有已发布的员工端版本：先在下面上传一个版本并发布")
-
-    # 先确认能做成安装程序，再发凭证：做不成就别留一张没人用的凭证
-    stub: bytes | None = None
-    try:
-        with zipfile.ZipFile(_release_path(latest)) as zf:
-            folder = _exe_folder(zf)
-            if folder is None:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"版本 {latest.version} 的 zip 里找不到 FlyknitBuddy.exe")
-            if data.format == "exe":
-                name = next((n for n in zf.namelist() if n.replace("\\", "/").lower() == (folder + SETUP_EXE).lower()), None)
-                if name is None:
-                    raise HTTPException(
-                        status.HTTP_400_BAD_REQUEST,
-                        f"版本 {latest.version} 的包里没有安装程序（{SETUP_EXE}）。用新版 publish-client.ps1 重新打包上传，或者先选 zip",
-                    )
-                stub = zf.read(name)
-    except zipfile.BadZipFile as exc:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, f"版本 {latest.version} 的安装包文件已损坏，请重新上传这个版本"
-        ) from exc
+    folder, stub = _package_stub(latest, data.format)
 
     who = owner.username if owner else "admin_token"
     token = new_token()
@@ -279,52 +324,20 @@ async def download_client_package(
     session.add(ticket)
     await session.commit()
 
-    # 复制一份再追加一个文件：不用把 100 多 MB 重新压一遍
-    out = _release_dir() / f".package-{new_token()[:16]}.zip"
-    # 一百多 MB 的复制放到线程里，别把整个服务的事件循环卡住
-    await anyio.to_thread.run_sync(shutil.copyfile, _release_path(latest), out)
-    provision = {
+    dest = _release_dir() / f".package-{new_token()[:16]}.{data.format}"
+    await _build_package(latest, folder, stub, _provision(server_url, token, ticket.label, latest.version), dest)
+    log.warning("%s 下载了员工端安装包 %s（%s，凭证 #%s，服务器 %s）", who, latest.version, data.format, ticket.id, server_url)
+    return _package_response(dest, latest.version, data.format, delete_after=True)
+
+
+def _provision(server_url: str, token: str, label: str, version: str) -> dict:
+    return {
         "server_url": server_url,
         "ticket": token,
-        "label": ticket.label,
-        "version": latest.version,
+        "label": label,
+        "version": version,
         "issued_at": datetime.now(timezone.utc).isoformat(),
     }
-    try:
-        with zipfile.ZipFile(out, "a", compression=zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr(folder + PROVISION_FILE, json.dumps(provision, ensure_ascii=False, indent=2))
-    except (zipfile.BadZipFile, OSError) as exc:
-        out.unlink(missing_ok=True)
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "生成安装包失败，请重新上传这个版本后再试") from exc
-    log.warning("%s 下载了员工端安装包 %s（%s，凭证 #%s，服务器 %s）", who, latest.version, data.format, ticket.id, server_url)
-    if stub is None:
-        return FileResponse(
-            out,
-            media_type="application/zip",
-            filename=f"FlyknitBuddy-{latest.version}.zip",
-            background=BackgroundTask(out.unlink, missing_ok=True),
-        )
-    # 安装程序 = 安装程序外壳 + 上面这个 zip + 结尾 32 字节的标记（记着 zip 从哪开始、多长），
-    # 外壳运行时从自己身上读出 zip。在服务端拼，每次下载都带一张新凭证
-    exe = out.with_suffix(".exe")
-
-    def build_exe() -> None:
-        with exe.open("wb") as dst:
-            dst.write(stub)
-            with out.open("rb") as src:
-                shutil.copyfileobj(src, dst, 1024 * 1024)
-            dst.write(setup_trailer(len(stub), out.stat().st_size))
-
-    try:
-        await anyio.to_thread.run_sync(build_exe)
-    finally:
-        out.unlink(missing_ok=True)
-    return FileResponse(
-        exe,
-        media_type="application/vnd.microsoft.portable-executable",
-        filename=f"FlyknitBuddy-Setup-{latest.version}.exe",
-        background=BackgroundTask(exe.unlink, missing_ok=True),
-    )
 
 
 @router.get("/admin/tickets", response_model=list[TicketOut])

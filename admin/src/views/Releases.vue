@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type UploadFile, type UploadRawFile } from 'element-plus'
-import { Download, Refresh, Upload } from '@element-plus/icons-vue'
+import { Download, Link, Refresh, Upload } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { EnrollmentTicket, Release } from '@/api/types'
+import type { EnrollmentTicket, LandingDownload, Release } from '@/api/types'
 import { auth } from '@/store/auth'
 import { bytes, dateTime, relative } from '@/utils/format'
 
@@ -21,6 +21,8 @@ async function load() {
   try {
     releases.value = await api.releases()
     if (canPublish.value) tickets.value = await api.tickets()
+    landing.value = await api.landing()
+    if (!landingUrl.value) landingUrl.value = landing.value.server_url || (unreachableReason(window.location.origin) ? '' : window.location.origin)
   } finally {
     loading.value = false
   }
@@ -50,6 +52,49 @@ function unreachableReason(url: string): string {
   }
   if (u.port === '5180') return '5180 是后台开发服务器（npm run dev）的端口，不是服务端的端口'
   return ''
+}
+
+// ---------- 产品页下载 ----------
+// 产品页就是服务端的首页（http://服务器:8000/）。打开后员工在产品页点「下载」就能拿到最新版，装好直接登录
+const landing = ref<LandingDownload | null>(null)
+const landingUrl = ref('')
+const landingSaving = ref(false)
+const landingPage = computed(() => `${window.location.origin}/`)
+
+async function toggleLanding(enabled: boolean) {
+  if (enabled) {
+    const reason = unreachableReason(landingUrl.value)
+    if (!/^https?:\/\/[^\s/]+/.test(landingUrl.value.trim())) return ElMessage.warning('先填员工电脑访问服务器用的地址，如 http://10.0.0.5:8000')
+    if (reason) return ElMessage.warning(`这个地址员工电脑连不上：${reason}`)
+    await ElMessageBox.confirm(
+      '打开后，能打开产品页的人都能下载员工端并登录（安装包里带一张专用安装凭证，可以随时停用或更换）。确定打开？',
+      '开放产品页下载',
+      { type: 'warning', confirmButtonText: '打开' },
+    )
+  }
+  landingSaving.value = true
+  try {
+    landing.value = await api.setLanding(enabled, landingUrl.value.trim())
+    ElMessage.success(enabled ? '产品页已开放下载' : '产品页已停止下载')
+    tickets.value = await api.tickets()
+  } finally {
+    landingSaving.value = false
+  }
+}
+
+async function rotateLanding() {
+  await ElMessageBox.confirm('换一张新的安装凭证：旧凭证停用，已经登录的电脑不受影响；之前从产品页下载、还没安装的包将无法登录。', '更换凭证', {
+    type: 'warning',
+    confirmButtonText: '更换',
+  })
+  landingSaving.value = true
+  try {
+    landing.value = await api.rotateLanding()
+    ElMessage.success('已更换')
+    tickets.value = await api.tickets()
+  } finally {
+    landingSaving.value = false
+  }
 }
 
 function openPackage() {
@@ -246,6 +291,29 @@ async function remove(r: Release) {
       </el-table>
     </div>
 
+    <div v-if="landing" class="panel landing">
+      <div class="panel-title">
+        <h3>产品页下载<small>产品页地址：<a :href="landingPage" target="_blank" rel="noopener">{{ landingPage }}</a>　员工在产品页点「下载」即可拿到最新版，装好直接登录</small></h3>
+        <el-switch
+          :model-value="landing.enabled"
+          :loading="landingSaving"
+          :disabled="!canPublish || (!landing.enabled && !current)"
+          active-text="开放下载"
+          @change="(v: string | number | boolean) => toggleLanding(!!v)"
+        />
+      </div>
+      <div class="landing-body">
+        <el-input v-model="landingUrl" :prefix-icon="Link" placeholder="员工电脑访问服务器用的地址，如 http://10.0.0.5:8000" :disabled="!canPublish" style="max-width: 420px" />
+        <span v-if="landing.enabled" class="muted">
+          正在提供 {{ landing.version || '—' }} · 专用凭证 #{{ landing.ticket_id }}，已注册 {{ landing.ticket_uses }} 台
+        </span>
+        <span v-else-if="!current" class="muted">先发布一个版本，才能开放下载</span>
+        <span v-else class="muted">未开放：产品页上的下载按钮显示「暂未开放」</span>
+        <el-button v-if="landing.enabled" link type="warning" :disabled="!canPublish" @click="rotateLanding">更换凭证</el-button>
+        <el-button v-if="landing.enabled && landingUrl.trim() !== landing.server_url" link type="primary" :disabled="!canPublish" @click="toggleLanding(true)">保存新地址</el-button>
+      </div>
+    </div>
+
     <div v-if="canPublish && tickets.length" class="panel tickets">
       <div class="panel-title">
         <h3>已下载的安装包<small>每下载一次生成一张安装凭证。包外泄了就停用那一张：已登录的电脑不受影响，用它新装的登录不上</small></h3>
@@ -408,5 +476,24 @@ async function remove(r: Release) {
   color: var(--el-text-color-secondary);
   font-size: 12px;
   font-weight: normal;
+}
+.landing .panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.landing .panel-title h3 small {
+  margin-left: 10px;
+}
+.landing-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.landing .muted {
+  color: var(--ink-faint);
+  font-size: 13px;
 }
 </style>
