@@ -128,7 +128,11 @@ button {
   padding: 0;
 }
 
+/* 焦点框只在用键盘切换焦点时显示（见 main.ts）：WebView2 在窗口最大化、重新激活时会把鼠标点过的按钮也当成键盘焦点，画出一圈框 */
 :focus-visible {
+  outline: none;
+}
+html[data-input='keyboard'] :focus-visible {
   outline: 2px solid var(--indigo);
   outline-offset: 2px;
   border-radius: var(--r-sm);
