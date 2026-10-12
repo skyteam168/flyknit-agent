@@ -80,6 +80,7 @@ const form = reactive({
   model: '' as string,
   allow_direct: true,
   allow_delegate: true,
+  helper: false,
   sort_order: 0,
 })
 
@@ -102,6 +103,7 @@ function fill(e: Partial<Expert>) {
   form.model = e.model_id != null ? String(e.model_id) : ''
   form.allow_direct = e.allow_direct ?? true
   form.allow_delegate = e.allow_delegate ?? true
+  form.helper = e.helper ?? false
   form.sort_order = e.sort_order ?? 0
   // 有限制的才默认展开，没有就收着（默认全部沿用，大多数专家不用改）
   const limited = form.preferred_skills.length || form.mcp_servers.length || form.disallowed_tools.length || form.read_only || form.model
@@ -127,6 +129,7 @@ function body(): ExpertFields {
     model_id: form.model ? Number(form.model) : null,
     allow_direct: form.allow_direct,
     allow_delegate: form.allow_delegate,
+    helper: form.helper,
     sort_order: form.sort_order,
   }
 }
@@ -405,6 +408,7 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
             <el-tag v-if="e.dirty" size="small" type="warning" effect="plain">有未发布的修改</el-tag>
             <el-tag v-if="e.category" size="small" effect="plain">{{ e.category }}</el-tag>
             <el-tag v-if="e.read_only" size="small" effect="plain" type="info">只读</el-tag>
+            <el-tag v-if="e.helper" size="small" effect="plain" type="info">通用辅助</el-tag>
             <el-tag v-if="e.preferred_skills.length" size="small" effect="plain" type="info">优先技能 {{ e.preferred_skills.length }}</el-tag>
             <el-tag v-if="e.mcp_servers.length" size="small" effect="plain" type="info">限定连接器 {{ e.mcp_servers.length }}</el-tag>
             <el-tag v-if="!e.allow_direct" size="small" effect="plain" type="info">不对员工显示</el-tag>
@@ -617,7 +621,7 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
                   <span>{{ m.label }}</span><span class="opt-detail">{{ m.detail }}</span>
                 </el-option>
               </el-select>
-              <p class="hint">指定的模型停用或删掉后，自动回到「办事」场景的模型。</p>
+              <p class="hint">指定的模型停用或删掉后，自动回到「办事」场景的模型。辅助类专家建议选更快、更便宜的模型。</p>
             </el-form-item>
           </el-collapse-item>
         </el-collapse>
@@ -630,6 +634,10 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
         <el-form-item label="可接受派遣">
           <el-switch v-model="form.allow_delegate" />
           <p class="hint">开启页面顶部的「允许主助手派遣专家」后，主助手遇到这位专家擅长的任务时可以交给它做。</p>
+        </el-form-item>
+        <el-form-item label="通用辅助">
+          <el-switch v-model="form.helper" />
+          <p class="hint">总在主助手的候选专家里（不看和问题相不相关）。适合信息调查、文件理解、交付评审这类通用助手；业务专家不要开</p>
         </el-form-item>
       </el-form>
       <template #footer>

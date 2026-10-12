@@ -133,6 +133,7 @@ async def test_ai_draft_keeps_only_real_skills_and_connectors(client):
         "mcp_servers": ["mes", "erp"],
         "disallowed_tools": ["delete_path", "format_disk"],
         "read_only": True,
+        "helper": True,
         "notes": ["ERP 还没有接入"],
     }
     route = respx.post("http://primary.local/v1/chat/completions").mock(return_value=httpx.Response(200, json={
@@ -140,7 +141,7 @@ async def test_ai_draft_keeps_only_real_skills_and_connectors(client):
     r = await client.post("/api/v1/admin/experts/draft", headers=ADMIN, json={"text": "我要一个 MES 生产分析专家"})
     assert r.status_code == 200, r.text
     d = r.json()
-    assert d["id"] == "mes_analyst" and d["read_only"] is True
+    assert d["id"] == "mes_analyst" and d["read_only"] is True and d["helper"] is True
     assert d["preferred_skills"] == ["excel-report"]
     assert d["mcp_servers"] == ["mes"]
     assert d["disallowed_tools"] == ["delete_path"]
@@ -149,11 +150,19 @@ async def test_ai_draft_keeps_only_real_skills_and_connectors(client):
     # 给 AI 看的清单里有真实的技能和连接器
     prompt = json.loads(route.calls[0].request.content)["messages"][0]["content"]
     assert "excel-report" in prompt and "MES 系统" in prompt
+    assert '"helper"' in prompt
 
     # 标识已被占用：提示换一个
     await client.post("/api/v1/admin/experts", headers=ADMIN, json=MES)
     d = (await client.post("/api/v1/admin/experts/draft", headers=ADMIN, json={"text": "MES 专家"})).json()
     assert any("已经被占用" in n for n in d["notes"])
+
+    # 没提 helper 的草稿：按 false
+    del answer["helper"]
+    route.mock(return_value=httpx.Response(200, json={
+        "choices": [{"message": {"content": json.dumps(answer, ensure_ascii=False)}}]}))
+    d = (await client.post("/api/v1/admin/experts/draft", headers=ADMIN, json={"text": "MES 专家"})).json()
+    assert d["helper"] is False
 
 
 @respx.mock
@@ -211,3 +220,55 @@ async def test_rows_from_before_the_upgrade_still_load(client, device_headers):
     assert e["tags"] == [] and e["author"] == "" and e["dirty"] is False
     [live] = await client_experts(client, device_headers)
     assert live["tags"] == [] and live["author"] == ""
+
+
+async def test_helper_flag_defaults_off_and_reaches_employees(client, device_headers):
+    """通用辅助：默认关；打开后草稿、发布的快照、员工端、历史回滚都带着它。"""
+    r = await client.post("/api/v1/admin/experts", headers=ADMIN, json=MES)
+    assert r.json()["helper"] is False
+    await client.post("/api/v1/admin/experts/mes_analyst/publish", headers=ADMIN, json={})
+    [live] = await client_experts(client, device_headers)
+    assert live["helper"] is False
+
+    r = await client.put("/api/v1/admin/experts/mes_analyst", headers=ADMIN, json={**MES, "helper": True})
+    assert r.json()["helper"] is True and r.json()["dirty"] is True
+    # 没发布：员工端还是关的
+    assert (await client_experts(client, device_headers))[0]["helper"] is False
+    await client.post("/api/v1/admin/experts/mes_analyst/publish", headers=ADMIN, json={})
+    assert (await client_experts(client, device_headers))[0]["helper"] is True
+    versions = (await client.get("/api/v1/admin/experts/mes_analyst/versions", headers=ADMIN)).json()
+    assert versions[0]["snapshot"]["helper"] is True and versions[1]["snapshot"]["helper"] is False
+
+    # 放回第 1 版：helper 也回到关
+    r = await client.post("/api/v1/admin/experts/mes_analyst/versions/1/restore", headers=ADMIN)
+    assert r.json()["helper"] is False and r.json()["dirty"] is True
+
+    # 新建时直接打开
+    r = await client.post("/api/v1/admin/experts", headers=ADMIN,
+                          json={**MES, "id": "doc_reader", "name": "文件理解助手", "helper": True})
+    assert r.status_code == 201 and r.json()["helper"] is True
+
+
+async def test_helper_column_added_to_old_tables_defaults_false(client, device_headers):
+    """老库升级：experts 表没有 helper 列，快照里也没有；自动补列后按 false 算，不算改过。"""
+    from sqlalchemy import text
+
+    from app.migrate import ensure_schema
+
+    await client.post("/api/v1/admin/experts", headers=ADMIN, json=MES)
+    await client.post("/api/v1/admin/experts/mes_analyst/publish", headers=ADMIN, json={})
+    async with db.get_sessionmaker()() as s:
+        await s.execute(text("ALTER TABLE experts DROP COLUMN helper"))
+        row = (await s.execute(text("SELECT published FROM experts"))).scalar_one()
+        snap = json.loads(row) if isinstance(row, str) else dict(row)
+        snap.pop("helper", None)
+        await s.execute(text("UPDATE experts SET published = :p"), {"p": json.dumps(snap, ensure_ascii=False)})
+        await s.commit()
+        changes = await (await s.connection()).run_sync(ensure_schema)
+        await s.commit()
+        assert "experts.helper" in changes
+        assert (await s.execute(text("SELECT helper FROM experts"))).scalar_one() in (0, False)
+    [e] = (await client.get("/api/v1/admin/experts", headers=ADMIN)).json()
+    assert e["helper"] is False and e["dirty"] is False
+    [live] = await client_experts(client, device_headers)
+    assert live["helper"] is False

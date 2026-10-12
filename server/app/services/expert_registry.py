@@ -168,6 +168,7 @@ DRAFT_PROMPT = """你是企业智能体平台的「专家设计师」。管理�
   "mcp_servers": ["只在明确只该用某几个系统时才填，否则空数组"],
   "disallowed_tools": ["这个专家不该用的内置工具，如分析类专家不需要 delete_path"],
   "read_only": true 或 false（只做查询分析、不该改动任何文件的专家设为 true）,
+  "helper": true 或 false（只有不绑定具体业务、谁都用得上的通用助手才设为 true，如信息调查、文件与内容理解、交付物评审；生产、财务这类业务专家一律 false）,
   "notes": ["给管理员的提示：比如需要的系统还没有接入 MCP、技能库里缺什么技能、知识里建议补充哪些固定信息"]
 }}
 
@@ -238,6 +239,7 @@ def clean_draft(data: dict, opts: dict) -> dict:
         "mcp_servers": pick("mcp_servers", "mcp"),
         "disallowed_tools": pick("disallowed_tools", "tools"),
         "read_only": bool(data.get("read_only")),
+        "helper": bool(data.get("helper")),
         "notes": notes,
     }
     return out

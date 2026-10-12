@@ -10,7 +10,8 @@ using Flyknit.Core.Tools;
 namespace Flyknit.Core.Experts.Delegation;
 
 /// <summary>主助手要派遣的一件事（ask_expert 的参数）。</summary>
-public sealed record DelegationRequest(string ExpertId, string Task, string Context, IReadOnlyList<string> Files);
+/// <param name="CallId">主助手那次 ask_expert 调用的 ID。几位只读专家同时跑时，<see cref="ToolContext.CurrentCallId"/> 会被后面的覆盖，所以在工具入口就取走。</param>
+public sealed record DelegationRequest(string ExpertId, string Task, string Context, IReadOnlyList<string> Files, string CallId = "");
 
 /// <summary>
 /// 派遣专家的全过程：登记 → 预留预算 → 搭专家的运行环境 → 跑 → 收卷、核验 → 收尾、存档、交回主助手。
@@ -91,12 +92,27 @@ public sealed class ExpertDispatcher
         {
             return ToolResult.Fail("这些文件不能交给专家：" + string.Join("；", fileErrors) + "。只能给工作区里的文件或本对话里的附件，请改好后重试。");
         }
-        var remaining = parent.Budget?.Remaining ?? Limits.MaxTokensPerSubtask + Limits.ReserveForParent;
-        var cap = Math.Min(Limits.MaxTokensPerSubtask, remaining - Limits.ReserveForParent);
-        if (cap < Limits.MinTokensPerSubtask)
+        // 预算先占下来：几位专家同时跑时各占各的，加起来不会超过主任务剩下的预算
+        var cap = parent.Budget is { } parentBudget
+            ? parentBudget.TryReserve(Limits.MaxTokensPerSubtask, Limits.ReserveForParent, Limits.MinTokensPerSubtask)
+            : Limits.MaxTokensPerSubtask;
+        if (cap == 0)
         {
             return ToolResult.Fail("这次任务剩下的预算不够派遣专家了。请用已有的结果回复员工。");
         }
+        try
+        {
+            return await RunAsync(request, expert, files, runId, cap, parent, ct);
+        }
+        finally
+        {
+            parent.Budget?.Release(cap);
+        }
+    }
+
+    private async Task<ToolResult> RunAsync(DelegationRequest request, Expert expert, IReadOnlyList<string> files, string runId,
+        long cap, ToolContext parent, CancellationToken ct)
+    {
 
         // 专家配置在派遣这一刻定下来：之后后台改了专家，这次子任务照样按当时的版本跑完，记录里也能查到
         var snapshot = Clone(expert);
@@ -137,7 +153,7 @@ public sealed class ExpertDispatcher
         var record = new SubtaskRecord
         {
             Id = ticket.Id,
-            CallId = parent.CurrentCallId,
+            CallId = request.CallId.Length > 0 ? request.CallId : parent.CurrentCallId,
             ConversationId = parent.ConversationId,
             RunId = runId,
             ExpertId = snapshot.Id,
@@ -172,7 +188,7 @@ public sealed class ExpertDispatcher
         try
         {
             var setup = _host.Prepare(snapshot, brief, parent);
-            var guard = new ExpertRunGuard(state, snapshot, _enabled);
+            var guard = new ExpertRunGuard(state, snapshot, _enabled, d => _host.Approvals.IsAllowed(d.Rule));
             var tools = new ToolRegistry();
             foreach (var tool in setup.Tools.All.Where(guard.Allows))
             {

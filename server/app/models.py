@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -555,6 +555,9 @@ class Expert(Base):
     model_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     allow_direct: Mapped[bool] = mapped_column(Boolean, default=True)  # 员工可以直接呼叫
     allow_delegate: Mapped[bool] = mapped_column(Boolean, default=True)  # 主助手可以派任务给它（还要安全设置里的 expert_delegation 开着）
+    #: 通用辅助（信息调查、文件理解、交付评审这类）：总在主助手的候选专家里，不看名片和问题相不相关。
+    #: server_default 让升级时老行补成 false
+    helper: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     #: draft（还没发布过）/ published / offline（下线：员工端不再显示）
     status: Mapped[str] = mapped_column(String(10), default="draft")

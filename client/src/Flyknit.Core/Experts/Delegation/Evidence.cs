@@ -84,18 +84,36 @@ public sealed class ExpertRunGuard
     };
 
     private readonly Func<bool> _enabled;
+    private readonly Func<PolicyDecision, bool> _remembered;
 
-    public ExpertRunGuard(SubtaskState state, Expert expert, Func<bool> enabled)
+    /// <param name="remembered">员工设置过「总是允许」的操作（只读专家只有这种需要确认的操作能做）。</param>
+    public ExpertRunGuard(SubtaskState state, Expert expert, Func<bool> enabled, Func<PolicyDecision, bool>? remembered = null)
     {
         State = state;
         Expert = expert;
         _enabled = enabled;
+        _remembered = remembered ?? (_ => false);
     }
 
     public SubtaskState State { get; }
     public Expert Expert { get; }
 
     public bool Allows(ITool tool) => !Banned.Contains(tool.Name) && ExpertRuntime.Allows(Expert, tool);
+
+    /// <summary>
+    /// 只读专家不弹确认（和 Claude Code 的只读子代理一样，派出去就自己跑完）：要确认的操作说明不是纯查看，
+    /// 直接拦下，让它写进 open_questions 交回主助手。员工以前设过「总是允许」的照常放行。
+    /// </summary>
+    public PolicyDecision Review(PolicyDecision decision, string toolName)
+    {
+        if (Expert.ReadOnly && decision.Level == RiskLevel.Confirm && !_remembered(decision))
+        {
+            return PolicyDecision.Blocked(
+                $"「{Expert.Name}」是只读专家，不弹确认；{toolName} 需要员工确认（{decision.Reason}），没有执行。" +
+                "需要这一步的话，把它写进 open_questions 交回主助手");
+        }
+        return decision;
+    }
 
     /// <summary>不能动手时返回原因，能动手返回 null。</summary>
     public string? Refusal()
@@ -144,7 +162,7 @@ public sealed class GuardedExpertTool : ITool
         {
             return PolicyDecision.Blocked(reason);
         }
-        return _inner.Assess(args, ctx);
+        return _guard.Review(_inner.Assess(args, ctx), _inner.Name);
     }
 
     public string Describe(JsonElement args) => _inner.Describe(args);
