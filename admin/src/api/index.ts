@@ -6,6 +6,8 @@ import type {
   ExpertIn,
   ExpertOptions,
   ExpertVersion,
+  Subtask,
+  SubtaskStatus,
   EnrollmentTicket,
   FeedbackItem,
   FeedbackPage,
@@ -135,6 +137,10 @@ export const api = {
   expertVersions: (id: string) => get<ExpertVersion[]>(`/experts/${encodeURIComponent(id)}/versions`),
   restoreExpert: (id: string, version: number) => post<Expert>(`/experts/${encodeURIComponent(id)}/versions/${version}/restore`),
   deleteExpert: (id: string) => del(`/experts/${encodeURIComponent(id)}`),
+  // 专家派遣：开关存在安全中心的全厂设置里（限超级管理员），派遣记录和审计日志同一保留期
+  expertDelegation: () => get<{ enabled: boolean }>('/experts/delegation'),
+  setExpertDelegation: (enabled: boolean) => put<{ enabled: boolean }>('/experts/delegation', { enabled }),
+  subtasks: (query: { limit: number; expert_id?: string; status?: SubtaskStatus | '' }) => get<Subtask[]>('/subtasks', query),
 
   // MCP 连接器（和技能库是两套接口）
   mcpVendors: () => get<McpVendor[]>('/mcp/vendors'),

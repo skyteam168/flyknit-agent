@@ -28,6 +28,9 @@ public sealed class SemanticIndex
     /// <summary>技能的向量 ID 前缀（记忆条目的 ID 不会以它开头）。</summary>
     public const string SkillPrefix = "skill:";
 
+    /// <summary>专家名片的 ID 前缀（挑候选专家用）。</summary>
+    public const string ExpertPrefix = "expert:";
+
     private readonly MemoryStore _store;
     private readonly IEmbeddingGateway _gateway;
     private readonly string _connectionString;
@@ -67,7 +70,7 @@ public sealed class SemanticIndex
             return null;
         }
         var items = _store.List().Where(i => !i.Pinned).Select(i => (i.Id, i.Text))
-            .Concat((extra ?? new Dictionary<string, string>()).Where(e => e.Key.StartsWith(SkillPrefix, StringComparison.Ordinal)).Select(e => (Id: e.Key, Text: e.Value)))
+            .Concat((extra ?? new Dictionary<string, string>()).Where(e => e.Key.StartsWith(SkillPrefix, StringComparison.Ordinal) || e.Key.StartsWith(ExpertPrefix, StringComparison.Ordinal)).Select(e => (Id: e.Key, Text: e.Value)))
             .ToList();
         if (items.Count == 0)
         {

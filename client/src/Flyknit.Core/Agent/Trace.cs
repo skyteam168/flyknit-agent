@@ -125,12 +125,19 @@ public sealed class Trace
         private readonly Trace _trace;
         private readonly Stopwatch _watch = Stopwatch.StartNew();
         private readonly DateTimeOffset _startedAt = DateTimeOffset.Now;
-        private readonly string _kind;
-        private readonly string _name;
+        private string _kind;
+        private string _name;
         private bool _written;
 
         public string Summary { get; set; }
         public string Detail { get; set; } = "";
+
+        /// <summary>改记成另一种步骤（派遣专家的工具调用记成 subtask）。</summary>
+        public void Relabel(string kind, string name)
+        {
+            _kind = kind;
+            _name = name;
+        }
         public string Status { get; set; } = "ok";
         public int PromptTokens { get; set; }
         public int CompletionTokens { get; set; }

@@ -63,6 +63,26 @@ public sealed class RunBudget
         }
     }
 
+    /// <summary>上游没报用量的调用：按估算计入，不能当 0。</summary>
+    public void AddEstimatedModelCall(long tokens)
+    {
+        ModelCalls++;
+        EstimatedCalls++;
+        Tokens += Math.Max(0, tokens);
+    }
+
+    /// <summary>工具里花掉的 token（派遣专家）。不算这次运行自己的模型调用。</summary>
+    public void AddExternal(long tokens)
+    {
+        Tokens += Math.Max(0, tokens);
+    }
+
+    /// <summary>用量是估算出来的模型调用次数。</summary>
+    public int EstimatedCalls { get; private set; }
+
+    /// <summary>离上限还剩多少（没有上限时是 long.MaxValue）。</summary>
+    public long Remaining => MaxTokens > 0 ? Math.Max(0, MaxTokens - Tokens) : long.MaxValue;
+
     /// <summary>
     /// 一轮工具执行完后调用。progress：这一轮至少有一个成功的、之前没做过的操作，或者完成了计划里的一步、产出了文件。
     /// </summary>

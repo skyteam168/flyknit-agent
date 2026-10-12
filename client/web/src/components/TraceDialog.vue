@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Archive, Brain, Check, Copy, FileCheck, ShieldAlert, Wrench, X } from '@lucide/vue'
-import { state, toast } from '../store'
+import { AlertTriangle, Archive, ArrowLeft, Brain, BriefcaseBusiness, Check, ChevronRight, Copy, FileCheck, ShieldAlert, Wrench, X } from '@lucide/vue'
+import { backTrace, closeTrace, openSubtaskTrace, state, toast } from '../store'
 import type { TraceStep } from '../types'
 
 // 一次任务的执行链路：每一步做了什么、花了多久、用了多少 token。
@@ -20,6 +20,7 @@ function ms(v: number) {
 }
 
 function icon(step: TraceStep) {
+  if (step.kind === 'subtask') return BriefcaseBusiness
   if (step.kind === 'guard') return ShieldAlert
   if (step.status === 'error' || step.status === 'blocked') return AlertTriangle
   if (step.kind === 'model') return Brain
@@ -27,6 +28,21 @@ function icon(step: TraceStep) {
   if (step.kind === 'tool') return Wrench
   if (step.kind === 'verify') return step.status === 'warning' ? AlertTriangle : FileCheck
   return Check
+}
+
+/** 正在看专家的链路（从主助手的链路点进来的） */
+const nested = computed(() => state.traceStack.length > 0)
+
+/** 派遣专家那一步：detail 是子任务 ID，专家的完整链路向宿主要 */
+const opening = ref('')
+async function openExpert(step: TraceStep) {
+  if (!step.detail || opening.value) return
+  opening.value = step.detail
+  try {
+    await openSubtaskTrace(step.detail, true)
+  } finally {
+    opening.value = ''
+  }
 }
 
 const stopLabel = computed(() => {
@@ -60,11 +76,14 @@ async function copy() {
 </script>
 
 <template>
-  <div v-if="trace" class="scrim" @mousedown.self="state.trace = null">
+  <div v-if="trace" class="scrim" @mousedown.self="closeTrace">
     <div class="dialog" role="dialog" aria-modal="true" :aria-label="t('ui.trace.title')">
       <header>
-        <h2>{{ t('ui.trace.title') }}</h2>
-        <button type="button" class="ico" :aria-label="t('settings.close')" @click="state.trace = null">
+        <button v-if="nested" type="button" class="ico back" :aria-label="t('ui.trace.back')" :title="t('ui.trace.back')" @click="backTrace">
+          <ArrowLeft :size="16" />
+        </button>
+        <h2>{{ state.traceTitle ? `${state.traceTitle} · ${t('ui.trace.title')}` : t('ui.trace.title') }}</h2>
+        <button type="button" class="ico" :aria-label="t('settings.close')" @click="closeTrace">
           <X :size="16" />
         </button>
       </header>
@@ -89,7 +108,16 @@ async function copy() {
               <em v-if="s.status !== 'ok'" class="tag">{{ t(`ui.trace.status.${s.status}`, s.status) }}</em>
             </span>
             <span v-if="s.summary" class="sum">{{ s.summary }}</span>
-            <span v-if="s.detail" class="detail">{{ s.detail }}</span>
+            <button
+              v-if="s.kind === 'subtask' && s.detail"
+              type="button"
+              class="expand"
+              :disabled="opening === s.detail"
+              @click="openExpert(s)"
+            >
+              {{ t('ui.trace.openExpert') }} <ChevronRight :size="13" />
+            </button>
+            <span v-else-if="s.detail" class="detail">{{ s.detail }}</span>
             <span class="bar"><i :style="{ width: Math.round((s.durationMs / slowestMs) * 100) + '%' }" /></span>
           </span>
           <span class="right">
@@ -104,7 +132,7 @@ async function copy() {
       <footer>
         <span class="hint">{{ t('ui.trace.hint') }}</span>
         <button type="button" class="btn" @click="copy"><Copy :size="14" />{{ t('ui.trace.copy') }}</button>
-        <button type="button" class="btn primary" @click="state.trace = null">{{ t('settings.close') }}</button>
+        <button type="button" class="btn primary" @click="closeTrace">{{ t('settings.close') }}</button>
       </footer>
     </div>
   </div>
@@ -205,8 +233,38 @@ header h2 {
   margin-top: 1px;
   color: var(--ink-soft);
 }
-li.model .ico-step {
+li.model .ico-step,
+li.subtask .ico-step {
   color: var(--indigo);
+}
+/* 派遣专家那一步：点开看专家自己的链路 */
+.steps li.subtask {
+  background: color-mix(in srgb, var(--indigo) 6%, transparent);
+}
+.expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--indigo);
+  font: inherit;
+  font-size: calc(12px * var(--font-scale));
+  cursor: pointer;
+}
+.expand:hover,
+.expand:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+.expand:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.ico.back {
+  margin: 0 6px 0 -6px;
 }
 li.guard .ico-step,
 li.warning .ico-step {

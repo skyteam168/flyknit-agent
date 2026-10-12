@@ -30,6 +30,9 @@ public sealed class ChatRequest
 
     /// <summary>透传给模型的额外参数，例如 enable_thinking。</summary>
     public IReadOnlyDictionary<string, JsonNode?>? ExtraBody { get; init; }
+
+    /// <summary>专家执行子任务时的子任务 ID：服务端据此检查子任务还能不能继续、累计用量、卡预算。</summary>
+    public string? SubtaskId { get; init; }
 }
 
 public sealed class ChatTurn

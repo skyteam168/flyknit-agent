@@ -18,7 +18,7 @@ import logging
 from sqlalchemy import delete, desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AuditLog, ChatRecord, Device, DevicePolicy, Feedback, InstructionRun, UsageDaily
+from ..models import AuditLog, ChatRecord, Device, DevicePolicy, Feedback, InstructionRun, Subtask, UsageDaily
 
 log = logging.getLogger("flyknit.audit")
 
@@ -75,6 +75,11 @@ async def _merge_into(session: AsyncSession, old: Device, keep: Device) -> None:
 
     for model in (AuditLog, ChatRecord, Feedback, InstructionRun):
         await session.execute(update(model).where(model.device_id == old.id).values(device_id=keep.id))
+    # 派遣记录也改挂过来。(设备, run_id, seq) 有唯一约束：两边万一有同一个 run_id 就不搬，留着电脑名和账号、设备置空
+    taken = select(Subtask.run_id).where(Subtask.device_id == keep.id)
+    await session.execute(update(Subtask).where(Subtask.device_id == old.id, Subtask.run_id.not_in(taken))
+                          .values(device_id=keep.id))
+    await session.execute(update(Subtask).where(Subtask.device_id == old.id).values(device_id=None))
 
     # 单独的安全设置：新行没有就把旧行的搬过来
     old_policy = await session.get(DevicePolicy, old.id)
@@ -99,8 +104,8 @@ async def _merge_into(session: AsyncSession, old: Device, keep: Device) -> None:
 
 
 async def delete_device(session: AsyncSession, device: Device) -> None:
-    """后台删除一台设备：用量、指令执行记录、单独设置随它删掉；聊天、审计、反馈记录留着（记录里有电脑名和账号）。"""
-    for model in (AuditLog, ChatRecord, Feedback):
+    """后台删除一台设备：用量、指令执行记录、单独设置随它删掉；聊天、审计、反馈、派遣记录留着（记录里有电脑名和账号）。"""
+    for model in (AuditLog, ChatRecord, Feedback, Subtask):
         await session.execute(update(model).where(model.device_id == device.id).values(device_id=None))
     for model in (UsageDaily, InstructionRun, DevicePolicy):
         await session.execute(delete(model).where(model.device_id == device.id))

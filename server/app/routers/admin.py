@@ -685,6 +685,8 @@ _AUDIT_COLUMNS = (
     ("arguments", "参数"),
     ("summary", "摘要"),
     ("conversation_id", "会话"),
+    ("actor", "执行者"),
+    ("subtask_id", "派遣记录"),
 )
 _EXPORT_MAX_ROWS = 200_000
 _EXPORT_BATCH = 1000

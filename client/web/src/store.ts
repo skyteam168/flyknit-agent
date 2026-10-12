@@ -16,6 +16,8 @@ import type {
   ScheduledTask,
   ShortcutInfo,
   SkillInfo,
+  SubtaskDto,
+  SubtaskView,
   Theme,
   ToolActivity,
   UiLanguage,
@@ -27,6 +29,7 @@ import type {
   UsageStats,
   WorkspaceInfo,
 } from './types'
+import { SubtaskFinal } from './types'
 
 interface ConversationState {
   messages: UiMessage[]
@@ -41,6 +44,10 @@ interface ConversationState {
   notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'stuck' | 'budget' | 'failed'; text?: string } | null
   /** 运行过程中的一次性提示（例如内容被审核拦截后省略重试） */
   notices: string[]
+  /** 派给专家的子任务，按主助手那次 ask_expert 的 callId 记 */
+  subtasks: Record<string, SubtaskView>
+  /** 子任务 ID → callId（确认卡片只带子任务 ID） */
+  subtaskCalls: Record<string, string>
 }
 
 export const state = reactive({
@@ -97,6 +104,12 @@ export const state = reactive({
   autoPreview: true,
   /** 正在查看的执行链路 */
   trace: null as TraceInfo | null,
+  /** 从主助手的链路点进专家的链路时，记下上一层，「返回」回到它 */
+  traceStack: [] as { trace: TraceInfo; title: string }[],
+  /** 链路是谁的（专家的链路标上专家名，主助手的为空） */
+  traceTitle: '',
+  /** 正在看详情的专家任务 */
+  subtaskDetail: null as SubtaskDto | null,
   shortcuts: [] as ShortcutInfo[],
   fontScale: 1,
   /** 语音输入。idle 时不显示录音条 */
@@ -181,13 +194,45 @@ export function stepFontScale(direction: number) {
   void setFontScale(FontSteps[Math.min(Math.max(i + direction, 0), FontSteps.length - 1)])
 }
 
-/** 打开某条回答的执行链路。解析失败就当没有，不要因为一条坏数据让界面报错。 */
-export function openTrace(json: string | null | undefined) {
-  if (!json) return
+/**
+ * 打开某条回答的执行链路。解析失败就当没有，不要因为一条坏数据让界面报错。
+ * nested：从当前链路里点进下一层（专家的链路），关掉下一层能回到这一层。
+ */
+export function openTrace(json: string | null | undefined, nested = false, title = '') {
+  if (!json) {
+    if (nested) toast(i18n.global.t('ui.delegate.noTrace'))
+    return
+  }
   try {
-    state.trace = JSON.parse(json) as TraceInfo
+    const next = JSON.parse(json) as TraceInfo
+    if (nested && state.trace) state.traceStack.push({ trace: state.trace, title: state.traceTitle })
+    else state.traceStack = []
+    state.trace = next
+    state.traceTitle = title
   } catch {
     toast(i18n.global.t('ui.trace.broken'))
+  }
+}
+
+/** 链路弹窗退一层：有上一层回到上一层，没有就关掉 */
+export function backTrace() {
+  const prev = state.traceStack.pop()
+  state.trace = prev?.trace ?? null
+  state.traceTitle = prev?.title ?? ''
+}
+
+export function closeTrace() {
+  state.trace = null
+  state.traceStack = []
+}
+
+/** 专家任务的执行记录不随列表下发，用到时再向宿主要 */
+export async function openSubtaskTrace(id: string, nested = false) {
+  try {
+    const dto = await bridge.subtasksGet(id)
+    openTrace(dto?.trace, nested || !!state.trace, dto?.expert?.name ?? '')
+  } catch (e) {
+    fail(e)
   }
 }
 
@@ -287,7 +332,7 @@ export const currentState = computed(() => (state.currentId ? convState(state.cu
 
 function convState(id: string): ConversationState {
   if (!state.byId[id]) {
-    state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null, notices: [] }
+    state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null, notices: [], subtasks: {}, subtaskCalls: {} }
   }
   return state.byId[id]
 }
@@ -526,6 +571,8 @@ export async function openConversation(id: string) {
       s.loadError = errorText(e)
     }
   }
+  // 专家任务卡片每次打开都和宿主对一下：切走期间可能跑完了，事件也可能丢了
+  void restoreSubtasks(id)
 }
 
 /** 新建任务只在本地生成草稿，发送第一条消息时才真正创建，避免产生空会话。 */
@@ -799,7 +846,11 @@ function beginRun(s: ConversationState) {
 /** 从界面上移除某个位置之后的消息（以及它们的工具卡片） */
 function dropFrom(s: ConversationState, index: number) {
   const removed = s.messages.splice(index)
-  for (const m of removed) for (const c of m.toolCalls ?? []) delete s.tools[c.id]
+  for (const m of removed)
+    for (const c of m.toolCalls ?? []) {
+      delete s.tools[c.id]
+      delete s.subtasks[c.id]
+    }
 }
 
 /** 重新生成最后一个问题的回答 */
@@ -978,6 +1029,8 @@ function finishRun(s: ConversationState, conversationId: string) {
   s.busy = false
   s.draft = null
   for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
+  // 专家的结束事件没收到（宿主那边出错、事件丢了）：向宿主要一次最终状态，卡片不要一直转圈
+  if (Object.values(s.subtasks).some((x) => !isFinal(x.status))) void restoreSubtasks(conversationId)
   delete state.compacting[conversationId]
   void refreshList()
   void refreshUsage()
@@ -1014,9 +1067,23 @@ function onHostEvent(e: HostEvent) {
       }
       break
     case 'tool.confirm': {
-      const t = convState(e.conversationId).tools[e.callId]
+      const s = convState(e.conversationId)
+      let t = s.tools[e.callId]
+      // 专家执行时的工具调用没有 tool.started：补一条不单独显示的记录，确认条和侧栏「等待确认」靠它
+      if (!t && e.actor?.kind === 'expert') {
+        const step = subtaskOf(s, e.actor.subtaskId)?.step
+        t = s.tools[e.callId] = {
+          callId: e.callId,
+          name: step?.name ?? '',
+          summary: step?.summary ?? '',
+          risk: 'confirm',
+          state: 'waiting',
+          actor: e.actor,
+        }
+      }
       if (t) {
         t.state = 'waiting'
+        if (e.actor) t.actor = e.actor
         t.confirm = {
           requestId: e.requestId,
           reason: e.reason,
@@ -1024,10 +1091,16 @@ function onHostEvent(e: HostEvent) {
           rememberable: e.rememberable ?? false,
           ruleDisplay: e.ruleDisplay,
           effect: e.effect ?? 'unknown',
+          actor: e.actor,
         }
       }
       break
     }
+    case 'expert.started':
+    case 'expert.step':
+    case 'expert.finished':
+      onExpertEvent(e)
+      break
     case 'tool.finished': {
       const t = convState(e.conversationId).tools[e.callId]
       if (t) {
@@ -1207,6 +1280,114 @@ function onHostEvent(e: HostEvent) {
       void translateText(e.text, e.from, e.to)
       break
   }
+}
+
+// ---------- 专家派遣 ----------
+export function isFinal(status: string): boolean {
+  return (SubtaskFinal as string[]).includes(status)
+}
+
+function subtaskOf(s: ConversationState, subtaskId: string): SubtaskView | null {
+  const callId = s.subtaskCalls[subtaskId]
+  return callId ? (s.subtasks[callId] ?? null) : null
+}
+
+/** 某个对话里某次 ask_expert 调用对应的专家任务 */
+export function subtaskFor(conversationId: string, callId: string): SubtaskView | null {
+  return state.byId[conversationId]?.subtasks[callId] ?? null
+}
+
+/** 按子任务 ID 找（确认条上要显示是哪位专家、在做哪一步） */
+export function subtaskById(conversationId: string, subtaskId: string): SubtaskView | null {
+  const s = state.byId[conversationId]
+  return s ? subtaskOf(s, subtaskId) : null
+}
+
+function ensureSubtask(s: ConversationState, callId: string, subtaskId: string): SubtaskView {
+  let v = s.subtasks[callId]
+  if (!v || (v.subtaskId && v.subtaskId !== subtaskId && !isFinal(v.status))) {
+    // 同一个 callId 换了子任务 ID 只会是宿主重新登记：以新的为准
+    v = s.subtasks[callId] = { callId, subtaskId, seq: 0, status: 'running', expert: null, task: '', startedAt: null, step: null, result: null }
+  }
+  v.subtaskId = subtaskId
+  s.subtaskCalls[subtaskId] = callId
+  return v
+}
+
+/** 专家结束了：它名下还挂着的确认请求都收起来（不然确认条和侧栏会一直显示「等待确认」） */
+function settleExpertConfirms(s: ConversationState, subtaskId: string) {
+  for (const t of Object.values(s.tools)) {
+    if (t.actor?.subtaskId !== subtaskId || (t.state !== 'waiting' && t.state !== 'running')) continue
+    t.confirm = undefined
+    t.state = 'done'
+  }
+}
+
+/**
+ * 专家事件。规则：
+ * 1. 每个子任务内 seq 单调递增，不大于已收到最大值的事件丢掉（重发、乱序）；
+ * 2. 已经是终态的子任务，任何非终态事件都不能把它改回「运行中」；
+ * 3. 结束事件只要本地还不是终态就收下（即使 seq 不比最大值大）：终态不会再变，丢了它卡片就一直转圈。
+ */
+function onExpertEvent(e: Extract<HostEvent, { type: 'expert.started' | 'expert.step' | 'expert.finished' }>) {
+  const s = convState(e.conversationId)
+  const v = ensureSubtask(s, e.callId, e.subtaskId)
+  if (isFinal(v.status)) return
+  if (e.type !== 'expert.finished' && e.seq <= v.seq) return
+  v.seq = Math.max(v.seq, e.seq)
+  switch (e.type) {
+    case 'expert.started':
+      v.expert = e.expert
+      v.task = e.task
+      v.startedAt = e.startedAt
+      break
+    case 'expert.step':
+      v.step = { kind: e.kind, name: e.name, summary: e.summary, ok: e.ok }
+      v.status = e.kind === 'waiting_confirmation' ? 'waiting_confirmation' : 'running'
+      break
+    case 'expert.finished':
+      applySubtaskResult(s, v, e.subtask)
+      break
+  }
+}
+
+function applySubtaskResult(s: ConversationState, v: SubtaskView, dto: SubtaskDto) {
+  v.expert = dto.expert
+  v.task = dto.task || v.task
+  v.startedAt = dto.startedAt || v.startedAt
+  if (isFinal(dto.status)) {
+    // 列表不带执行记录，详情里要看时再取
+    v.result = { ...dto, trace: null }
+    v.status = dto.status
+    v.step = null
+    settleExpertConfirms(s, dto.id)
+  } else if (!isFinal(v.status)) {
+    v.status = dto.status
+  }
+}
+
+/** 打开对话、页面重载、一轮结束时向宿主要一次子任务列表，补上没收到的事件 */
+export async function restoreSubtasks(conversationId: string) {
+  let list: SubtaskDto[]
+  try {
+    list = await bridge.subtasksList(conversationId)
+  } catch {
+    // 老版本宿主没有这个调用：卡片按工具调用本身显示
+    return
+  }
+  const s = convState(conversationId)
+  for (const dto of list ?? []) {
+    if (!dto?.callId || !dto.id) continue
+    const v = ensureSubtask(s, dto.callId, dto.id)
+    // 本地已是终态的不动；本地还在跑而宿主说结束了，以宿主为准
+    if (isFinal(v.status)) continue
+    applySubtaskResult(s, v, dto)
+  }
+}
+
+/** 打开专家任务详情 */
+export function openSubtaskDetail(dto: SubtaskDto) {
+  state.subtaskDetail = dto
 }
 
 /** 从历史消息恢复工具卡片 */

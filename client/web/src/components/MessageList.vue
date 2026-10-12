@@ -7,6 +7,8 @@ import { useRichBlocks } from '../render/useRichBlocks'
 import { current, currentState, editAndResend, openConversation, openPath, openTrace, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
+import ExpertTaskCard from './ExpertTaskCard.vue'
+import { AskExpertTool } from '../subtasks'
 import OutputFiles from './OutputFiles.vue'
 
 const { t } = useI18n()
@@ -29,10 +31,13 @@ const orphanTools = computed(() => {
   const st = s.value
   if (!st) return []
   const referenced = new Set(st.messages.flatMap((m) => (m.toolCalls ?? []).map((c) => c.id)))
-  return Object.values(st.tools).filter((t) => !referenced.has(t.callId))
+  // 专家执行时请求确认的那一步只用来驱动确认条，显示在专家任务卡片里，不单独画
+  return Object.values(st.tools).filter((t) => !referenced.has(t.callId) && !t.actor)
 })
 
 const waiting = computed(() => Object.values(s.value?.tools ?? {}).some((t) => t.state === 'waiting'))
+/** 专家正在跑：专家任务卡片自己有进度，不再另外显示三个点 */
+const expertRunning = computed(() => Object.values(s.value?.tools ?? {}).some((t) => t.name === AskExpertTool && t.state === 'running'))
 const busy = computed(() => s.value?.busy ?? false)
 const draftText = computed(() => stripToolMarkup(s.value?.draft?.content ?? ''))
 
@@ -275,13 +280,20 @@ const isImage = (mime: string) => mime.startsWith('image/')
             <p>{{ m.reasoning }}</p>
           </details>
           <div v-if="stripToolMarkup(m.content).trim()" class="md" v-html="renderMarkdown(stripToolMarkup(m.content))" />
-          <ToolCard
-            v-for="c in m.toolCalls ?? []"
-            v-show="s.tools[c.id]"
-            :key="c.id"
-            :tool="s.tools[c.id] ?? { callId: c.id, name: c.name, summary: '', risk: 'auto', state: 'done' }"
-            :conversation-id="current!.id"
-          />
+          <template v-for="c in m.toolCalls ?? []" :key="c.id">
+            <!-- 派给专家的子任务：专门的卡片，显示专家在做什么、交回了什么 -->
+            <ExpertTaskCard
+              v-if="c.name === AskExpertTool"
+              :tool="s.tools[c.id] ?? { callId: c.id, name: c.name, summary: '', args: c.arguments, risk: 'auto', state: 'done' }"
+              :conversation-id="current!.id"
+            />
+            <ToolCard
+              v-else
+              v-show="s.tools[c.id]"
+              :tool="s.tools[c.id] ?? { callId: c.id, name: c.name, summary: '', risk: 'auto', state: 'done' }"
+              :conversation-id="current!.id"
+            />
+          </template>
           <OutputFiles v-if="m.outputs?.length" :files="m.outputs" />
           <div v-if="isAnswer(m) && !(busy && m.id === lastAnswerId)" class="actions" :class="{ pinned: m.id === lastAnswerId }">
             <button type="button" class="icon-btn" :title="t('message.copy')" @click.stop="copy(m)">
@@ -350,8 +362,11 @@ const isImage = (mime: string) => mime.startsWith('image/')
           <p>{{ s.draft.reasoning }}</p>
         </details>
         <div v-if="draftText" class="md" v-html="renderMarkdown(draftText)" />
-        <div v-else-if="!s.draft?.reasoning && orphanTools.length === 0 && !waiting" class="dots" aria-label="…"><i /><i /><i /></div>
-        <ToolCard v-for="tool in orphanTools" :key="tool.callId" :tool="tool" :conversation-id="current!.id" />
+        <div v-else-if="!s.draft?.reasoning && orphanTools.length === 0 && !waiting && !expertRunning" class="dots" aria-label="…"><i /><i /><i /></div>
+        <template v-for="tool in orphanTools" :key="tool.callId">
+          <ExpertTaskCard v-if="tool.name === AskExpertTool" :tool="tool" :conversation-id="current!.id" />
+          <ToolCard v-else :tool="tool" :conversation-id="current!.id" />
+        </template>
       </div>
 
       <div v-for="n in s.notices" :key="n" class="notice run-notice">

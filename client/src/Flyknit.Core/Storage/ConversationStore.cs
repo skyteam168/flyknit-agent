@@ -81,7 +81,7 @@ public sealed record RunStatsSummary(int Days, int Runs, int Completed, int Paus
     public double CompletionRate => Runs == 0 ? 0 : Math.Round((double)Completed / Runs, 2);
 }
 
-public sealed class ConversationStore
+public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
 {
     public static readonly TimeSpan TrashRetention = TimeSpan.FromDays(30);
 
@@ -207,6 +207,139 @@ public sealed class ConversationStore
         AddColumn(c, "run_stats", "completion_tokens", "INTEGER NOT NULL DEFAULT 0");
         AddColumn(c, "run_stats", "replans", "INTEGER NOT NULL DEFAULT 0");
         AddColumn(c, "run_stats", "guard_nudges", "INTEGER NOT NULL DEFAULT 0");
+
+        // v0.10：派遣专家的子任务。整份记录存成 JSON，查询要用的几列单独存；执行记录另存一列，列表时不读。
+        // 跟着对话删除（本机的对话数据）；服务端另有一份派遣记录，按审计保留期保存
+        using var subtasks = c.CreateCommand();
+        subtasks.CommandText = """
+            CREATE TABLE IF NOT EXISTS subtasks (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                run_id TEXT NOT NULL,
+                call_id TEXT NOT NULL,
+                expert_id TEXT NOT NULL,
+                expert_version INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                trace_json TEXT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_subtasks_conversation ON subtasks(conversation_id, started_at);
+            CREATE INDEX IF NOT EXISTS ix_subtasks_status ON subtasks(status);
+            """;
+        subtasks.ExecuteNonQuery();
+    }
+
+    // ---------- 子任务（派遣专家） ----------
+
+    private static readonly System.Text.Json.JsonSerializerOptions SubtaskJson = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>新建或更新一个子任务。终态的记录不会被改回非终态（迟到的保存不会让结束的任务「复活」）。</summary>
+    public void SaveSubtask(Experts.Delegation.SubtaskRecord record)
+    {
+        var trace = record.Trace;
+        record.Trace = null;
+        string json;
+        try
+        {
+            json = System.Text.Json.JsonSerializer.Serialize(record, SubtaskJson);
+        }
+        finally
+        {
+            record.Trace = trace;
+        }
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO subtasks(id, conversation_id, run_id, call_id, expert_id, expert_version, status, record_json, trace_json, started_at, finished_at)
+            VALUES ($id, $c, $run, $call, $e, $v, $st, $json, $trace, $start, $end)
+            ON CONFLICT(id) DO UPDATE SET status = $st, record_json = $json,
+                trace_json = COALESCE($trace, trace_json), finished_at = $end
+            WHERE subtasks.status NOT IN ('completed', 'partial', 'needs_input', 'failed', 'cancelled', 'timed_out')
+            """;
+        cmd.Parameters.AddWithValue("$id", record.Id);
+        cmd.Parameters.AddWithValue("$c", record.ConversationId);
+        cmd.Parameters.AddWithValue("$run", record.RunId);
+        cmd.Parameters.AddWithValue("$call", record.CallId);
+        cmd.Parameters.AddWithValue("$e", record.ExpertId);
+        cmd.Parameters.AddWithValue("$v", record.ExpertVersion);
+        cmd.Parameters.AddWithValue("$st", record.Status);
+        cmd.Parameters.AddWithValue("$json", json);
+        cmd.Parameters.AddWithValue("$trace", (object?)trace ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$start", record.StartedAt.ToString("O"));
+        cmd.Parameters.AddWithValue("$end", (object?)record.FinishedAt?.ToString("O") ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>一个子任务的完整记录（含执行记录）。</summary>
+    public Experts.Delegation.SubtaskRecord? GetSubtask(string id)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT record_json, trace_json FROM subtasks WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read())
+        {
+            return null;
+        }
+        var record = System.Text.Json.JsonSerializer.Deserialize<Experts.Delegation.SubtaskRecord>(r.GetString(0), SubtaskJson);
+        if (record is not null && !r.IsDBNull(1))
+        {
+            record.Trace = r.GetString(1);
+        }
+        return record;
+    }
+
+    /// <summary>一个对话里的子任务（不含执行记录），按开始时间排。</summary>
+    public IReadOnlyList<Experts.Delegation.SubtaskRecord> SubtasksOf(string conversationId)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT record_json FROM subtasks WHERE conversation_id = $c ORDER BY started_at";
+        cmd.Parameters.AddWithValue("$c", conversationId);
+        using var r = cmd.ExecuteReader();
+        var list = new List<Experts.Delegation.SubtaskRecord>();
+        while (r.Read())
+        {
+            if (System.Text.Json.JsonSerializer.Deserialize<Experts.Delegation.SubtaskRecord>(r.GetString(0), SubtaskJson) is { } record)
+            {
+                list.Add(record);
+            }
+        }
+        return list;
+    }
+
+    /// <summary>上次退出时还没结束的子任务：标成失败（interrupted），返回给调用方去通知服务端。</summary>
+    public IReadOnlyList<Experts.Delegation.SubtaskRecord> MarkInterruptedSubtasks()
+    {
+        var open = new List<Experts.Delegation.SubtaskRecord>();
+        using (var c = Open())
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = "SELECT record_json FROM subtasks WHERE status IN ('queued', 'running', 'waiting_confirmation')";
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                if (System.Text.Json.JsonSerializer.Deserialize<Experts.Delegation.SubtaskRecord>(r.GetString(0), SubtaskJson) is { } record)
+                {
+                    open.Add(record);
+                }
+            }
+        }
+        foreach (var record in open)
+        {
+            record.Status = "failed";
+            record.ErrorCode = "interrupted";
+            record.Error = "程序在专家执行期间退出了，这个子任务没有完成，状态无法恢复";
+            record.FinishedAt ??= DateTimeOffset.Now;
+            SaveSubtask(record);
+        }
+        return open;
     }
 
     /// <summary>记一轮办事任务的结果。只记数字，不记内容。</summary>

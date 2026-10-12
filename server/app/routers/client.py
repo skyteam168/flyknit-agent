@@ -222,6 +222,8 @@ async def report_audit(
             decision=item.decision,
             status=item.status,
             summary=item.summary[:4000],
+            subtask_id=item.subtask_id,
+            actor=item.actor,
         )
         if item.occurred_at is not None:
             row.occurred_at = item.occurred_at

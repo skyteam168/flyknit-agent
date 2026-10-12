@@ -130,6 +130,12 @@ public sealed class AuditEntry
     [JsonPropertyName("status")] public string Status { get; set; } = "";
     [JsonPropertyName("summary")] public string Summary { get; set; } = "";
     [JsonPropertyName("occurred_at")] public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.Now;
+
+    /// <summary>专家执行时所属的子任务；主助手自己的操作为空。</summary>
+    [JsonPropertyName("subtask_id")] public string? SubtaskId { get; set; }
+
+    /// <summary>main（主助手）或 expert:&lt;专家 ID&gt;。</summary>
+    [JsonPropertyName("actor")] public string Actor { get; set; } = "main";
 }
 
 /// <summary>后台下发给本机、要由 AI agent 执行的一条指令。</summary>
@@ -154,7 +160,7 @@ internal sealed class InstructionStartResult
 }
 
 /// <summary>与 Flyknit 服务端通信：模型网关、设备注册、配置、审计。</summary>
-public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flyknit.Core.Mcp.IMcpRuntimeSource
+public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flyknit.Core.Mcp.IMcpRuntimeSource, Flyknit.Core.Experts.Delegation.ISubtaskRegistry
 {
     private HttpClient _http;
     private string? _token;
@@ -437,6 +443,112 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         await EnsureOk(resp, ct);
     }
 
+    // ---------- 派遣专家：子任务登记 ----------
+
+    /// <summary>向服务端登记一次派遣。服务端拒绝（开关关着、专家不可用、次数用完）时抛 DelegationRejectedException。</summary>
+    public async Task<Flyknit.Core.Experts.Delegation.SubtaskTicket> RegisterAsync(
+        Flyknit.Core.Experts.Delegation.SubtaskRegistration registration, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/subtasks");
+        req.Content = JsonContent.Create(new
+        {
+            run_id = registration.RunId,
+            conversation_id = registration.ConversationId,
+            expert_id = registration.ExpertId,
+            expert_version = registration.ExpertVersion,
+            task = registration.Task,
+            token_cap = registration.TokenCap,
+            timeout_seconds = registration.TimeoutSeconds,
+        });
+        using var resp = await SendAsync(req, ct);
+        if ((int)resp.StatusCode is 403 or 409)
+        {
+            var (code, message) = await ReadDetailAsync(resp, ct);
+            if (code.Length > 0)
+            {
+                throw new Flyknit.Core.Experts.Delegation.DelegationRejectedException(code, message);
+            }
+        }
+        await EnsureOk(resp, ct);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        var root = doc.RootElement;
+        var expert = root.TryGetProperty("expert", out var e) ? e : default;
+        return new Flyknit.Core.Experts.Delegation.SubtaskTicket(
+            root.GetProperty("id").GetString() ?? "",
+            root.TryGetProperty("seq", out var seq) ? seq.GetInt32() : 0,
+            root.TryGetProperty("token_cap", out var cap) ? cap.GetInt64() : registration.TokenCap,
+            root.TryGetProperty("deadline_at", out var dl) && dl.TryGetDateTimeOffset(out var deadline)
+                ? deadline : DateTimeOffset.Now.AddSeconds(registration.TimeoutSeconds),
+            expert.ValueKind == JsonValueKind.Object && expert.TryGetProperty("published_version", out var pv) && pv.ValueKind == JsonValueKind.Number
+                ? pv.GetInt32() : registration.ExpertVersion);
+    }
+
+    public async Task<Flyknit.Core.Experts.Delegation.SubtaskServerState> FinishAsync(
+        string id, Flyknit.Core.Experts.Delegation.SubtaskFinish finish, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/subtasks/{Uri.EscapeDataString(id)}/finish");
+        req.Content = JsonContent.Create(new JsonObject
+        {
+            ["status"] = finish.Status,
+            ["summary"] = finish.Summary,
+            ["result"] = finish.Result?.DeepClone(),
+            ["error_code"] = finish.ErrorCode,
+            ["error"] = finish.Error,
+            ["tool_calls"] = finish.ToolCalls,
+            ["local_tokens"] = finish.LocalTokens,
+        });
+        return await SubtaskStateAsync(req, ct);
+    }
+
+    public async Task<Flyknit.Core.Experts.Delegation.SubtaskServerState> CancelAsync(string id, string reason, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/subtasks/{Uri.EscapeDataString(id)}/cancel");
+        req.Content = JsonContent.Create(new { reason });
+        return await SubtaskStateAsync(req, ct);
+    }
+
+    private async Task<Flyknit.Core.Experts.Delegation.SubtaskServerState> SubtaskStateAsync(HttpRequestMessage req, CancellationToken ct)
+    {
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        var root = doc.RootElement;
+        var tokens = root.TryGetProperty("tokens", out var t) && t.ValueKind == JsonValueKind.Object ? t : default;
+        int Num(JsonElement el, string name) =>
+            el.ValueKind == JsonValueKind.Object && el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+        string Text(string name) => root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        bool Flag(string name) => root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+        return new Flyknit.Core.Experts.Delegation.SubtaskServerState(
+            Text("id"), Text("status"), Flag("final"), Flag("already_final"),
+            Num(tokens, "prompt"), Num(tokens, "completion"), Num(tokens, "estimated_calls"), Text("error_code"));
+    }
+
+    /// <summary>FastAPI 的 {"detail": {"code": "...", "message": "..."}}（detail 也可能只是一句话）。</summary>
+    private static async Task<(string Code, string Message)> ReadDetailAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.TryGetProperty("detail", out var detail))
+            {
+                if (detail.ValueKind == JsonValueKind.Object)
+                {
+                    var code = detail.TryGetProperty("code", out var c) ? c.GetString() ?? "" : "";
+                    var message = detail.TryGetProperty("message", out var m) ? m.GetString() ?? code : code;
+                    return (code, message);
+                }
+                if (detail.ValueKind == JsonValueKind.String)
+                {
+                    return ("rejected", detail.GetString() ?? "");
+                }
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or HttpRequestException)
+        {
+        }
+        return ("", "");
+    }
+
     /// <summary>公司技能库列表。</summary>
     public async Task<List<ServerSkill>> GetSkillsAsync(CancellationToken ct)
     {
@@ -570,6 +682,10 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         if (request.ModelId is { } modelId)
         {
             body["flyknit_model_id"] = modelId;
+        }
+        if (!string.IsNullOrEmpty(request.SubtaskId))
+        {
+            body["flyknit_subtask_id"] = request.SubtaskId;
         }
         if (request.ExtraBody is not null)
         {

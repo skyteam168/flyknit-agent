@@ -3,7 +3,7 @@
  * 模拟会话存储、流式回复、工具调用与确认流程，便于在没有 Windows 的情况下开发界面。
  */
 import type { HostTransport } from './bridge'
-import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, UiMessage } from './types'
+import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, SubtaskDto, UiMessage } from './types'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -394,6 +394,255 @@ export function createMockHost(): HostTransport {
     libItem('q8', '日报汇总.xlsx', 'sheet', 'output', 0, { conversationId: dailyId }),
   )
 
+  // ---------- 专家派遣（docs/expert-delegation-contract.md 第 6 节） ----------
+  // 主助手调用 ask_expert → expert.started → 若干 expert.step（含一次等待确认）→ expert.finished。
+  // subtasks.list / subtasks.get 从这里取；另有几条历史记录，演示打开对话时的恢复
+  const subtasks = new Map<string, SubtaskDto>()
+  const mesExpert = { id: 'mes_analyst', name: 'MES生产分析专家', avatar: '🏭', version: 3 }
+  const qcExpert = { id: 'quality', name: '质检数据分析', avatar: '🔬', version: 1 }
+  const stId = () => 'st_' + Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
+  const step = (index: number, kind: string, name: string, summary: string, durationMs: number, extra: Record<string, unknown> = {}) => ({
+    index, kind, name, summary, status: 'ok', startedAt: '', durationMs, promptTokens: 0, completionTokens: 0, ...extra,
+  })
+  /** 专家自己的执行记录 */
+  const expertTrace = (id: string, durationMs: number, stopReason = 'Completed') =>
+    JSON.stringify({
+      id, startedAt: now(), durationMs, stopReason, steps: 6, modelCalls: 3, toolCalls: 3, errors: 0, promptTokens: 21840, completionTokens: 1460, slowest: 'mes.query_downtime',
+      items: [
+        step(1, 'model', 'Qwen3.5-397B', '决定先查 A 车间昨天的工单', 2100, { promptTokens: 5200, completionTokens: 180 }),
+        step(2, 'tool', 'mes.query_orders', '车间=A，日期=10-11', 1240),
+        step(3, 'tool', 'mes.query_downtime', '车间=A，日期=10-11', 2380),
+        step(4, 'model', 'Qwen3.5-397B', '对比计划产量与停机记录', 3010, { promptTokens: 7900, completionTokens: 420 }),
+        step(5, 'tool', 'write_file', 'D:\\报表\\A车间产量分析_10-11.xlsx', 310),
+        step(6, 'model', 'Qwen3.5-397B', '交卷', 2600, { promptTokens: 8740, completionTokens: 860 }),
+      ],
+    })
+  /** 主助手的执行记录：派遣是一步 subtask，detail 是子任务 ID */
+  const mainTrace = (subtaskId: string, expertName: string, subtaskMs: number, status = 'ok') =>
+    JSON.stringify({
+      id: uid(), startedAt: now(), durationMs: subtaskMs + 5200, stopReason: 'Completed', steps: 3, modelCalls: 2, toolCalls: 1, errors: status === 'ok' ? 0 : 1,
+      promptTokens: 6120, completionTokens: 540, slowest: 'ask_expert',
+      items: [
+        step(1, 'model', 'Qwen3.5-397B', '决定派给 MES 生产分析专家', 1900, { promptTokens: 2800, completionTokens: 120 }),
+        step(2, 'subtask', expertName, '查昨天 A 车间产量下降的原因', subtaskMs, { detail: subtaskId, status }),
+        step(3, 'model', 'Qwen3.5-397B', '整理专家的结论给出回答', 3300, { promptTokens: 3320, completionTokens: 420 }),
+      ],
+    })
+  const mesFindings: SubtaskDto['findings'] = [
+    {
+      id: 'f1', statement: '昨天 A 车间实际产量 8,420 双，比计划 10,000 双少 15.8%。',
+      evidence: [{ ref: 'call_q1', kind: 'tool', label: 'mes.query_orders：A 车间 10-11 工单汇总', check: 'ok' }],
+      verification: 'supported', note: '',
+    },
+    {
+      id: 'f2', statement: '3 号线飞织机 FK-07 停机 2 小时 40 分，是减产的主要原因（约 1,100 双）。',
+      evidence: [
+        { ref: 'call_q2', kind: 'tool', label: 'mes.query_downtime：FK-07 停机记录', check: 'ok' },
+        { ref: 'call_q1', kind: 'tool', label: 'mes.query_orders：3 号线小时产量', check: 'ok' },
+      ],
+      verification: 'supported', note: '停机时段 14:05–16:45，与小时产量的缺口吻合。',
+    },
+    {
+      id: 'f3', statement: '停机原因是纱线张力传感器故障，维修单 MR-2210 已关闭。',
+      evidence: [{ ref: 'MES/维修单/MR-2210', kind: 'file', label: '维修单 MR-2210', check: 'ok' }],
+      verification: 'source_verified', note: '维修单存在，但没有核对故障描述与停机记录是否对应。',
+    },
+    {
+      id: 'f4', statement: '夜班换型多花了约 40 分钟，可能还少了 300 双左右。',
+      evidence: [], verification: 'unverified', note: 'MES 里没有换型时长的记录，是根据班组长备注推测的。',
+    },
+  ]
+  const mesResult = (o: { id: string; callId: string; conversationId: string; startedAt: string; durationMs: number }): SubtaskDto => ({
+    ...o,
+    expert: mesExpert,
+    task: '查一下昨天（10-11）A 车间产量为什么比计划低，找出主要原因和影响的数量。',
+    context: '员工原话：昨天 A 车间产量为什么下降？\n工作区：D:\\报表\n已知：A 车间 10-11 计划产量 10,000 双。',
+    status: 'completed',
+    summary: 'A 车间昨天少产 1,580 双，主要是 3 号线 FK-07 停机 2 小时 40 分（纱线张力传感器故障），夜班换型偏慢可能也有影响。',
+    findings: mesFindings,
+    openQuestions: ['夜班换型时长 MES 没有记录，要不要找班组长确认？'],
+    nextSuggestions: ['让设备科检查同批次的张力传感器', '下周起在 MES 里记录换型开始和结束时间'],
+    artifacts: [
+      { path: 'D:\\报表\\A车间产量分析_10-11.xlsx', name: 'A车间产量分析_10-11.xlsx', exists: true },
+      { path: 'D:\\报表\\停机明细_旧.csv', name: '停机明细_旧.csv', exists: false },
+    ],
+    confidence: 0.82,
+    toolCalls: [
+      { name: 'mes.query_orders', count: 2, failed: 0 },
+      { name: 'mes.query_downtime', count: 1, failed: 0 },
+      { name: 'write_file', count: 1, failed: 0 },
+    ],
+    tokens: { prompt: 21840, completion: 1460, estimated: false },
+    finishedAt: new Date(Date.parse(o.startedAt) + o.durationMs).toISOString(),
+    errorCode: '',
+    error: '',
+    trace: expertTrace(o.id, o.durationMs),
+  })
+
+  /** 历史对话里的派遣：消息里有 ask_expert 调用和结果，子任务记录在 subtasks 里 */
+  function seedDelegation(title: string, daysAgo: number, calls: { dto: SubtaskDto | null; args: Record<string, unknown>; output: string }[], answer: string) {
+    const convId = seed(title, 'agent', daysAgo)
+    const at = conversations.get(convId)!.updatedAt
+    const list: UiMessage[] = [{ id: uid(), role: 'user', content: title, createdAt: at }]
+    const first = calls.find((x) => x.dto)?.dto
+    for (const x of calls) {
+      const callId = x.dto?.callId || uid()
+      if (x.dto) {
+        x.dto.callId = callId
+        x.dto.conversationId = convId
+        subtasks.set(x.dto.id, x.dto)
+      }
+      list.push({ id: uid(), role: 'assistant', content: '', toolCalls: [{ id: callId, name: 'ask_expert', arguments: JSON.stringify(x.args) }], createdAt: at })
+      list.push({ id: uid(), role: 'tool', content: x.output, toolCallId: callId, toolName: 'ask_expert', createdAt: at })
+    }
+    list.push({
+      id: uid(), role: 'assistant', content: answer, createdAt: at, modelName: 'Qwen3.5-397B', promptTokens: 6120, completionTokens: 540,
+      trace: first ? mainTrace(first.id, first.expert.name, first.durationMs, first.status === 'completed' ? 'ok' : 'error') : null,
+    })
+    messages.set(convId, list)
+    conversations.get(convId)!.messageCount = list.length
+    return convId
+  }
+
+  // 恢复路径：打开这两个对话时卡片靠 subtasks.list 画出来
+  {
+    const startedAt = new Date(Date.now() - 86400000 - 3 * 60000).toISOString()
+    seedDelegation(
+      '昨天 A 车间产量为什么下降？',
+      1,
+      [{ dto: mesResult({ id: stId(), callId: '', conversationId: '', startedAt, durationMs: 148000 }), args: { expert: 'mes_analyst', task: '查一下昨天 A 车间产量为什么比计划低' }, output: '专家已完成：A 车间昨天少产 1,580 双，主要是 3 号线 FK-07 停机。' }],
+      'MES 生产分析专家查过了：昨天 A 车间少产 **1,580 双**，主要原因是 3 号线 FK-07 停机 2 小时 40 分（纱线张力传感器故障）。详细结论和依据见上面的专家任务卡片。',
+    )
+    const t2 = new Date(Date.now() - 2 * 86400000).toISOString()
+    const base = mesResult({ id: '', callId: '', conversationId: '', startedAt: t2, durationMs: 900000 })
+    seedDelegation(
+      '本周 3 号线停机排行',
+      2,
+      [
+        {
+          dto: {
+            ...base, id: stId(), status: 'timed_out', task: '统计本周 3 号线各设备停机时长并排序', context: '',
+            summary: '只查完了周一到周三的数据，超过 15 分钟的时限被停下。', findings: [mesFindings[1]], openQuestions: [], nextSuggestions: ['缩小时间范围后重新派遣'],
+            artifacts: [], confidence: null, toolCalls: [{ name: 'mes.query_downtime', count: 5, failed: 2 }],
+            tokens: { prompt: 88200, completion: 3900, estimated: true }, errorCode: 'timeout', error: '超过 15 分钟的时限，已自动停止', trace: expertTrace('t-timeout', 900000, 'Budget'),
+          },
+          args: { expert: 'mes_analyst', task: '统计本周 3 号线各设备停机时长并排序' },
+          output: '专家超时：只查完了周一到周三的数据。',
+        },
+        {
+          dto: {
+            ...base, id: stId(), expert: qcExpert, status: 'failed', task: '查本周 3 号线停机期间的不良品数量', context: '',
+            summary: '', findings: [], openQuestions: [], nextSuggestions: [], artifacts: [], confidence: null,
+            toolCalls: [{ name: 'qms.query_defects', count: 2, failed: 2 }], tokens: { prompt: 4100, completion: 120, estimated: false },
+            durationMs: 21000, errorCode: 'tool_unavailable', error: '质检系统（QMS）连接不上：连接超时', trace: null,
+          },
+          args: { expert: 'quality', task: '查本周 3 号线停机期间的不良品数量' },
+          output: '专家执行失败：质检系统连接不上。',
+        },
+        { dto: null, args: { expert: 'plan', task: '按停机情况重排下周计划' }, output: '错误：这一轮已经派遣了 3 次专家，达到上限（delegation_limit）' },
+      ],
+      '停机排行只拿到了周一到周三的数据（专家超时），质检那边的系统也连不上。目前能确定的是 FK-07 停机最久。要不要缩小范围再查一次？',
+    )
+  }
+
+  /** 演示一次完整的派遣：输入里带「专家」「派遣」「产量」时走这里 */
+  async function delegate(c: Conversation, list: UiMessage[], text: string) {
+    const id = c.id
+    const lead = '这个问题交给 MES 生产分析专家来查，我把你的问题和已知信息一起给它。'
+    await stream(id, lead)
+    const callId = uid()
+    const args = JSON.stringify({ expert: 'mes_analyst', task: '查一下昨天（10-11）A 车间产量为什么比计划低，找出主要原因和影响的数量。', context: `员工原话：${text}`, files: [] })
+    list.push({ id: uid(), role: 'assistant', content: lead, toolCalls: [{ id: callId, name: 'ask_expert', arguments: args }], createdAt: now() })
+    emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+    emit({ type: 'tool.started', conversationId: id, callId, name: 'ask_expert', summary: 'MES生产分析专家', args, risk: 'auto' })
+    // 派遣要先在服务端登记，这段时间卡片显示「正在派遣…」。?dispatch=毫秒 可以拉长
+    await sleep(Number(new URLSearchParams(location.search).get('dispatch') ?? 1800))
+    const subtaskId = stId()
+    const startedAt = now()
+    const t0 = Date.now()
+    const running: SubtaskDto = { ...mesResult({ id: subtaskId, callId, conversationId: id, startedAt, durationMs: 0 }), status: 'running', summary: '', findings: [], openQuestions: [], nextSuggestions: [], artifacts: [], toolCalls: [], finishedAt: null, trace: null }
+    subtasks.set(subtaskId, running)
+    let seq = 0
+    const base = { conversationId: id, callId, subtaskId }
+    const stepEv = (kind: 'tool_started' | 'tool_completed' | 'waiting_confirmation' | 'thinking', name: string, summary: string, ok?: boolean) =>
+      emit({ type: 'expert.step', ...base, seq: ++seq, kind, name, summary, ok })
+    emit({ type: 'expert.started', ...base, seq: ++seq, expert: mesExpert, task: running.task, startedAt })
+    const finish = (dto: SubtaskDto) => {
+      subtasks.set(subtaskId, dto)
+      emit({ type: 'expert.finished', ...base, seq: ++seq, subtask: { ...dto, trace: null } })
+    }
+    const cancelled = () => {
+      if (!stopped.has(id)) return false
+      finish({ ...running, status: 'cancelled', durationMs: Date.now() - t0, finishedAt: now(), summary: '员工停止了任务', errorCode: 'user', error: '' })
+      emit({ type: 'tool.finished', conversationId: id, callId, ok: false, output: '专家任务已取消', decision: 'auto' })
+      emit({ type: 'chat.done', conversationId: id, stopReason: 'Cancelled' })
+      return true
+    }
+    stepEv('thinking', '', '')
+    await sleep(1200)
+    if (cancelled()) return
+    stepEv('tool_started', 'mes.query_orders', '车间=A，日期=10-11')
+    await sleep(1500)
+    stepEv('tool_completed', 'mes.query_orders', '42 张工单', true)
+    const staleSeq = seq
+    stepEv('tool_started', 'mes.query_downtime', '车间=A，日期=10-11')
+    await sleep(1200)
+    if (cancelled()) return
+    stepEv('tool_completed', 'mes.query_downtime', '3 条停机记录', true)
+    // 故意重发一条旧事件：界面要按 seq 丢掉它，卡片不能倒退回「正在调用 mes.query_orders」
+    emit({ type: 'expert.step', ...base, seq: staleSeq, kind: 'tool_started', name: 'mes.query_orders', summary: '（重发的旧事件）' })
+    await sleep(700)
+    // 专家要写文件：走和主助手一样的确认，但带上 actor
+    const innerCall = uid()
+    const requestId = uid()
+    const file = 'D:\\报表\\A车间产量分析_10-11.xlsx'
+    stepEv('waiting_confirmation', 'write_file', file)
+    const choice = c.permission === 'full'
+      ? 'allowOnce'
+      : await new Promise<string>((resolve) => {
+          confirmWaiters.set(requestId, resolve)
+          emit({
+            type: 'tool.confirm', conversationId: id, requestId, callId: innerCall,
+            reason: '会在 D:\\报表 新建一个文件', rationale: '把分析结果保存成 Excel，方便发给车间主任。',
+            rememberable: false, effect: 'write', ruleDisplay: '',
+            actor: { kind: 'expert', id: mesExpert.id, name: mesExpert.name, avatar: mesExpert.avatar, subtaskId },
+          })
+        })
+    if (cancelled()) return
+    const wrote = choice !== 'reject'
+    stepEv('tool_completed', 'write_file', wrote ? file : '员工拒绝了这个操作', wrote)
+    await sleep(500)
+    stepEv('thinking', '', '')
+    await sleep(1400)
+    if (cancelled()) return
+    const result = mesResult({ id: subtaskId, callId, conversationId: id, startedAt, durationMs: Date.now() - t0 })
+    if (!wrote) {
+      result.status = 'partial'
+      result.artifacts = []
+      result.summary += '（员工没有同意保存 Excel，结果只在这里。）'
+    }
+    finish(result)
+    // 再故意晚到一条非终态事件（seq 更大）：已经结束的卡片不能被它改回「进行中」
+    stepEv('thinking', '', '（结束后晚到的事件）')
+    const output = `专家已完成：${result.summary}`
+    emit({ type: 'tool.finished', conversationId: id, callId, ok: true, output, decision: 'auto' })
+    list.push({ id: uid(), role: 'tool', content: output, toolCallId: callId, toolName: 'ask_expert', createdAt: now() })
+    const answer = '专家查完了：昨天 A 车间少产 **1,580 双**，主要原因是 3 号线 FK-07 停机 2 小时 40 分（纱线张力传感器故障）。夜班换型偏慢可能也有影响，但 MES 里没有记录，需要找班组长确认。'
+    await stream(id, answer)
+    const assistant: UiMessage = { id: uid(), role: 'assistant', content: answer, createdAt: now(), modelName: 'Qwen3.5-397B', promptTokens: 6120, completionTokens: 540 }
+    const trace = mainTrace(subtaskId, mesExpert.name, result.durationMs)
+    list.push({ ...assistant, trace })
+    emit({ type: 'chat.message', conversationId: id, message: assistant })
+    emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed', modelName: 'Qwen3.5-397B' })
+    emit({ type: 'chat.trace', conversationId: id, messageId: assistant.id, trace })
+    c.messageCount = list.length
+    c.updatedAt = now()
+    if (!c.title) {
+      c.title = text.slice(0, 14)
+      emit({ type: 'conversation.updated', conversation: { ...c } })
+    }
+  }
+
   async function stream(conversationId: string, text: string) {
     for (const piece of text.match(/.{1,6}/gsu) ?? []) {
       if (stopped.has(conversationId)) return
@@ -486,6 +735,10 @@ export function createMockHost(): HostTransport {
           ? '请各班组长在周五前提交下周的排班表。'
           : 'Đề nghị các tổ trưởng nộp bảng phân ca tuần sau trước thứ Sáu.'
       await stream(id, finalText)
+    } else if (c.mode === 'agent' && /专家|派遣|产量|expert|chuyên gia/i.test(text)) {
+      // 模拟一次专家派遣：派遣中 → 专家逐步执行（中间要员工确认）→ 交卷
+      await delegate(c, list, text)
+      return
     } else if (c.mode === 'agent' && /^(使用连接器|Use the|Dùng)/.test(text)) {
       // 模拟一次 MCP 调用：看卡片上的厂商图标、参数和返回结果
       const lead = '好的，我在腾讯文档里新建这张表格。'
@@ -646,7 +899,7 @@ export function createMockHost(): HostTransport {
 
   // 开发时看骨架屏：地址里加 ?slow=毫秒，列表和对话内容晚一点才返回
   const slow = Number(new URLSearchParams(location.search).get('slow') ?? 0)
-  const slowMethods = new Set(['skills.list', 'mcp.list', 'experts.list', 'messages.load'])
+  const slowMethods = new Set(['skills.list', 'mcp.list', 'experts.list', 'messages.load', 'subtasks.list'])
   const handle = async (method: string, p: Record<string, any>, files: File[]): Promise<unknown> => {
     if (slow > 0 && slowMethods.has(method)) await sleep(slow)
     switch (method) {
@@ -1260,6 +1513,13 @@ export function createMockHost(): HostTransport {
       case 'chat.stop':
         stopped.add(p.conversationId)
         return
+      case 'subtasks.list':
+        return [...subtasks.values()].filter((x) => x.conversationId === p.conversationId).map((x) => ({ ...x, trace: null }))
+      case 'subtasks.get': {
+        const x = subtasks.get(p.id)
+        if (!x) throw new Error('子任务不存在')
+        return { ...x }
+      }
       case 'tool.confirm':
         confirmWaiters.get(p.requestId)?.(p.choice)
         confirmWaiters.delete(p.requestId)

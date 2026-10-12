@@ -171,6 +171,13 @@ SETTINGS: tuple[Setting, ...] = (
         title="允许保持屏幕常亮",
         risk="关闭后“保持屏幕常亮”按“熄屏后保持唤醒”处理，屏幕照常熄灭，比较省电。",
     ),
+    # ---- 专家派遣：主助手自己判断、把子任务交给专家去做。默认关，IT 想好了再开 ----
+    Setting(
+        key="expert_delegation", kind="bool", default=False, locked=True,
+        title="允许主助手派遣专家",
+        risk="开启后主助手可以自行把子任务派给已发布、允许派遣的专家执行（每轮最多 3 次，有 token 和时间上限），"
+             "专家会用自己的工具读写数据，员工不一定逐一看到每一步。",
+    ),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

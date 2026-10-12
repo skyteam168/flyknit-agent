@@ -233,6 +233,10 @@ class AuditItem(BaseModel):
     decision: Literal["blocked", "approved", "remembered", "rejected", "auto"]
     status: Clip(20) = ""
     summary: str = ""
+    #: 专家执行时的子任务 ID；主助手自己的调用为空
+    subtask_id: Clip(40) = ""
+    #: main 或 expert:<专家 ID>
+    actor: Clip(60) = ""
     occurred_at: datetime | None = None
 
 
@@ -255,6 +259,8 @@ class AuditOut(BaseModel):
     decision: str
     status: str
     summary: str
+    subtask_id: str = ""
+    actor: str = ""
     occurred_at: datetime
     created_at: datetime
 
@@ -806,3 +812,110 @@ class ExpertClientOut(ExpertFields):
     uses: int = 0
     users: int = 0
     published_at: datetime | None = None
+
+
+# ---------- 专家派遣 ----------
+class ExpertDelegationIn(BaseModel):
+    enabled: bool
+
+
+class ExpertDelegationOut(BaseModel):
+    enabled: bool
+
+
+class SubtaskCreateIn(BaseModel):
+    run_id: str = Field(min_length=1, max_length=64)
+    conversation_id: Clip(64) = ""
+    expert_id: str = Field(min_length=1, max_length=40)
+    expert_version: int = 0
+    #: 任务说明。超长截断，不拒收
+    task: Clip(20000) = ""
+    #: 服务端会夹到 [1000, 400000]
+    token_cap: int = 400_000
+    #: 服务端会夹到 [60, 900]
+    timeout_seconds: int = 900
+
+
+class SubtaskExpertOut(BaseModel):
+    id: str
+    version: int
+    published_version: int
+    name: str
+
+
+class SubtaskCreatedOut(BaseModel):
+    id: str
+    seq: int
+    status: str
+    expert: SubtaskExpertOut
+    token_cap: int
+    deadline_at: datetime
+
+
+class SubtaskFinishIn(BaseModel):
+    status: Literal["completed", "partial", "needs_input", "failed", "cancelled", "timed_out"]
+    summary: Clip(2000) = ""
+    #: 交卷全文，序列化后超过 64KB 截断并标记
+    result: dict | list | str | None = None
+    error_code: Clip(40) = ""
+    error: Clip(2000) = ""
+    tool_calls: int = Field(default=0, ge=0)
+    local_tokens: int = Field(default=0, ge=0)
+
+
+class SubtaskCancelIn(BaseModel):
+    reason: Literal["user", "disabled", "parent", "timeout"] = "user"
+
+
+class SubtaskTokens(BaseModel):
+    prompt: int = 0
+    completion: int = 0
+    estimated_calls: int = 0
+
+
+class SubtaskStateOut(BaseModel):
+    """登记以外的三个接口统一返回这个。"""
+
+    id: str
+    status: str
+    final: bool
+    #: 这次请求之前就已经是终态，请求没有改动它
+    already_final: bool = False
+    tokens: SubtaskTokens
+    error_code: str = ""
+
+
+class SubtaskAdminOut(BaseModel):
+    """后台「派遣记录」的一行。task / summary / error 属于聊天内容，没有查看权限时为空。"""
+
+    id: str
+    device_id: int | None
+    machine_name: str
+    user_name: str
+    #: 后台填的使用者实名
+    owner: str = ""
+    conversation_id: str
+    run_id: str
+    seq: int
+    expert_id: str
+    expert_name: str
+    expert_version: int
+    published_version: int
+    task: str
+    status: str
+    token_cap: int
+    prompt_tokens: int
+    completion_tokens: int
+    estimated_calls: int
+    tool_calls: int
+    local_tokens: int
+    summary: str
+    error_code: str
+    error: str
+    cancel_reason: str
+    result_truncated: bool
+    created_at: datetime
+    finished_at: datetime | None
+    deadline_at: datetime
+    #: 结束时间 - 开始时间；还在跑的为 None
+    duration_ms: int | None

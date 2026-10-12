@@ -188,6 +188,8 @@ public class SecuritySwitchTests
             SecuritySettings.KeepScreenOn,
             // App 读这一项：悬浮球菜单里有没有「截图提问」、快捷键截图前再挡一道
             SecuritySettings.ScreenshotAsk,
+            // AgentHost 读这一项决定主助手能不能派遣专家；ExpertDispatcher 每次派遣、每次工具调用前再看（见 DelegationTests）
+            SecuritySettings.ExpertDelegation,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
