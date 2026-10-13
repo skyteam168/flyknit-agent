@@ -17,6 +17,7 @@
     "highlight.js": "^11.10.0",
     "markdown-it": "^14.1.0",
     "mermaid": "^12.1.0",
+    "pdfjs-dist": "4.10.38",
     "vue": "^3.5.12",
     "vue-i18n": "^10.0.4"
   },

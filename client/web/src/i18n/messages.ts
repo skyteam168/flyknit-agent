@@ -96,6 +96,7 @@ const zh = {
     thinking: '思考过程',
     thinkingLive: '正在思考…',
     copy: '复制',
+    chartPending: '正在生成图表…',
     copied: '已复制',
     stopped: '已停止',
     error: '出错了',
@@ -651,6 +652,7 @@ const zh = {
       more: '更多操作',
     },
     preview: {
+      pdfPages: '共 {n} 页', pdfLoading: '正在打开 PDF…', pdfFailed: 'PDF 打开失败：{error}', zoomIn: '放大', zoomOut: '缩小',
       close: '关闭预览',
       loading: '正在读取…',
       unsupported: '这种格式不能在这里预览',
@@ -1256,6 +1258,7 @@ const vi: Messages = {
     thinking: 'Quá trình suy nghĩ',
     thinkingLive: 'Đang suy nghĩ…',
     copy: 'Sao chép',
+    chartPending: 'Đang tạo biểu đồ…',
     copied: 'Đã sao chép',
     stopped: 'Đã dừng',
     error: 'Đã xảy ra lỗi',
@@ -1811,6 +1814,7 @@ const vi: Messages = {
       more: 'Thêm thao tác',
     },
     preview: {
+      pdfPages: '{n} trang', pdfLoading: 'Đang mở PDF…', pdfFailed: 'Không mở được PDF: {error}', zoomIn: 'Phóng to', zoomOut: 'Thu nhỏ',
       close: 'Đóng xem trước',
       loading: 'Đang đọc…',
       unsupported: 'Định dạng này không xem trước được ở đây',
@@ -2421,6 +2425,7 @@ const en: Messages = {
     thinking: 'Reasoning',
     thinkingLive: 'Thinking…',
     copy: 'Copy',
+    chartPending: 'Generating chart…',
     copied: 'Copied',
     stopped: 'Stopped',
     error: 'Something went wrong',
@@ -2976,6 +2981,7 @@ const en: Messages = {
       more: 'More actions',
     },
     preview: {
+      pdfPages: '{n} pages', pdfLoading: 'Opening PDF…', pdfFailed: 'Could not open this PDF: {error}', zoomIn: 'Zoom in', zoomOut: 'Zoom out',
       close: 'Close preview',
       loading: 'Reading…',
       unsupported: "This format can't be previewed here",

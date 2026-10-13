@@ -20,6 +20,24 @@ const md: MarkdownIt = new MarkdownIt({
   },
 })
 
+// 流式输出时，最后一个还没写完的图表 / 流程图代码块（没有结尾的 ```）：先放一个「正在生成」的占位，
+// 写完了再画。半截的代码画不出来，每来一个字报一次错、换一次样子，看起来就是一直在闪
+const defaultFence = md.renderer.rules.fence!
+md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+  const token = tokens[idx]
+  const lang = token.info.trim().split(/\s+/)[0] ?? ''
+  if (env?.streaming && lang && hasBlockRenderer(lang) && !fenceClosed(token.map, token.markup, env.lines)) {
+    return `<pre class="rich-block pending" data-lang="${md.utils.escapeHtml(lang.toLowerCase())}"><span>${md.utils.escapeHtml(i18n.global.t('message.chartPending'))}</span></pre>`
+  }
+  return defaultFence(tokens, idx, options, env, self)
+}
+
+function fenceClosed(map: [number, number] | null, markup: string, lines: string[] | undefined): boolean {
+  if (!map || !lines) return true
+  const last = map[1] - 1
+  return last > map[0] && (lines[last] ?? '').trim().startsWith(markup)
+}
+
 // 链接在系统浏览器中打开
 const defaultLink = md.renderer.rules.link_open ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
@@ -38,6 +56,8 @@ export function stripToolMarkup(text: string): string {
   return m ? text.slice(0, m.index).trimEnd() : text
 }
 
-export function renderMarkdown(text: string): string {
-  return DOMPurify.sanitize(md.render(text), { ADD_ATTR: ['target', 'data-copy', 'data-lang', 'data-code'] })
+/** streaming：正在输出的回答，没写完的图表块先显示占位 */
+export function renderMarkdown(text: string, opts?: { streaming?: boolean }): string {
+  const env = opts?.streaming ? { streaming: true, lines: text.split('\n') } : {}
+  return DOMPurify.sanitize(md.render(text, env), { ADD_ATTR: ['target', 'data-copy', 'data-lang', 'data-code'] })
 }

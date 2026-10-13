@@ -6,6 +6,7 @@ import { ExternalLink, FolderOpen, X } from '@lucide/vue'
 import { renderMarkdown } from '../markdown'
 import { closePreview, launchFile, revealFile, setPreviewWidth, state } from '../store'
 import { useRichBlocks } from '../render/useRichBlocks'
+import PdfView from './PdfView.vue'
 import { encodeBlockCode, hasBlockRenderer } from '../render/blocks'
 import HtmlFrame from './HtmlFrame.vue'
 import { highlightCode } from '../highlight'
@@ -119,7 +120,7 @@ function onKeyResize(e: KeyboardEvent) {
 
         <img v-if="doc.kind === 'image'" :src="doc.dataUrl ?? ''" :alt="preview.file.name" class="image" />
 
-        <iframe v-else-if="doc.kind === 'pdf'" :src="doc.dataUrl ?? ''" class="pdf" :title="preview.file.name" />
+        <PdfView v-else-if="doc.kind === 'pdf'" :src="doc.dataUrl ?? ''" :name="preview.file.name" class="pdf" />
 
         <div v-else-if="doc.kind === 'markdown'" class="prose" v-html="renderMarkdown(doc.text ?? '')" />
 

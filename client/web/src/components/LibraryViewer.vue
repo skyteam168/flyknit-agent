@@ -9,6 +9,7 @@ import { highlightLines } from '../highlight'
 import { bridge } from '../bridge'
 import { renderMarkdown } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
+import PdfView from './PdfView.vue'
 import { chatAbout, download, formatSize, loadLibrary, removeItems, setFavorite, share } from '../library'
 import { toast } from '../store'
 import { kindIcon } from '../libraryIcons'
@@ -161,7 +162,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       <img v-else-if="item.kind === 'image'" :src="item.url" :alt="item.name" class="image" />
       <audio v-else-if="item.kind === 'audio'" :src="item.url" controls class="audio" />
       <video v-else-if="item.kind === 'video'" :src="item.url" controls class="video" />
-      <iframe v-else-if="item.kind === 'pdf'" :src="item.url" class="pdf" :title="item.name" />
+      <PdfView v-else-if="item.kind === 'pdf'" :src="item.url" :name="item.name" class="pdf" />
 
       <textarea v-else-if="editing" v-model="draft" class="editor" :placeholder="t('library.notePlaceholder')" spellcheck="false" />
 
