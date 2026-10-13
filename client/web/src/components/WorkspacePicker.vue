@@ -48,7 +48,7 @@ function onToggle(toggle: () => void) {
         <button type="button" class="opt" :disabled="!w.exists" :title="w.path" @click="pick(w.path, close)">
           <Folder :size="15" class="ico" />
           <span class="text">
-            <strong>{{ w.name }}<em v-if="w.isDefault">{{ t('ui.workspace.default') }}</em></strong>
+            <strong>{{ w.name }}<em v-if="same(w.path, state.app?.defaultWorkspace ?? '')">{{ t('ui.workspace.default') }}</em></strong>
             <small>{{ w.exists ? w.path : t('ui.workspace.missing') }}</small>
           </span>
           <Check v-if="same(w.path, selectedWorkspace)" :size="15" class="tick" />

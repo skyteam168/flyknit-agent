@@ -23,7 +23,7 @@ import {
 } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { uiLanguages } from '../i18n'
-import { errorText, fail, setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
+import { errorText, fail, loadWorkspaces, rememberDefaultWorkspace, setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
 import type { ApprovalInfo, KeepAwakeMode, StorageInfo, Theme } from '../types'
 import BrandLoader from './BrandLoader.vue'
 import AuditLog from './AuditLog.vue'
@@ -261,13 +261,8 @@ async function changeWorkspace() {
   // addWorkspace 不带参数时会弹系统的选文件夹对话框，并把选中的目录加进工作区列表
   const picked = await bridge.addWorkspace().catch((e) => (fail(e), null))
   if (!picked) return
-  try {
-    await bridge.setDefaultWorkspace(picked)
-  } catch (e) {
-    fail(e)
-    return
-  }
-  if (state.app) state.app.defaultWorkspace = picked
+  await rememberDefaultWorkspace(picked)
+  await loadWorkspaces()
   storage.value = await bridge.storageInfo().catch(() => storage.value)
   toast(t('settings.workspaceChanged'))
 }

@@ -581,6 +581,8 @@ export function newConversation(mode?: Mode) {
   state.currentId = null
   state.pending = []
   draftMode.expertId = null
+  // 新对话跟着最近一次选的工作区走（输入框下面选的、侧栏添加的、设置里改的都算）
+  if (state.app?.defaultWorkspace) draftMode.workspace = state.app.defaultWorkspace
   if (mode) draftMode.mode = mode
 }
 
@@ -617,7 +619,13 @@ export async function selectWorkspace(path: string) {
     draftMode.workspace = path
   }
   // 最近一次选择作为以后新任务的默认工作区
+  await rememberDefaultWorkspace(path)
+}
+
+/** 记为以后新任务的默认工作区；正在写的新对话也立刻跟着变 */
+export async function rememberDefaultWorkspace(path: string) {
   if (state.app) state.app.defaultWorkspace = path
+  if (!current.value) draftMode.workspace = path
   await bridge.setDefaultWorkspace(path).catch(fail)
 }
 
@@ -676,15 +684,25 @@ export async function reorderWorkspaces(paths: string[]) {
   }
 }
 
-/** 弹出文件夹选择框添加工作区，添加后直接切换过去 */
-export async function addWorkspace() {
+/**
+ * 弹出文件夹选择框添加工作区，添加后直接切换过去，并记为以后新任务的默认工作区。
+ * newConversation：在新工作区里开一个新对话（侧栏添加时），不把当前对话挪过去。
+ */
+export async function addWorkspace(opts?: { newConversation?: boolean }): Promise<string | null> {
   try {
     const path = await bridge.addWorkspace()
-    if (!path) return
+    if (!path) return null
     await loadWorkspaces()
-    await selectWorkspace(path)
+    if (opts?.newConversation) {
+      newConversation()
+      await rememberDefaultWorkspace(path)
+    } else {
+      await selectWorkspace(path)
+    }
+    return path
   } catch (e) {
     fail(e)
+    return null
   }
 }
 
