@@ -361,7 +361,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
           <summary><Brain :size="14" /> {{ t('message.thinkingLive') }} <ChevronRight :size="14" class="chev" /></summary>
           <p>{{ s.draft.reasoning }}</p>
         </details>
-        <div v-if="draftText" class="md" v-html="renderMarkdown(draftText)" />
+        <div v-if="draftText" class="md" v-html="renderMarkdown(draftText, { streaming: true })" />
         <div v-else-if="!s.draft?.reasoning && orphanTools.length === 0 && !waiting && !expertRunning" class="dots" aria-label="…"><i /><i /><i /></div>
         <template v-for="tool in orphanTools" :key="tool.callId">
           <ExpertTaskCard v-if="tool.name === AskExpertTool" :tool="tool" :conversation-id="current!.id" />
@@ -830,6 +830,12 @@ const isImage = (mime: string) => mime.startsWith('image/')
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: var(--cloth);
+}
+/* 还在输出的图表块：固定高度，不随每个字跳动 */
+.md :deep(pre.rich-block.pending) {
+  min-height: 120px;
+  color: var(--ink-soft);
+  font-size: calc(12.5px * var(--font-scale));
 }
 .md :deep(pre.rich-block.rendering)::after {
   color: var(--ink-soft);

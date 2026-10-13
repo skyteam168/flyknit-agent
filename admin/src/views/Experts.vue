@@ -7,6 +7,7 @@ import { api } from '@/api'
 import type { Expert, ExpertFields, ExpertOptions, ExpertVersion, Subtask, SubtaskStatus } from '@/api/types'
 import { auth } from '@/store/auth'
 import { dateTime, num } from '@/utils/format'
+import { toSquareDataUrl } from '@/utils/image'
 
 /**
  * 专家：在这里建好、发布，员工端「专家」里就能看到，点一下呼叫。
@@ -148,20 +149,12 @@ function openEdit(e: Expert) {
   editing.value = true
 }
 
-function onAvatar(opts: UploadRequestOptions) {
-  const file = opts.file
-  if (file.size > 200 * 1024) {
-    ElMessage.error('头像请控制在 200KB 以内')
-    return Promise.resolve()
+async function onAvatar(opts: UploadRequestOptions) {
+  try {
+    form.avatar = await toSquareDataUrl(opts.file)
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '头像上传失败')
   }
-  return new Promise<void>((resolve) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      form.avatar = String(reader.result)
-      resolve()
-    }
-    reader.readAsDataURL(file)
-  })
 }
 
 async function save(publish: boolean) {
@@ -194,6 +187,7 @@ async function runDraft() {
     fill({ ...d, model_id: null, allow_direct: true, allow_delegate: true, sort_order: 0, author: '' })
     notes.value = d.notes
     draftOpen.value = false
+    draftText.value = '' // 下次打开是空的，从头说新的专家
     editing.value = true
   } finally {
     drafting.value = false
