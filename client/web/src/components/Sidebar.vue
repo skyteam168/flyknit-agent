@@ -237,10 +237,8 @@ async function startNewIn(path: string) {
 
 /** 添加工作区：选好文件夹后直接在里面开一个新对话 */
 async function onAddWorkspace() {
-  const before = state.workspaces.length
-  await addWorkspace()
-  if (state.workspaces.length !== before || selectedWorkspace.value) {
-    newConversation()
+  // 先开新对话再切工作区：不能把正打开的那个对话挪到新文件夹里
+  if (await addWorkspace({ newConversation: true })) {
     emit('navigate')
     window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
   }
