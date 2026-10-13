@@ -20,7 +20,7 @@ namespace Flyknit.Client.Bridge;
 /// WebView2 页面与宿主之间的消息通道，协议见 client/web/src/bridge.ts。
 /// 同时负责把“需要用户确认”的请求转给页面并等待结果。
 /// </summary>
-public sealed class WebBridge : IHostEvents, IConfirmationHandler
+public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.Tools.IQuestionHandler
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -33,6 +33,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     /// <summary>最近一次网络检测（设置 → 网络 再打开时直接显示，不用重测）。</summary>
     private (Flyknit.Core.Diagnostics.NetworkReport Report, string Path)? _lastNetwork;
     private readonly ConcurrentDictionary<string, PendingConfirm> _confirms = new();
+    private readonly ConcurrentDictionary<string, PendingQuestion> _questions = new();
 
     /// <summary>界面当前打开的任务。用户在看别的任务时，这个任务的通知照常弹。</summary>
     public string? ActiveConversationId { get; private set; }
@@ -54,6 +55,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
 
     /// <summary>确认请求已结束（已回答、取消或超时），对应的系统通知应撤下。</summary>
     public event Action<PendingConfirm>? ConfirmClosed;
+
+    /// <summary>AI 用选项向员工提问（参数是对话 ID）。宿主据此提醒员工回来回答。</summary>
+    public event Action<string>? QuestionRequested;
+
+    /// <summary>等员工处理的数量：确认 + 提问（悬浮球角标）。</summary>
+    private int WaitingCount => _confirms.Count + _questions.Count;
 
     public WebBridge(CoreWebView2 web, Dispatcher dispatcher, AgentHost host, AppSettings settings, IWindowActions window)
     {
@@ -190,7 +197,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
             Title = _host.Store.Get(request.ConversationId)?.Title ?? "",
         };
         _confirms[pending.RequestId] = pending;
-        PendingConfirmsChanged?.Invoke(_confirms.Count);
+        PendingConfirmsChanged?.Invoke(WaitingCount);
         Post(new
         {
             type = "tool.confirm",
@@ -217,7 +224,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
         finally
         {
             _confirms.TryRemove(pending.RequestId, out _);
-            PendingConfirmsChanged?.Invoke(_confirms.Count);
+            PendingConfirmsChanged?.Invoke(WaitingCount);
             ConfirmClosed?.Invoke(pending);
         }
     }
@@ -243,6 +250,65 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
     }
 
     public PendingConfirm? FindConfirm(string requestId) => _confirms.TryGetValue(requestId, out var p) ? p : null;
+
+    // ---------- 选项提问 ----------
+
+    public async Task<IReadOnlyList<Flyknit.Core.Tools.AskAnswer>?> AskAsync(Flyknit.Core.Tools.AskRequest request, CancellationToken ct)
+    {
+        if (!UiReady)
+        {
+            return null; // 界面还没起来，没人能回答
+        }
+        var pending = new PendingQuestion(Guid.NewGuid().ToString("N"), request.ConversationId, request.CallId);
+        _questions[pending.RequestId] = pending;
+        PendingConfirmsChanged?.Invoke(WaitingCount);
+        Post(new
+        {
+            type = "tool.ask",
+            conversationId = request.ConversationId,
+            requestId = pending.RequestId,
+            callId = request.CallId,
+            questions = request.Questions.Select(q => new
+            {
+                header = q.Header,
+                question = q.Question,
+                multiSelect = q.MultiSelect,
+                options = q.Options.Select(o => new { label = o.Label, description = o.Description }),
+            }),
+        });
+        QuestionRequested?.Invoke(request.ConversationId);
+
+        await using var registration = ct.Register(() => pending.Completion.TrySetResult(null));
+        try
+        {
+            return await pending.Completion.Task;
+        }
+        finally
+        {
+            _questions.TryRemove(pending.RequestId, out _);
+            PendingConfirmsChanged?.Invoke(WaitingCount);
+            // 停止、超时时卡片也要收起来；已经回答过的，页面自己已经收了，再发一次无妨
+            Post(new { type = "tool.askResolved", conversationId = pending.ConversationId, callId = pending.CallId });
+        }
+    }
+
+    private static IReadOnlyList<Flyknit.Core.Tools.AskAnswer> ParseAnswers(JsonElement p)
+    {
+        var answers = new List<Flyknit.Core.Tools.AskAnswer>();
+        if (p.ValueKind != JsonValueKind.Object || !p.TryGetProperty("answers", out var list) || list.ValueKind != JsonValueKind.Array)
+        {
+            return answers;
+        }
+        foreach (var a in list.EnumerateArray().Take(Flyknit.Core.Tools.AskUserTool.MaxQuestions))
+        {
+            var selected = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("selected", out var sel) && sel.ValueKind == JsonValueKind.Array
+                ? sel.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).Take(Flyknit.Core.Tools.AskUserTool.MaxOptions).ToList()
+                : new List<string>();
+            var other = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("other", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString() ?? "" : "";
+            answers.Add(new Flyknit.Core.Tools.AskAnswer(selected, other));
+        }
+        return answers;
+    }
 
     // ---------- 页面 → 宿主 ----------
 
@@ -1574,6 +1640,16 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler
                 return null;
             }
 
+            case "tool.answer":
+            {
+                // skip：员工点了「跳过」，按没有回答处理
+                if (_questions.TryGetValue(Str("requestId"), out var question))
+                {
+                    question.Completion.TrySetResult(Bool("skip") ? null : ParseAnswers(p));
+                }
+                return null;
+            }
+
             case "files.pick":
                 return _window.PickFiles().Select(AttachmentDto.FromPath).ToList();
 
@@ -2003,6 +2079,12 @@ public interface IWindowActions
 
     /// <summary>全局热键改了之后重新注册。</summary>
     void RefreshHotkey();
+}
+
+/// <summary>一个等员工回答的选项提问。结果 null = 没有回答（跳过、停止、超时）。</summary>
+public sealed record PendingQuestion(string RequestId, string ConversationId, string CallId)
+{
+    public TaskCompletionSource<IReadOnlyList<Flyknit.Core.Tools.AskAnswer>?> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
 
 /// <summary>一个等待用户回答的确认请求。</summary>

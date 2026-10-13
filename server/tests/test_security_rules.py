@@ -111,4 +111,6 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "screenshot_ask",
         # 客户端读这一项决定主助手有没有 ask_expert（派遣专家）
         "expert_delegation",
+        # 客户端读这一项决定 AI 有没有 ask_user（用选项向员工提问）
+        "ask_user",
     }

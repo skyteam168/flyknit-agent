@@ -739,6 +739,49 @@ export function createMockHost(): HostTransport {
       // 模拟一次专家派遣：派遣中 → 专家逐步执行（中间要员工确认）→ 交卷
       await delegate(c, list, text)
       return
+    } else if (c.mode === 'agent' && /考勤|选一下|ask/i.test(text)) {
+      // 模拟一次选项提问：AI 缺信息 → 选项卡片 → 员工点选 → 接着做
+      const lead = '统计全勤率之前，有两个字段我需要先确认一下。'
+      await stream(id, lead)
+      const call = uid()
+      const requestId = uid()
+      const questions = [
+        {
+          header: '字段含义',
+          question: '接口中的 qq、state 分别代表什么？',
+          multiSelect: false,
+          options: [
+            { label: '暂时不知道（推荐）', description: '我先去查接口文档或系统代码' },
+            { label: '代表考勤状态', description: '正常、缺勤等' },
+            { label: '代表请假或审批状态', description: '' },
+          ],
+        },
+        {
+          header: '打卡字段',
+          question: 'ontime、sb1、offtime、xb2 的实际含义是什么？',
+          multiSelect: false,
+          options: [
+            { label: '暂时不知道', description: '' },
+            { label: '上班打卡、上班刷卡、下班打卡、下班刷卡', description: '' },
+          ],
+        },
+      ]
+      const args = JSON.stringify({ questions })
+      list.push({ id: uid(), role: 'assistant', content: lead, toolCalls: [{ id: call, name: 'ask_user', arguments: args }], createdAt: now() })
+      emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+      emit({ type: 'tool.started', conversationId: id, callId: call, name: 'ask_user', summary: questions[0].question + '（共 2 个问题）', args, risk: 'auto' })
+      await sleep(200)
+      const answer = await new Promise<string>((resolve) => {
+        confirmWaiters.set(requestId, resolve)
+        emit({ type: 'tool.ask', conversationId: id, requestId, callId: call, questions })
+      })
+      emit({ type: 'tool.askResolved', conversationId: id, callId: call })
+      emit({ type: 'tool.finished', conversationId: id, callId: call, ok: true, output: answer, decision: 'auto' })
+      list.push({ id: uid(), role: 'tool', content: answer, toolCallId: call, createdAt: now() })
+      finalText = answer.startsWith('员工没有回答')
+        ? '你跳过了这两个问题，我先按「字段含义待确认」处理：全勤率暂时按有打卡记录来算，等字段含义确认后再修正。'
+        : `收到，按你的选择继续：\n\n${answer.replace(/^员工的回答：\n/, '')}\n\n接下来我按这个口径计算全勤率。`
+      await stream(id, finalText)
     } else if (c.mode === 'agent' && /^(使用连接器|Use the|Dùng)/.test(text)) {
       // 模拟一次 MCP 调用：看卡片上的厂商图标、参数和返回结果
       const lead = '好的，我在腾讯文档里新建这张表格。'
@@ -1524,6 +1567,16 @@ export function createMockHost(): HostTransport {
         confirmWaiters.get(p.requestId)?.(p.choice)
         confirmWaiters.delete(p.requestId)
         return
+      case 'tool.answer': {
+        // 和宿主一样把回答整理成交给 AI 的文字
+        const answers = (p.answers ?? []) as { selected: string[]; other: string }[]
+        const text = p.skip
+          ? '员工没有回答（选择了跳过）'
+          : '员工的回答：\n' + answers.map((a, i) => `${i + 1}. ${[a.selected.join('、'), a.other ? '员工补充：' + a.other : ''].filter(Boolean).join('；') || '（没有回答）'}`).join('\n')
+        confirmWaiters.get(p.requestId)?.(text)
+        confirmWaiters.delete(p.requestId)
+        return
+      }
       case 'files.pick':
         return [{ fileName: '9月质检数据.xlsx', localPath: 'D:\\质检\\9月质检数据.xlsx', mime: 'application/vnd.ms-excel', size: 284000 }]
       case 'files.dropped':

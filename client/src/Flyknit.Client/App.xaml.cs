@@ -348,6 +348,22 @@ public partial class App : Application
                     }
                 });
                 bridge.ConfirmClosed += pending => Dispatcher.BeginInvoke(() => _notifications?.RemoveConfirm(pending.RequestId));
+                // AI 用选项提问：员工没看着这个任务时提醒一下（回答要回界面里点，通知上不放按钮）
+                bridge.QuestionRequested += conversationId => Dispatcher.BeginInvoke(() =>
+                {
+                    if (UserIsWatching(conversationId))
+                    {
+                        return;
+                    }
+                    if (_main.IsVisible)
+                    {
+                        _main.RequestAttention();
+                    }
+                    else
+                    {
+                        _tray?.ShowBalloonTip(4000, "FlyknitBuddy", NativeStrings.T("ask.notify"), System.Windows.Forms.ToolTipIcon.Info);
+                    }
+                });
             }
         };
         timer.Start();

@@ -50,7 +50,7 @@ const expandable = computed(() => !quiet.value && (!!props.tool.output || (!!mcp
       </template>
       <span v-else class="name">{{ isSkill ? t('ui.skills.usingSkill') : label }}</span>
       <span class="summary" :class="{ strong: isSkill }">{{ tool.summary }}</span>
-      <span class="state-text">{{ tool.remembered && tool.state === 'done' ? t('tool.remembered') : t(`tool.${tool.state}`) }}</span>
+      <span class="state-text">{{ tool.remembered && tool.state === 'done' ? t('tool.remembered') : tool.ask ? t('tool.askWaiting') : t(`tool.${tool.state}`) }}</span>
       <ChevronDown v-if="expandable" :size="15" class="chev" :class="{ up: open }" />
     </button>
 
@@ -82,7 +82,7 @@ const expandable = computed(() => !quiet.value && (!!props.tool.output || (!!mcp
     </div>
 
     <div v-if="tool.state === 'waiting'" class="banner confirm">
-      <span>{{ t('tool.confirmBelow') }}</span>
+      <span>{{ tool.ask ? t('tool.askBelow') : t('tool.confirmBelow') }}</span>
     </div>
   </div>
 </template>

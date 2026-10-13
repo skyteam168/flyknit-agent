@@ -190,6 +190,8 @@ public class SecuritySwitchTests
             SecuritySettings.ScreenshotAsk,
             // AgentHost 读这一项决定主助手能不能派遣专家；ExpertDispatcher 每次派遣、每次工具调用前再看（见 DelegationTests）
             SecuritySettings.ExpertDelegation,
+            // AgentHost 读这一项决定这一轮有没有 ask_user（见 AskUserTests）
+            SecuritySettings.AskUser,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

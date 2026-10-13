@@ -671,10 +671,31 @@ export interface ToolActivity {
   /** 调用参数（JSON 原文），展开卡片时逐项显示 */
   args?: string
   confirm?: ConfirmPrompt
+  /** AI 用选项向员工提问（ask_user），等员工点选 */
+  ask?: AskPrompt
   /** 之前授权过的同样操作，本次自动通过 */
   remembered?: boolean
   /** 专家执行时请求确认的那一步（不是主助手自己的调用）：不单独画卡片，显示在专家任务卡片里 */
   actor?: ConfirmActor
+}
+
+/** AI 用选项提问：一次 1～4 个问题，每个 2～4 个选项；界面自动加「其他（自己输入）」 */
+export interface AskPrompt {
+  requestId: string
+  questions: AskQuestionView[]
+}
+
+export interface AskQuestionView {
+  header: string
+  question: string
+  multiSelect: boolean
+  options: { label: string; description: string }[]
+}
+
+/** 员工对一个问题的回答 */
+export interface AskAnswerInput {
+  selected: string[]
+  other: string
 }
 
 /** 谁在请求确认：专家派遣时是哪位专家 */
@@ -838,6 +859,8 @@ export type HostEvent =
       usage?: { promptTokens: number; completionTokens: number } | null
     }
   | { type: 'tool.confirmResolved'; conversationId: string; callId: string; choice: 'allow' | 'reject' }
+  | { type: 'tool.ask'; conversationId: string; requestId: string; callId: string; questions: AskQuestionView[] }
+  | { type: 'tool.askResolved'; conversationId: string; callId: string }
   | { type: 'context.compacted'; conversationId: string; uptoMessageId: string; tokensBefore: number; tokensAfter: number }
   | { type: 'memory.learned'; conversationId: string; items: { kind: MemoryKind; text: string }[]; skill: string | null }
   | { type: 'app.openConversation'; conversationId: string }

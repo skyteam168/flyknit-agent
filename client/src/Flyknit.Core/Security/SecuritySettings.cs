@@ -85,6 +85,9 @@ public sealed class SecuritySettings
     /// <summary>允许主助手派遣专家。IT 在后台开，默认关；读取时没下发按关算。</summary>
     public const string ExpertDelegation = "expert_delegation";
 
+    /// <summary>AI 缺信息时用选项卡片向员工提问（ask_user）。没下发按开算。</summary>
+    public const string AskUser = "ask_user";
+
     private readonly Dictionary<string, SecurityItem> _items;
 
     public SecuritySettings(Dictionary<string, SecurityItem>? items = null)
