@@ -7,6 +7,7 @@ import { api } from '@/api'
 import type { McpDraft, McpField, McpTestResult, McpVendor, McpVendorIn } from '@/api/types'
 import { dateTime } from '@/utils/format'
 import McpRuntimePanel from '@/components/McpRuntimePanel.vue'
+import { toSquareDataUrl } from '@/utils/image'
 
 /**
  * MCP 连接器：引入厂商的 MCP 服务，员工在客户端「连接器」里点一下就能用。
@@ -144,20 +145,12 @@ function openEdit(v: McpVendor) {
   editing.value = true
 }
 
-function onIcon(opts: UploadRequestOptions) {
-  const file = opts.file
-  if (file.size > 200 * 1024) {
-    ElMessage.error('图标请控制在 200KB 以内')
-    return Promise.resolve()
+async function onIcon(opts: UploadRequestOptions) {
+  try {
+    form.icon = await toSquareDataUrl(opts.file)
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '图标上传失败')
   }
-  return new Promise<void>((resolve) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      form.icon = String(reader.result)
-      resolve()
-    }
-    reader.readAsDataURL(file)
-  })
 }
 
 /** 配置里用到但还没定义的 ${KEY}，一键补成填写项 */
