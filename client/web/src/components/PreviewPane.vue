@@ -324,6 +324,15 @@ header {
   border-radius: var(--r-lg);
   background: var(--cloth);
 }
+.prose :deep(pre.rich-block.ui-block) {
+  display: block;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  white-space: normal;
+}
 .prose :deep(pre.rich-block svg),
 .diagram :deep(pre.rich-block svg) {
   max-width: 100%;

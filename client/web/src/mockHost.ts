@@ -658,6 +658,73 @@ export function createMockHost(): HostTransport {
     if (addUser) list.push({ id: messageId ?? uid(), role: 'user', content: text, attachments, createdAt: now() })
 
     let finalText: string
+    if (/卡片|演示|cards/i.test(text)) {
+      await sleep(300)
+      finalText = [
+        '这是今天的考勤分析，主要结果如下。',
+        '',
+        "修复完成后，重点看这 3 个测试结果：",
+        '',
+        '```ui',
+        JSON.stringify({"kind": "checklist", "items": [{"title": "G1：早班", "detail": "2026-10-13 13:44，标准上班时间 07:30，打卡缺失且 `qq=3`。预期进入缺勤名单。", "status": "ok"}, {"title": "G2：夜班", "detail": "同一天 13:44，标准上班时间 19:35。预期不算缺勤，显示尚未到岗。", "status": "ok"}, {"title": "完整报告", "detail": "三个输出文件全部成功生成，报告表格的表头与每一行列数相同。", "status": "warn"}]}),
+        '```',
+        '',
+        "必须修复的 4 个问题：",
+        '',
+        '```ui',
+        JSON.stringify({"kind": "callouts", "items": [{"title": "修复时区错误", "detail": "`start_dt` 不带时区，而 `now_dt` 用了 `Asia/Ho_Chi_Minh`，直接比较会触发 `TypeError`。", "level": "fail"}, {"title": "修复报告生成失败", "detail": "`summary['subdepartment_count']` 没有定义，生成 Markdown 报告时触发 `KeyError`。", "level": "fail"}, {"title": "修复 Markdown 表格列数", "detail": "部门汇总表表头 9 列，数据行却输出 11 列。", "level": "warn"}, {"title": "加强缺勤判定保护", "detail": "不能仅因为 `ontime` 为空就认定缺勤，防止夜班尚未开始就被误报。", "level": "tip"}]}),
+        '```',
+        '',
+        "整个处理流程：",
+        '',
+        '```ui',
+        JSON.stringify({"kind": "steps", "items": [{"title": "接收考勤日期", "detail": "例如 2026-10-13；大部门和在职状态保持固定", "icon": "calendar"}, {"title": "调用内部考勤接口", "detail": "POST 请求获取员工、部门、班次、打卡时间和国别", "icon": "database", "status": "ok"}, {"title": "班次识别与考勤分析", "detail": "识别早班、夜班、休息、孕妇班、哺乳班", "icon": "workflow", "status": "running"}, {"title": "按部门统计", "detail": "大部门 → 小部门 → 班次 → 员工明细", "icon": "chart"}, {"title": "输出分析报告", "detail": "部门汇总、打卡异常名单、CSV 明细、JSON 数据", "icon": "table"}]}),
+        '```',
+        '',
+        "今天的关键数字：",
+        '',
+        '```ui',
+        JSON.stringify({"kind": "stats", "items": [{"title": "应到人数", "value": "1,286", "unit": "人", "icon": "users"}, {"title": "全勤率", "value": "96.4", "unit": "%", "delta": "+1.2%", "trend": "up", "good": "up"}, {"title": "缺勤", "value": "46", "unit": "人", "delta": "+8", "trend": "up", "good": "down", "detail": "夜班未计入"}]}),
+        '```',
+        '',
+        "各车间完成率：",
+        '',
+        '```ui',
+        JSON.stringify({"kind": "progress", "items": [{"title": "6# 区域", "value": 92, "detail": "34 台，异常 4 台"}, {"title": "7# 区域", "value": 78, "status": "warn"}, {"title": "8# 区域", "value": 55, "status": "fail"}]}),
+        '```',
+        '',
+        "两种统计口径：",
+        '',
+        '```ui',
+        JSON.stringify({"kind": "compare", "items": [{"title": "按打卡记录", "detail": "有任意一次打卡就算出勤", "pros": ["实现简单", "数据齐全"], "cons": ["漏打卡会被算缺勤"], "tags": ["当前做法"]}, {"title": "按排班 + 打卡", "detail": "结合班次的标准上班时间判断", "pros": ["夜班不会误报", "更贴近实际"], "cons": ["需要排班数据"], "recommended": true}]}),
+        '```',
+        '',
+        "今天的异常记录：",
+        '',
+        '```ui',
+        JSON.stringify({"kind": "timeline", "items": [{"value": "07:30", "title": "早班开始", "detail": "应到 812 人"}, {"value": "07:45", "title": "12 人未打卡", "level": "warn"}, {"value": "13:44", "title": "生成缺勤名单", "level": "ok"}]}),
+        '```',
+        '',
+        "接口参数：",
+        '',
+        '```ui',
+        JSON.stringify({"kind": "facts", "items": [{"title": "接口", "value": "`POST /api/attendance/daily`"}, {"title": "时区", "value": "Asia/Ho_Chi_Minh"}, {"title": "输出", "value": "Markdown、CSV、JSON"}]}),
+        '```',
+        '',
+        "接下来你想：",
+        '',
+        '```ui',
+        JSON.stringify({"kind": "actions", "items": [{"title": "按新口径重算", "prompt": "按「排班 + 打卡」的口径重新计算今天的全勤率", "icon": "calculator"}, {"title": "只看缺勤名单", "prompt": "把今天的缺勤名单按部门列出来"}, {"title": "导出 Excel", "prompt": "把今天的考勤分析导出成 Excel", "icon": "file"}]}),
+        '```',
+        '',
+      ].join('\n')
+      await stream(id, finalText)
+      const msg: UiMessage = { id: uid(), role: 'assistant', content: finalText, createdAt: now(), modelName: 'Qwen3.5-397B' }
+      list.push(msg)
+      emit({ type: 'chat.message', conversationId: id, message: msg })
+      emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed', modelName: 'Qwen3.5-397B' })
+      return
+    }
     if (/图表|chart|趋势|占比/i.test(text)) {
       await sleep(400)
       finalText = [
@@ -739,6 +806,49 @@ export function createMockHost(): HostTransport {
       // 模拟一次专家派遣：派遣中 → 专家逐步执行（中间要员工确认）→ 交卷
       await delegate(c, list, text)
       return
+    } else if (c.mode === 'agent' && /考勤|选一下|ask/i.test(text)) {
+      // 模拟一次选项提问：AI 缺信息 → 选项卡片 → 员工点选 → 接着做
+      const lead = '统计全勤率之前，有两个字段我需要先确认一下。'
+      await stream(id, lead)
+      const call = uid()
+      const requestId = uid()
+      const questions = [
+        {
+          header: '字段含义',
+          question: '接口中的 qq、state 分别代表什么？',
+          multiSelect: false,
+          options: [
+            { label: '暂时不知道（推荐）', description: '我先去查接口文档或系统代码' },
+            { label: '代表考勤状态', description: '正常、缺勤等' },
+            { label: '代表请假或审批状态', description: '' },
+          ],
+        },
+        {
+          header: '打卡字段',
+          question: 'ontime、sb1、offtime、xb2 的实际含义是什么？',
+          multiSelect: false,
+          options: [
+            { label: '暂时不知道', description: '' },
+            { label: '上班打卡、上班刷卡、下班打卡、下班刷卡', description: '' },
+          ],
+        },
+      ]
+      const args = JSON.stringify({ questions })
+      list.push({ id: uid(), role: 'assistant', content: lead, toolCalls: [{ id: call, name: 'ask_user', arguments: args }], createdAt: now() })
+      emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+      emit({ type: 'tool.started', conversationId: id, callId: call, name: 'ask_user', summary: questions[0].question + '（共 2 个问题）', args, risk: 'auto' })
+      await sleep(200)
+      const answer = await new Promise<string>((resolve) => {
+        confirmWaiters.set(requestId, resolve)
+        emit({ type: 'tool.ask', conversationId: id, requestId, callId: call, questions })
+      })
+      emit({ type: 'tool.askResolved', conversationId: id, callId: call })
+      emit({ type: 'tool.finished', conversationId: id, callId: call, ok: true, output: answer, decision: 'auto' })
+      list.push({ id: uid(), role: 'tool', content: answer, toolCallId: call, createdAt: now() })
+      finalText = answer.startsWith('员工没有回答')
+        ? '你跳过了这两个问题，我先按「字段含义待确认」处理：全勤率暂时按有打卡记录来算，等字段含义确认后再修正。'
+        : `收到，按你的选择继续：\n\n${answer.replace(/^员工的回答：\n/, '')}\n\n接下来我按这个口径计算全勤率。`
+      await stream(id, finalText)
     } else if (c.mode === 'agent' && /^(使用连接器|Use the|Dùng)/.test(text)) {
       // 模拟一次 MCP 调用：看卡片上的厂商图标、参数和返回结果
       const lead = '好的，我在腾讯文档里新建这张表格。'
@@ -1524,6 +1634,16 @@ export function createMockHost(): HostTransport {
         confirmWaiters.get(p.requestId)?.(p.choice)
         confirmWaiters.delete(p.requestId)
         return
+      case 'tool.answer': {
+        // 和宿主一样把回答整理成交给 AI 的文字
+        const answers = (p.answers ?? []) as { selected: string[]; other: string }[]
+        const text = p.skip
+          ? '员工没有回答（选择了跳过）'
+          : '员工的回答：\n' + answers.map((a, i) => `${i + 1}. ${[a.selected.join('、'), a.other ? '员工补充：' + a.other : ''].filter(Boolean).join('；') || '（没有回答）'}`).join('\n')
+        confirmWaiters.get(p.requestId)?.(text)
+        confirmWaiters.delete(p.requestId)
+        return
+      }
       case 'files.pick':
         return [{ fileName: '9月质检数据.xlsx', localPath: 'D:\\质检\\9月质检数据.xlsx', mime: 'application/vnd.ms-excel', size: 284000 }]
       case 'files.dropped':

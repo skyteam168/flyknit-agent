@@ -4,6 +4,7 @@ import { applyLanguage, i18n } from './i18n'
 import type {
   AppInfo,
   AttachmentRef,
+  AskAnswerInput,
   ConfirmChoice,
   Expert,
   McpVendor,
@@ -367,6 +368,7 @@ media.addEventListener('change', () => state.app && applyTheme(state.app.theme))
 
 // ---------- 初始化 ----------
 export async function init() {
+  window.addEventListener('flyknit:quick-reply', (e) => void quickReply(String((e as CustomEvent).detail ?? '')))
   bridge.on(onHostEvent)
   // 宿主要知道界面当前打开的是哪个任务，才能判断系统通知该不该弹
   watch(
@@ -804,6 +806,21 @@ export async function translateText(text: string, from: string, to: string) {
   await send(text)
 }
 
+/**
+ * 点了回答里的快捷回复按钮（```ui 的 actions 卡片）：当前对话空着就直接发出去；
+ * AI 还在忙就放进输入框，等它做完员工自己点发送。
+ */
+export async function quickReply(text: string) {
+  const body = text.trim()
+  if (!body) return
+  const id = state.currentId
+  if (!id || convState(id).busy) {
+    state.composerFill = body
+    return
+  }
+  await send(body)
+}
+
 // ---------- 发送 ----------
 /**
  * 发送一条消息。返回 false 表示没发出去、界面上也没留下这条消息（例如新对话没建成），
@@ -979,6 +996,16 @@ export async function answerConfirm(conversationId: string, callId: string, choi
   tool.confirm = undefined
   tool.state = choice === 'reject' ? 'rejected' : 'running'
   await bridge.confirm(requestId, choice).catch(fail)
+}
+
+/** 回答 AI 的选项提问。answers 为 null = 跳过（AI 按最稳妥的理解继续） */
+export async function answerAsk(conversationId: string, callId: string, answers: AskAnswerInput[] | null) {
+  const tool = convState(conversationId).tools[callId]
+  if (!tool?.ask) return
+  const requestId = tool.ask.requestId
+  tool.ask = undefined
+  tool.state = 'running'
+  await bridge.answerAsk(requestId, answers).catch(fail)
 }
 
 // ---------- 附件 ----------
@@ -1192,6 +1219,23 @@ function onHostEvent(e: HostEvent) {
         if (e.keepScreenAllowed !== undefined) state.app.keepScreenAllowed = e.keepScreenAllowed
       }
       break
+    case 'tool.ask': {
+      const t = convState(e.conversationId).tools[e.callId]
+      if (t) {
+        t.state = 'waiting'
+        t.ask = { requestId: e.requestId, questions: e.questions ?? [] }
+      }
+      break
+    }
+    case 'tool.askResolved': {
+      // 回答了、跳过了、任务被停了或等太久：卡片收起来
+      const t = convState(e.conversationId).tools[e.callId]
+      if (t?.ask || (t && t.state === 'waiting' && !t.confirm)) {
+        t.ask = undefined
+        if (t.state === 'waiting') t.state = 'running'
+      }
+      break
+    }
     case 'tool.confirmResolved': {
       // 在系统通知里确认或拒绝
       const t = convState(e.conversationId).tools[e.callId]

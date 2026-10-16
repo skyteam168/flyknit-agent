@@ -76,11 +76,12 @@ public sealed class EvidenceLedger
 /// </summary>
 public sealed class ExpertRunGuard
 {
-    /// <summary>专家永远不能用的工具：再派遣专家（只许一层）、写长期记忆。</summary>
+    /// <summary>专家永远不能用的工具：再派遣专家（只许一层）、写长期记忆、向员工提问（没人回答，缺信息写进 open_questions）。</summary>
     public static readonly IReadOnlySet<string> Banned = new HashSet<string>(StringComparer.Ordinal)
     {
         AskExpertTool.ToolName,
         "memory_write",
+        AskUserTool.ToolName,
     };
 
     private readonly Func<bool> _enabled;

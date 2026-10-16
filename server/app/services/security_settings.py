@@ -178,6 +178,12 @@ SETTINGS: tuple[Setting, ...] = (
         risk="开启后主助手可以自行把子任务派给已发布、允许派遣的专家执行（每轮最多 3 次，有 token 和时间上限），"
              "专家会用自己的工具读写数据，员工不一定逐一看到每一步。",
     ),
+    # ---- 选项提问：信息不够时 AI 给几个选项让员工点选，不用打字。默认开 ----
+    Setting(
+        key="ask_user", kind="bool", default=True, locked=True,
+        title="AI 用选项向员工提问",
+        risk="关闭后 AI 缺信息时只能在回答里用文字提问，员工要自己打字回复，任务也要等下一条消息才能继续。",
+    ),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

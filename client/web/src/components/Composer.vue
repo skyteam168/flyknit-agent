@@ -28,6 +28,7 @@ import ModelPicker from './ModelPicker.vue'
 import WorkspacePicker from './WorkspacePicker.vue'
 import PermissionPicker from './PermissionPicker.vue'
 import ConfirmBar from './ConfirmBar.vue'
+import AskBar from './AskBar.vue'
 import CompactingCard from './CompactingCard.vue'
 import UsageWarning from './UsageWarning.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
@@ -290,6 +291,7 @@ onBeforeUnmount(() => {
   <div class="composer-wrap" :class="{ home: props.home }">
     <CompactingCard v-if="!props.home" />
     <ConfirmBar v-if="!props.home" />
+    <AskBar v-if="!props.home" />
     <UsageWarning />
     <div class="card" :class="{ busy }">
       <div v-if="state.pending.length" class="pending">

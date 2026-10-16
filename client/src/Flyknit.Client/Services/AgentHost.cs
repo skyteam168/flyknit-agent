@@ -192,6 +192,11 @@ public sealed partial class AgentHost : IDisposable
     public IHostEvents? Events { get; private set; }
     public IConfirmationHandler? Confirm { get; private set; }
 
+    /// <summary>界面上的选项提问（ask_user）。界面没挂上之前没有。</summary>
+    public Flyknit.Core.Tools.IQuestionHandler? Questions { get; private set; }
+
+    private Flyknit.Core.Tools.AskUserTool? _askUser;
+
     public string UiLanguage => _settings.ResolveUiLanguage();
 
     /// <summary>界面（WebBridge）准备好之后调用一次。</summary>
@@ -199,6 +204,20 @@ public sealed partial class AgentHost : IDisposable
     {
         Events = events;
         Confirm = confirm;
+        Questions = confirm as Flyknit.Core.Tools.IQuestionHandler;
+    }
+
+    /// <summary>
+    /// 这一轮能不能用选项向员工提问：只有员工看着的办事对话才有（定时任务、派出去的专家走别的路，没人回答）。
+    /// 同一个工具实例跨轮共用，「一轮最多问一次」按运行 ID 计。
+    /// </summary>
+    private Flyknit.Core.Tools.AskUserTool? AskUserFor(Conversation conv)
+    {
+        if (conv.Mode != ConversationMode.Agent || Questions is null || !Security.On(Flyknit.Core.Security.SecuritySettings.AskUser, fallback: true))
+        {
+            return null;
+        }
+        return _askUser ??= new Flyknit.Core.Tools.AskUserTool(Questions);
     }
 
     /// <summary>复盘沉淀出的技能放在个人技能目录下的 learned 子目录。</summary>
@@ -769,15 +788,24 @@ public sealed partial class AgentHost : IDisposable
             };
 
             var tools = expert is null ? Tools : Flyknit.Core.Experts.ExpertRuntime.FilterTools(Tools, expert);
+            var extra = new List<ITool>();
             if (delegation.Tool is { } askExpert)
             {
-                // 共用的工具表不动（别的对话还在用），这一轮单独拷一份加上派遣工具
-                var withDelegation = new ToolRegistry();
-                foreach (var tool in tools.All)
+                extra.Add(askExpert);
+            }
+            if (AskUserFor(conv) is { } askUser && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, askUser)))
+            {
+                extra.Add(askUser);
+            }
+            if (extra.Count > 0)
+            {
+                // 共用的工具表不动（别的对话还在用），这一轮单独拷一份加上派遣、提问工具
+                var perRun = new ToolRegistry();
+                foreach (var tool in tools.All.Concat(extra))
                 {
-                    withDelegation.Add(tool);
+                    perRun.Add(tool);
                 }
-                tools = withDelegation.Add(askExpert);
+                tools = perRun;
             }
             var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context);

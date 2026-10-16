@@ -34,6 +34,7 @@ import type {
   Permission,
   WorkspaceInfo,
   AttachmentRef,
+  AskAnswerInput,
   ConfirmChoice,
   Conversation,
   Expert,
@@ -306,6 +307,9 @@ class Bridge {
     this.call<void>('message.feedback', { conversationId, id, value })
   stop = (conversationId: string) => this.call<void>('chat.stop', { conversationId })
   confirm = (requestId: string, choice: ConfirmChoice) => this.call<void>('tool.confirm', { requestId, choice })
+  /** 回答 AI 的选项提问；answers 为 null 表示跳过 */
+  answerAsk = (requestId: string, answers: AskAnswerInput[] | null) =>
+    this.call<void>('tool.answer', answers ? { requestId, answers } : { requestId, skip: true })
   /** 对话里派给专家的子任务（不含执行记录）：打开对话、页面重载时恢复专家任务卡片 */
   subtasksList = (conversationId: string) => this.call<SubtaskDto[]>('subtasks.list', { conversationId })
   /** 一个子任务的完整结果（含专家的执行记录） */
