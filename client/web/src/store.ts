@@ -5,6 +5,7 @@ import type {
   AppInfo,
   AttachmentRef,
   AskAnswerInput,
+  ContextUsage,
   ConfirmChoice,
   Expert,
   McpVendor,
@@ -75,6 +76,10 @@ export const state = reactive({
   expertDetail: null as Expert | null,
   /** 要放进输入框的文字（Composer 接走后清空），例如专家详情里点的示例问题 */
   composerFill: null as string | null,
+  /** 右侧「会话信息」面板开着没有（记住员工上次的选择） */
+  sessionPanel: readSessionPanel(),
+  /** 每个对话最近一次回答时的上下文用量；null = 还没回答过，undefined = 还没取 */
+  contextUsage: {} as Record<string, ContextUsage | null>,
   settingsOpen: false,
   skillsOpen: false,
   /** MCP 连接器面板 */
@@ -998,6 +1003,44 @@ export async function answerConfirm(conversationId: string, callId: string, choi
   await bridge.confirm(requestId, choice).catch(fail)
 }
 
+function readSessionPanel(): boolean {
+  try {
+    return localStorage.getItem('flyknit.sessionPanel') === '1'
+  } catch {
+    return false
+  }
+}
+
+export function toggleSessionPanel(open = !state.sessionPanel) {
+  state.sessionPanel = open
+  try {
+    localStorage.setItem('flyknit.sessionPanel', open ? '1' : '0')
+  } catch {
+    // 存不了就只在这次打开期间记住
+  }
+  if (open) state.preview = null // 和文件预览占同一块位置
+}
+
+export async function loadContextUsage(conversationId: string) {
+  try {
+    state.contextUsage[conversationId] = await bridge.contextUsage(conversationId)
+  } catch {
+    // 老版本宿主没有这个调用：面板显示「回答一次之后会显示」
+    state.contextUsage[conversationId] = null
+  }
+}
+
+/** 手动整理对话：较早的内容压成摘要。返回宿主的说明（成功或为什么没整理） */
+export async function compactConversation(conversationId: string): Promise<string> {
+  try {
+    const r = await bridge.compactContext(conversationId)
+    if (r.ok) await loadContextUsage(conversationId)
+    return r.message
+  } catch (e) {
+    return errorText(e)
+  }
+}
+
 /** 回答 AI 的选项提问。answers 为 null = 跳过（AI 按最稳妥的理解继续） */
 export async function answerAsk(conversationId: string, callId: string, answers: AskAnswerInput[] | null) {
   const tool = convState(conversationId).tools[callId]
@@ -1217,6 +1260,7 @@ function onHostEvent(e: HostEvent) {
         if (e.soundLocked !== undefined) state.app.soundLocked = e.soundLocked
         if (e.keepAwakeAllowed !== undefined) state.app.keepAwakeAllowed = e.keepAwakeAllowed
         if (e.keepScreenAllowed !== undefined) state.app.keepScreenAllowed = e.keepScreenAllowed
+        if (e.contextDetails !== undefined) state.app.contextDetails = e.contextDetails
       }
       break
     case 'tool.ask': {
@@ -1293,6 +1337,9 @@ function onHostEvent(e: HostEvent) {
       }
       break
     }
+    case 'context.usage':
+      state.contextUsage[e.conversationId] = e.usage
+      break
     case 'context.compacted': {
       const c = state.conversations.find((x) => x.id === e.conversationId)
       if (c) c.summaryUpto = e.uptoMessageId

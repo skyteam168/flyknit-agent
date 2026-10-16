@@ -850,6 +850,8 @@ public sealed partial class AgentHost : IDisposable
             {
                 _contextLength = context.ContextLength;
             }
+            RecordContextUsage(id, promptBuilder.Sections, prompt,
+                delegation.Prompt, context, conv.Mode == ConversationMode.Agent ? tools.All : Array.Empty<ITool>(), history, result, events);
 
             events.Post(new
             {

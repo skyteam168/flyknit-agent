@@ -610,6 +610,8 @@ export interface AppInfo {
   keepAwake: KeepAwakeMode
   /** IT 允不允许阻止睡眠、允不允许屏幕常亮 */
   keepAwakeAllowed: boolean
+  /** 会话信息面板能不能展开详细拆分（IT 可以关） */
+  contextDetails?: boolean
   keepScreenAllowed: boolean
   proxyMode: string
   proxyUrl: string
@@ -677,6 +679,25 @@ export interface ToolActivity {
   remembered?: boolean
   /** 专家执行时请求确认的那一步（不是主助手自己的调用）：不单独画卡片，显示在专家任务卡片里 */
   actor?: ConfirmActor
+}
+
+/** 上下文里的一块（会话信息面板） */
+export interface ContextPart {
+  key: string
+  label: string
+  tokens: number
+  items: ContextPart[]
+}
+
+/** 一个对话最近一次回答时上下文的用量（宿主按字数估算） */
+export interface ContextUsage {
+  contextLength: number
+  reserveOutput: number
+  compactAt: number
+  parts: ContextPart[]
+  used: number
+  lastPromptTokens: number | null
+  measuredAt: string
 }
 
 /** AI 用选项提问：一次 1～4 个问题，每个 2～4 个选项；界面自动加「其他（自己输入）」 */
@@ -861,6 +882,7 @@ export type HostEvent =
   | { type: 'tool.confirmResolved'; conversationId: string; callId: string; choice: 'allow' | 'reject' }
   | { type: 'tool.ask'; conversationId: string; requestId: string; callId: string; questions: AskQuestionView[] }
   | { type: 'tool.askResolved'; conversationId: string; callId: string }
+  | { type: 'context.usage'; conversationId: string; usage: ContextUsage }
   | { type: 'context.compacted'; conversationId: string; uptoMessageId: string; tokensBefore: number; tokensAfter: number }
   | { type: 'memory.learned'; conversationId: string; items: { kind: MemoryKind; text: string }[]; skill: string | null }
   | { type: 'app.openConversation'; conversationId: string }
@@ -877,7 +899,7 @@ export type HostEvent =
   | { type: 'shell.request'; action: 'ask' | 'summarize' | 'translate' | 'workspace'; attachments?: AttachmentRef[]; path?: string }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
-      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed'>
+      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails'>
     >)
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }

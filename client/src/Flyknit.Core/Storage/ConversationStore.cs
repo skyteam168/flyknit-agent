@@ -157,6 +157,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         AddColumn(c, "conversations", "plan", "TEXT NULL");
         AddColumn(c, "conversations", "expert_id", "TEXT NULL");
         AddColumn(c, "conversations", "sort_order", "REAL NULL");
+        // 「会话信息」面板：最近一次回答时上下文的用量拆分（JSON）
+        AddColumn(c, "conversations", "context_usage", "TEXT NULL");
         AddColumn(c, "messages", "model", "TEXT NULL");
         AddColumn(c, "messages", "prompt_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
@@ -539,6 +541,26 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
     }
 
     /// <summary>保存任务计划（JSON）；null 时清除。</summary>
+    /// <summary>最近一次回答时上下文的用量拆分（ContextUsageReport 的 JSON）。会话已删除时静默忽略。</summary>
+    public void SetContextUsage(string id, string json)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE conversations SET context_usage = $v WHERE id = $id";
+        cmd.Parameters.AddWithValue("$v", json);
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.ExecuteNonQuery();
+    }
+
+    public string? GetContextUsage(string id)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT context_usage FROM conversations WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        return cmd.ExecuteScalar() as string;
+    }
+
     public void SetPlan(string id, string? planJson) => Update(id, "plan = $v", (object?)planJson ?? DBNull.Value);
 
     public void SetPermission(string id, Security.PermissionMode mode) => Update(id, "permission = $v", Security.PermissionModes.ToText(mode));

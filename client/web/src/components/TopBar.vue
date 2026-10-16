@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Copy, Languages, Menu, MessageSquare, Minus, PanelLeft, Pin, Plus, Puzzle, Square, Wrench, X } from '@lucide/vue'
+import { Copy, Languages, Menu, MessageSquare, Minus, PanelLeft, PanelRight, Pin, Plus, Puzzle, Square, Wrench, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import ConversationFiles from './ConversationFiles.vue'
-import { current, fail, newConversation, renameConversation, state, toggleMaximize, usedSkills } from '../store'
+import { current, fail, newConversation, renameConversation, state, toggleMaximize, toggleSessionPanel, usedSkills } from '../store'
 import type { Mode } from '../types'
 
 defineProps<{ narrow: boolean; sidebarHidden: boolean }>()
@@ -77,6 +77,17 @@ function startNew() {
     </div>
 
     <ConversationFiles />
+    <button
+      v-if="current && state.view === 'chat'"
+      type="button"
+      class="icon-btn"
+      :class="{ active: state.sessionPanel }"
+      :title="t('ui.session.open')"
+      :aria-pressed="state.sessionPanel"
+      @click="toggleSessionPanel()"
+    >
+      <PanelRight :size="16" />
+    </button>
 
     <div class="window">
       <button type="button" class="icon-btn" :class="{ active: topmost }" :title="t('topbar.pinWindow')" @click="pin"><Pin :size="16" /></button>

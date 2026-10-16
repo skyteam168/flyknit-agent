@@ -78,19 +78,22 @@ public sealed class ToolRegistry
         var array = new JsonArray();
         foreach (var t in All)
         {
-            array.Add(new JsonObject
-            {
-                ["type"] = "function",
-                ["function"] = new JsonObject
-                {
-                    ["name"] = t.Name,
-                    ["description"] = t.Description,
-                    ["parameters"] = t.Parameters.DeepClone(),
-                },
-            });
+            array.Add(Definition(t));
         }
         return array;
     }
+
+    /// <summary>发给模型的一个工具的定义（OpenAI function 格式）。</summary>
+    public static JsonObject Definition(ITool t) => new()
+    {
+        ["type"] = "function",
+        ["function"] = new JsonObject
+        {
+            ["name"] = t.Name,
+            ["description"] = t.Description,
+            ["parameters"] = t.Parameters.DeepClone(),
+        },
+    };
 
     /// <summary>与平台无关的内置工具。Windows 专用工具（打开软件等）由客户端另行注册。</summary>
     public static ToolRegistry CreateDefault() => new ToolRegistry()

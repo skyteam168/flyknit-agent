@@ -184,6 +184,12 @@ SETTINGS: tuple[Setting, ...] = (
         title="AI 用选项向员工提问",
         risk="关闭后 AI 缺信息时只能在回答里用文字提问，员工要自己打字回复，任务也要等下一条消息才能继续。",
     ),
+    # ---- 会话信息面板：员工能不能展开看上下文的详细拆分（系统提示各段、每个连接器的工具占多少）。默认能 ----
+    Setting(
+        key="context_details", kind="bool", default=True, locked=True,
+        title="员工可以查看上下文用量的详细拆分",
+        risk="关闭后员工在「会话信息」里只看到总用量和「整理对话」，看不到系统提示、记忆、技能、各连接器分别占多少。",
+    ),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}
