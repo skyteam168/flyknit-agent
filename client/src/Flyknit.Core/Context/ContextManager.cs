@@ -193,6 +193,11 @@ public sealed class ContextManager
     /// 这次请求实际要发的 token 数：history + 工具定义的估算，再按上次真实用量校准
     /// （真实值更准，但新增的内容只能估算）。
     /// </summary>
+    /// <summary>自动压缩的门槛（token）：上下文超过它时把较早的对话压成摘要。</summary>
+    public int CompactThreshold => (int)(Budget * _options.CompactRatio);
+
+    public ContextOptions Options => _options;
+
     public int Measure(IReadOnlyList<ChatMessage> history) =>
         (int)Math.Ceiling((TokenEstimator.Estimate(history) + ToolTokens) * _calibration);
 
@@ -310,10 +315,25 @@ public sealed class ContextManager
         return -1;
     }
 
-    private async Task<CompactionInfo?> CompactAsync(List<ChatMessage> history, int tokensBefore, CancellationToken ct)
+    /// <summary>
+    /// 员工手动「整理对话」：不看门槛，把最近一轮之前的对话都压成摘要（最近一问一答保留原文）。
+    /// 能压的不到两条时返回 null，什么也不做。
+    /// </summary>
+    public Task<CompactionInfo?> CompactNowAsync(List<ChatMessage> history, CancellationToken ct)
     {
         var start = history.Count > 0 && history[0].Role == ChatRole.System ? 1 : 0;
-        var boundary = FindBoundary(history);
+        var lastUser = history.FindLastIndex(m => m.Role == ChatRole.User && m.Content != ContinueMarker);
+        if (lastUser - start < 2)
+        {
+            return Task.FromResult<CompactionInfo?>(null);
+        }
+        return CompactAsync(history, Measure(history), ct, lastUser);
+    }
+
+    private async Task<CompactionInfo?> CompactAsync(List<ChatMessage> history, int tokensBefore, CancellationToken ct, int? manualBoundary = null)
+    {
+        var start = history.Count > 0 && history[0].Role == ChatRole.System ? 1 : 0;
+        var boundary = manualBoundary ?? FindBoundary(history);
         if (boundary <= start)
         {
             return null;
@@ -323,8 +343,8 @@ public sealed class ContextManager
         {
             return null;
         }
-        // 能压的太少（大头是压不掉的系统提示词和工具定义）：压了也省不下多少，不值一次模型调用
-        if (TokenEstimator.Estimate(old) * _calibration < Budget * _options.MinCompressibleRatio)
+        // 能压的太少（大头是压不掉的系统提示词和工具定义）：压了也省不下多少，不值一次模型调用。员工手动要求时照做
+        if (manualBoundary is null && TokenEstimator.Estimate(old) * _calibration < Budget * _options.MinCompressibleRatio)
         {
             return null;
         }

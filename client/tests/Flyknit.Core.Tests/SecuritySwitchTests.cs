@@ -192,6 +192,8 @@ public class SecuritySwitchTests
             SecuritySettings.ExpertDelegation,
             // AgentHost 读这一项决定这一轮有没有 ask_user（见 AskUserTests）
             SecuritySettings.AskUser,
+            // WebBridge 读这一项推给界面：会话信息面板能不能展开详细拆分
+            SecuritySettings.ContextDetails,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

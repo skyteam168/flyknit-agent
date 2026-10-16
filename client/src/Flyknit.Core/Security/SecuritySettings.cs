@@ -88,6 +88,9 @@ public sealed class SecuritySettings
     /// <summary>AI 缺信息时用选项卡片向员工提问（ask_user）。没下发按开算。</summary>
     public const string AskUser = "ask_user";
 
+    /// <summary>「会话信息」面板里员工能不能展开上下文用量的详细拆分。没下发按能算。</summary>
+    public const string ContextDetails = "context_details";
+
     private readonly Dictionary<string, SecurityItem> _items;
 
     public SecuritySettings(Dictionary<string, SecurityItem>? items = null)

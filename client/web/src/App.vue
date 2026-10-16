@@ -16,6 +16,7 @@ import Composer from './components/Composer.vue'
 import UpdateBar from './components/UpdateBar.vue'
 import PlanPanel from './components/PlanPanel.vue'
 import PreviewPane from './components/PreviewPane.vue'
+import SessionPanel from './components/SessionPanel.vue'
 import TraceDialog from './components/TraceDialog.vue'
 import ExpertTaskDialog from './components/ExpertTaskDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
@@ -85,6 +86,8 @@ function stopSidebarResize() {
 
 /** 窄窗口（迷你模式）：侧栏改为抽屉 */
 const narrow = computed(() => width.value < 760)
+/** 会话信息面板：只在对话里、窗口够宽、没有打开文件预览时显示（它们共用右边这块） */
+const showSession = computed(() => state.sessionPanel && !state.preview && !narrow.value && state.view === 'chat' && !!current.value)
 const showPlan = computed(() => width.value >= 1100 && (currentState.value?.plan.length ?? 0) > 0)
 /** 有当前对话时显示对话视图，否则显示新任务首页 */
 const inConversation = computed(() => current.value !== null)
@@ -290,7 +293,8 @@ onBeforeUnmount(() => {
           <Composer ref="composer" />
         </div>
         <Home v-else ref="home" />
-        <PlanPanel v-if="showPlan && !state.preview && state.view === 'chat'" :plan="currentState!.plan" />
+        <PlanPanel v-if="showPlan && !state.preview && !showSession && state.view === 'chat'" :plan="currentState!.plan" />
+        <SessionPanel v-if="showSession" />
         <PreviewPane v-if="state.preview && !narrow && state.view === 'chat'" />
       </div>
     </main>

@@ -101,6 +101,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             soundLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound)?.Locked ?? false,
             keepAwakeAllowed = _host.KeepAwakeAllowed,
             keepScreenAllowed = _host.KeepScreenOnAllowed,
+            contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
         });
     }
 
@@ -408,6 +409,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     keepAwake = Flyknit.Core.Settings.KeepAwake.Normalize(_settings.KeepAwakeMode),
                     keepAwakeAllowed = _host.KeepAwakeAllowed,
                     keepScreenAllowed = _host.KeepScreenOnAllowed,
+                    contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
                     proxyMode = _settings.ProxyMode,
                     proxyUrl = _settings.ProxyUrl,
                     proxyUser = _settings.ProxyUser,
@@ -1638,6 +1640,15 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     pending.Completion.TrySetResult(choice);
                 }
                 return null;
+            }
+
+            case "context.usage":
+                return _host.ContextUsageOf(Str("conversationId"));
+
+            case "context.compact":
+            {
+                var (ok, message) = await _host.CompactConversationAsync(Str("conversationId"), this, CancellationToken.None);
+                return new { ok, message };
             }
 
             case "tool.answer":

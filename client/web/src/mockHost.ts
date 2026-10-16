@@ -57,6 +57,7 @@ export function createMockHost(): HostTransport {
   const conversations = new Map<string, Conversation>()
   const messages = new Map<string, UiMessage[]>()
   const confirmWaiters = new Map<string, (choice: string) => void>()
+  const mockCompacted = new Set<string>()
   const stopped = new Set<string>()
   // 专家：管理员发布的。?experts=none 看没有专家时的样子
   const minutesAgo = (min: number) => new Date(Date.now() - min * 60000).toISOString()
@@ -1634,6 +1635,35 @@ export function createMockHost(): HostTransport {
         confirmWaiters.get(p.requestId)?.(p.choice)
         confirmWaiters.delete(p.requestId)
         return
+      case 'context.usage': {
+        // 会话信息面板：一份接近真实的拆分（翻译对话不带上下文）
+        const c = conversations.get(p.conversationId)
+        if (!c || c.messageCount === 0) return null
+        const part = (key: string, label: string, tokens: number, items: unknown[] = []) => ({ key, label, tokens, items })
+        const tools = (prefix: string, names: [string, number][]) => names.map(([n, t]) => part(prefix + n, n, t))
+        const compacted = mockCompacted.has(c.id)
+        const parts = [
+          part('messages', '对话消息', compacted ? 6200 : 58440),
+          part('tool_outputs', '工具结果', compacted ? 2100 : 31200),
+          part('tools', '工具定义', 21640, [
+            part('builtin', '内置工具', 9800, tools('', [['run_shell', 2100], ['write_file', 1400], ['read_file', 1200], ['update_plan', 900], ['ask_user', 820]])),
+            part('mcp:tencent-docs', '腾讯文档', 7400, tools('', [['create_sheet', 1900], ['read_sheet', 1700], ['append_rows', 1500]])),
+            part('mcp:wecom', '企业微信', 4440, tools('', [['send_message', 2400], ['list_contacts', 2040]])),
+          ]),
+          part('system', '系统提示', compacted ? 13600 : 11000, [
+            part('base', '基础规则', 2600), part('guide', '图表与界面卡片说明', 2400), part('memory', '记忆', 2100),
+            part('skills', '技能清单', 1900), part('mcp', '连接器说明', 1400), part('episodes', '相似的历史任务', 600),
+            ...(compacted ? [part('summary', '较早对话的摘要', 2600)] : []),
+          ]),
+        ]
+        return { contextLength: 131072, reserveOutput: 8192, compactAt: 92160, parts, used: parts.reduce((a, x) => a + x.tokens, 0), lastPromptTokens: compacted ? null : 118430, measuredAt: now() }
+      }
+      case 'context.compact': {
+        await sleep(1200)
+        mockCompacted.add(p.conversationId)
+        emit({ type: 'context.compacted', conversationId: p.conversationId, uptoMessageId: '', tokensBefore: 122280, tokensAfter: 43540 })
+        return { ok: true, message: '已整理 18 条较早的消息' }
+      }
       case 'tool.answer': {
         // 和宿主一样把回答整理成交给 AI 的文字
         const answers = (p.answers ?? []) as { selected: string[]; other: string }[]

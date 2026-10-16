@@ -113,4 +113,6 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "expert_delegation",
         # 客户端读这一项决定 AI 有没有 ask_user（用选项向员工提问）
         "ask_user",
+        # 客户端读这一项决定「会话信息」面板里员工能不能展开详细拆分
+        "context_details",
     }
