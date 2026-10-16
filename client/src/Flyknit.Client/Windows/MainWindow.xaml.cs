@@ -30,6 +30,7 @@ public partial class MainWindow : Window, IWindowActions
         InitializeComponent();
         LoadingTitle.Text = NativeStrings.T("loading.title");
         LoadingSubtitle.Text = NativeStrings.T("loading.subtitle");
+        RestartButton.Content = NativeStrings.T("error.restart");
         _host = host;
         _settings = settings;
         ApplyBackground(settings.WindowBackground);
@@ -133,16 +134,13 @@ public partial class MainWindow : Window, IWindowActions
             _pageReady.TrySetResult(e.IsSuccess);
             RevealWeb();
             Log.Info($"页面加载完成：成功={e.IsSuccess} 状态={e.WebErrorStatus} HTTP={e.HttpStatusCode}");
-            if (!e.IsSuccess)
+            // 卡死后自动重新加载时，被顶掉的那次导航会以「已取消」结束，不是真的加载失败
+            if (!e.IsSuccess && e.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
             {
                 ShowError($"页面加载失败：{e.WebErrorStatus}（HTTP {e.HttpStatusCode}）。请确认已在 client\\web 执行 npm run build。");
             }
         };
-        core.ProcessFailed += (_, e) =>
-        {
-            Log.Error($"WebView2 进程异常：{e.ProcessFailedKind} {e.Reason}");
-            ShowError($"浏览器组件异常：{e.ProcessFailedKind}");
-        };
+        core.ProcessFailed += (_, e) => OnProcessFailed(e);
         core.WebResourceResponseReceived += (_, e) =>
         {
             if (e.Response.StatusCode >= 400)
@@ -246,7 +244,7 @@ public partial class MainWindow : Window, IWindowActions
     /// <summary>页面加载完成后显示 WebView（页面里有同样样式的加载卡片，切换时看不出闪烁）。</summary>
     private void RevealWeb()
     {
-        if (ErrorText.Visibility == Visibility.Visible)
+        if (ErrorPanel.Visibility == Visibility.Visible)
         {
             return;
         }
@@ -254,11 +252,72 @@ public partial class MainWindow : Window, IWindowActions
         LoadingCard.Visibility = Visibility.Collapsed;
     }
 
+    private int _autoReloads;
+    private DateTime _autoReloadSince;
+
+    /// <summary>
+    /// WebView2 的某个进程出了问题。以前不管哪种都把整个界面藏起来、只留一行红字，员工只能退出重开；
+    /// 其实大多数情况 WebView2 自己能恢复，或者重新加载一下页面就好（对话和任务都在宿主里，不会丢）。
+    /// </summary>
+    private void OnProcessFailed(CoreWebView2ProcessFailedEventArgs e)
+    {
+        Log.Error($"WebView2 进程异常：{e.ProcessFailedKind} {e.Reason}");
+        switch (e.ProcessFailedKind)
+        {
+            case CoreWebView2ProcessFailedKind.BrowserProcessExited:
+                // 整个浏览器组件没了，这个窗口里的 WebView 用不了了，只能重开程序
+                ShowError(NativeStrings.T("error.browserExited"));
+                break;
+            case CoreWebView2ProcessFailedKind.RenderProcessExited:
+            case CoreWebView2ProcessFailedKind.RenderProcessUnresponsive:
+                ReloadAfterCrash(e.ProcessFailedKind);
+                break;
+            default:
+                // 网页预览里的 iframe、GPU、工具进程等：WebView2 会自己恢复，主界面不受影响
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 界面卡死或崩溃：带上 recovered=1 重新加载，页面会先不自动画图表（多半就是某张图拖垮的）。
+    /// 10 分钟里连续 3 次还不行就不再自动重试，给出「重新打开」按钮。
+    /// </summary>
+    private void ReloadAfterCrash(CoreWebView2ProcessFailedKind kind)
+    {
+        var now = DateTime.UtcNow;
+        if (now - _autoReloadSince > TimeSpan.FromMinutes(10))
+        {
+            _autoReloadSince = now;
+            _autoReloads = 0;
+        }
+        if (++_autoReloads > 3)
+        {
+            ShowError(NativeStrings.T("error.renderLoop"));
+            return;
+        }
+        Log.Warn($"界面{(kind == CoreWebView2ProcessFailedKind.RenderProcessUnresponsive ? "卡死" : "崩溃")}，自动重新加载（第 {_autoReloads} 次）");
+        try
+        {
+            var core = Web.CoreWebView2;
+            var source = core.Source;
+            core.Navigate(source.Contains("recovered=1", StringComparison.Ordinal)
+                ? source
+                : source + (source.Contains('?') ? "&" : "?") + "recovered=1");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("重新加载界面失败", ex);
+            ShowError(NativeStrings.T("error.renderLoop"));
+        }
+    }
+
+    private void OnRestartClick(object sender, RoutedEventArgs e) => ((App)Application.Current).Restart();
+
     private void ShowError(string message)
     {
         LoadingCard.Visibility = Visibility.Collapsed;
         ErrorText.Text = message + "\n\n日志：" + AppPaths.Logs;
-        ErrorText.Visibility = Visibility.Visible;
+        ErrorPanel.Visibility = Visibility.Visible;
         Web.Visibility = Visibility.Collapsed; // WebView2 总是盖在 WPF 内容之上，必须隐藏才能看到提示
     }
 

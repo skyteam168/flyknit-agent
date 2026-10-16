@@ -126,6 +126,8 @@ public sealed class PromptBuilder
            icon 可选：calendar database server workflow chart table file folder user users clock mail settings
            security search factory truck package money bug code tool idea target rocket bell task machine。
            文字里用反引号标出字段名、代码。
+           JSON 字符串里要引用词语时用「」，不要用英文双引号（会让整张卡片解析失败）。
+           Mermaid 节点文字里有括号、引号、冒号等符号时，整段文字用英文双引号包起来：A["开始(上午)"]。
 
         什么时候画：用户要对比、看趋势、看占比，或者你在解释一个有步骤、有分支的流程时；
         回答里有一组并列的结果、问题、步骤、数字时，用对应的卡片代替长段落，员工一眼能看清。

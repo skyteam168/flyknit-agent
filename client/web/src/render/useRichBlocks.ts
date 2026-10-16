@@ -1,6 +1,13 @@
 import { nextTick, onBeforeUnmount, watch, type Ref } from 'vue'
 import { decodeBlockCode, renderBlock, type BlockTheme } from './blocks'
 import { state } from '../store'
+import { i18n } from '../i18n'
+
+/**
+ * 界面刚因为卡死或崩溃被宿主自动重新加载过（地址带 recovered=1）：这次打开期间图表不自动画，
+ * 点一下才画——多半就是某张图把界面拖垮的，自动再画一遍会再卡一次。
+ */
+export const safeMode = typeof location !== 'undefined' && new URLSearchParams(location.search).has('recovered')
 
 type Painted = HTMLElement & { __dispose?: () => void }
 
@@ -39,7 +46,11 @@ export function useRichBlocks(container: Ref<HTMLElement | null | undefined>, de
 
   function placeholders(root: HTMLElement) {
     return [...root.querySelectorAll<HTMLElement>('pre.rich-block[data-code]')].filter(
-      (el) => !el.classList.contains('rendered') && !el.classList.contains('failed') && !el.classList.contains('rendering'),
+      (el) =>
+        !el.classList.contains('rendered') &&
+        !el.classList.contains('failed') &&
+        !el.classList.contains('rendering') &&
+        !el.classList.contains('held'),
     )
   }
 
@@ -63,6 +74,23 @@ export function useRichBlocks(container: Ref<HTMLElement | null | undefined>, de
     }
   }
 
+  /** 安全模式下先放一个按钮，点了才画这一张 */
+  function hold(el: HTMLElement) {
+    el.classList.add('held')
+    el.textContent = ''
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'rich-hold'
+    btn.textContent = i18n.global.t('ui.render.held')
+    btn.addEventListener('click', () => {
+      el.dataset.allow = '1'
+      el.classList.remove('held')
+      el.textContent = ''
+      void paint()
+    })
+    el.append(btn)
+  }
+
   async function paint() {
     const mine = ++generation
     const root = container.value
@@ -76,6 +104,10 @@ export function useRichBlocks(container: Ref<HTMLElement | null | undefined>, de
       const lang = el.dataset.lang ?? ''
       const encoded = el.dataset.code ?? ''
       const code = decodeBlockCode(encoded)
+      if (safeMode && !el.dataset.allow) {
+        hold(el)
+        continue
+      }
       el.classList.add('rendering')
       try {
         const ok = await renderBlock(lang, code, el, theme)
@@ -91,15 +123,22 @@ export function useRichBlocks(container: Ref<HTMLElement | null | undefined>, de
           ;(el as Painted).__dispose?.()
           return
         }
-        // 画不出来就老老实实显示源码，并说明原因
+        // 画不出来：一句话说明，原文收在「查看原文」里，不把一大段源码和报错直接摊给员工
         el.classList.add('failed')
         el.textContent = ''
         const note = document.createElement('div')
         note.className = 'rich-error'
-        note.textContent = (e as Error).message
+        // 原因只留第一行：mermaid 的报错后面跟着好几行语法提示，员工看不懂
+        const reason = String((e as Error)?.message ?? e).split('\n')[0].slice(0, 80)
+        note.textContent = i18n.global.t('ui.render.failed', { reason })
+        const details = document.createElement('details')
+        const summary = document.createElement('summary')
+        summary.textContent = i18n.global.t('ui.render.source')
         const pre = document.createElement('code')
         pre.textContent = code
-        el.append(note, pre)
+        details.append(summary, pre)
+        el.append(note, details)
+        console.warn('[rich-block] 渲染失败', lang, e)
       }
     }
     sweep()

@@ -27,6 +27,7 @@ import ExpertAvatar from './components/ExpertAvatar.vue'
 import ExpertDetail from './components/ExpertDetail.vue'
 import BrandLoader from './components/BrandLoader.vue'
 import { uploadDropped } from './library'
+import { safeMode } from './render/useRichBlocks'
 import { closeFilesViewer, convFiles } from './conversationFiles'
 import {
   addFiles,
@@ -45,6 +46,7 @@ import {
   stepFontScale,
   toggleMaximize,
   stop,
+  toast,
 } from './store'
 import { loadShortcuts, registerShortcut, startShortcuts } from './shortcuts'
 
@@ -218,6 +220,7 @@ function onDrop(e: DragEvent) {
 }
 
 onMounted(async () => {
+  if (safeMode) toast(t('ui.render.recovered'))
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', onKey)
   try {
