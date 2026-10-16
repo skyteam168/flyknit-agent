@@ -431,6 +431,9 @@ public partial class App : Application
         // 只是这次隐藏：设置不变，下次启动照常显示
         list.Add(new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.hide"), () => _ball?.Hide()));
         list.Add(new FloatingBall.MenuEntry(NativeStrings.T("ball.menu.disable"), DisableBall));
+        list.Add(null);
+        // 和托盘菜单的「退出」一样彻底退出；悬浮球上容易误点，还有任务在跑时先问一句
+        list.Add(new FloatingBall.MenuEntry(NativeStrings.T("tray.exit"), ExitFromBall));
         return list;
     }
 
@@ -459,6 +462,19 @@ public partial class App : Application
     }
 
     /// <summary>停用悬浮球：和托盘菜单里取消勾选「显示悬浮球」一样，记进设置。</summary>
+    private void ExitFromBall()
+    {
+        if (_activeRuns > 0 && System.Windows.MessageBox.Show(
+                NativeStrings.T("ball.exitBusy").Replace("{n}", _activeRuns.ToString()),
+                "FlyknitBuddy",
+                System.Windows.MessageBoxButton.OKCancel,
+                System.Windows.MessageBoxImage.Warning) != System.Windows.MessageBoxResult.OK)
+        {
+            return;
+        }
+        ExitApp();
+    }
+
     private void DisableBall()
     {
         _settings.ShowBall = false;

@@ -61,8 +61,12 @@ public static class OpenAiSerializer
 
     private static JsonObject UserMessage(ChatMessage m)
     {
-        var text = m.Content;
-        var files = m.Attachments.Where(a => !a.IsImage || a.Size > MaxInlineImageBytes).ToList();
+        // 粘贴的长文本放在员工打的字前面（员工常说「以上是……」）；文件读不到就当普通附件
+        var pasted = m.Attachments.Where(a => a.Pasted).Select(a => (a, block: PastedText.Block(a))).ToList();
+        var blocks = pasted.Where(p => p.block is not null).Select(p => p.block!).ToList();
+        var text = blocks.Count > 0 ? string.Join("\n\n", blocks) + (m.Content.Length > 0 ? "\n\n" + m.Content : "") : m.Content;
+        var inlined = pasted.Where(p => p.block is not null).Select(p => p.a).ToHashSet();
+        var files = m.Attachments.Where(a => !inlined.Contains(a) && (!a.IsImage || a.Size > MaxInlineImageBytes)).ToList();
         if (files.Count > 0)
         {
             // 非图片附件：告诉模型文件位置，由 Agent 通过工具读取

@@ -18,6 +18,12 @@ public sealed class Attachment
     public string Mime { get; init; } = "application/octet-stream";
     public long Size { get; init; }
 
+    /// <summary>
+    /// 员工粘贴的长文本：界面上折叠成卡片，发给模型时把全文直接放进消息（见 <see cref="PastedText"/>），
+    /// 聊天、翻译模式没有读文件的工具也能看到。只有宿主自己存下的粘贴文件才会带这个标记。
+    /// </summary>
+    public bool Pasted { get; init; }
+
     public bool IsImage => Mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
 }
 

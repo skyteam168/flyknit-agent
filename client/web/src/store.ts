@@ -1,5 +1,6 @@
 import { computed, reactive, watch } from 'vue'
 import { bridge } from './bridge'
+import { forHost, isTextAttachment, utf8Base64 } from './pasted'
 import { applyLanguage, i18n } from './i18n'
 import type {
   AppInfo,
@@ -102,6 +103,8 @@ export const state = reactive({
   usage: null as UsageStats | null,
   /** 用户关掉提醒条后，这一档不再提醒 */
   usageDismissedAt: 0,
+  /** 在客户端里查看全文的文本附件（粘贴的文本、txt / md 等） */
+  textView: null as AttachmentRef | null,
   /** 右侧分屏预览 */
   preview: null as { file: OutputFile; doc: PreviewDoc | null; loading: boolean; error: string } | null,
   /** 分屏宽度（像素），拖拽后记住 */
@@ -861,7 +864,7 @@ export async function send(text: string): Promise<boolean> {
     const messageId = newMessageId()
     s.messages.push({ id: messageId, role: 'user', content: body, attachments, createdAt: new Date().toISOString() })
     beginRun(s)
-    await bridge.send(id, body, attachments, messageId)
+    await bridge.send(id, body, attachments.map(forHost), messageId)
   } catch (e) {
     if (id) {
       const s = convState(id)
@@ -1086,6 +1089,22 @@ export async function addPastedImage(blob: Blob) {
   } catch (e) {
     fail(e)
   }
+}
+
+/** 粘贴的长文本存成 .txt 附件，界面上折叠成卡片 */
+export async function addPastedText(text: string) {
+  try {
+    const ref = await bridge.saveBlob(i18n.global.t('ui.paste.fileName'), 'text/plain', utf8Base64(text))
+    state.pending.push({ ...ref, mime: 'text/plain', pasted: true, pasteText: text })
+  } catch (e) {
+    fail(e)
+  }
+}
+
+/** 点消息里的附件：文本在客户端里看全文，其他的交给系统程序打开 */
+export function openAttachment(a: AttachmentRef) {
+  if (isTextAttachment(a)) state.textView = a
+  else void openPath(a.localPath)
 }
 
 function readAsDataUrl(blob: Blob): Promise<string> {

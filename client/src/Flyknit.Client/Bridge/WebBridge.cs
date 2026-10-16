@@ -1612,7 +1612,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _host.Send(
                     Str("conversationId"),
                     Str("text"),
-                    attachments.Where(x => File.Exists(x.LocalPath)).Select(x => x.ToModel()).ToList(),
+                    attachments.Where(x => File.Exists(x.LocalPath)).Select(x => x.ToModel(allowPasted: IsPastedText(x.LocalPath))).ToList(),
                     OptStr("messageId"),
                     _settings.ResolveUiLanguage(),
                     this,
@@ -1669,9 +1669,11 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "files.saveBlob":
             {
-                Directory.CreateDirectory(Path.Combine(AppPaths.Temp, "paste"));
+                // 每次一个子目录：同名的「粘贴文本.txt」连粘几段也不会互相覆盖
+                var dir = Path.Combine(PasteDir, Guid.NewGuid().ToString("N")[..12]);
+                Directory.CreateDirectory(dir);
                 var name = string.Join("_", Str("fileName").Split(Path.GetInvalidFileNameChars()));
-                var path = Path.Combine(AppPaths.Temp, "paste", string.IsNullOrWhiteSpace(name) ? $"paste-{Guid.NewGuid():N}.png" : name);
+                var path = Path.Combine(dir, string.IsNullOrWhiteSpace(name) ? $"paste-{Guid.NewGuid():N}.png" : name);
                 await File.WriteAllBytesAsync(path, Convert.FromBase64String(Str("base64")));
                 return AttachmentDto.FromPath(path);
             }
@@ -1853,6 +1855,24 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             default:
                 throw new NotSupportedException($"未知方法：{method}");
+        }
+    }
+
+    private static string PasteDir => Path.Combine(AppPaths.Temp, "paste");
+
+    /// <summary>宿主自己存下的粘贴文本（files.saveBlob 写到临时目录里的 .txt）才能整段放进消息</summary>
+    private static bool IsPastedText(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var dir = Path.GetFullPath(PasteDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return full.StartsWith(dir, StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(Path.GetExtension(full), ".txt", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 
