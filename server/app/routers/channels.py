@@ -1,8 +1,8 @@
 """
-通道（钉钉）的接口。
+通道（钉钉、企业微信）的接口。
 
   /api/v1/client/channels…   员工端：看开没开、生成绑定码、看和解除自己的绑定、长轮询领消息、回结果
-  /api/v1/admin/channels…    后台：钉钉应用凭证和开关、连接状态、绑定列表、消息记录
+  /api/v1/admin/channels…    后台：钉钉 / 企业微信的凭证和开关、连接状态、绑定列表、消息记录
 """
 
 from __future__ import annotations
@@ -18,7 +18,17 @@ from .. import crypto
 from ..db import get_session
 from ..deps import require_admin, require_device, require_owner
 from ..models import AdminUser, ChannelBinding, ChannelMessage, Device
-from ..services.channel_hub import get_config, hub, ready, save_config, secret_of
+from ..services.channel_hub import (
+    get_config,
+    get_wecom_config,
+    hub,
+    ready,
+    save_config,
+    save_wecom_config,
+    secret_of,
+    wecom_ready,
+    wecom_secret,
+)
 
 client_router = APIRouter(prefix="/api/v1/client/channels", tags=["channels"])
 admin_router = APIRouter(prefix="/api/v1/admin/channels", tags=["channels"], dependencies=[Depends(require_admin)])
@@ -38,6 +48,8 @@ class BindingOut(BaseModel):
 class ClientChannelsOut(BaseModel):
     #: 后台开了钉钉通道并填好了凭证
     dingtalk: bool
+    #: 后台开了企业微信通道
+    wecom: bool = False
     bindings: list[BindingOut]
 
 
@@ -77,14 +89,15 @@ def _binding_out(b: ChannelBinding) -> BindingOut:
 @client_router.get("", response_model=ClientChannelsOut)
 async def my_channels(device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
     cfg = await get_config(session)
+    wc = await get_wecom_config(session)
     rows = (await session.scalars(select(ChannelBinding).where(ChannelBinding.device_id == device.id))).all()
-    return ClientChannelsOut(dingtalk=ready(cfg), bindings=[_binding_out(b) for b in rows])
+    return ClientChannelsOut(dingtalk=ready(cfg), wecom=wecom_ready(wc), bindings=[_binding_out(b) for b in rows])
 
 
 @client_router.post("/bind-code", response_model=BindCodeOut)
 async def bind_code(device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
-    if not ready(await get_config(session)):
-        raise HTTPException(409, "管理员还没有开启钉钉通道")
+    if not ready(await get_config(session)) and not wecom_ready(await get_wecom_config(session)):
+        raise HTTPException(409, "管理员还没有开启钉钉或企业微信通道")
     row = await hub.new_bind_code(session, device.id)
     return BindCodeOut(code=row.code, expires_at=row.expires_at)
 
@@ -165,7 +178,7 @@ class DingTalkConfigIn(BaseModel):
 async def _config_out(session: AsyncSession) -> DingTalkConfigOut:
     cfg = await get_config(session)
     count = len((await session.scalars(select(ChannelBinding.id).where(ChannelBinding.channel == "dingtalk"))).all())
-    st = hub.status
+    st = hub.status("dingtalk")
     return DingTalkConfigOut(
         enabled=bool(cfg["enabled"]), client_id=cfg["client_id"], client_secret=crypto.mask(secret_of(cfg)),
         robot_code=cfg.get("robot_code") or "", connected=st.connected, connected_since=st.since,
@@ -243,3 +256,56 @@ async def list_messages(limit: int = Query(default=100, ge=1, le=500), session: 
     return [AdminMessageOut(id=m.id, channel=m.channel, external_name=m.external_name, machine_name=name or "",
                             text=m.text, status=m.status, answer=m.answer, error=m.error, replied=m.replied,
                             created_at=m.created_at, finished_at=m.finished_at) for m, name in rows]
+
+
+# ---------- 企业微信 ----------
+
+class WeComConfigOut(BaseModel):
+    enabled: bool
+    bot_id: str
+    #: 打码后的，原文不回显
+    secret: str
+    connected: bool
+    connected_since: datetime | None
+    last_error: str
+    received: int
+    last_message_at: datetime | None
+    bindings: int
+
+
+class WeComConfigIn(BaseModel):
+    enabled: bool = False
+    bot_id: str = Field(default="", max_length=100)
+    #: 留空表示不改
+    secret: str = Field(default="", max_length=200)
+
+
+async def _wecom_out(session: AsyncSession) -> WeComConfigOut:
+    cfg = await get_wecom_config(session)
+    count = len((await session.scalars(select(ChannelBinding.id).where(ChannelBinding.channel == "wecom"))).all())
+    st = hub.status("wecom")
+    return WeComConfigOut(
+        enabled=bool(cfg["enabled"]), bot_id=cfg["bot_id"], secret=crypto.mask(wecom_secret(cfg)),
+        connected=st.connected, connected_since=st.since, last_error=st.last_error, received=st.received,
+        last_message_at=st.last_message_at, bindings=count,
+    )
+
+
+@admin_router.get("/wecom", response_model=WeComConfigOut)
+async def get_wecom(session: AsyncSession = Depends(get_session)):
+    return await _wecom_out(session)
+
+
+@admin_router.put("/wecom", response_model=WeComConfigOut)
+async def put_wecom(
+    data: WeComConfigIn,
+    # 和钉钉一样：开了它，企业微信里发的话就能让员工电脑执行操作
+    _owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
+    if data.enabled and not data.bot_id.strip():
+        raise HTTPException(422, "请填写企业微信智能机器人的 Bot ID")
+    if data.enabled and not data.secret and not wecom_secret(await get_wecom_config(session)):
+        raise HTTPException(422, "请填写企业微信智能机器人的 Secret")
+    await save_wecom_config(session, data.enabled, data.bot_id, data.secret or None)
+    return await _wecom_out(session)

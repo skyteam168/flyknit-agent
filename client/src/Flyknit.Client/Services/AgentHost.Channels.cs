@@ -22,13 +22,15 @@ public sealed partial class AgentHost
     public void NotifyChannelsChanged(bool expectBinding = false) => ChannelsChanged?.Invoke(expectBinding);
 
     /// <summary>
-    /// 执行一条从钉钉发来的消息。同一个钉钉账号的消息接着同一个对话聊（对话在侧栏里能看到、能接着在电脑上问），
+    /// 执行一条从钉钉 / 企业微信发来的消息。同一个账号的消息接着同一个对话聊（对话在侧栏里能看到、能接着在电脑上问），
     /// 那个对话被删了、正在跑别的任务时新开一个。
     ///
     /// 需要员工确认的操作一律不远程放行：人不在电脑前，钉钉里回一句「同意」也说不清看没看明白要做什么。
     /// 被拦下的操作写进回复里，让员工回到电脑上处理。
     /// </summary>
-    public async Task<InstructionOutcome> RunChannelMessageAsync(string text, string sender, string conversationId, CancellationToken ct)
+    public static string ChannelName(string channel) => channel == "wecom" ? "企业微信" : "钉钉";
+
+    public async Task<InstructionOutcome> RunChannelMessageAsync(string text, string sender, string conversationId, CancellationToken ct, string channel = "dingtalk")
     {
         var conv = conversationId.Length > 0 ? Store.Get(conversationId) : null;
         if (conv is not null && (conv.DeletedAt is not null || conv.Mode != ConversationMode.Agent || IsRunning(conv.Id)))
@@ -37,7 +39,7 @@ public sealed partial class AgentHost
         }
         if (conv is null)
         {
-            var title = $"钉钉 · {(sender.Length > 0 ? sender : "远程")}";
+            var title = $"{ChannelName(channel)} · {(sender.Length > 0 ? sender : "远程")}";
             conv = Store.Create(ConversationMode.Agent, title);
             Store.Rename(conv.Id, title); // 固定标题，不让 AI 自动总结覆盖
         }

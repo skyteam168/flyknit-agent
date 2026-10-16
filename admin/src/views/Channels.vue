@@ -3,7 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ChatDotSquare, Refresh } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { ChannelBinding, ChannelMessageRow, DingTalkConfig } from '@/api/types'
+import type { ChannelBinding, ChannelMessageRow, DingTalkConfig, WeComConfig } from '@/api/types'
 import { dateTime, relative } from '@/utils/format'
 
 const cfg = ref<DingTalkConfig | null>(null)
@@ -11,15 +11,21 @@ const bindings = ref<ChannelBinding[]>([])
 const messages = ref<ChannelMessageRow[]>([])
 const loading = ref(false)
 const form = reactive({ enabled: false, client_id: '', client_secret: '', robot_code: '' })
+const wc = ref<WeComConfig | null>(null)
+const wcForm = reactive({ enabled: false, bot_id: '', secret: '' })
+const tab = ref<'dingtalk' | 'wecom'>('dingtalk')
+const CHANNEL_LABELS: Record<string, string> = { dingtalk: '钉钉', wecom: '企业微信' }
 
 async function load() {
   loading.value = true
   try {
-    const [c, b, m] = await Promise.all([api.dingtalk(), api.channelBindings(), api.channelMessages()])
+    const [c, w, b, m] = await Promise.all([api.dingtalk(), api.wecom(), api.channelBindings(), api.channelMessages()])
     cfg.value = c
+    wc.value = w
     bindings.value = b
     messages.value = m
     Object.assign(form, { enabled: c.enabled, client_id: c.client_id, client_secret: '', robot_code: c.robot_code })
+    Object.assign(wcForm, { enabled: w.enabled, bot_id: w.bot_id, secret: '' })
   } finally {
     loading.value = false
   }
@@ -52,11 +58,36 @@ async function save() {
 
 async function refreshStatus() {
   cfg.value = await api.dingtalk()
+  wc.value = await api.wecom()
+}
+
+const savingWc = ref(false)
+async function saveWecom() {
+  if (wcForm.enabled && !wc.value?.enabled) {
+    try {
+      await ElMessageBox.confirm(
+        '开启后，绑定了电脑的员工可以在企业微信里私聊智能机器人，让自己电脑上的 FlyknitBuddy 执行操作（读写文件、运行命令等，仍受安全中心策略约束；需要确认的操作不会远程执行）。确定开启吗？',
+        '开启企业微信通道',
+        { type: 'warning', confirmButtonText: '开启', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+  }
+  savingWc.value = true
+  try {
+    wc.value = await api.saveWecom({ ...wcForm })
+    wcForm.secret = ''
+    ElMessage.success(wcForm.enabled ? '已保存，正在连接企业微信…' : '已保存，企业微信通道已关闭')
+    setTimeout(() => void refreshStatus(), 2500)
+  } finally {
+    savingWc.value = false
+  }
 }
 
 async function unbind(b: ChannelBinding) {
   try {
-    await ElMessageBox.confirm(`解除「${b.external_name || '钉钉用户'}」和电脑 ${b.machine_name} 的绑定？`, '解除绑定', { type: 'warning' })
+    await ElMessageBox.confirm(`解除${CHANNEL_LABELS[b.channel] ?? ''}「${b.external_name || '用户'}」和电脑 ${b.machine_name} 的绑定？`, '解除绑定', { type: 'warning' })
   } catch {
     return
   }
@@ -78,12 +109,15 @@ const STATUS: Record<ChannelMessageRow['status'], { label: string; type: 'info' 
   <div class="page" v-loading="loading && !cfg">
     <div class="page-head">
       <div>
-        <h1>钉钉通道</h1>
-        <p>员工在钉钉里私聊机器人，消息转给他自己电脑上的 FlyknitBuddy 去办，结果再发回钉钉。用 Stream 模式连接，服务器不需要公网地址。</p>
+        <h1>消息通道</h1>
+        <p>员工在钉钉或企业微信里私聊机器人，消息转给他自己电脑上的 FlyknitBuddy 去办，结果再发回去。两边都是服务器主动连出去的长连接，不需要公网地址。</p>
       </div>
       <el-button :icon="Refresh" @click="load">刷新</el-button>
     </div>
 
+    <el-tabs v-model="tab" class="tabs">
+      <el-tab-pane name="dingtalk">
+        <template #label>钉钉 <el-tag v-if="cfg?.enabled" size="small" :type="cfg.connected ? 'success' : 'danger'" effect="plain">{{ cfg.connected ? '已连接' : '未连上' }}</el-tag></template>
     <div class="layout">
       <section class="panel">
         <div class="panel-title">
@@ -135,11 +169,67 @@ const STATUS: Record<ChannelMessageRow['status'], { label: string; type: 'info' 
         <p class="hint">只接单聊；群里 @ 机器人会提示改为私聊。需要员工在电脑上确认的操作（删除、安装软件等）不会远程执行。</p>
       </section>
     </div>
+      </el-tab-pane>
+
+      <el-tab-pane name="wecom">
+        <template #label>企业微信 <el-tag v-if="wc?.enabled" size="small" :type="wc.connected ? 'success' : 'danger'" effect="plain">{{ wc.connected ? '已连接' : '未连上' }}</el-tag></template>
+        <div class="layout">
+          <section class="panel">
+            <div class="panel-title">
+              <h3><el-icon><ChatDotSquare /></el-icon> 企业微信智能机器人</h3>
+              <template v-if="wc">
+                <el-tag v-if="!wc.enabled" type="info" effect="plain">未开启</el-tag>
+                <el-tag v-else-if="wc.connected" type="success" effect="plain">已连接</el-tag>
+                <el-tag v-else type="danger" effect="plain">未连上</el-tag>
+              </template>
+            </div>
+            <el-form :model="wcForm" label-width="120px">
+              <el-form-item label="开启">
+                <el-switch v-model="wcForm.enabled" />
+              </el-form-item>
+              <el-form-item label="Bot ID">
+                <el-input v-model="wcForm.bot_id" placeholder="智能机器人的 Bot ID" />
+              </el-form-item>
+              <el-form-item label="Secret">
+                <el-input
+                  v-model="wcForm.secret"
+                  type="password"
+                  show-password
+                  :placeholder="wc?.secret ? `已保存（${wc.secret}），留空表示不改` : '长连接模式的 Secret'"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :loading="savingWc" @click="saveWecom">保存</el-button>
+              </el-form-item>
+            </el-form>
+            <el-alert v-if="wc?.enabled && wc.last_error" type="error" :closable="false" show-icon :title="`连接失败：${wc.last_error}`" />
+            <p v-if="wc?.connected" class="hint">
+              {{ relative(wc.connected_since) }}连上；累计收到 {{ wc.received }} 条消息<template v-if="wc.last_message_at">，最近一条 {{ relative(wc.last_message_at) }}</template>。
+            </p>
+          </section>
+
+          <section class="panel guide">
+            <div class="panel-title"><h3>接入步骤</h3></div>
+            <ol>
+              <li>企业微信管理后台 →「应用管理」→「智能机器人」，创建一个机器人。</li>
+              <li>在机器人的「API 模式」里，连接方式选 <b>使用长连接</b>，记下 Bot ID 和 Secret。</li>
+              <li>设置机器人的可见范围，把要用的员工加进去。</li>
+              <li>把 Bot ID 和 Secret 填到左边并开启，状态显示「已连接」即可。服务器不需要公网地址，也不用配置可信 IP。</li>
+              <li>员工在电脑上的 FlyknitBuddy「设置 → 钉钉 / 企业微信」生成绑定码，在企业微信里私聊机器人发「绑定 123456」。</li>
+            </ol>
+            <p class="hint">只接单聊；在群里 @ 机器人会提示改为私聊。企业微信长连接里只有员工的账号（userid），所以绑定列表里显示的是账号而不是姓名。</p>
+          </section>
+        </div>
+      </el-tab-pane>
+    </el-tabs>
 
     <section class="panel">
       <div class="panel-title"><h3>已绑定 <small>{{ bindings.length }} 人</small></h3></div>
       <el-table :data="bindings" empty-text="还没有员工绑定">
-        <el-table-column label="钉钉用户" prop="external_name" min-width="120" />
+        <el-table-column label="通道" width="90">
+          <template #default="{ row }">{{ CHANNEL_LABELS[row.channel] ?? row.channel }}</template>
+        </el-table-column>
+        <el-table-column label="账号" prop="external_name" min-width="120" />
         <el-table-column label="电脑" min-width="160">
           <template #default="{ row }">{{ row.machine_name }} <small class="muted">{{ row.user_name }}</small></template>
         </el-table-column>
@@ -170,7 +260,10 @@ const STATUS: Record<ChannelMessageRow['status'], { label: string; type: 'info' 
         <el-table-column label="时间" min-width="150">
           <template #default="{ row }">{{ dateTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="钉钉用户" prop="external_name" min-width="110" />
+        <el-table-column label="通道" width="90">
+          <template #default="{ row }">{{ CHANNEL_LABELS[row.channel] ?? row.channel }}</template>
+        </el-table-column>
+        <el-table-column label="账号" prop="external_name" min-width="110" />
         <el-table-column label="电脑" prop="machine_name" min-width="120" />
         <el-table-column label="消息" min-width="260" show-overflow-tooltip prop="text" />
         <el-table-column label="状态" width="120">

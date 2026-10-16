@@ -1318,12 +1318,13 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             {
                 if (!_host.Connected || !_host.Server.IsRegistered)
                 {
-                    return new { dingtalk = false, online = false, bindings = Array.Empty<object>() };
+                    return new { dingtalk = false, wecom = false, online = false, bindings = Array.Empty<object>() };
                 }
                 var state = await _host.Server.GetChannelsAsync(CancellationToken.None);
                 return new
                 {
                     dingtalk = state.DingTalk,
+                    wecom = state.WeCom,
                     online = true,
                     bindings = state.Bindings.Select(b => new { id = b.Id, channel = b.Channel, name = b.ExternalName, createdAt = b.CreatedAt, lastUsed = b.LastUsed }).ToList(),
                 };

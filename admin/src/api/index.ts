@@ -3,6 +3,7 @@ import type {
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
+  WeComConfig,
   Expert,
   ExpertDraft,
   ExpertFields,
@@ -183,6 +184,8 @@ export const api = {
   dingtalk: () => get<DingTalkConfig>('/channels/dingtalk'),
   saveDingtalk: (body: { enabled: boolean; client_id: string; client_secret: string; robot_code: string }) =>
     put<DingTalkConfig>('/channels/dingtalk', body),
+  wecom: () => get<WeComConfig>('/channels/wecom'),
+  saveWecom: (body: { enabled: boolean; bot_id: string; secret: string }) => put<WeComConfig>('/channels/wecom', body),
   channelBindings: () => get<ChannelBinding[]>('/channels/bindings'),
   removeChannelBinding: (id: number) => del<{ ok: boolean }>(`/channels/bindings/${id}`),
   channelMessages: (limit = 100) => get<ChannelMessageRow[]>('/channels/messages', { limit }),

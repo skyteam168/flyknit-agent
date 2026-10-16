@@ -673,6 +673,19 @@ export interface DingTalkConfig {
   bindings: number
 }
 
+export interface WeComConfig {
+  enabled: boolean
+  bot_id: string
+  /** 打码后的值 */
+  secret: string
+  connected: boolean
+  connected_since: string | null
+  last_error: string
+  received: number
+  last_message_at: string | null
+  bindings: number
+}
+
 export interface ChannelBinding {
   id: number
   channel: string

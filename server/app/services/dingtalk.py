@@ -45,6 +45,8 @@ class BotMessage:
     session_webhook: str
     webhook_expires_ms: int
     robot_code: str
+    #: 从哪个通道来的：dingtalk / wecom（企业微信借用 session_webhook 存回调的 req_id）
+    channel: str = "dingtalk"
 
     @property
     def webhook_expires(self) -> datetime | None:

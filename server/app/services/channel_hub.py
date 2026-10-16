@@ -1,13 +1,14 @@
 """
-通道中枢：钉钉进来的消息怎么认人、怎么排队交给员工电脑、结果怎么回去。
+通道中枢：钉钉、企业微信进来的消息怎么认人、怎么排队交给员工电脑、结果怎么回去。
 
-    钉钉 Stream ──▶ handle_inbound ──▶ channel_messages（pending）
+    钉钉 Stream / 企业微信长连接 ──▶ handle_inbound ──▶ channel_messages（pending）
                                             │  员工端长轮询（最多挂 25 秒）领走 → running
                                             ▼
-                         员工端执行完 finish ──▶ 回复发回钉钉
+                         员工端执行完 finish ──▶ 回复发回原来的通道
 
-认人：钉钉消息里的 senderStaffId 是钉钉签发的企业员工 ID，员工自己改不了。员工在自己电脑上的
-FlyknitBuddy 里生成绑定码，再在钉钉里发「绑定 123456」，两边都得是本人才绑得上。
+认人：钉钉消息里的 senderStaffId、企业微信消息里的 userid 都是平台签发的企业员工 ID，员工自己改不了。
+员工在自己电脑上的 FlyknitBuddy 里生成绑定码，再在钉钉或企业微信里发「绑定 123456」，两边都得是本人才绑得上。
+同一个绑定码钉钉、企业微信都能用；两边的绑定各自独立。
 只接单聊：群里 @机器人 的结果别人也看得见，电脑上的东西不该这样发出去。
 
 进程内内存记「哪台电脑在线、在等」，单机部署足够；多实例时员工端换到别的实例，最多晚一个轮询周期。
@@ -29,11 +30,15 @@ from .. import crypto
 from ..models import ChannelBindCode, ChannelBinding, ChannelMessage, Device
 from . import settings_store
 from .dingtalk import BotMessage, DingTalkApi, StreamStatus, for_dingtalk, run_stream
+from .wecom import WeComBot
 
 log = logging.getLogger("flyknit.channels")
 
 CONFIG_KEY = "channel_dingtalk"
 DEFAULT_CONFIG = {"enabled": False, "client_id": "", "client_secret": "", "robot_code": ""}
+WECOM_KEY = "channel_wecom"
+WECOM_DEFAULT = {"enabled": False, "bot_id": "", "secret": ""}
+CHANNEL_NAMES = {"dingtalk": "钉钉", "wecom": "企业微信"}
 
 BIND_CODE_TTL = timedelta(minutes=10)
 #: 同一个钉钉账号一小时内最多输错几次绑定码（防止在钉钉里挨个试别人的码）
@@ -49,7 +54,7 @@ MAX_TEXT = 4000
 
 HELP = (
     "我是 FlyknitBuddy。绑定后，你在这里发的消息会交给你电脑上的 FlyknitBuddy 去办，办完把结果发回来。\n\n"
-    "- **绑定**：在电脑上打开 FlyknitBuddy →「设置 → 钉钉」，生成绑定码，然后在这里发「绑定 123456」\n"
+    "- **绑定**：在电脑上打开 FlyknitBuddy →「设置 → 钉钉 / 企业微信」，生成绑定码，然后在这里发「绑定 123456」\n"
     "- **解绑**：发「解绑」\n"
     "- 需要在电脑上确认的操作（删除、安装软件等）不会远程执行，会提示你回到电脑上处理"
 )
@@ -102,6 +107,36 @@ def ready(cfg: dict) -> bool:
     return bool(cfg.get("enabled") and cfg.get("client_id") and cfg.get("client_secret"))
 
 
+async def get_wecom_config(session: AsyncSession) -> dict:
+    cfg = await settings_store.get_value(session, WECOM_KEY, WECOM_DEFAULT)
+    for k, v in WECOM_DEFAULT.items():
+        cfg.setdefault(k, v)
+    return cfg
+
+
+def wecom_secret(cfg: dict) -> str:
+    try:
+        return crypto.decrypt(cfg.get("secret") or "")
+    except ValueError:
+        return ""
+
+
+async def save_wecom_config(session: AsyncSession, enabled: bool, bot_id: str, secret: str | None) -> dict:
+    """secret 传 None 或空表示不改。"""
+    cfg = await get_wecom_config(session)
+    cfg["enabled"] = bool(enabled)
+    cfg["bot_id"] = bot_id.strip()
+    if secret:
+        cfg["secret"] = crypto.encrypt(secret.strip())
+    await settings_store.set_value(session, WECOM_KEY, cfg)
+    hub.wake_supervisor()
+    return cfg
+
+
+def wecom_ready(cfg: dict) -> bool:
+    return bool(cfg.get("enabled") and cfg.get("bot_id") and cfg.get("secret"))
+
+
 # ---------------------------------------------------------------------
 # 中枢
 # ---------------------------------------------------------------------
@@ -110,8 +145,9 @@ class Hub:
     def __init__(self) -> None:
         self._waiters: dict[int, set[asyncio.Event]] = {}
         self._last_poll: dict[int, float] = {}
-        self.status = StreamStatus()
-        self.replier: Replier | None = None
+        #: 每个通道的连接状态和回消息的对象（钉钉 / 企业微信）
+        self.statuses: dict[str, StreamStatus] = {}
+        self.repliers: dict[str, Replier] = {}
         self._sessionmaker: async_sessionmaker | None = None
         #: 在 supervise 里按当前事件循环创建（模块导入时还没有循环）
         self._supervisor_wake: asyncio.Event | None = None
@@ -148,28 +184,34 @@ class Hub:
 
     # ---- 回消息 ----
 
-    async def say(self, webhook: str, expires: datetime | None, staff_id: str, text: str, title: str = "FlyknitBuddy") -> bool:
-        if self.replier is None:
-            log.warning("钉钉还没连上，回复没发出去")
+    def status(self, channel: str) -> StreamStatus:
+        return self.statuses.setdefault(channel, StreamStatus())
+
+    async def say(self, channel: str, webhook: str, expires: datetime | None, staff_id: str, text: str,
+                  title: str = "FlyknitBuddy") -> bool:
+        replier = self.repliers.get(channel)
+        if replier is None:
+            log.warning("%s还没连上，回复没发出去", CHANNEL_NAMES.get(channel, channel))
             return False
         try:
-            await self.replier.reply(webhook, expires, staff_id, title, text)
+            await replier.reply(webhook, expires, staff_id, title, text)
             return True
         except Exception:  # noqa: BLE001
-            log.exception("回复钉钉消息失败")
+            log.exception("回复%s消息失败", CHANNEL_NAMES.get(channel, channel))
             return False
 
     # ---- 收消息 ----
 
     async def handle_inbound(self, session: AsyncSession, msg: BotMessage) -> ChannelMessage | None:
-        """处理一条钉钉消息。需要员工电脑执行的返回排进队列的那条记录。"""
+        """处理一条钉钉 / 企业微信消息。需要员工电脑执行的返回排进队列的那条记录。"""
+        ch = msg.channel
         if msg.msg_id and await session.scalar(
-            select(ChannelMessage.id).where(ChannelMessage.channel == "dingtalk", ChannelMessage.external_msg_id == msg.msg_id)
+            select(ChannelMessage.id).where(ChannelMessage.channel == ch, ChannelMessage.external_msg_id == msg.msg_id)
         ):
-            return None  # 钉钉重复投递
+            return None  # 平台重复投递
 
         async def say(text: str) -> None:
-            await self.say(msg.session_webhook, msg.webhook_expires, msg.staff_id, text)
+            await self.say(ch, msg.session_webhook, msg.webhook_expires, msg.staff_id, text)
 
         if msg.conversation_type != "1":
             await say("为了保护你电脑上的信息，请私聊我，不要在群里让我办事。")
@@ -185,7 +227,7 @@ class Hub:
             await say(await self._bind(session, msg, m.group(1)))
             return None
         binding = await session.scalar(
-            select(ChannelBinding).where(ChannelBinding.channel == "dingtalk", ChannelBinding.external_id == msg.staff_id)
+            select(ChannelBinding).where(ChannelBinding.channel == ch, ChannelBinding.external_id == msg.staff_id)
         )
         if text in ("解绑", "unbind"):
             if binding is None:
@@ -204,7 +246,7 @@ class Hub:
             return None
 
         row = ChannelMessage(
-            channel="dingtalk", binding_id=binding.id, device_id=binding.device_id,
+            channel=ch, binding_id=binding.id, device_id=binding.device_id,
             external_id=msg.staff_id, external_name=msg.nick or binding.external_name,
             external_msg_id=msg.msg_id, text=text[:MAX_TEXT],
             reply_webhook=msg.session_webhook, reply_webhook_expires=msg.webhook_expires,
@@ -230,24 +272,25 @@ class Hub:
         row = await session.get(ChannelBindCode, code)
         if row is None or _aware(row.expires_at) < _now():
             recent.append(loop_now)
-            log.warning("钉钉账号 %s 绑定码不对（一小时内第 %d 次）", msg.staff_id, len(recent))
-            return "绑定码不对或已过期。请在电脑上的 FlyknitBuddy「设置 → 钉钉」里重新生成。"
+            log.warning("%s账号 %s 绑定码不对（一小时内第 %d 次）", CHANNEL_NAMES.get(msg.channel, msg.channel), msg.staff_id, len(recent))
+            return "绑定码不对或已过期。请在电脑上的 FlyknitBuddy「设置 → 钉钉 / 企业微信」里重新生成。"
         device = await session.get(Device, row.device_id)
         if device is None or device.disabled:
             return "这台电脑已被管理员停用，不能绑定。"
         binding = await session.scalar(
-            select(ChannelBinding).where(ChannelBinding.channel == "dingtalk", ChannelBinding.external_id == msg.staff_id)
+            select(ChannelBinding).where(ChannelBinding.channel == msg.channel, ChannelBinding.external_id == msg.staff_id)
         )
         if binding is None:
-            binding = ChannelBinding(channel="dingtalk", external_id=msg.staff_id)
+            binding = ChannelBinding(channel=msg.channel, external_id=msg.staff_id)
             session.add(binding)
-        binding.external_name = msg.nick
+        # 企业微信长连接里只有 userid，没有姓名，就用 userid 显示
+        binding.external_name = msg.nick or msg.staff_id
         binding.device_id = device.id
         binding.conversation_id = ""
         binding.created_at = _now()
         await session.delete(row)  # 一次性
         await session.commit()
-        log.info("钉钉账号 %s（%s）绑定到电脑 %s", msg.staff_id, msg.nick, device.machine_name)
+        log.info("%s账号 %s（%s）绑定到电脑 %s", CHANNEL_NAMES.get(msg.channel, msg.channel), msg.staff_id, msg.nick, device.machine_name)
         return f"已绑定到电脑 **{device.machine_name}**。现在可以直接发消息让我办事了。"
 
     # ---- 员工端 ----
@@ -287,7 +330,7 @@ class Hub:
             binding.conversation_id = conversation_id
         await session.commit()
         text = for_dingtalk(answer) if ok and answer.strip() else f"没办成：{error or '未知原因'}"
-        row.replied = await self.say(row.reply_webhook, row.reply_webhook_expires, row.external_id, text)
+        row.replied = await self.say(row.channel, row.reply_webhook, row.reply_webhook_expires, row.external_id, text)
         await session.commit()
 
     async def expire(self, session: AsyncSession) -> int:
@@ -312,55 +355,66 @@ class Hub:
             return r.text if len(r.text) <= 30 else r.text[:30] + "…"
 
         for r in stale:
-            await self.say(r.reply_webhook, r.reply_webhook_expires, r.external_id,
+            await self.say(r.channel, r.reply_webhook, r.reply_webhook_expires, r.external_id,
                            f"你的电脑一直没有上线，「{short(r)}」已取消。需要的话开机后再发一次。")
         for r in lost:
-            r.replied = await self.say(r.reply_webhook, r.reply_webhook_expires, r.external_id,
+            r.replied = await self.say(r.channel, r.reply_webhook, r.reply_webhook_expires, r.external_id,
                                        f"「{short(r)}」在电脑上一直没有办完（可能关机或退出了 FlyknitBuddy），请到电脑上看看，或者再发一次。")
         if lost:
             await session.commit()
         return len(stale)
 
-    # ---- 后台常驻：按配置连钉钉，定时清理 ----
+    # ---- 后台常驻：按配置连钉钉 / 企业微信，定时清理 ----
 
     async def supervise(self, sessionmaker: async_sessionmaker, http) -> None:
         self._sessionmaker = sessionmaker
         self._supervisor_wake = wake = asyncio.Event()
-        stream: asyncio.Task | None = None
-        current: tuple[str, str, str] | None = None
+        tasks: dict[str, asyncio.Task] = {}
+        current: dict[str, tuple | None] = {"dingtalk": None, "wecom": None}
         try:
             while True:
                 async with sessionmaker() as s:
-                    cfg = await get_config(s)
+                    ding = await get_config(s)
+                    wc = await get_wecom_config(s)
                     try:
                         await self.expire(s)
                     except Exception:  # noqa: BLE001
                         log.exception("清理通道消息失败")
-                want = (cfg["client_id"], secret_of(cfg), cfg.get("robot_code") or "") if ready(cfg) else None
-                if want and not want[1]:
-                    want = None
-                if want != current:
-                    if stream is not None:
-                        stream.cancel()
-                        await asyncio.gather(stream, return_exceptions=True)
-                        stream = None
-                    self.replier = None
-                    self.status = StreamStatus()
-                    current = want
-                    if want is not None:
-                        api = DingTalkApi(http, *want)
-                        self.replier = api
-                        stream = asyncio.create_task(run_stream(api, self.status, self._on_message))
-                        log.info("钉钉通道已启用")
+                want: dict[str, tuple | None] = {
+                    "dingtalk": (ding["client_id"], secret_of(ding), ding.get("robot_code") or "") if ready(ding) else None,
+                    "wecom": (wc["bot_id"], wecom_secret(wc)) if wecom_ready(wc) else None,
+                }
+                for ch, w in want.items():
+                    if w is not None and not w[1]:
+                        w = None  # 密钥解不开（SECRET_KEY 换过）就当没配
+                    if w == current[ch]:
+                        continue
+                    if (old := tasks.pop(ch, None)) is not None:
+                        old.cancel()
+                        await asyncio.gather(old, return_exceptions=True)
+                    self.repliers.pop(ch, None)
+                    self.statuses[ch] = status = StreamStatus()
+                    current[ch] = w
+                    if w is None:
+                        continue
+                    if ch == "dingtalk":
+                        api = DingTalkApi(http, *w)
+                        self.repliers[ch] = api
+                        tasks[ch] = asyncio.create_task(run_stream(api, status, self._on_message))
+                    else:
+                        bot = WeComBot(*w)
+                        self.repliers[ch] = bot
+                        tasks[ch] = asyncio.create_task(bot.run(status, self._on_message))
+                    log.info("%s通道已启用", CHANNEL_NAMES[ch])
                 wake.clear()
                 try:
                     await asyncio.wait_for(wake.wait(), 60)
                 except asyncio.TimeoutError:
                     pass
         finally:
-            if stream is not None:
-                stream.cancel()
-                await asyncio.gather(stream, return_exceptions=True)
+            for t in tasks.values():
+                t.cancel()
+            await asyncio.gather(*tasks.values(), return_exceptions=True)
 
     async def _on_message(self, msg: BotMessage) -> None:
         assert self._sessionmaker is not None

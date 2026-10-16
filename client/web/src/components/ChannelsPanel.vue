@@ -6,7 +6,7 @@ import { bridge } from '../bridge'
 import { fail, toast } from '../store'
 import type { ChannelsInfo } from '../types'
 
-// 设置 → 钉钉：在电脑上生成绑定码，员工在钉钉里私聊机器人发「绑定 123456」，以后钉钉里发的话就交给这台电脑办
+// 设置 → 钉钉 / 企业微信：在电脑上生成绑定码，员工在钉钉或企业微信里私聊机器人发「绑定 123456」，以后那边发的话就交给这台电脑办
 const { t } = useI18n()
 const info = ref<ChannelsInfo | null>(null)
 const loading = ref(true)
@@ -76,6 +76,10 @@ async function unbind(id: number) {
 }
 
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : '—')
+/** 后台开了哪些通道：钉钉、企业微信 */
+const enabled = computed(() => [info.value?.dingtalk && 'dingtalk', info.value?.wecom && 'wecom'].filter(Boolean) as string[])
+const channelLabel = (c: string) => t(c === 'wecom' ? 'ui.channels.wecom' : 'ui.channels.dingtalk')
+const where = computed(() => enabled.value.map(channelLabel).join(t('ui.channels.or')))
 
 onMounted(load)
 onBeforeUnmount(stopWatching)
@@ -87,11 +91,11 @@ onBeforeUnmount(stopWatching)
     <p class="intro"><MessagesSquare :size="16" /> {{ t('ui.channels.intro') }}</p>
     <div v-if="loading" class="state"><Loader :size="15" class="spin" /></div>
     <p v-else-if="!info?.online" class="hint">{{ t('ui.channels.offline') }}</p>
-    <p v-else-if="!info.dingtalk" class="hint">{{ t('ui.channels.disabled') }}</p>
+    <p v-else-if="!enabled.length" class="hint">{{ t('ui.channels.disabled') }}</p>
     <template v-else>
       <div v-for="b in info.bindings" :key="b.id" class="row">
         <span class="label">
-          <strong>{{ b.name || t('ui.channels.someone') }}</strong>
+          <strong><span class="tag">{{ channelLabel(b.channel) }}</span>{{ b.name || t('ui.channels.someone') }}</strong>
           <small>{{ t('ui.channels.since', { time: fmt(b.createdAt) }) }} · {{ t('ui.channels.lastUsed', { time: fmt(b.lastUsed) }) }}</small>
         </span>
         <button type="button" class="btn" @click="unbind(b.id)"><Unlink :size="14" /> {{ t('ui.channels.unbind') }}</button>
@@ -99,7 +103,7 @@ onBeforeUnmount(stopWatching)
 
       <div v-if="code" class="code">
         <div class="digits">{{ code.code }}</div>
-        <p>{{ t('ui.channels.howto') }}</p>
+        <p>{{ t('ui.channels.howto', { where }) }}</p>
         <button type="button" class="send" @click="copyCode">
           <code>{{ t('ui.channels.command', { code: code.code }) }}</code>
           <Copy :size="13" />
@@ -109,13 +113,13 @@ onBeforeUnmount(stopWatching)
       <div v-else class="row">
         <span class="label">
           <strong>{{ info.bindings.length ? t('ui.channels.rebind') : t('ui.channels.bind') }}</strong>
-          <small>{{ t('ui.channels.bindHint') }}</small>
+          <small>{{ t('ui.channels.bindHint', { where }) }}</small>
         </span>
         <button type="button" class="btn primary" @click="newCode">{{ t('ui.channels.newCode') }}</button>
       </div>
     </template>
   </section>
-  <section v-if="info?.dingtalk" class="card">
+  <section v-if="enabled.length" class="card">
     <h3>{{ t('ui.channels.rulesTitle') }}</h3>
     <ul class="rules">
       <li>{{ t('ui.channels.rule1') }}</li>
@@ -173,6 +177,15 @@ h2 {
   flex: none;
   gap: 6px;
   align-items: center;
+}
+.tag {
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--cloth);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  color: var(--ink-soft);
 }
 .intro {
   display: flex;

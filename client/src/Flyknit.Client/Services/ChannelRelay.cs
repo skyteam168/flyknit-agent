@@ -6,7 +6,7 @@ using Flyknit.Core.Gateway;
 namespace Flyknit.Client.Services;
 
 /// <summary>
-/// 钉钉通道：员工在钉钉里私聊机器人发的话，服务端排进队列，这里长轮询领回来交给本机的 AI agent，
+/// 钉钉 / 企业微信通道：员工在钉钉或企业微信里私聊机器人发的话，服务端排进队列，这里长轮询领回来交给本机的 AI agent，
 /// 办完把结果回报，服务端再发回钉钉。
 ///
 /// 后台没开钉钉通道、或者这台电脑没有人绑定时，只是每 5 分钟问一次状态，不常驻长连接。
@@ -53,7 +53,7 @@ public sealed class ChannelRelay : IDisposable
                 if (_host.Connected && _host.Server.IsRegistered)
                 {
                     var state = await _host.Server.GetChannelsAsync(token);
-                    if (state.DingTalk && (state.Bindings.Count > 0 || DateTime.UtcNow < _bindWindowUntil))
+                    if ((state.DingTalk || state.WeCom) && (state.Bindings.Count > 0 || DateTime.UtcNow < _bindWindowUntil))
                     {
                         await ServeAsync(token);
                         continue; // 服务端那边状态变了（关掉、解绑）才会出来，马上再看一次
@@ -104,7 +104,7 @@ public sealed class ChannelRelay : IDisposable
             catch (Exception ex)
             {
                 // 网络抖动：退避一下再来，连续失败太多就回外层重新确认状态
-                Log.Warn("领取钉钉消息失败", ex);
+                Log.Warn("领取钉钉 / 企业微信消息失败", ex);
                 if (++failures >= 5)
                 {
                     return;
@@ -119,8 +119,9 @@ public sealed class ChannelRelay : IDisposable
         try
         {
             var who = task.Sender.Length > 0 ? task.Sender : "你";
-            _notify("钉钉消息", $"{who} 在钉钉里让 FlyknitBuddy 办事：{Short(task.Text)}");
-            var outcome = await _host.RunChannelMessageAsync(task.Text, task.Sender, task.ConversationId, token);
+            var where = AgentHost.ChannelName(task.Channel);
+            _notify($"{where}消息", $"{who} 在{where}里让 FlyknitBuddy 办事：{Short(task.Text)}");
+            var outcome = await _host.RunChannelMessageAsync(task.Text, task.Sender, task.ConversationId, token, task.Channel);
             await _host.Server.FinishChannelAsync(task.Id, outcome.Ok, outcome.Answer, outcome.Error, outcome.ConversationId, token);
             Log.Info($"钉钉消息 {task.Id} 回报完成 ok={outcome.Ok}");
         }

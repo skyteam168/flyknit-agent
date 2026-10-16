@@ -1686,7 +1686,7 @@ export function createMockHost(): HostTransport {
         }))
       // 钉钉通道：生成绑定码 4 秒后假装员工在钉钉里绑好了
       case 'channels.get':
-        return { dingtalk: true, online: true, bindings: mockChannelBindings.map((x) => ({ ...x })) }
+        return { dingtalk: true, wecom: true, online: true, bindings: mockChannelBindings.map((x) => ({ ...x })) }
       case 'channels.bindCode':
         setTimeout(() => {
           if (!mockChannelBindings.length) mockChannelBindings.push({ id: 1, channel: 'dingtalk', name: '阮文安', createdAt: new Date().toISOString(), lastUsed: null })

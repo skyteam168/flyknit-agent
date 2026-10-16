@@ -188,6 +188,8 @@ public sealed class ChannelState
 {
     /// <summary>后台开了钉钉通道。</summary>
     [JsonPropertyName("dingtalk")] public bool DingTalk { get; set; }
+    /// <summary>后台开了企业微信通道。</summary>
+    [JsonPropertyName("wecom")] public bool WeCom { get; set; }
     [JsonPropertyName("bindings")] public List<ChannelBindingInfo> Bindings { get; set; } = new();
 }
 
