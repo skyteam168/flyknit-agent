@@ -931,7 +931,8 @@ public partial class App : Application
         });
     }
 
-    private void Restart()
+    /// <summary>退出再重新打开自己。界面坏到没法自动恢复时，错误页上的「重新打开」也走这里。</summary>
+    internal void Restart()
     {
         var exe = Environment.ProcessPath;
         // 先收拾干净（也放掉单实例锁，否则新进程会以为已经有一个在跑然后直接退出）

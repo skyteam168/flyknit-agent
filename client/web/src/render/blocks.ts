@@ -23,6 +23,8 @@ export function decodeBlockCode(encoded: string): string {
   return new TextDecoder().decode(bytes)
 }
 
+import { parseLooseJson } from './looseJson'
+
 export type BlockTheme = 'light' | 'dark'
 
 export interface BlockRenderer {
@@ -81,10 +83,59 @@ registerBlockRenderer({
   languages: ['mermaid', 'mmd'],
   async render(code, el, theme) {
     const mermaid = await loadMermaid(theme)
-    const { svg } = await mermaid.render(`mmd-${++mermaidSeq}`, code)
-    el.innerHTML = svg
+    try {
+      el.innerHTML = (await mermaid.render(`mmd-${++mermaidSeq}`, code)).svg
+    } catch (first) {
+      dropMermaidLeftovers()
+      // 最常见的错：节点文字里有括号、引号、冒号这类符号却没加引号。补上引号再试一次
+      const fixed = quoteMermaidLabels(code)
+      if (fixed === code) throw first
+      try {
+        el.innerHTML = (await mermaid.render(`mmd-${++mermaidSeq}`, fixed)).svg
+      } catch {
+        dropMermaidLeftovers()
+        throw first
+      }
+    }
   },
 })
+
+/** mermaid 出错时会在页面最底下留一个「Syntax error」的临时图，清掉 */
+function dropMermaidLeftovers() {
+  document.querySelectorAll('body > [id^="dmmd-"], body > [id^="mmd-"]').forEach((n) => n.remove())
+}
+
+const nodeId = '[A-Za-z0-9_\\u4e00-\\u9fa5]+'
+const quoteText = (t: string) => `"${t.trim().replace(/"/g, '#quot;')}"`
+
+function outsideQuotes(line: string, fix: (part: string) => string): string {
+  return line
+    .split(/("[^"\n]*")/)
+    .map((part, i) => (i % 2 ? part : fix(part)))
+    .join('')
+}
+
+/**
+ * 流程图节点、连线上的文字补引号：A[开始(上午)] → A["开始(上午)"]，-->|是/否| → -->|"是/否"|。
+ * 已经带引号的、或者是 [[子程序]] ((圆)) 这类双括号形状的不动。
+ */
+export function quoteMermaidLabels(code: string): string {
+  const first = code.trimStart().split('\n', 1)[0].trim().toLowerCase()
+  if (!first.startsWith('flowchart') && !first.startsWith('graph')) return code
+  const passes: [RegExp, (id: string, t: string) => string][] = [
+    [new RegExp(`(${nodeId})\\[(?![\\[(/\\\\])([^\\[\\]\\n]+?)\\](?!\\])`, 'g'), (id, t) => `${id}[${quoteText(t)}]`],
+    [new RegExp(`(${nodeId})\\((?![(\\[])([^()\\n]+?)\\)(?!\\))`, 'g'), (id, t) => `${id}(${quoteText(t)})`],
+    [new RegExp(`(${nodeId})\\{(?!\\{)([^{}\\n]+?)\\}`, 'g'), (id, t) => `${id}{${quoteText(t)}}`],
+  ]
+  return code
+    .split('\n')
+    .map((line) => {
+      // 每一遍只改引号外面的部分，前一遍补好的引号里的括号不会再被当成节点
+      for (const [re, fix] of passes) line = outsideQuotes(line, (part) => part.replace(re, (_m, id, t) => fix(id, t)))
+      return outsideQuotes(line, (part) => part.replace(/\|([^|\n]+?)\|/g, (_m, t) => `|${quoteText(t)}|`))
+    })
+    .join('\n')
+}
 
 // ---------------- Graphviz (DOT) ----------------
 
@@ -121,7 +172,7 @@ export class ChartSpecError extends Error {}
 export function parseChartSpec(code: string): ChartSpec {
   let raw: unknown
   try {
-    raw = JSON.parse(code)
+    raw = parseLooseJson(code)
   } catch (e) {
     throw new ChartSpecError(`图表描述不是合法的 JSON：${(e as Error).message}`)
   }

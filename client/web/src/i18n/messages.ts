@@ -954,6 +954,7 @@ const zh = {
       copied: '已复制，可以直接粘贴发给 IT 或开发排查',
       status: { error: '出错', blocked: '被拦截', stopped: '已停止', skipped: '跳过', warning: '有问题' },
     },
+    render: { failed: '这张图没能画出来（{reason}）', source: '查看原文', reload: '重新加载界面', held: '界面刚才卡住后已自动恢复，点这里显示这张图', recovered: '界面刚才卡住了，已自动恢复。图表先不自动显示，点一下再看。' },
     paste: {
       fileName: '粘贴文本.txt', badge: '粘贴', expand: '放回输入框编辑', remove: '移除', view: '查看全文',
       lines: '{n} 行', copy: '复制全文', copied: '已复制', close: '关闭', loading: '正在读取…',
@@ -2145,6 +2146,7 @@ const vi: Messages = {
       copied: 'Đã sao chép, có thể dán gửi cho IT',
       status: { error: 'Lỗi', blocked: 'Bị chặn', stopped: 'Đã dừng', skipped: 'Bỏ qua', warning: 'Có vấn đề' },
     },
+    render: { failed: 'Không vẽ được hình này ({reason})', source: 'Xem nội dung gốc', reload: 'Tải lại giao diện', held: 'Giao diện vừa bị treo và đã tự khôi phục, bấm vào đây để hiện hình này', recovered: 'Giao diện vừa bị treo và đã tự khôi phục. Biểu đồ tạm không tự hiện, bấm để xem.' },
     paste: {
       fileName: 'Văn bản dán.txt', badge: 'Đã dán', expand: 'Đưa lại vào ô nhập để sửa', remove: 'Xóa', view: 'Xem toàn văn',
       lines: '{n} dòng', copy: 'Sao chép toàn bộ', copied: 'Đã sao chép', close: 'Đóng', loading: 'Đang đọc…',
@@ -3334,6 +3336,7 @@ const en: Messages = {
       copied: 'Copied. Paste it to IT or the developers',
       status: { error: 'error', blocked: 'blocked', stopped: 'stopped', skipped: 'skipped', warning: 'problem' },
     },
+    render: { failed: "Couldn't draw this ({reason})", source: 'Show source', reload: 'Reload window', held: 'The window recovered from a freeze — click to show this chart', recovered: 'The window froze and was recovered automatically. Charts are paused; click one to show it.' },
     paste: {
       fileName: 'Pasted text.txt', badge: 'PASTED', expand: 'Edit in the input box', remove: 'Remove', view: 'View full text',
       lines: '{n} lines', copy: 'Copy all', copied: 'Copied', close: 'Close', loading: 'Reading…',

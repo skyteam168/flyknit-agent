@@ -40,5 +40,11 @@ app.config.errorHandler = (err, _instance, info) => {
   const el = document.getElementById('fatal') ?? document.body.appendChild(Object.assign(document.createElement('pre'), { id: 'fatal' }))
   el.setAttribute('style', 'position:fixed;left:12px;right:12px;bottom:12px;z-index:999;padding:12px;background:#fdeceb;color:#c4362d;font:12px Consolas,monospace;white-space:pre-wrap;border-radius:8px')
   el.textContent = String((err as Error)?.stack ?? err)
+  // 界面可能已经坏了一块：给一个按钮直接重新加载，不用退出整个程序（对话和任务都在宿主里，不会丢）
+  const btn = document.createElement('button')
+  btn.textContent = i18n.global.t('ui.render.reload')
+  btn.setAttribute('style', 'display:block;margin-top:8px;padding:4px 12px;border:1px solid #c4362d;border-radius:6px;background:#fff;color:#c4362d;cursor:pointer')
+  btn.onclick = () => location.reload()
+  el.append(btn)
 }
 app.mount('#app')

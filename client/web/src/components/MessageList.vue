@@ -925,6 +925,28 @@ const isImage = (mime: string) => mime.startsWith('image/')
   color: var(--amber-ink, #9a6b00);
   font-size: calc(12.5px * var(--font-scale));
 }
+.md :deep(pre.rich-block.failed details summary) {
+  cursor: pointer;
+  color: var(--ink-faint);
+  font-size: calc(12.5px * var(--font-scale));
+}
+.md :deep(pre.rich-block.failed details[open] summary) {
+  margin-bottom: 6px;
+}
+.md :deep(pre.rich-block.held) {
+  display: block;
+}
+.md :deep(.rich-hold) {
+  padding: 8px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink-soft);
+  font-size: calc(12.5px * var(--font-scale));
+}
+.md :deep(.rich-hold:hover) {
+  border-color: var(--indigo);
+  color: var(--ink);
+}
 .md :deep(pre.rich-block.failed code) {
   display: block;
   overflow-x: auto;

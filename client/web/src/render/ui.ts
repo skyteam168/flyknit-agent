@@ -6,6 +6,8 @@
  * 结构不对就报错，由调用方退回成普通代码块。
  */
 
+import { parseLooseJson } from './looseJson'
+
 export type UiKind = 'checklist' | 'callouts' | 'steps' | 'stats' | 'timeline' | 'compare' | 'progress' | 'facts' | 'actions'
 
 export const UiKinds: UiKind[] = ['checklist', 'callouts', 'steps', 'stats', 'timeline', 'compare', 'progress', 'facts', 'actions']
@@ -98,7 +100,7 @@ function item(raw: unknown): UiItem {
 export function parseUiSpec(code: string): UiSpec {
   let raw: unknown
   try {
-    raw = JSON.parse(code)
+    raw = parseLooseJson(code) // 模型常在字符串里直接写英文引号，先修再解析
   } catch (e) {
     throw new UiSpecError(`界面卡片的内容不是合法的 JSON：${(e as Error).message}`)
   }

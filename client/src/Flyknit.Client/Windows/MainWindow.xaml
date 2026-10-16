@@ -87,13 +87,23 @@
             </StackPanel>
         </Border>
         <wv2:WebView2 x:Name="Web" Visibility="Hidden" />
-        <TextBlock x:Name="ErrorText"
-                   Visibility="Collapsed"
-                   Margin="32"
-                   TextWrapping="Wrap"
-                   FontSize="15"
-                   Foreground="#C4362D"
-                   VerticalAlignment="Center"
-                   HorizontalAlignment="Center" />
+        <StackPanel x:Name="ErrorPanel"
+                    Visibility="Collapsed"
+                    Margin="32"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center">
+            <TextBlock x:Name="ErrorText"
+                       TextWrapping="Wrap"
+                       FontSize="15"
+                       Foreground="#C4362D"
+                       HorizontalAlignment="Center" />
+            <!-- 不用再去托盘里找「退出」再手动打开 -->
+            <Button x:Name="RestartButton"
+                    Margin="0,18,0,0"
+                    Padding="18,7"
+                    HorizontalAlignment="Center"
+                    Cursor="Hand"
+                    Click="OnRestartClick" />
+        </StackPanel>
     </Grid>
 </Window>
