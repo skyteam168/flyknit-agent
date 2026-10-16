@@ -1,5 +1,7 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
+# 钉钉 Stream 通道用的 WebSocket 客户端（uvicorn[standard] 本来就会带上，这里写明版本下限）
+websockets>=13
 httpx>=0.27
 sqlalchemy[asyncio]>=2.0.30
 aiosqlite>=0.20

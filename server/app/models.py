@@ -685,3 +685,65 @@ class Subtask(Base):
     #: 员工端上报的工具调用次数和本机算的 token（仅供参考，预算按上面服务端的数）
     tool_calls: Mapped[int] = mapped_column(Integer, default=0)
     local_tokens: Mapped[int] = mapped_column(Integer, default=0)
+
+
+# ---------------------------------------------------------------------
+# 通道：员工在钉钉（以后还有企业微信、飞书）里给机器人发消息，转到自己电脑上的员工端执行
+# ---------------------------------------------------------------------
+
+
+class ChannelBinding(Base):
+    """钉钉账号 ↔ 员工电脑。一个钉钉账号同一时间只绑一台电脑，换电脑重新绑即可。"""
+
+    __tablename__ = "channel_bindings"
+    __table_args__ = (UniqueConstraint("channel", "external_id", name="uq_channel_binding_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: dingtalk（以后 wecom / feishu）
+    channel: Mapped[str] = mapped_column(String(20), default="dingtalk")
+    #: 钉钉的 staffId（企业内员工 ID）。机器人消息里的 senderStaffId，由钉钉签发，员工自己改不了
+    external_id: Mapped[str] = mapped_column(String(100))
+    external_name: Mapped[str] = mapped_column(String(100), default="")
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    #: 员工端里给这个钉钉账号用的那个对话：连着发的消息接着上下文聊
+    conversation_id: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_used: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ChannelBindCode(Base):
+    """员工端生成的绑定码：员工在钉钉里给机器人发「绑定 123456」，就把发消息的人绑到这台电脑。"""
+
+    __tablename__ = "channel_bind_codes"
+
+    code: Mapped[str] = mapped_column(String(12), primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ChannelMessage(Base):
+    """从通道进来的一条消息，以及它在员工电脑上的执行结果。"""
+
+    __tablename__ = "channel_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel: Mapped[str] = mapped_column(String(20), default="dingtalk")
+    binding_id: Mapped[int | None] = mapped_column(ForeignKey("channel_bindings.id", ondelete="SET NULL"), nullable=True, index=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    external_id: Mapped[str] = mapped_column(String(100), default="")
+    external_name: Mapped[str] = mapped_column(String(100), default="")
+    #: 钉钉的消息 ID，重复投递时去重
+    external_msg_id: Mapped[str] = mapped_column(String(100), default="", index=True)
+    text: Mapped[str] = mapped_column(Text, default="")
+    #: pending → running → succeeded / failed；电脑一直不在线的 expired
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    answer: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    #: 回消息用：钉钉给的会话 webhook 和过期时间（过期了改用机器人单聊接口）
+    reply_webhook: Mapped[str] = mapped_column(String(500), default="")
+    reply_webhook_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 回复是否已经发回钉钉
+    replied: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

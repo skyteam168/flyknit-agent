@@ -978,3 +978,20 @@ export interface NetworkReport {
   reportPath: string
   reportDir: string
 }
+
+/** 钉钉通道：这台电脑绑定的钉钉账号 */
+export interface ChannelBindingInfo {
+  id: number
+  channel: string
+  name: string
+  createdAt: string
+  lastUsed: string | null
+}
+
+export interface ChannelsInfo {
+  /** 管理员开了钉钉通道 */
+  dingtalk: boolean
+  /** 连着公司服务器 */
+  online: boolean
+  bindings: ChannelBindingInfo[]
+}

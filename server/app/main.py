@@ -15,8 +15,8 @@ from sqlalchemy.engine import make_url
 
 from . import __version__, db
 from .config import Settings, get_settings
-from .routers import admin, agents, chats, client, console, experts, feedback, gateway, instructions, landing, mcp, mcp_runtime, releases, speech, subtasks
-from .services import housekeeping, usage_store
+from .routers import admin, agents, channels, chats, client, console, experts, feedback, gateway, instructions, landing, mcp, mcp_runtime, releases, speech, subtasks
+from .services import channel_hub, housekeeping, usage_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -104,8 +104,14 @@ async def lifespan(app: FastAPI):
             )
         )
 
+    # 钉钉通道：按后台配置连上钉钉 Stream，没开就只做定时清理
+    channels = asyncio.create_task(channel_hub.hub.supervise(db.get_sessionmaker(), app.state.http))
+
     yield
 
+    channels.cancel()
+    with suppress(asyncio.CancelledError):
+        await channels
     if chore is not None:
         chore.cancel()
         with suppress(asyncio.CancelledError):
@@ -140,6 +146,8 @@ app.include_router(subtasks.client_router)
 app.include_router(subtasks.admin_router)
 app.include_router(feedback.client_router)
 app.include_router(feedback.admin_router)
+app.include_router(channels.client_router)
+app.include_router(channels.admin_router)
 
 
 @app.exception_handler(Exception)

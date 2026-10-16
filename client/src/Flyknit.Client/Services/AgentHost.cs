@@ -213,7 +213,9 @@ public sealed partial class AgentHost : IDisposable
     /// </summary>
     private Flyknit.Core.Tools.AskUserTool? AskUserFor(Conversation conv)
     {
-        if (conv.Mode != ConversationMode.Agent || Questions is null || !Security.On(Flyknit.Core.Security.SecuritySettings.AskUser, fallback: true))
+        // 钉钉远程发来的：人不在电脑前，弹出的问题卡片没人答，会白等半小时
+        if (conv.Mode != ConversationMode.Agent || Questions is null || _remoteRuns.ContainsKey(conv.Id)
+            || !Security.On(Flyknit.Core.Security.SecuritySettings.AskUser, fallback: true))
         {
             return null;
         }

@@ -159,6 +159,44 @@ internal sealed class InstructionStartResult
     [JsonPropertyName("status")] public string Status { get; set; } = "";
 }
 
+/// <summary>通道（钉钉）里员工发来、要在这台电脑上执行的一条消息。</summary>
+public sealed class ChannelTask
+{
+    [JsonPropertyName("id")] public int Id { get; set; }
+    [JsonPropertyName("channel")] public string Channel { get; set; } = "";
+    [JsonPropertyName("text")] public string Text { get; set; } = "";
+    [JsonPropertyName("sender")] public string Sender { get; set; } = "";
+    /// <summary>接着上次的对话；空表示新开一个。</summary>
+    [JsonPropertyName("conversation_id")] public string ConversationId { get; set; } = "";
+}
+
+internal sealed class ChannelPoll
+{
+    [JsonPropertyName("messages")] public List<ChannelTask> Messages { get; set; } = new();
+}
+
+public sealed class ChannelBindingInfo
+{
+    [JsonPropertyName("id")] public int Id { get; set; }
+    [JsonPropertyName("channel")] public string Channel { get; set; } = "";
+    [JsonPropertyName("external_name")] public string ExternalName { get; set; } = "";
+    [JsonPropertyName("created_at")] public DateTimeOffset CreatedAt { get; set; }
+    [JsonPropertyName("last_used")] public DateTimeOffset? LastUsed { get; set; }
+}
+
+public sealed class ChannelState
+{
+    /// <summary>后台开了钉钉通道。</summary>
+    [JsonPropertyName("dingtalk")] public bool DingTalk { get; set; }
+    [JsonPropertyName("bindings")] public List<ChannelBindingInfo> Bindings { get; set; } = new();
+}
+
+public sealed class ChannelBindCode
+{
+    [JsonPropertyName("code")] public string Code { get; set; } = "";
+    [JsonPropertyName("expires_at")] public DateTimeOffset ExpiresAt { get; set; }
+}
+
 /// <summary>与 Flyknit 服务端通信：模型网关、设备注册、配置、审计。</summary>
 public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flyknit.Core.Mcp.IMcpRuntimeSource, Flyknit.Core.Experts.Delegation.ISubtaskRegistry
 {
@@ -369,6 +407,55 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
     }
+    // ---------- 通道（钉钉） ----------
+
+    public async Task<ChannelState> GetChannelsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/channels");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<ChannelState>(cancellationToken: ct) ?? new();
+    }
+
+    public async Task<ChannelBindCode> NewChannelBindCodeAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/channels/bind-code");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<ChannelBindCode>(cancellationToken: ct) ?? new();
+    }
+
+    public async Task RemoveChannelBindingAsync(int id, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Delete, $"api/v1/client/channels/bindings/{id}");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
+    /// <summary>领钉钉发来的消息：没有就在服务端挂最多 wait 秒，来了立刻返回。</summary>
+    public async Task<List<ChannelTask>> PollChannelAsync(int wait, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/channels/messages?wait={wait}");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        var result = await resp.Content.ReadFromJsonAsync<ChannelPoll>(cancellationToken: ct);
+        return result?.Messages ?? new();
+    }
+
+    public async Task FinishChannelAsync(int id, bool ok, string answer, string error, string conversationId, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/channels/messages/{id}/finish");
+        req.Content = JsonContent.Create(new
+        {
+            status = ok ? "succeeded" : "failed",
+            answer = answer.Length > 20_000 ? answer[..20_000] : answer,
+            error = error.Length > 2000 ? error[..2000] : error,
+            conversation_id = conversationId,
+        });
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
     public async Task<UsageStats> GetUsageAsync(CancellationToken ct, int days = 7)
     {
         using var req = Authorized(HttpMethod.Get, $"api/v1/client/usage?days={days}");

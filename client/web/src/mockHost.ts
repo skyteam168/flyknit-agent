@@ -266,6 +266,7 @@ export function createMockHost(): HostTransport {
     { path: 'D:\\工作区\\日报\\说明.md', name: '说明.md', extension: 'md', size: 2_400, modifiedAt: now(), previewable: true, exists: true },
   ]
 
+  const mockChannelBindings: { id: number; channel: string; name: string; createdAt: string; lastUsed: string | null }[] = []
   const mockPreviews: Record<string, unknown> = {
     'D:\\工作区\\日报\\FlyknitBuddy_产品介绍页.html': {
       kind: 'html',
@@ -1683,6 +1684,19 @@ export function createMockHost(): HostTransport {
           mime: f.type || 'application/octet-stream',
           size: f.size,
         }))
+      // 钉钉通道：生成绑定码 4 秒后假装员工在钉钉里绑好了
+      case 'channels.get':
+        return { dingtalk: true, online: true, bindings: mockChannelBindings.map((x) => ({ ...x })) }
+      case 'channels.bindCode':
+        setTimeout(() => {
+          if (!mockChannelBindings.length) mockChannelBindings.push({ id: 1, channel: 'dingtalk', name: '阮文安', createdAt: new Date().toISOString(), lastUsed: null })
+        }, 4000)
+        return { code: '482913', expiresAt: new Date(Date.now() + 600_000).toISOString() }
+      case 'channels.unbind': {
+        const i = mockChannelBindings.findIndex((b) => b.id === p.id)
+        if (i >= 0) mockChannelBindings.splice(i, 1)
+        return null
+      }
       case 'files.saveBlob': {
         // 和真宿主一样每次一个子目录；文本记下来，点开查看时能读到
         const localPath = `C:\\Users\\demo\\AppData\\Local\\Temp\\paste\\${Math.random().toString(16).slice(2, 14)}\\${p.fileName}`
