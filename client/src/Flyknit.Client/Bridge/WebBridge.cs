@@ -1313,6 +1313,35 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _settings.Save();
                 return null;
 
+            // ---------- 钉钉通道 ----------
+            case "channels.get":
+            {
+                if (!_host.Connected || !_host.Server.IsRegistered)
+                {
+                    return new { dingtalk = false, online = false, bindings = Array.Empty<object>() };
+                }
+                var state = await _host.Server.GetChannelsAsync(CancellationToken.None);
+                return new
+                {
+                    dingtalk = state.DingTalk,
+                    online = true,
+                    bindings = state.Bindings.Select(b => new { id = b.Id, channel = b.Channel, name = b.ExternalName, createdAt = b.CreatedAt, lastUsed = b.LastUsed }).ToList(),
+                };
+            }
+
+            case "channels.bindCode":
+            {
+                var code = await _host.Server.NewChannelBindCodeAsync(CancellationToken.None);
+                // 员工接下来要去钉钉里发码：中继先开始等，绑上之后第一条消息不用等 5 分钟
+                _host.NotifyChannelsChanged(expectBinding: true);
+                return new { code = code.Code, expiresAt = code.ExpiresAt };
+            }
+
+            case "channels.unbind":
+                await _host.Server.RemoveChannelBindingAsync(Int("id") ?? 0, CancellationToken.None);
+                _host.NotifyChannelsChanged();
+                return null;
+
             // ---------- MCP 连接器（和技能分开的一组调用） ----------
             case "mcp.list":
                 return await _host.Mcp.ListAsync(Bool("refresh"));

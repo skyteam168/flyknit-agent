@@ -33,6 +33,7 @@ public partial class App : Application
     private NotificationService? _notifications;
     private NoticeWatcher? _noticeWatcher;
     private InstructionPoller? _instructionPoller;
+    private ChannelRelay? _channelRelay;
     private HwndSource? _hotkeySource;
     private TranslatePopup? _translatePopup;
     private bool _capturingSelection;
@@ -300,6 +301,16 @@ public partial class App : Application
             }
         });
         _instructionPoller.Start();
+
+        // 钉钉通道：员工在钉钉里私聊机器人发的话，领回来在本机执行，结果发回钉钉
+        _channelRelay = new ChannelRelay(_host, (title, body) =>
+        {
+            if (_settings.EnableNotifications)
+            {
+                Dispatcher.BeginInvoke(() => _notifications?.ShowNotice(title, body));
+            }
+        });
+        _channelRelay.Start();
 
         // 员工自己打开的（双击快捷方式、刚登录完、点了「重启升级」）直接把主窗口拿出来，
         // 不要只放一个悬浮球让人再去找。只有开机自启（--silent）才安静地待在悬浮球里，不打断开机
@@ -695,6 +706,7 @@ public partial class App : Application
         _notifications?.ClearAll();
         _noticeWatcher?.Dispose();
         _instructionPoller?.Dispose();
+        _channelRelay?.Dispose();
         // 下好了没装的，就在这会儿装上——用户说「稍后」，指的就是等他关掉程序的时候
         if (applyUpdate)
         {

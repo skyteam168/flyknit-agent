@@ -8,6 +8,7 @@
  * 在普通浏览器中运行（npm run dev）时，使用 mockHost 模拟宿主。
  */
 import type {
+  ChannelsInfo,
   NetworkReport,
   UpdateCheckResult,
   AppInfo,
@@ -346,6 +347,9 @@ class Bridge {
   // 弹另存为对话框后再复制文件，不限时
   libraryDownload = (ids: string[]) => this.call<number>('library.download', { ids }, undefined, 0)
   libraryShare = (ids: string[]) => this.call<number>('library.share', { ids })
+  channels = () => this.call<ChannelsInfo>('channels.get')
+  channelBindCode = () => this.call<{ code: string; expiresAt: string }>('channels.bindCode')
+  channelUnbind = (id: number) => this.call<void>('channels.unbind', { id })
   libraryReveal = (id: string) => this.call<{ ok: boolean; message: string }>('library.reveal', { id })
   libraryPreview = (id: string) => this.call<PreviewDoc>('library.preview', { id }, undefined, 40_000)
   libraryAttachments = (ids: string[]) => this.call<AttachmentRef[]>('library.attachments', { ids })

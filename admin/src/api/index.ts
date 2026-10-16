@@ -1,5 +1,8 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
 import type {
+  ChannelBinding,
+  ChannelMessageRow,
+  DingTalkConfig,
   Expert,
   ExpertDraft,
   ExpertFields,
@@ -177,6 +180,12 @@ export const api = {
   revokeTicket: (id: number) => post<EnrollmentTicket>(`/tickets/${id}/revoke`),
 
   // 语音
+  dingtalk: () => get<DingTalkConfig>('/channels/dingtalk'),
+  saveDingtalk: (body: { enabled: boolean; client_id: string; client_secret: string; robot_code: string }) =>
+    put<DingTalkConfig>('/channels/dingtalk', body),
+  channelBindings: () => get<ChannelBinding[]>('/channels/bindings'),
+  removeChannelBinding: (id: number) => del<{ ok: boolean }>(`/channels/bindings/${id}`),
+  channelMessages: (limit = 100) => get<ChannelMessageRow[]>('/channels/messages', { limit }),
   asr: () => get<AsrConfig>('/asr'),
   setAsrHotwords: (hotwords: string[]) => put<{ shared_hotwords: string[] }>('/asr/hotwords', { hotwords }),
   probeAsr: (save: boolean) => post<AsrProbe>('/asr/probe', undefined, { save }),

@@ -14,6 +14,7 @@ import {
   Loader,
   Lock,
   LogOut,
+  MessagesSquare,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -33,12 +34,13 @@ import NetworkCheck from './NetworkCheck.vue'
 import PersonalizePanel from './PersonalizePanel.vue'
 import SecurityPanel from './SecurityPanel.vue'
 import ShortcutsPanel from './ShortcutsPanel.vue'
+import ChannelsPanel from './ChannelsPanel.vue'
 
 const { t } = useI18n()
 const themes: Theme[] = ['system', 'light', 'dark']
 
 // ---------- 左侧菜单 ----------
-type Page = 'general' | 'notify' | 'shortcuts' | 'network' | 'personalize' | 'memory' | 'data' | 'security' | 'about'
+type Page = 'general' | 'notify' | 'shortcuts' | 'network' | 'personalize' | 'memory' | 'dingtalk' | 'data' | 'security' | 'about'
 const nav: { group: string; pages: { id: Page; icon: Component; label: string }[] }[] = [
   {
     group: 'settings.nav.groupSettings',
@@ -54,6 +56,7 @@ const nav: { group: string; pages: { id: Page; icon: Component; label: string }[
     pages: [
       { id: 'personalize', icon: Sparkles, label: 'settings.nav.personalize' },
       { id: 'memory', icon: Lightbulb, label: 'settings.nav.memory' },
+      { id: 'dingtalk', icon: MessagesSquare, label: 'settings.nav.dingtalk' },
     ],
   },
   {
@@ -547,6 +550,9 @@ onMounted(async () => {
             </div>
           </section>
         </template>
+
+        <!-- 钉钉 -->
+        <ChannelsPanel v-else-if="page === 'dingtalk'" />
 
         <!-- 数据管理 -->
         <template v-else-if="page === 'data'">

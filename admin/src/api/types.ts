@@ -656,3 +656,44 @@ export interface McpRuntimeConf {
   runtimes: McpRuntimeItem[]
   mirror_size: number
 }
+
+// ---------- 通道（钉钉） ----------
+
+export interface DingTalkConfig {
+  enabled: boolean
+  client_id: string
+  /** 打码后的值 */
+  client_secret: string
+  robot_code: string
+  connected: boolean
+  connected_since: string | null
+  last_error: string
+  received: number
+  last_message_at: string | null
+  bindings: number
+}
+
+export interface ChannelBinding {
+  id: number
+  channel: string
+  external_name: string
+  created_at: string
+  last_used: string | null
+  device_id: number
+  machine_name: string
+  user_name: string
+}
+
+export interface ChannelMessageRow {
+  id: number
+  channel: string
+  external_name: string
+  machine_name: string
+  text: string
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'expired'
+  answer: string
+  error: string
+  replied: boolean
+  created_at: string
+  finished_at: string | null
+}
