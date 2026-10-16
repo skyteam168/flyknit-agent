@@ -251,3 +251,15 @@ registerBlockRenderer({
     }
   },
 })
+
+// ---------- 界面卡片（清单、提示、步骤、关键数字、时间线、对比、进度、要点、快捷回复） ----------
+
+registerBlockRenderer({
+  languages: ['ui', 'flyknit-ui'],
+  async render(code, el) {
+    const { parseUiSpec } = await import('./ui')
+    const spec = parseUiSpec(code)
+    const { mountUi } = await import('./uiMount')
+    mountUi(spec, el)
+  },
+})

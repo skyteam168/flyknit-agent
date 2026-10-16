@@ -368,6 +368,7 @@ media.addEventListener('change', () => state.app && applyTheme(state.app.theme))
 
 // ---------- 初始化 ----------
 export async function init() {
+  window.addEventListener('flyknit:quick-reply', (e) => void quickReply(String((e as CustomEvent).detail ?? '')))
   bridge.on(onHostEvent)
   // 宿主要知道界面当前打开的是哪个任务，才能判断系统通知该不该弹
   watch(
@@ -803,6 +804,21 @@ export async function translateText(text: string, from: string, to: string) {
   draftMode.translateFrom = from
   draftMode.translateTo = to
   await send(text)
+}
+
+/**
+ * 点了回答里的快捷回复按钮（```ui 的 actions 卡片）：当前对话空着就直接发出去；
+ * AI 还在忙就放进输入框，等它做完员工自己点发送。
+ */
+export async function quickReply(text: string) {
+  const body = text.trim()
+  if (!body) return
+  const id = state.currentId
+  if (!id || convState(id).busy) {
+    state.composerFill = body
+    return
+  }
+  await send(body)
 }
 
 // ---------- 发送 ----------

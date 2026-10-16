@@ -831,6 +831,16 @@ const isImage = (mime: string) => mime.startsWith('image/')
   border-radius: var(--r-lg);
   background: var(--cloth);
 }
+/* ```ui 卡片自己带边框和底色，外面的代码块框去掉 */
+.md :deep(pre.rich-block.ui-block) {
+  display: block;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  white-space: normal;
+}
 /* 还在输出的图表块：固定高度，不随每个字跳动 */
 .md :deep(pre.rich-block.pending) {
   min-height: 120px;
@@ -855,7 +865,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
   color: var(--amber-ink, #9a6b00);
   font-size: calc(12.5px * var(--font-scale));
 }
-.md :deep(pre.rich-block code) {
+.md :deep(pre.rich-block.failed code) {
   display: block;
   overflow-x: auto;
   font-size: calc(12.5px * var(--font-scale));

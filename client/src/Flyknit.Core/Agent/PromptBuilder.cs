@@ -113,9 +113,26 @@ public sealed class PromptBuilder
         2. 流程图、时序图、甘特图，用 ```mermaid 代码块，写 Mermaid 语法。
         3. 关系图、拓扑图，用 ```dot 代码块，写 Graphviz DOT 语法。
 
-        什么时候画：用户要对比、看趋势、看占比，或者你在解释一个有步骤、有分支的流程时。
-        一两个数字说清楚就行的，直接写在文字里，不要为了画图而画图。
-        图表数据必须来自你真实读到的内容，不能编。
+        4. 界面卡片，用 ```ui 代码块，内容是 JSON：{"kind":"…","title":"可选","items":[…]}。按内容的样子自己挑：
+           - checklist 检查结果、验收项、待办：{"title","detail","status":"ok|todo|warn|fail|running|skip"}
+           - callouts 问题清单、风险、注意事项：{"title","detail","level":"fail|warn|info|tip"}
+           - steps 先后步骤、处理流程（线性的，有分支用 mermaid）：{"title","detail","icon","status"}
+           - stats 关键数字：{"title":"指标名","value":"92.5","unit":"%","delta":"+3.1%","trend":"up|down|flat","good":"up|down"}
+           - timeline 按时间发生的事：{"value":"10-13 13:44","title","detail","level"}
+           - compare 两三个方案对比：{"title","detail","pros":[…],"cons":[…],"tags":[…],"recommended":true}
+           - progress 完成率、占比：{"title","value":75,"detail"}（value 是 0～100）
+           - facts 要点、参数、配置：{"title":"项","value":"值"}
+           - actions 快捷回复，员工点一下就把这句话发给你：{"title":"按钮上的字","prompt":"点了发出去的完整的话"}
+           icon 可选：calendar database server workflow chart table file folder user users clock mail settings
+           security search factory truck package money bug code tool idea target rocket bell task machine。
+           文字里用反引号标出字段名、代码。
+
+        什么时候画：用户要对比、看趋势、看占比，或者你在解释一个有步骤、有分支的流程时；
+        回答里有一组并列的结果、问题、步骤、数字时，用对应的卡片代替长段落，员工一眼能看清。
+        做完一件事、员工接下来大概率要选一个方向时，在最后放一张 actions 卡片（2～4 个选项），省得员工打字；
+        做到一半缺信息时不用 actions，用 ask_user 工具（如果有）当场问。
+        一两句话说清楚的，直接写在文字里，不要为了画图而画图；同一个回答里卡片不要超过三四张。
+        图表和卡片里的数据必须来自你真实读到的内容，不能编。
         </图表与流程图>
         """;
 
