@@ -4,12 +4,14 @@ import { useI18n } from 'vue-i18n'
 import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
-import { current, currentState, editAndResend, openConversation, openPath, openTrace, regenerate, setFeedback, state } from '../store'
+import { current, currentState, editAndResend, openAttachment, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
 import type { UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 import ExpertTaskCard from './ExpertTaskCard.vue'
 import { AskExpertTool } from '../subtasks'
 import OutputFiles from './OutputFiles.vue'
+import { snippet } from '../pasted'
+import { formatSize } from '../library'
 
 const { t } = useI18n()
 const scroller = ref<HTMLElement>()
@@ -240,11 +242,19 @@ const isImage = (mime: string) => mime.startsWith('image/')
         <!-- 用户消息 -->
         <div v-if="m.role === 'user'" class="user" :class="{ editing: editingId === m.id }">
           <div v-if="m.attachments?.length" class="files">
-            <button v-for="a in m.attachments" :key="a.localPath" type="button" class="file" :title="a.localPath" @click="openPath(a.localPath)">
-              <img v-if="a.preview" :src="a.preview" alt="" />
-              <component :is="isImage(a.mime) ? ImageIcon : FileText" v-else :size="16" />
-              <span>{{ a.fileName }}</span>
-            </button>
+            <template v-for="a in m.attachments" :key="a.localPath">
+              <!-- 粘贴的长文本：一张小卡片，点开看全文 -->
+              <button v-if="a.pasted" type="button" class="paste-card" :title="t('ui.paste.view')" @click="openAttachment(a)">
+                <span class="paste-name">{{ a.fileName }}</span>
+                <span v-if="a.pasteText" class="paste-snippet">{{ snippet(a.pasteText, 120) }}</span>
+                <span class="paste-foot"><span class="paste-badge">{{ t('ui.paste.badge') }}</span>{{ formatSize(a.size) }}</span>
+              </button>
+              <button v-else type="button" class="file" :title="a.localPath" @click="openAttachment(a)">
+                <img v-if="a.preview" :src="a.preview" alt="" />
+                <component :is="isImage(a.mime) ? ImageIcon : FileText" v-else :size="16" />
+                <span>{{ a.fileName }}</span>
+              </button>
+            </template>
           </div>
           <div v-if="editingId === m.id" class="edit-card">
             <textarea
@@ -565,6 +575,56 @@ const isImage = (mime: string) => mime.startsWith('image/')
 }
 .file svg {
   margin-left: 6px;
+}
+.paste-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 136px;
+  height: 116px;
+  padding: 10px 11px 9px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--cloth);
+  text-align: left;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.paste-card:hover {
+  border-color: color-mix(in srgb, var(--indigo) 45%, var(--line-strong));
+}
+.paste-name {
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.paste-snippet {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.paste-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.paste-badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--chip);
+  font-weight: 600;
+  color: var(--ink-soft);
 }
 .file img {
   width: 30px;

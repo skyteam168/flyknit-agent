@@ -19,6 +19,7 @@ import PreviewPane from './components/PreviewPane.vue'
 import SessionPanel from './components/SessionPanel.vue'
 import TraceDialog from './components/TraceDialog.vue'
 import ExpertTaskDialog from './components/ExpertTaskDialog.vue'
+import TextViewDialog from './components/TextViewDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
@@ -305,6 +306,7 @@ onBeforeUnmount(() => {
 
     <!-- 专家任务详情在链路弹窗下面：从详情里点「查看执行记录」时链路盖在上面 -->
     <ExpertTaskDialog v-if="state.subtaskDetail" />
+    <TextViewDialog v-if="state.textView" :key="state.textView.localPath" />
     <TraceDialog v-if="state.trace" />
     <SettingsDialog v-if="state.settingsOpen" />
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />

@@ -78,9 +78,13 @@ public sealed class AttachmentDto
     public string Mime { get; set; } = "application/octet-stream";
     public long Size { get; set; }
 
-    public static AttachmentDto From(Attachment a) => new() { FileName = a.FileName, LocalPath = a.LocalPath, Mime = a.Mime, Size = a.Size };
+    /// <summary>员工粘贴的长文本（界面上折叠成卡片，发给模型时整段放进消息）</summary>
+    public bool Pasted { get; set; }
 
-    public Attachment ToModel() => new() { FileName = FileName, LocalPath = LocalPath, Mime = Mime, Size = Size };
+    public static AttachmentDto From(Attachment a) => new() { FileName = a.FileName, LocalPath = a.LocalPath, Mime = a.Mime, Size = a.Size, Pasted = a.Pasted };
+
+    /// <param name="allowPasted">粘贴标记只认宿主自己存下的粘贴文件，界面传来的其他路径一律当普通附件</param>
+    public Attachment ToModel(bool allowPasted = false) => new() { FileName = FileName, LocalPath = LocalPath, Mime = Mime, Size = Size, Pasted = Pasted && allowPasted };
 
     public static AttachmentDto FromPath(string path)
     {

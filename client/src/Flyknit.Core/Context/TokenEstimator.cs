@@ -34,7 +34,8 @@ public static class TokenEstimator
         }
         foreach (var a in m.Attachments)
         {
-            n += a.IsImage ? PerImage : 20; // 非图片附件只发送路径
+            // 非图片附件只发送路径；粘贴的文本整段放进消息，按字节粗估（中文 3 字节约 0.75 token）
+            n += a.IsImage ? PerImage : a.Pasted ? 20 + (int)(Math.Min(a.Size, PastedText.MaxInlineChars * 3L) * 0.3) : 20;
         }
         return n;
     }

@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Mic,
   Paperclip,
+  Pencil,
   Plug,
   Puzzle,
   RotateCcw,
@@ -35,6 +36,7 @@ import ExpertAvatar from './ExpertAvatar.vue'
 import { bridge } from '../bridge'
 import {
   addPastedImage,
+  addPastedText,
   cancelSpeech,
   current,
   currentExpert,
@@ -52,6 +54,7 @@ import {
   toast,
 } from '../store'
 import type { Mode } from '../types'
+import { shouldFold, snippet } from '../pasted'
 
 const props = defineProps<{ home?: boolean }>()
 const { t } = useI18n()
@@ -122,12 +125,37 @@ function onKey(e: KeyboardEvent) {
 
 function onPaste(e: ClipboardEvent) {
   const items = [...(e.clipboardData?.items ?? [])].filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
-  if (items.length === 0) return
+  if (items.length === 0) {
+    // 很长的文字不塞进输入框，折叠成一张卡片；点卡片上的笔可以放回输入框
+    const pasted = e.clipboardData?.getData('text/plain') ?? ''
+    if (shouldFold(pasted)) {
+      e.preventDefault()
+      void addPastedText(pasted.replace(/\r\n/g, '\n'))
+    }
+    return
+  }
   e.preventDefault()
   for (const i of items) {
     const blob = i.getAsFile()
     if (blob) void addPastedImage(blob)
   }
+}
+
+/** 粘贴卡片上的笔：卡片拿掉，全文插回输入框光标处 */
+function expandPaste(i: number) {
+  const a = state.pending[i]
+  if (a?.pasteText === undefined) return
+  state.pending.splice(i, 1)
+  const el = box.value
+  const at = el ? (el.selectionStart ?? text.value.length) : text.value.length
+  const before = text.value.slice(0, at)
+  text.value = before + a.pasteText + text.value.slice(at)
+  const caret = before.length + a.pasteText.length
+  void nextTick(() => {
+    resize()
+    el?.focus()
+    el?.setSelectionRange(caret, caret)
+  })
 }
 
 function swap() {
@@ -295,12 +323,22 @@ onBeforeUnmount(() => {
     <UsageWarning />
     <div class="card" :class="{ busy }">
       <div v-if="state.pending.length" class="pending">
-        <div v-for="(a, i) in state.pending" :key="a.localPath + i" class="chip" :title="a.localPath">
+        <template v-for="(a, i) in state.pending" :key="a.localPath + i">
+        <div v-if="a.pasted" class="paste-card">
+          <button type="button" class="paste-body" :title="t('ui.paste.view')" @click="state.textView = a">{{ snippet(a.pasteText ?? '') }}</button>
+          <button type="button" class="paste-remove" :title="t('ui.paste.remove')" :aria-label="t('ui.paste.remove')" @click="state.pending.splice(i, 1)"><X :size="12" /></button>
+          <div class="paste-foot">
+            <span class="paste-badge">{{ t('ui.paste.badge') }}</span>
+            <button type="button" class="paste-edit" :title="t('ui.paste.expand')" :aria-label="t('ui.paste.expand')" @click="expandPaste(i)"><Pencil :size="13" /></button>
+          </div>
+        </div>
+        <div v-else class="chip" :title="a.localPath">
           <img v-if="a.preview" :src="a.preview" alt="" />
           <component :is="a.mime.startsWith('image/') ? ImageIcon : FileText" v-else :size="15" />
           <span>{{ a.fileName }}</span>
           <button type="button" :aria-label="t('menu.delete')" @click="state.pending.splice(i, 1)"><X :size="13" /></button>
         </div>
+        </template>
       </div>
 
       <textarea
@@ -670,6 +708,76 @@ onBeforeUnmount(() => {
 }
 .chip button:hover {
   background: var(--line);
+  color: var(--ink);
+}
+.paste-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 140px;
+  height: 104px;
+  padding: 8px 8px 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--cloth);
+}
+.paste-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 10px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+  cursor: zoom-in;
+}
+.paste-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--cloth);
+  color: var(--ink-soft);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.paste-card:hover .paste-remove,
+.paste-remove:focus-visible {
+  opacity: 1;
+}
+.paste-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+.paste-badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.paste-edit {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--ink-soft);
+}
+.paste-edit:hover {
+  background: var(--chip);
   color: var(--ink);
 }
 textarea {

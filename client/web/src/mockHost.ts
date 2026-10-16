@@ -1683,8 +1683,15 @@ export function createMockHost(): HostTransport {
           mime: f.type || 'application/octet-stream',
           size: f.size,
         }))
-      case 'files.saveBlob':
-        return { fileName: p.fileName, localPath: `C:\\Users\\demo\\AppData\\Local\\Temp\\${p.fileName}`, mime: p.mime, size: Math.round((p.base64.length * 3) / 4) }
+      case 'files.saveBlob': {
+        // 和真宿主一样每次一个子目录；文本记下来，点开查看时能读到
+        const localPath = `C:\\Users\\demo\\AppData\\Local\\Temp\\paste\\${Math.random().toString(16).slice(2, 14)}\\${p.fileName}`
+        if (String(p.mime).startsWith('text/')) {
+          const bytes = Uint8Array.from(atob(p.base64), (c) => c.charCodeAt(0))
+          mockPreviews[localPath] = { kind: 'text', text: new TextDecoder().decode(bytes), language: null }
+        }
+        return { fileName: p.fileName, localPath, mime: p.mime, size: Math.round((p.base64.length * 3) / 4) }
+      }
       case 'window.toggleTopmost':
         return true
       default:

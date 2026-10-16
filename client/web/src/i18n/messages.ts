@@ -954,6 +954,11 @@ const zh = {
       copied: '已复制，可以直接粘贴发给 IT 或开发排查',
       status: { error: '出错', blocked: '被拦截', stopped: '已停止', skipped: '跳过', warning: '有问题' },
     },
+    paste: {
+      fileName: '粘贴文本.txt', badge: '粘贴', expand: '放回输入框编辑', remove: '移除', view: '查看全文',
+      lines: '{n} 行', copy: '复制全文', copied: '已复制', close: '关闭', loading: '正在读取…',
+      failed: '读不出这个文件的文字内容', openExternal: '用其他程序打开', truncated: '内容太长，这里只显示前 {n} 字',
+    },
     session: {
       title: '会话信息', open: '会话信息', close: '关闭', workspace: '工作区', permission: '权限', model: '模型',
       context: '对话记忆', used: '已使用 {p}%', usedOf: '约 {used} / {total}', noData: '回答一次之后这里会显示对话记忆用了多少。',
@@ -2140,6 +2145,11 @@ const vi: Messages = {
       copied: 'Đã sao chép, có thể dán gửi cho IT',
       status: { error: 'Lỗi', blocked: 'Bị chặn', stopped: 'Đã dừng', skipped: 'Bỏ qua', warning: 'Có vấn đề' },
     },
+    paste: {
+      fileName: 'Văn bản dán.txt', badge: 'Đã dán', expand: 'Đưa lại vào ô nhập để sửa', remove: 'Xóa', view: 'Xem toàn văn',
+      lines: '{n} dòng', copy: 'Sao chép toàn bộ', copied: 'Đã sao chép', close: 'Đóng', loading: 'Đang đọc…',
+      failed: 'Không đọc được nội dung văn bản của tệp này', openExternal: 'Mở bằng chương trình khác', truncated: 'Nội dung quá dài, chỉ hiển thị {n} ký tự đầu',
+    },
     session: {
       title: 'Thông tin phiên', open: 'Thông tin phiên', close: 'Đóng', workspace: 'Thư mục làm việc', permission: 'Quyền', model: 'Mô hình',
       context: 'Bộ nhớ hội thoại', used: 'Đã dùng {p}%', usedOf: 'Khoảng {used} / {total}', noData: 'Sau lần trả lời đầu tiên, mức dùng bộ nhớ hội thoại sẽ hiển thị ở đây.',
@@ -3323,6 +3333,11 @@ const en: Messages = {
       copy: 'Copy trace',
       copied: 'Copied. Paste it to IT or the developers',
       status: { error: 'error', blocked: 'blocked', stopped: 'stopped', skipped: 'skipped', warning: 'problem' },
+    },
+    paste: {
+      fileName: 'Pasted text.txt', badge: 'PASTED', expand: 'Edit in the input box', remove: 'Remove', view: 'View full text',
+      lines: '{n} lines', copy: 'Copy all', copied: 'Copied', close: 'Close', loading: 'Reading…',
+      failed: "Couldn't read the text in this file", openExternal: 'Open with another app', truncated: 'Too long — showing the first {n} characters',
     },
     session: {
       title: 'Session info', open: 'Session info', close: 'Close', workspace: 'Workspace', permission: 'Permission', model: 'Model',

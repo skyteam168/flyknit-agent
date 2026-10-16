@@ -492,7 +492,10 @@ public sealed class ContextManager
         {
             case ChatRole.User:
                 var files = m.Attachments.Count > 0 ? $"（附件：{string.Join("、", m.Attachments.Select(a => a.LocalPath))}）" : "";
-                return $"[用户] {m.Content}{files}";
+                // 粘贴的文本也要让总结看到一部分，否则摘要里只剩一个路径
+                var pasted = string.Concat(m.Attachments.Where(a => a.Pasted)
+                    .Select(a => PastedText.Read(a)?.Text is { } t ? $"\n  （粘贴的文本 {a.FileName}：{Clip(t, 1500)}）" : ""));
+                return $"[用户] {m.Content}{files}{pasted}";
             case ChatRole.Assistant:
                 var sb = new StringBuilder("[助手] ").Append(m.Content);
                 foreach (var c in m.ToolCalls)

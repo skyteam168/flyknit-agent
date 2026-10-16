@@ -50,7 +50,7 @@ public sealed class LibraryService
                 {
                     if (Store.Add(a.LocalPath, "paste", copy: true, conversationId, a.FileName) is { } item)
                     {
-                        result.Add(new Attachment { FileName = a.FileName, LocalPath = item.Path, Mime = a.Mime, Size = a.Size });
+                        result.Add(new Attachment { FileName = a.FileName, LocalPath = item.Path, Mime = a.Mime, Size = a.Size, Pasted = a.Pasted });
                         continue;
                     }
                 }
