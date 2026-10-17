@@ -269,6 +269,20 @@ async def test_admin_lists_bindings_and_messages(client, device_headers, fake_di
     assert (await client.get("/api/v1/admin/channels/bindings", headers=ADMIN)).json() == []
 
 
+async def test_switching_to_another_app_drops_old_bindings(client, device_headers, fake_dingtalk):
+    """从测试组织换到公司组织：员工 ID 只在组织内唯一，旧绑定必须作废，不然会错把消息发到别人电脑上。"""
+    await _enable(client)
+    await _bind(client, device_headers)
+    url = "/api/v1/admin/channels/dingtalk"
+    # 只改开关、不换应用：绑定还在
+    assert (await client.put(url, headers=ADMIN, json={"enabled": False, "client_id": "dingabc"})).status_code == 200
+    assert len((await client.get("/api/v1/admin/channels/bindings", headers=ADMIN)).json()) == 1
+    # 换成另一个应用：清空
+    r = await client.put(url, headers=ADMIN, json={"enabled": True, "client_id": "ding-company", "client_secret": "s-0987654321"})
+    assert r.status_code == 200 and r.json()["bindings"] == 0
+    assert (await client.get("/api/v1/admin/channels/bindings", headers=ADMIN)).json() == []
+
+
 async def test_stream_loop_against_a_local_websocket_server():
     """真的连一个 WebSocket：回 ping、ACK 机器人消息、把消息交出去。"""
     from websockets.asyncio.server import serve

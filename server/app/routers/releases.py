@@ -65,7 +65,7 @@ async def _latest(session: AsyncSession) -> ClientRelease | None:
 @router.get("/admin/releases", response_model=list[ReleaseOut], dependencies=[Depends(require_admin)])
 async def list_releases(session: AsyncSession = Depends(get_session)):
     rows = await session.scalars(select(ClientRelease).order_by(ClientRelease.id.desc()))
-    return list(rows)
+    return [ReleaseOut.model_validate(r).model_copy(update={"file_missing": not _release_path(r).exists()}) for r in rows]
 
 
 @router.post("/admin/releases", response_model=ReleaseOut, status_code=201)
