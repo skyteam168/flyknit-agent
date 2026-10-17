@@ -93,6 +93,7 @@ def secret_of(cfg: dict) -> str:
 async def save_config(session: AsyncSession, enabled: bool, client_id: str, client_secret: str | None, robot_code: str) -> dict:
     """client_secret 传 None 或空表示不改（后台只显示打码后的值）。"""
     cfg = await get_config(session)
+    await _forget_bindings_if_switched(session, "dingtalk", cfg.get("client_id") or "", client_id.strip())
     cfg["enabled"] = bool(enabled)
     cfg["client_id"] = client_id.strip()
     cfg["robot_code"] = robot_code.strip()
@@ -101,6 +102,21 @@ async def save_config(session: AsyncSession, enabled: bool, client_id: str, clie
     await settings_store.set_value(session, CONFIG_KEY, cfg)
     hub.wake_supervisor()
     return cfg
+
+
+async def _forget_bindings_if_switched(session: AsyncSession, channel: str, old: str, new: str) -> None:
+    """
+    换成了另一个钉钉应用 / 企业微信机器人（比如从测试组织换到公司组织）：原来的绑定全部作废。
+    员工 ID 只在一个组织里唯一，两个组织里都可能有一个 zhangsan——不清掉的话，
+    新组织里的 zhangsan 发的消息会跑到旧组织那个 zhangsan 绑定的电脑上执行。
+    """
+    if not old or old == new:
+        return
+    rows = (await session.scalars(select(ChannelBinding).where(ChannelBinding.channel == channel))).all()
+    for row in rows:
+        await session.delete(row)
+    if rows:
+        log.warning("%s 换了应用（%s → %s），清掉了 %d 个旧绑定，员工需要重新绑定", channel, old, new or "（空）", len(rows))
 
 
 def ready(cfg: dict) -> bool:
@@ -124,6 +140,7 @@ def wecom_secret(cfg: dict) -> str:
 async def save_wecom_config(session: AsyncSession, enabled: bool, bot_id: str, secret: str | None) -> dict:
     """secret 传 None 或空表示不改。"""
     cfg = await get_wecom_config(session)
+    await _forget_bindings_if_switched(session, "wecom", cfg.get("bot_id") or "", bot_id.strip())
     cfg["enabled"] = bool(enabled)
     cfg["bot_id"] = bot_id.strip()
     if secret:

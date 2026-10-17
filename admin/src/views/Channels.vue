@@ -134,6 +134,7 @@ const STATUS: Record<ChannelMessageRow['status'], { label: string; type: 'info' 
           </el-form-item>
           <el-form-item label="Client ID">
             <el-input v-model="form.client_id" placeholder="钉钉应用的 AppKey，例如 dingxxxxxxxx" />
+            <p class="hint">请用公司钉钉组织下建的应用。换成另一个应用后，原来的绑定会全部清空，员工需要重新绑定。</p>
           </el-form-item>
           <el-form-item label="Client Secret">
             <el-input
@@ -189,6 +190,7 @@ const STATUS: Record<ChannelMessageRow['status'], { label: string; type: 'info' 
               </el-form-item>
               <el-form-item label="Bot ID">
                 <el-input v-model="wcForm.bot_id" placeholder="智能机器人的 Bot ID" />
+                <p class="hint">请用公司企业微信里建的机器人。换成另一个机器人后，原来的绑定会全部清空，员工需要重新绑定。</p>
               </el-form-item>
               <el-form-item label="Secret">
                 <el-input
