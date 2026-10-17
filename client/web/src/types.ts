@@ -991,6 +991,8 @@ export interface ChannelBindingInfo {
 export interface ChannelsInfo {
   /** 管理员开了钉钉通道 */
   dingtalk: boolean
+  /** 管理员开了企业微信通道 */
+  wecom: boolean
   /** 连着公司服务器 */
   online: boolean
   bindings: ChannelBindingInfo[]
