@@ -727,6 +727,9 @@ EXPERT_ID_PATTERN = r"^[a-z][a-z0-9_-]{1,39}$"
 class ExpertFields(BaseModel):
     """专家的可编辑内容（草稿和发布的快照都是这一套）。"""
 
+    # model_id 是「这个专家用哪个模型」，和 pydantic 自己的 model_ 前缀无关；不关掉的话启动时每个子类报一条警告
+    model_config = ConfigDict(protected_namespaces=())
+
     name: str = Field(min_length=1, max_length=100)
     avatar: str = Field(default="", max_length=400_000)
     tagline: str = Field(default="", max_length=200)

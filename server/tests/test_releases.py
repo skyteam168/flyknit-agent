@@ -98,6 +98,22 @@ async def test_the_newest_version_wins_not_the_newest_upload(client, device_head
     assert r.json()["version"] == "0.10.0"
 
 
+async def test_two_published_versions_old_clients_get_the_newer_one(client, device_headers):
+    """0.3.12 和 0.3.13 同时「下发中」：装着 0.3.12 及更早的拿到 0.3.13，设备列表记下它报的版本。"""
+    headers = await owner_headers(client)
+    for v in ("0.3.12", "0.3.13"):
+        await publish(client, headers, (await upload(client, headers, version=v)).json()["id"])
+
+    for current in ("0.3.9", "0.3.12"):
+        r = await client.get("/api/v1/client/update", headers=device_headers, params={"version": current})
+        assert r.json()["available"] is True and r.json()["version"] == "0.3.13", current
+    r = await client.get("/api/v1/client/update", headers=device_headers, params={"version": "0.3.13"})
+    assert r.json()["available"] is False
+
+    devices = (await client.get("/api/v1/admin/devices", headers=ADMIN)).json()
+    assert [d["client_version"] for d in devices] == ["0.3.13"]
+
+
 async def test_unpublishing_pulls_it_back(client, device_headers):
     headers = await owner_headers(client)
     release = (await upload(client, headers)).json()
