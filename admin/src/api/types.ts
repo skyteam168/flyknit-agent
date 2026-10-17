@@ -475,6 +475,8 @@ export interface Release {
   published: boolean
   uploaded_by: string
   created_at: string
+  /** 服务器上的 zip 没了：发不出去，要重新上传 */
+  file_missing?: boolean
 }
 
 /** 安装凭证：每下载一次员工端安装包生成一张，吊销后用那个包新装的电脑注册不上 */

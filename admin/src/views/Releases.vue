@@ -15,6 +15,7 @@ const loading = ref(false)
 // 换掉的是员工电脑上正在跑的程序本身，比下发一条运维指令重得多
 const canPublish = computed(() => !!auth.user?.is_owner && !auth.user?.must_change_password)
 const current = computed(() => releases.value.find((r) => r.published))
+const missing = computed(() => releases.value.filter((r) => r.published && r.file_missing).map((r) => r.version))
 
 async function load() {
   loading.value = true
@@ -255,6 +256,10 @@ async function remove(r: Release) {
               :title="`当前下发中：${current.version}`"
               :description="`${bytes(current.size)} · ${dateTime(current.created_at)} 由 ${current.uploaded_by} 上传`" />
 
+    <el-alert v-if="missing.length" type="error" :closable="false" show-icon class="notice"
+              :title="`版本 ${missing.join('、')} 的安装包在服务器上找不到了，员工电脑检查更新会显示「已是最新版本」`"
+              description="多半是服务器的 data/releases 目录被清理过，或换了部署目录。删掉这个版本重新上传并发布即可。" />
+
     <div class="panel">
       <el-table :data="releases" v-loading="loading" empty-text="还没有上传过版本">
         <el-table-column label="版本" width="140">
@@ -264,7 +269,11 @@ async function remove(r: Release) {
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag v-if="row.published" type="success" size="small">下发中</el-tag>
+            <el-tooltip v-if="row.file_missing" placement="top"
+                        content="服务器上找不到这个版本的安装包（data/releases 目录被清理或换了部署目录），员工电脑收不到。请重新上传">
+              <el-tag type="danger" size="small">文件丢失</el-tag>
+            </el-tooltip>
+            <el-tag v-else-if="row.published" type="success" size="small">下发中</el-tag>
             <el-tag v-else type="info" size="small">未发布</el-tag>
           </template>
         </el-table-column>

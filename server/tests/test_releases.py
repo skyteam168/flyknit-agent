@@ -200,6 +200,9 @@ async def test_a_release_whose_file_vanished_is_not_offered(client, device_heade
 
     r = await client.get("/api/v1/client/update", headers=device_headers, params={"version": "0.1.0"})
     assert r.json()["available"] is False
+    # 后台列表上标出来，别让它看着还是「下发中」
+    listed = (await client.get("/api/v1/admin/releases", headers=headers)).json()
+    assert [x["file_missing"] for x in listed] == [True]
 
 
 async def test_a_release_whose_file_vanished_cannot_be_published(client):

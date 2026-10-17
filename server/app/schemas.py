@@ -560,6 +560,8 @@ class ReleaseOut(BaseModel):
     published: bool
     uploaded_by: str
     created_at: datetime
+    #: 记录还在、服务器上的 zip 却没了（data 目录被清过、换了部署目录之类）：这个版本发不出去，要重新上传
+    file_missing: bool = False
 
 
 class ReleasePatch(BaseModel):
