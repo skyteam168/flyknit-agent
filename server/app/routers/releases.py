@@ -398,9 +398,16 @@ async def check_update(
 ):
     """这台电脑有没有新版本可装。没有就 available=false，客户端什么也不做。"""
     result = await _update_for(session, version)
+    # 「点检查更新说已是最新」时，看这一行就知道这台电脑报的是几、服务端认的最新是几
+    latest = await _latest(session)
+    log.info("设备 #%s（%s）检查更新：当前 %s，已发布的最新 %s → %s", device.id, device.machine_name,
+             version or "（未报）", latest.version if latest else "（无）",
+             f"下发 {result.version}" if result.available else "不用更新")
+    if version and device.client_version != version:
+        device.client_version = version[:50]  # 设备列表里的版本号跟着实际在跑的走
     if result.available:
         device.last_seen = datetime.now(timezone.utc)
-        await session.commit()
+    await session.commit()
     return result
 
 
