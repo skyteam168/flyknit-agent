@@ -390,6 +390,9 @@ class Hub:
         current: dict[str, tuple | None] = {"dingtalk": None, "wecom": None}
         try:
             while True:
+                # 先清再读配置：读的过程中后台又保存了一次，这个唤醒要留到下面的 wait 立刻返回。
+                # 反过来（读完再清）会把这次唤醒吃掉，新配置要等下一轮（最多 60 秒）才生效
+                wake.clear()
                 async with sessionmaker() as s:
                     ding = await get_config(s)
                     wc = await get_wecom_config(s)
@@ -423,7 +426,6 @@ class Hub:
                         self.repliers[ch] = bot
                         tasks[ch] = asyncio.create_task(bot.run(status, self._on_message))
                     log.info("%s通道已启用", CHANNEL_NAMES[ch])
-                wake.clear()
                 try:
                     await asyncio.wait_for(wake.wait(), 60)
                 except asyncio.TimeoutError:
