@@ -97,6 +97,7 @@ public sealed class LearnedSkills
     /// </summary>
     public string? Propose(string rawName, string description, string body, string? keywords = null)
     {
+        LastSkipped = null;
         var name = NormalizeName(rawName);
         description = description.Replace('\n', ' ').Replace("\"", "'").Trim();
         keywords = CleanKeywords(keywords);
@@ -107,6 +108,13 @@ public sealed class LearnedSkills
         var dir = Path.Combine(Directory, name);
         var file = Path.Combine(dir, "SKILL.md");
         var version = 1;
+        if (!File.Exists(file) && FindSameTask(name, description, keywords) is { } same)
+        {
+            // 同一类任务已经有一个技能了：换个名字再建一个，两个都会被匹配上、互相打架，
+            // 而且成功次数分散在两边，哪个都转不了正。要改那个技能，复盘会用它的名字给出新版本
+            LastSkipped = same.Name;
+            return null;
+        }
         if (File.Exists(file))
         {
             var existing = SkillCatalog.TryParse(file, SkillSource.Learned);
@@ -126,6 +134,114 @@ public sealed class LearnedSkills
         System.IO.Directory.CreateDirectory(dir);
         Write(file, name, description, body.Trim(), LearnedSkillStatus.Candidate, version, keywords);
         return name;
+    }
+
+    /// <summary>上一次 <see cref="Propose"/> 因为已有同类技能而没建新的时，那个同类技能的名字。</summary>
+    public string? LastSkipped { get; private set; }
+
+    /// <summary>两个技能字面重合到这个程度，就算同一类任务（按实际的技能描述试出来的：同类 0.65 以上，不同类 0.45 以下）。</summary>
+    public const double SameTaskSimilarity = 0.6;
+
+    /// <summary>判断是不是同一类任务用的文字：名称（短横线换成空格）、描述、关键词。</summary>
+    public static string MatchText(string name, string description, string keywords) =>
+        $"{name.Replace('-', ' ')} {description} {keywords}";
+
+    public static string MatchText(SkillInfo skill) =>
+        MatchText(skill.Name, skill.Description, string.Join(" ", skill.Keywords));
+
+    /// <summary>两个技能说的是不是同一类任务，0..1。</summary>
+    public static double Similarity(SkillInfo a, SkillInfo b) =>
+        Context.TextSimilarity.Relevance(MatchText(a), MatchText(b));
+
+    /// <summary>目录里没退役的学习技能。</summary>
+    public List<SkillInfo> List()
+    {
+        if (!System.IO.Directory.Exists(Directory))
+        {
+            return new();
+        }
+        return System.IO.Directory.GetDirectories(Directory)
+            .Select(d => Path.Combine(d, "SKILL.md"))
+            .Where(f => File.Exists(f) && File.ReadAllText(f).Contains("source: learned"))
+            .Select(f => SkillCatalog.TryParse(f, SkillSource.Learned))
+            .OfType<SkillInfo>()
+            .Where(s => LearnedSkillStatus.Of(s) != LearnedSkillStatus.Retired)
+            .ToList();
+    }
+
+    /// <summary>已有的、和给定名称/描述/关键词是同一类任务的学习技能（最像的那个），没有返回 null。</summary>
+    public SkillInfo? FindSameTask(string name, string description, string keywords)
+    {
+        var text = MatchText(name, description, keywords);
+        return List()
+            .Select(s => (Skill: s, Score: Context.TextSimilarity.Relevance(text, MatchText(s))))
+            .Where(x => x.Score >= SameTaskSimilarity)
+            .OrderByDescending(x => x.Score)
+            .Select(x => x.Skill)
+            .FirstOrDefault();
+    }
+
+    /// <summary>和这次任务相关的已有学习技能，交给复盘模型判断是沿用、修订还是真的需要新建。</summary>
+    public List<(SkillInfo Skill, SkillStats Stats)> Related(string query, int max = 3, double minScore = 0.12)
+    {
+        return List()
+            .Select(s => (Skill: s, Score: Math.Max(
+                Context.TextSimilarity.Relevance(query, MatchText(s)),
+                s.Keywords.Count(k => k.Length >= 2 && query.Contains(k, StringComparison.OrdinalIgnoreCase)) * 0.06)))
+            .Where(x => x.Score >= minScore)
+            .OrderByDescending(x => x.Score)
+            .Take(max)
+            .Select(x => (x.Skill, TotalStats(x.Skill.Name)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// 以前已经沉淀出来的重复技能（同一类任务有好几个）：留下最好用的那个，其余一次都没成功过的退役。
+    /// 退役不删文件，可以在界面上重新启用。返回状态变了的技能。
+    /// </summary>
+    public List<(string Name, string Status)> RetireDuplicates()
+    {
+        var ranked = List()
+            .Select(s => (Skill: s, Total: TotalStats(s.Name), Current: Stats(s.Name, LearnedSkillStatus.VersionOf(s))))
+            .OrderByDescending(x => x.Total.Successes)
+            .ThenByDescending(x => LearnedSkillStatus.Of(x.Skill) == LearnedSkillStatus.Active)
+            .ThenByDescending(x => x.Total.Uses)
+            .ThenBy(x => x.Skill.Name, StringComparer.Ordinal)
+            .ToList();
+        var kept = new List<SkillInfo>();
+        var changed = new List<(string, string)>();
+        foreach (var (skill, total, _) in ranked)
+        {
+            if (total.Successes == 0 && kept.Any(k => Similarity(k, skill) >= SameTaskSimilarity))
+            {
+                SetStatus(skill.SkillFile, LearnedSkillStatus.Retired);
+                changed.Add((skill.Name, LearnedSkillStatus.Retired));
+                continue;
+            }
+            kept.Add(skill);
+        }
+        return changed;
+    }
+
+    /// <summary>不分版本的使用情况。</summary>
+    public SkillStats TotalStats(string name)
+    {
+        if (_connectionString is null)
+        {
+            return new(0, 0, 0);
+        }
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*),
+                   COALESCE(SUM(CASE WHEN ok = 1 AND feedback >= 0 THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN ok = 0 OR feedback < 0 THEN 1 ELSE 0 END), 0)
+            FROM skill_usage WHERE skill = $s
+            """;
+        cmd.Parameters.AddWithValue("$s", name);
+        using var r = cmd.ExecuteReader();
+        r.Read();
+        return new(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2));
     }
 
     /// <summary>

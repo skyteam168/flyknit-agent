@@ -252,6 +252,7 @@ public sealed class Reflector
     {
         ReflectionResult? result;
         var existing = RelatedMemories(input);
+        var skills = RelatedSkills(input);
         try
         {
             var turn = await _gateway.CompleteAsync(new ChatRequest
@@ -262,7 +263,7 @@ public sealed class Reflector
                 Temperature = 0.2,
                 MaxTokens = 2048,
                 ExtraBody = new Dictionary<string, JsonNode?> { ["enable_thinking"] = false },
-                Messages = new[] { ChatMessage.System(ReflectPrompt), ChatMessage.User(BuildTranscript(input, existing.Select(e => (e.Alias, e.Item)).ToList())) },
+                Messages = new[] { ChatMessage.System(ReflectPrompt), ChatMessage.User(BuildTranscript(input, existing.Select(e => (e.Alias, e.Item)).ToList(), skills)) },
             }, null, ct);
             result = Parse(turn.Content);
             if (result is not null)
@@ -281,6 +282,33 @@ public sealed class Reflector
             return null;
         }
         return Apply(input, result);
+    }
+
+    /// <summary>和这一轮任务相关的已有学习技能：复盘时看得到，才会沿用或修订它，而不是换个名字再建一个。</summary>
+    private List<(SkillInfo Skill, SkillStats Stats)> RelatedSkills(ReflectionInput input)
+    {
+        if (Learned is not { } learned || !Policy.Skills)
+        {
+            return new();
+        }
+        try
+        {
+            var related = learned.Related(input.UserRequest);
+            // 这一轮加载过的学习技能一定给出（哪怕和用户的说法不太像）
+            foreach (var name in LearnedSkills.LoadedIn(input.Messages))
+            {
+                if (related.All(r => !r.Skill.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    && learned.List().FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } loaded)
+                {
+                    related.Add((loaded, learned.TotalStats(loaded.Name)));
+                }
+            }
+            return related;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            return new();
+        }
     }
 
     /// <summary>和这一轮任务相关的已有记忆，交给复盘模型判断新内容是不是已经记过、是不是要更新旧的。</summary>
@@ -426,9 +454,20 @@ public sealed class Reflector
     /// <summary>写入 learned/&lt;name&gt;/SKILL.md（先作为候选）。用户自己写的同名技能不会被覆盖；已启用且好用的不改。</summary>
     public string? SaveSkill(LearnedSkill skill) => Learned?.Propose(skill.Name, skill.Description, skill.Body, skill.Keywords);
 
-    public static string BuildTranscript(ReflectionInput input, IReadOnlyList<(string Alias, MemoryItem Item)>? existing = null)
+    public static string BuildTranscript(ReflectionInput input, IReadOnlyList<(string Alias, MemoryItem Item)>? existing = null,
+        IReadOnlyList<(SkillInfo Skill, SkillStats Stats)>? skills = null)
     {
         var sb = new StringBuilder();
+        if (skills is { Count: > 0 })
+        {
+            sb.AppendLine("【已有的相关技能】");
+            foreach (var (skill, stats) in skills)
+            {
+                var status = LearnedSkillStatus.Of(skill) == LearnedSkillStatus.Candidate ? "试用中" : "已启用";
+                sb.AppendLine($"- {skill.Name}（{status}，用过 {stats.Uses} 次，成功 {stats.Successes} 次）：{skill.Description}");
+            }
+            sb.AppendLine();
+        }
         if (existing is { Count: > 0 })
         {
             sb.AppendLine("【已有的相关记忆】");
@@ -581,6 +620,9 @@ public sealed class Reflector
           //  description 用“当用户要……时使用”的句式，写清楚适用的场景和对象（用到的软件、文件类型）；
           //  keywords 写 5~10 个用户下次提这类要求时可能用的词，包括同义词和口语说法，如“邮件, 发邮件, 发送, Outlook, 收件人, 抄送”。
           //  技能会按这两项和用户的话自动匹配，写得太抽象就匹配不上、学了也用不上
+          //  和【已有的相关技能】是同一类任务时：照着它做成功了、步骤不用改，skill 给 null；
+          //  步骤需要修正或补充，name 就用那个技能的名字，body 给改好后的完整步骤（会成为它的新版本）。
+          //  不要换个名字为同一类任务再建一个技能——同类的技能一多，哪个都用不好
         }
         要求：
         - 只记录长期有效的内容，不记录一次性的具体数值、临时文件名、本次的数据结论。

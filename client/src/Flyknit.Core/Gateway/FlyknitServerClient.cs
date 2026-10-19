@@ -776,6 +776,10 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         {
             body["flyknit_subtask_id"] = request.SubtaskId;
         }
+        if (UsageSource.Current is { } source)
+        {
+            body["flyknit_source"] = source;
+        }
         if (request.ExtraBody is not null)
         {
             foreach (var (key, value) in request.ExtraBody)

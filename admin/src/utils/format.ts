@@ -54,6 +54,10 @@ export const SCENE_LABELS: Record<string, string> = {
   vision: '识图',
   asr: '语音转文字',
   embedding: '语义检索',
+  // 不是选模型用的场景，是按发起方单独统计的用量（模型照样按「任务」路由）
+  schedule: '定时任务',
+  channel: '钉钉/企业微信',
+  instruction: 'IT 指令',
 }
 export const sceneLabel = (s: string) => SCENE_LABELS[s] ?? s
 

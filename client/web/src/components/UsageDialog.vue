@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import BrandLoader from './BrandLoader.vue'
 import {
   Ban,
+  CalendarClock,
   ChartColumn,
   Check,
   CircleAlert,
@@ -11,12 +12,14 @@ import {
   Globe,
   Languages,
   Mail,
+  Megaphone,
   MessageSquare,
   Phone,
   RefreshCw,
   Settings2,
   ShieldAlert,
   ShieldCheck,
+  Smartphone,
   Trash2,
   Wrench,
   X,
@@ -39,7 +42,14 @@ const eventsLoading = ref(false)
 const eventsError = ref('')
 
 const fmt = new Intl.NumberFormat()
-const sceneIcons: Record<string, unknown> = { agent: Wrench, chat: MessageSquare, translate: Languages }
+const sceneIcons: Record<string, unknown> = {
+  agent: Wrench,
+  chat: MessageSquare,
+  translate: Languages,
+  schedule: CalendarClock,
+  channel: Smartphone,
+  instruction: Megaphone,
+}
 const decisionIcons: Record<SecurityDecision, unknown> = {
   blocked: ShieldAlert,
   approved: ShieldCheck,

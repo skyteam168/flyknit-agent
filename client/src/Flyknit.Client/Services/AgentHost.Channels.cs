@@ -32,6 +32,7 @@ public sealed partial class AgentHost
 
     public async Task<InstructionOutcome> RunChannelMessageAsync(string text, string sender, string conversationId, CancellationToken ct, string channel = "dingtalk")
     {
+        using var source = Flyknit.Core.Gateway.UsageSource.Use(Flyknit.Core.Gateway.UsageSource.Channel);
         var conv = conversationId.Length > 0 ? Store.Get(conversationId) : null;
         if (conv is not null && (conv.DeletedAt is not null || conv.Mode != ConversationMode.Agent || IsRunning(conv.Id)))
         {

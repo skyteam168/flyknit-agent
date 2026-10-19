@@ -269,6 +269,28 @@ async def test_admin_lists_bindings_and_messages(client, device_headers, fake_di
     assert (await client.get("/api/v1/admin/channels/bindings", headers=ADMIN)).json() == []
 
 
+async def test_saving_while_the_supervisor_reads_config_is_not_lost(client, monkeypatch, fake_dingtalk):
+    """后台保存正好赶上监督任务在读配置：这次唤醒不能被吃掉，新配置要马上生效，而不是等下一轮（60 秒）。"""
+    real = channel_hub.get_config
+    reading = asyncio.Event()
+
+    async def slow_get_config(session):
+        cfg = await real(session)   # 读到的是保存前的配置
+        reading.set()
+        await asyncio.sleep(0.3)    # 这段时间里后台保存了新配置
+        return cfg
+
+    for _ in range(100):  # 等监督任务起来、进入等待
+        if channel_hub.hub._supervisor_wake is not None:
+            break
+        await asyncio.sleep(0.01)
+    monkeypatch.setattr(channel_hub, "get_config", slow_get_config)
+    channel_hub.hub.wake_supervisor()
+    await asyncio.wait_for(reading.wait(), 2)
+    monkeypatch.setattr(channel_hub, "get_config", real)
+    await _enable(client)
+
+
 async def test_switching_to_another_app_drops_old_bindings(client, device_headers, fake_dingtalk):
     """从测试组织换到公司组织：员工 ID 只在组织内唯一，旧绑定必须作废，不然会错把消息发到别人电脑上。"""
     await _enable(client)

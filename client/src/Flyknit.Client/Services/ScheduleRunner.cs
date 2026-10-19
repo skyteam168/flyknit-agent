@@ -139,8 +139,12 @@ public sealed class ScheduleRunner : IDisposable
                 ? live
                 : new TimedConfirmation(_host.Confirm, ConfirmTimeout);
 
-            _host.Send(conv.Id, task.Instructions, Array.Empty<Flyknit.Core.Chat.Attachment>(), null,
-                _host.UiLanguage, confirm, events);
+            // 带上「定时任务」：这次运行里的模型调用在后台用量统计里单独算一块
+            using (Flyknit.Core.Gateway.UsageSource.Use(Flyknit.Core.Gateway.UsageSource.Schedule))
+            {
+                _host.Send(conv.Id, task.Instructions, Array.Empty<Flyknit.Core.Chat.Attachment>(), null,
+                    _host.UiLanguage, confirm, events);
+            }
             Log.Info($"定时任务「{task.Name}」已开始运行（会话 {conv.Id}）");
             return (true, "");
         }
