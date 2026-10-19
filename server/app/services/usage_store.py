@@ -27,7 +27,9 @@ DEFAULT_QUOTA = {
 }
 
 # 统计里展示的场景（title 场景只是生成标题，并入对话）
-SCENES = ("agent", "chat", "translate", "vision", "title", "asr", "embedding")
+SCENES = ("agent", "chat", "translate", "vision", "title", "asr", "embedding",
+          # 不是选模型用的场景：按发起方单独统计的用量（定时任务、钉钉/企业微信、IT 指令），见 gateway.USAGE_SOURCES
+          "schedule", "channel", "instruction")
 
 
 def today(tz_offset_hours: int = 8) -> str:

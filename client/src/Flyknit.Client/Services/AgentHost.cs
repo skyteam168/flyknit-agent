@@ -332,6 +332,7 @@ public sealed partial class AgentHost : IDisposable
         SkillManager.Refresh();
         Skills.Changed += () => SkillsChanged?.Invoke();
         Skills.StartWatching();
+        _ = Task.Run(RetireDuplicateSkillsOnce);
         await Task.Run(() => Store.PurgeExpired());
         // 服务器连不上时拉配置要等到超时（15 秒）：最多等 3 秒就让窗口先出来，剩下的在后台继续，
         // 拉到了会通过 StatusChanged 刷新界面。任务开始前会等这一次拉完，安全策略不会漏掉
@@ -976,6 +977,29 @@ public sealed partial class AgentHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// 以前的版本会为同一类任务沉淀出好几个技能（换个名字再建一个）。升级后清一次：
+    /// 留下最好用的那个，其余一次没成功过的退役（文件还在，可以手动重新启用）。之后复盘不会再建重复的。
+    /// </summary>
+    private void RetireDuplicateSkillsOnce()
+    {
+        try
+        {
+            var marker = Path.Combine(AppPaths.LearnedSkills, ".dedup-v1");
+            if (File.Exists(marker))
+            {
+                return;
+            }
+            var changed = LearnedSkillLedger.RetireDuplicates();
+            File.WriteAllText(marker, DateTime.Now.ToString("O"));
+            ApplySkillChanges(changed);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("整理重复的学习技能失败", ex);
+        }
+    }
+
     private void ApplySkillChanges(IReadOnlyList<(string Name, string Status)> changed)
     {
         if (changed.Count == 0)
@@ -1177,6 +1201,7 @@ public sealed partial class AgentHost : IDisposable
     /// </summary>
     public async Task<InstructionOutcome> RunInstructionAsync(string prompt, string title, CancellationToken ct)
     {
+        using var source = UsageSource.Use(UsageSource.Instruction);
         var displayTitle = string.IsNullOrWhiteSpace(title) ? "IT 指令" : $"IT 指令 · {title}";
         var conv = Store.Create(ConversationMode.Agent, displayTitle);
         Store.Rename(conv.Id, conv.Title); // 固定标题，不让 AI 自动总结覆盖

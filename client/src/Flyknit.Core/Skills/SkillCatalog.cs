@@ -300,7 +300,19 @@ public sealed class SkillCatalog : IDisposable
         }
 
         var ranked = string.IsNullOrWhiteSpace(query) ? null : Rank(query!, semantic);
-        var preload = ranked?.Where(x => x.Strong).Take(PreloadLimit).Select(x => x.Skill).ToList() ?? new();
+        // 同一类任务的技能只给一个全文：两份相近的步骤一起给，模型会混着做或者犹豫
+        var preload = new List<SkillInfo>();
+        foreach (var (skill, _, _) in ranked?.Where(x => x.Strong) ?? Enumerable.Empty<(SkillInfo, double, bool)>())
+        {
+            if (preload.Count >= PreloadLimit)
+            {
+                break;
+            }
+            if (!preload.Any(p => LearnedSkills.Similarity(p, skill) >= LearnedSkills.SameTaskSimilarity))
+            {
+                preload.Add(skill);
+            }
+        }
 
         var listed = enabled;
         var truncated = false;

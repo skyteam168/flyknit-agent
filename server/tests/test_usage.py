@@ -1,3 +1,4 @@
+import json
 """Token 用量统计与每日配额。"""
 
 import httpx
@@ -64,6 +65,29 @@ async def test_streaming_usage_is_recorded_per_scene(client, device_headers):
     rows = (await client.get("/api/v1/admin/usage", headers=ADMIN)).json()
     assert rows[0]["tokens"] == 3000
     assert rows[0]["machine_name"] == "PC-001"
+
+
+@respx.mock
+async def test_scheduled_and_channel_runs_get_their_own_scene(client, device_headers):
+    """定时任务、钉钉/企业微信发起的运行单独统计；选模型照旧按 agent。不认识的发起方忽略。"""
+    await setup_models(client)
+    route = respx.post("http://primary.local/v1/chat/completions").mock(
+        return_value=httpx.Response(200, content=STREAM, headers={"content-type": "text/event-stream"})
+    )
+    for source in ("schedule", "channel", "hacker", None):
+        body = {"scene": "agent", "stream": True, "messages": [{"role": "user", "content": "hi"}]}
+        if source:
+            body["flyknit_source"] = source
+        r = await client.post("/api/v1/chat/completions", headers=device_headers, json=body)
+        assert r.status_code == 200
+        await r.aread()
+    # 上游收不到这个字段
+    assert all("flyknit_source" not in json.loads(c.request.content) for c in route.calls)
+
+    usage = (await client.get("/api/v1/client/usage", headers=device_headers)).json()
+    assert {s["scene"]: s["total"] for s in usage["by_scene"]} == {"schedule": 1500, "channel": 1500, "agent": 3000}
+    dashboard = (await client.get("/api/v1/admin/dashboard", headers=ADMIN)).json()
+    assert {s["scene"] for s in dashboard["scenes_today"]} == {"schedule", "channel", "agent"}
 
 
 @respx.mock

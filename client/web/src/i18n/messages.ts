@@ -44,6 +44,10 @@ const zh = {
     chatHint: '问答、写作、解释问题',
     translateHint: '中、越、英、柬等语言互译',
     agentHint: '操作电脑：整理文件、执行命令、分析表格',
+    // 用量统计里按发起方单独算的几类（不是可选的模式）
+    schedule: '定时任务',
+    channel: '钉钉/企业微信',
+    instruction: 'IT 指令',
   },
   translate: {
     from: '源语言',
@@ -1253,6 +1257,9 @@ const vi: Messages = {
     chatHint: 'Hỏi đáp, viết nội dung, giải thích',
     translateHint: 'Dịch qua lại Trung, Việt, Anh, Khmer…',
     agentHint: 'Thao tác máy tính: sắp xếp tệp, chạy lệnh, phân tích bảng',
+    schedule: 'Tác vụ hẹn giờ',
+    channel: 'DingTalk/WeCom',
+    instruction: 'Lệnh từ IT',
   },
   translate: {
     from: 'Ngôn ngữ nguồn',
@@ -2467,6 +2474,9 @@ const en: Messages = {
     chatHint: 'Ask questions, write, explain',
     translateHint: 'Chinese, Vietnamese, English, Khmer and more',
     agentHint: 'Work on this PC: organize files, run commands, analyze sheets',
+    schedule: 'Scheduled tasks',
+    channel: 'DingTalk/WeCom',
+    instruction: 'IT instructions',
   },
   translate: {
     from: 'From',
