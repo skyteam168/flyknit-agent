@@ -1,0 +1,21 @@
+{
+	"pages": [
+		{
+			"path": "pages/chat/chat",
+			"style": { "navigationStyle": "custom" }
+		},
+		{
+			"path": "pages/pair/pair",
+			"style": { "navigationStyle": "custom" }
+		},
+		{
+			"path": "pages/settings/settings",
+			"style": { "navigationStyle": "custom" }
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "black",
+		"navigationBarBackgroundColor": "#ffffff",
+		"backgroundColor": "#ffffff"
+	}
+}

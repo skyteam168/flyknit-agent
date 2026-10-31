@@ -1,0 +1,357 @@
+// 和服务器的一条 WebSocket 长连接：
+// - 聊天、翻译：发 {type:'chat'}，服务器逐字推回 chat.delta，直到 chat.done / chat.error
+// - 办事：电脑上的执行进度 task.event、状态变化 task.updated
+// - 审批：电脑上执行到需要确认的操作 approval.request，回答后 approval.closed
+// 断了自动重连（2 秒起，最长 30 秒）；每 25 秒 ping 一次，顺便知道电脑在不在线。
+
+import { Approval, Conv, Msg, applyMe, clearAuth, findTaskMsg, saveConversations, state } from './store.uts'
+import { request } from './api.uts'
+
+let task : SocketTask | null = null
+let retryTimer = 0
+let pingTimer = 0
+let backoff = 2000
+let wantOpen = false
+/** 正在生成的回答：请求 ID → 那条助手消息 */
+const pending = new Map<string, Msg>()
+
+function wsUrl() : string {
+	let base = state.server
+	if (base.startsWith('https://')) {
+		base = 'wss://' + base.substring(8)
+	} else if (base.startsWith('http://')) {
+		base = 'ws://' + base.substring(7)
+	}
+	return base + '/api/v1/mobile/ws?token=' + state.token
+}
+
+export function connect() {
+	wantOpen = true
+	if (task != null || state.token == '' || state.server == '') {
+		return
+	}
+	state.socket = 'connecting'
+	const t = uni.connectSocket({
+		url: wsUrl(),
+		fail: (_) => {
+			task = null
+			scheduleRetry()
+		}
+	})
+	task = t
+	t.onOpen((_) => {
+		state.socket = 'open'
+		backoff = 2000
+		startPing()
+		void syncTasks()
+	})
+	t.onMessage((res) => {
+		const data = res.data
+		if (typeof data == 'string') {
+			handle(data as string)
+		}
+	})
+	t.onClose((res) => {
+		task = null
+		state.socket = 'closed'
+		stopPing()
+		failPending('连接断开了，请重试')
+		// 4401：令牌失效（被解绑、被吊销）；4403：管理员关了手机端或电脑被停用
+		if (res.code == 4401) {
+			wantOpen = false
+			clearAuth()
+			uni.reLaunch({ url: '/pages/pair/pair' })
+			return
+		}
+		scheduleRetry()
+	})
+	t.onError((_) => {
+		// onClose 会接着来，在那里重连
+	})
+}
+
+export function disconnect() {
+	wantOpen = false
+	if (retryTimer != 0) {
+		clearTimeout(retryTimer)
+		retryTimer = 0
+	}
+	stopPing()
+	const t = task
+	task = null
+	if (t != null) {
+		t.close({ code: 1000 } as CloseSocketOptions)
+	}
+	state.socket = 'idle'
+}
+
+function scheduleRetry() {
+	if (!wantOpen || retryTimer != 0) {
+		return
+	}
+	retryTimer = setTimeout(() => {
+		retryTimer = 0
+		connect()
+	}, backoff)
+	backoff = Math.min(backoff * 2, 30000)
+}
+
+function startPing() {
+	stopPing()
+	pingTimer = setInterval(() => {
+		send({ type: 'ping' } as UTSJSONObject)
+	}, 25000)
+}
+
+function stopPing() {
+	if (pingTimer != 0) {
+		clearInterval(pingTimer)
+		pingTimer = 0
+	}
+}
+
+function send(obj : UTSJSONObject) : boolean {
+	const t = task
+	if (t == null || state.socket != 'open') {
+		return false
+	}
+	t.send({ data: JSON.stringify(obj) } as SendSocketMessageOptions)
+	return true
+}
+
+// ---------- 聊天、翻译 ----------
+
+/** 把这个对话交给模型。answer 是已经放进对话里的空助手消息，回答逐字写进它 */
+export function sendChat(conv : Conv, answer : Msg) : boolean {
+	const history = [] as Array<UTSJSONObject>
+	conv.messages.forEach((m : Msg) => {
+		if (m.id != answer.id && m.taskId == 0 && m.status != 'error' && m.content != '') {
+			history.push({ role: m.role, content: m.content } as UTSJSONObject)
+		}
+	})
+	const rid = answer.id
+	const ok = send({
+		type: 'chat',
+		id: rid,
+		mode: conv.mode == 'translate' ? 'translate' : 'chat',
+		target: conv.target,
+		conversation_id: conv.id,
+		messages: history
+	} as UTSJSONObject)
+	if (ok) {
+		pending.set(rid, answer)
+	}
+	return ok
+}
+
+export function stopChat(answer : Msg) {
+	send({ type: 'chat.stop', id: answer.id } as UTSJSONObject)
+	if (pending.has(answer.id)) {
+		pending.delete(answer.id)
+		answer.status = 'done'
+		saveConversations()
+	}
+}
+
+function failPending(reason : string) {
+	pending.forEach((m : Msg, _ : string) => {
+		m.status = 'error'
+		if (m.content == '') {
+			m.content = reason
+		}
+	})
+	pending.clear()
+	saveConversations()
+}
+
+// ---------- 收到的消息 ----------
+
+function handle(raw : string) {
+	const parsed = JSON.parse(raw)
+	if (parsed == null) {
+		return
+	}
+	const ev = parsed as UTSJSONObject
+	const type = ev.getString('type') ?? ''
+	if (type == 'hello') {
+		applyMe(ev)
+		const list = ev.getArray('approvals_pending')
+		state.approvals = []
+		if (list != null) {
+			list.forEach((a : any | null) => {
+				if (a != null) {
+					addApproval(a as UTSJSONObject, false)
+				}
+			})
+		}
+		return
+	}
+	if (type == 'pong') {
+		state.computerOnline = ev.getBoolean('online') ?? state.computerOnline
+		return
+	}
+	if (type.startsWith('chat.')) {
+		onChat(type, ev)
+		return
+	}
+	if (type == 'task.event') {
+		const m = findTaskMsg(ev.getNumber('task') ?? 0)
+		if (m != null) {
+			const text = ev.getString('text') ?? ''
+			if (text != '' && (m.steps.length == 0 || m.steps[m.steps.length - 1] != text)) {
+				m.steps.push(text)
+				saveConversations()
+			}
+		}
+		return
+	}
+	if (type == 'task.updated') {
+		const t = ev.getJSON('task')
+		if (t != null) {
+			applyTask(t, true)
+		}
+		return
+	}
+	if (type == 'approval.request') {
+		const a = ev.getJSON('approval')
+		if (a != null) {
+			addApproval(a, true)
+		}
+		return
+	}
+	if (type == 'approval.closed') {
+		const a = ev.getJSON('approval')
+		if (a != null) {
+			removeApproval(a.getString('id') ?? '')
+		}
+	}
+}
+
+function onChat(type : string, ev : UTSJSONObject) {
+	const rid = ev.getString('id') ?? ''
+	const m = pending.get(rid)
+	if (m == null) {
+		return
+	}
+	if (type == 'chat.thinking') {
+		m.status = 'thinking'
+	} else if (type == 'chat.delta') {
+		m.status = 'streaming'
+		m.content += ev.getString('text') ?? ''
+		saveConversations()
+	} else if (type == 'chat.done') {
+		m.status = 'done'
+		pending.delete(rid)
+		saveConversations()
+	} else if (type == 'chat.error') {
+		m.status = 'error'
+		const reason = ev.getString('message') ?? '出错了'
+		m.content = m.content == '' ? reason : m.content + '\n\n（' + reason + '）'
+		pending.delete(rid)
+		saveConversations()
+	}
+}
+
+// ---------- 办事 ----------
+
+const TASK_TITLES = new Map<string, string>([
+	['succeeded', '电脑上办完了'],
+	['failed', '电脑上没办成'],
+	['expired', '电脑一直没有上线，已取消']
+])
+
+/** 服务端的任务状态写回对应的消息；办完了、App 在后台时发一条系统通知 */
+function applyTask(t : UTSJSONObject, notify : boolean) {
+	const m = findTaskMsg(t.getNumber('id') ?? 0)
+	if (m == null) {
+		return
+	}
+	const status = t.getString('status') ?? ''
+	const changed = status != m.taskStatus
+	m.taskStatus = status
+	if (status == 'succeeded') {
+		m.content = t.getString('answer') ?? ''
+		m.status = 'done'
+	} else if (status == 'failed' || status == 'expired') {
+		m.content = t.getString('error') ?? ''
+		m.status = 'error'
+	}
+	saveConversations()
+	const title = TASK_TITLES.get(status)
+	if (notify && changed && title != null && !state.foreground) {
+		const text = t.getString('text') ?? ''
+		notifyLocal(title, text.length > 40 ? text.substring(0, 40) + '…' : text)
+	}
+}
+
+/** 重新连上后：本地还在「等待 / 执行中」的任务，按服务端的最新状态补齐 */
+async function syncTasks() {
+	const res = await request('GET', '/api/v1/mobile/tasks?limit=50', null)
+	if (!res.ok || res.data == null) {
+		return
+	}
+	const list = res.data as Array<any>
+	list.forEach((item : any) => {
+		const t = item as UTSJSONObject
+		const m = findTaskMsg(t.getNumber('id') ?? 0)
+		if (m != null && m.taskStatus != (t.getString('status') ?? '')) {
+			applyTask(t, false)
+		}
+	})
+}
+
+// ---------- 审批 ----------
+
+function addApproval(a : UTSJSONObject, notify : boolean) {
+	const id = a.getString('id') ?? ''
+	if (id == '' || state.approvals.findIndex((x : Approval) : boolean => x.id == id) >= 0) {
+		return
+	}
+	const item = {
+		id: id,
+		task: a.getNumber('task') ?? 0,
+		summary: a.getString('summary') ?? '',
+		detail: a.getString('detail') ?? '',
+		risk: a.getString('risk') ?? '',
+		expiresIn: a.getNumber('expires_in') ?? 0
+	} as Approval
+	state.approvals.push(item)
+	const m = findTaskMsg(item.task)
+	if (m != null) {
+		m.steps.push('等你确认：' + item.summary)
+		saveConversations()
+	}
+	if (notify && !state.foreground) {
+		notifyLocal('电脑上有操作等你确认', item.summary)
+	}
+}
+
+function removeApproval(id : string) {
+	const i = state.approvals.findIndex((x : Approval) : boolean => x.id == id)
+	if (i >= 0) {
+		state.approvals.splice(i, 1)
+	}
+}
+
+export async function answerApproval(a : Approval, approve : boolean) : Promise<string> {
+	const res = await request('POST', '/api/v1/mobile/approvals/' + a.id, { approve: approve } as UTSJSONObject)
+	removeApproval(a.id)
+	const m = findTaskMsg(a.task)
+	if (m != null) {
+		m.steps.push((approve ? '已批准：' : '已拒绝：') + a.summary)
+		saveConversations()
+	}
+	return res.ok ? '' : res.error
+}
+
+// ---------- 系统通知 ----------
+
+export function notifyLocal(title : string, content : string) {
+	uni.createPushMessage({
+		title: title,
+		content: content,
+		fail: (_) => {
+			// 没开通知权限之类：不影响使用
+		}
+	} as CreatePushMessageOptions)
+}

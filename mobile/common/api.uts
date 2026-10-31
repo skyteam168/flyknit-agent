@@ -1,0 +1,113 @@
+// 访问 FlyknitBuddy 服务器：配对、我的电脑、办事任务、审批。聊天走 WebSocket（见 socket.uts）。
+
+import { state } from './store.uts'
+
+export type ApiResult = {
+	ok : boolean
+	status : number
+	/** 成功时的响应体（对象或数组）；失败时为 null */
+	data : any | null
+	/** 失败原因：服务端的 detail，或者网络错误 */
+	error : string
+}
+
+/** 服务器地址统一成 http://host:port 的样子，去掉末尾的斜杠 */
+export function normalizeServer(raw : string) : string {
+	let s = raw.trim()
+	if (s == '') {
+		return ''
+	}
+	if (!s.startsWith('http://') && !s.startsWith('https://')) {
+		s = 'http://' + s
+	}
+	while (s.endsWith('/')) {
+		s = s.substring(0, s.length - 1)
+	}
+	return s
+}
+
+function detailOf(data : any | null, status : number) : string {
+	if (data != null && data instanceof UTSJSONObject) {
+		const d = (data as UTSJSONObject)['detail']
+		if (d != null && typeof d == 'string') {
+			return d as string
+		}
+	}
+	if (status == 401) {
+		return '手机未绑定或已被解绑，请重新扫码绑定'
+	}
+	return status > 0 ? '服务器返回错误（' + status.toString() + '）' : '连不上服务器，请确认手机连着公司 Wi-Fi'
+}
+
+export function request(method : string, path : string, body : UTSJSONObject | null, server : string = '') : Promise<ApiResult> {
+	const base = server != '' ? server : state.server
+	return new Promise<ApiResult>((resolve, _) => {
+		const header = { 'Content-Type': 'application/json' } as UTSJSONObject
+		if (state.token != '') {
+			header['Authorization'] = 'Bearer ' + state.token
+		}
+		uni.request({
+			url: base + path,
+			method: method as RequestMethod,
+			header: header,
+			data: body,
+			timeout: 20000,
+			success: (res) => {
+				const ok = res.statusCode >= 200 && res.statusCode < 300
+				resolve({
+					ok: ok,
+					status: res.statusCode,
+					data: ok ? res.data : null,
+					error: ok ? '' : detailOf(res.data, res.statusCode)
+				} as ApiResult)
+			},
+			fail: (err) => {
+				resolve({ ok: false, status: 0, data: null, error: detailOf(null, 0) + '（' + err.errMsg + '）' } as ApiResult)
+			}
+		})
+	})
+}
+
+/** 二维码内容 flyknit://pair?c=配对码&s=服务器地址；PDA 扫描枪扫出来的也是这一串 */
+export type PairTarget = {
+	server : string
+	code : string
+}
+
+export function parsePairPayload(text : string) : PairTarget | null {
+	const raw = text.trim()
+	const q = raw.indexOf('?')
+	if (!raw.startsWith('flyknit://pair') || q < 0) {
+		return null
+	}
+	const query = raw.substring(q + 1)
+	let code = ''
+	let server = ''
+	// 服务器地址放在最后、没有转义：s= 之后的全部都是地址
+	const si = query.indexOf('s=')
+	const head = si >= 0 ? query.substring(0, si) : query
+	if (si >= 0) {
+		server = query.substring(si + 2)
+	}
+	head.split('&').forEach((part : string) => {
+		if (part.startsWith('c=')) {
+			code = part.substring(2)
+		}
+	})
+	if (code == '' || server == '') {
+		return null
+	}
+	return { server: normalizeServer(server), code: code.toUpperCase() } as PairTarget
+}
+
+export function pair(server : string, code : string) : Promise<ApiResult> {
+	const device = uni.getDeviceInfo()
+	const app = uni.getAppBaseInfo()
+	const name = ((device.deviceBrand ?? '') + ' ' + (device.deviceModel ?? '')).trim()
+	return request('POST', '/api/v1/mobile/pair', {
+		code: code.trim().toUpperCase(),
+		name: name != '' ? name : '手机',
+		platform: 'android',
+		app_version: app.appVersion ?? ''
+	} as UTSJSONObject, server)
+}

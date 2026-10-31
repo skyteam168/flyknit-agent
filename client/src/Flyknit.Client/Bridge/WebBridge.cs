@@ -1366,8 +1366,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 var code = await _host.Server.NewMobilePairCodeAsync(CancellationToken.None);
                 // 手机扫完马上就能让电脑办事：中继先开始等，不用等 5 分钟一轮的状态检查
                 _host.NotifyChannelsChanged(expectBinding: true);
-                // 二维码内容：服务器地址 + 配对码。手机和电脑连同一个服务器，扫完直接配对
-                var payload = $"flyknit://pair?s={Uri.EscapeDataString(_host.Server.ServerUrl)}&c={code.Code}";
+                // 二维码内容：配对码 + 服务器地址（放最后、不转义，手机端好解析；地址里不会有 &）。
+                // 手机和电脑连同一个服务器，扫完直接配对
+                var payload = $"flyknit://pair?c={code.Code}&s={_host.Server.ServerUrl}";
                 return new { code = code.Code, expiresAt = code.ExpiresAt, payload, server = _host.Server.ServerUrl };
             }
 

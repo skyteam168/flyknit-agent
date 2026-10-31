@@ -1705,7 +1705,7 @@ export function createMockHost(): HostTransport {
         setTimeout(() => {
           if (!mockPhones.length) mockPhones.push({ id: 1, name: 'PDA-03', appVersion: '0.1.0', createdAt: new Date().toISOString(), lastSeen: new Date().toISOString(), connected: true })
         }, 5000)
-        return { code: 'K7P3M9QX', expiresAt: new Date(Date.now() + 300_000).toISOString(), payload: 'flyknit://pair?s=http%3A%2F%2F10.0.0.5%3A8000&c=K7P3M9QX', server: 'http://10.0.0.5:8000' }
+        return { code: 'K7P3M9QX', expiresAt: new Date(Date.now() + 300_000).toISOString(), payload: 'flyknit://pair?c=K7P3M9QX&s=http://10.0.0.5:8000', server: 'http://10.0.0.5:8000' }
       case 'mobile.unpair': {
         const i = mockPhones.findIndex((b) => b.id === p.id)
         if (i >= 0) mockPhones.splice(i, 1)

@@ -1,0 +1,19 @@
+// 摄像头扫码。uni-app x 的 uni.scanCode 在 Android 上不是内置能力，需要从插件市场导入实现了
+// uni.scanCode 的插件（例如 zs-scanner）并打自定义基座，见 mobile/README.md。
+// PDA 的扫描枪不走这里：它把扫到的内容当键盘输入打进输入框（见 pages/pair/pair.uvue）。
+
+export function scanCode(onResult : (text : string) => void, onError : (msg : string) => void) {
+	uni.scanCode({
+		onlyFromCamera: true,
+		scanType: ['qrCode'],
+		success: (res) => {
+			onResult(res.result)
+		},
+		fail: (err) => {
+			// 用户取消不算错误
+			if (err.errMsg.indexOf('cancel') < 0) {
+				onError('没有扫到二维码：' + err.errMsg + '。可以改用手动输入。')
+			}
+		}
+	})
+}

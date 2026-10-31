@@ -1,0 +1,259 @@
+<template>
+	<view class="page" :style="{ backgroundColor: c.loom, paddingTop: topInset.toString() + 'px' }">
+		<scroll-view direction="vertical" class="body">
+			<view class="hero">
+				<image class="logo" src="/static/logo.png" mode="aspectFit"></image>
+				<text class="title" :style="{ color: c.ink }">绑定你的电脑</text>
+				<text class="sub" :style="{ color: c.inkSoft }">在电脑上的 FlyknitBuddy 里打开「设置 → 手机」，点「显示二维码」，然后扫一下。</text>
+			</view>
+
+			<view class="card" :style="{ backgroundColor: c.sunk }">
+				<view class="btn primary" :style="{ backgroundColor: c.action }" @click="scan">
+					<text class="btn-text" :style="{ color: c.actionInk }">扫码绑定</text>
+				</view>
+				<text class="hint" :style="{ color: c.inkFaint }">PDA 扫描枪：点一下下面的输入框，再按扫描键</text>
+				<input
+					class="input"
+					:style="{ backgroundColor: c.cloth, color: c.ink, borderColor: c.line }"
+					:value="scanned"
+					placeholder="扫描内容会出现在这里"
+					:placeholder-style="'color:' + c.inkFaint"
+					confirm-type="done"
+					@input="onScannedInput"
+					@confirm="onScannedConfirm"
+				/>
+			</view>
+
+			<view class="manual-toggle" @click="manual = !manual">
+				<text class="link" :style="{ color: c.indigo }">{{ manual ? '收起手动输入' : '扫不了？手动输入' }}</text>
+			</view>
+
+			<view v-if="manual" class="card" :style="{ backgroundColor: c.sunk }">
+				<text class="label" :style="{ color: c.inkSoft }">服务器地址</text>
+				<input
+					class="input"
+					:style="{ backgroundColor: c.cloth, color: c.ink, borderColor: c.line }"
+					:value="server"
+					placeholder="例如 http://10.0.0.5:8000"
+					:placeholder-style="'color:' + c.inkFaint"
+					@input="onServer"
+				/>
+				<text class="label" :style="{ color: c.inkSoft }">配对码</text>
+				<input
+					class="input code"
+					:style="{ backgroundColor: c.cloth, color: c.ink, borderColor: c.line }"
+					:value="code"
+					placeholder="电脑上显示的 8 位配对码"
+					:placeholder-style="'color:' + c.inkFaint"
+					maxlength="16"
+					@input="onCode"
+				/>
+				<view class="btn" :style="{ backgroundColor: c.cloth, borderColor: c.lineStrong }" @click="submitManual">
+					<text class="btn-text" :style="{ color: c.ink }">绑定</text>
+				</view>
+			</view>
+
+			<text v-if="error != ''" class="error" :style="{ color: c.red, backgroundColor: c.redWash }">{{ error }}</text>
+			<text class="foot" :style="{ color: c.inkFaint }">只能在公司 Wi-Fi 下使用。绑定后，手机继承这台电脑的身份和额度；手机丢了请在电脑上解绑。</text>
+		</scroll-view>
+
+		<view v-if="busy" class="busy" :style="{ backgroundColor: c.mask }">
+			<view class="busy-card" :style="{ backgroundColor: c.cloth }">
+				<text :style="{ color: c.ink }">正在绑定…</text>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { computed, ref } from 'vue'
+	import { theme } from '../../common/theme.uts'
+	import { applyMe, state } from '../../common/store.uts'
+	import { normalizeServer, pair, parsePairPayload } from '../../common/api.uts'
+	import { connect } from '../../common/socket.uts'
+	import { scanCode } from '../../common/scan.uts'
+
+	const c = computed(() => theme.c)
+	const topInset = uni.getWindowInfo().statusBarHeight + 24
+	const scanned = ref('')
+	const manual = ref(false)
+	const server = ref('')
+	const code = ref('')
+	const error = ref('')
+	const busy = ref(false)
+
+	async function doPair(srv : string, pairCode : string) {
+		if (busy.value) {
+			return
+		}
+		error.value = ''
+		busy.value = true
+		const res = await pair(srv, pairCode)
+		busy.value = false
+		if (!res.ok || res.data == null) {
+			error.value = res.error
+			return
+		}
+		const body = res.data as UTSJSONObject
+		state.server = srv
+		state.token = body.getString('token') ?? ''
+		applyMe(body)
+		connect()
+		uni.showToast({ title: '已绑定 ' + state.machineName, icon: 'none' })
+		uni.reLaunch({ url: '/pages/chat/chat' })
+	}
+
+	function tryPayload(text : string) : boolean {
+		const target = parsePairPayload(text)
+		if (target == null) {
+			return false
+		}
+		void doPair(target.server, target.code)
+		return true
+	}
+
+	function scan() {
+		scanCode((text : string) => {
+			if (!tryPayload(text)) {
+				error.value = '这不是 FlyknitBuddy 的绑定二维码'
+			}
+		}, (msg : string) => {
+			error.value = msg
+		})
+	}
+
+	function onScannedInput(e : UniInputEvent) {
+		scanned.value = e.detail.value
+		// 扫描枪一次性输入完整内容：认得出来就直接绑定，不用再按确认
+		if (parsePairPayload(scanned.value) != null) {
+			tryPayload(scanned.value)
+		}
+	}
+
+	function onScannedConfirm(e : UniInputConfirmEvent) {
+		if (!tryPayload(e.detail.value)) {
+			error.value = '这不是 FlyknitBuddy 的绑定二维码'
+		}
+	}
+
+	function onServer(e : UniInputEvent) {
+		server.value = e.detail.value
+	}
+
+	function onCode(e : UniInputEvent) {
+		code.value = e.detail.value.toUpperCase()
+	}
+
+	function submitManual() {
+		const srv = normalizeServer(server.value)
+		if (srv == '' || code.value.trim().length < 4) {
+			error.value = '请填写服务器地址和配对码'
+			return
+		}
+		void doPair(srv, code.value.trim())
+	}
+</script>
+
+<style>
+	.page {
+		flex: 1;
+	}
+	.body {
+		flex: 1;
+		padding: 0 24px;
+	}
+	.hero {
+		align-items: center;
+		margin-top: 24px;
+		margin-bottom: 24px;
+	}
+	.logo {
+		width: 88px;
+		height: 88px;
+		margin-bottom: 16px;
+	}
+	.title {
+		font-size: 24px;
+		font-weight: bold;
+		margin-bottom: 8px;
+	}
+	.sub {
+		font-size: 14px;
+		line-height: 22px;
+		text-align: center;
+	}
+	.card {
+		border-radius: 16px;
+		padding: 16px;
+		margin-bottom: 12px;
+	}
+	.btn {
+		height: 48px;
+		border-radius: 24px;
+		align-items: center;
+		justify-content: center;
+		border-width: 1px;
+		border-style: solid;
+		border-color: transparent;
+		margin-top: 8px;
+	}
+	.btn-text {
+		font-size: 16px;
+		font-weight: bold;
+	}
+	.hint {
+		font-size: 12px;
+		margin-top: 14px;
+		margin-bottom: 6px;
+	}
+	.label {
+		font-size: 13px;
+		margin-top: 6px;
+		margin-bottom: 6px;
+	}
+	.input {
+		height: 44px;
+		border-radius: 10px;
+		border-width: 1px;
+		border-style: solid;
+		padding: 0 12px;
+		font-size: 15px;
+	}
+	.code {
+		letter-spacing: 2px;
+	}
+	.manual-toggle {
+		align-items: center;
+		padding: 8px 0 16px 0;
+	}
+	.link {
+		font-size: 14px;
+	}
+	.error {
+		font-size: 13px;
+		line-height: 20px;
+		padding: 10px 12px;
+		border-radius: 10px;
+		margin-bottom: 12px;
+	}
+	.foot {
+		font-size: 12px;
+		line-height: 18px;
+		text-align: center;
+		margin-top: 8px;
+		margin-bottom: 32px;
+	}
+	.busy {
+		position: absolute;
+		left: 0;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		align-items: center;
+		justify-content: center;
+	}
+	.busy-card {
+		padding: 16px 24px;
+		border-radius: 12px;
+	}
+</style>
