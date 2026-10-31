@@ -747,3 +747,34 @@ class ChannelMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MobileDevice(Base):
+    """
+    绑定到某台员工电脑的手机（FlyknitBuddy 安卓 App）。
+
+    手机没有自己的账号：扫电脑上的二维码绑定，继承那台电脑那位员工的身份和额度。
+    一台电脑可以绑几部手机；手机丢了在电脑或后台上删掉，令牌立刻作废。
+    """
+
+    __tablename__ = "mobile_devices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    #: 手机型号或员工起的名字，列表里显示
+    name: Mapped[str] = mapped_column(String(100), default="")
+    platform: Mapped[str] = mapped_column(String(20), default="android")
+    app_version: Mapped[str] = mapped_column(String(50), default="")
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MobilePairCode(Base):
+    """电脑上生成、放进二维码里的一次性配对码。"""
+
+    __tablename__ = "mobile_pair_codes"
+
+    code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

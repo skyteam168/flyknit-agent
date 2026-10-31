@@ -1,0 +1,441 @@
+"""
+手机端（FlyknitBuddy 安卓 App）。
+
+    手机 ──扫电脑上的二维码──▶ pair ──▶ 手机令牌（挂在那台电脑上，可吊销）
+    手机 ══ WebSocket ══▶ 聊天、翻译：服务端直接调模型，逐字推回手机
+                    ╰──▶ 办事：排进通道中枢（channel = mobile），员工电脑领走执行，
+                         执行过程（进度、需要确认的操作）经这里实时推给手机，结果也推回来
+
+手机没有自己的账号体系：继承绑定的那台电脑那位员工的身份、额度和权限。
+进程内内存记连接和待审批，单机部署足够（和通道中枢一样）。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import secrets
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+
+import anyio
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..models import ChannelBinding, ChannelMessage, ChatRecord, Device, MobileDevice, MobilePairCode
+from . import chat_archive, model_router, settings_store, usage_store
+
+log = logging.getLogger("flyknit.mobile")
+
+CONFIG_KEY = "mobile"
+DEFAULT_CONFIG = {"enabled": False, "allow_approval": True, "approval_timeout_min": 5}
+
+CHANNEL = "mobile"
+PAIR_CODE_TTL = timedelta(minutes=5)
+#: 配对码字母表：去掉容易看错的 0/O、1/I/L
+_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+PAIR_CODE_LEN = 8
+#: 同一个来源地址 10 分钟内最多输错几次配对码
+MAX_PAIR_FAILURES = 10
+PAIR_FAILURE_WINDOW = 600.0
+
+#: 手机上一轮聊天最多带多少条历史、每条多长
+MAX_HISTORY = 20
+MAX_MESSAGE_CHARS = 8000
+LANGUAGES = {"zh": "简体中文", "vi": "越南语", "en": "英语", "km": "柬埔寨语（高棉语）"}
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _aware(t: datetime) -> datetime:
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def external_id(mobile_id: int) -> str:
+    """手机在通道中枢里的「外部账号」：channel_bindings / channel_messages 里用它找回是哪部手机。"""
+    return f"mobile:{mobile_id}"
+
+
+def mobile_id_of(external: str) -> int | None:
+    if not external.startswith("mobile:"):
+        return None
+    try:
+        return int(external.split(":", 1)[1])
+    except ValueError:
+        return None
+
+
+# ---------------------------------------------------------------------
+# 配置
+# ---------------------------------------------------------------------
+
+async def get_config(session: AsyncSession) -> dict:
+    cfg = await settings_store.get_value(session, CONFIG_KEY, DEFAULT_CONFIG)
+    for k, v in DEFAULT_CONFIG.items():
+        cfg.setdefault(k, v)
+    return cfg
+
+
+async def save_config(session: AsyncSession, enabled: bool, allow_approval: bool, approval_timeout_min: int) -> dict:
+    cfg = await get_config(session)
+    cfg["enabled"] = bool(enabled)
+    cfg["allow_approval"] = bool(allow_approval)
+    cfg["approval_timeout_min"] = max(1, min(30, int(approval_timeout_min)))
+    await settings_store.set_value(session, CONFIG_KEY, cfg)
+    return cfg
+
+
+# ---------------------------------------------------------------------
+# 提示词（服务端统一给，手机只发对话内容）
+# ---------------------------------------------------------------------
+
+def system_prompt(mode: str, target_lang: str, now: datetime | None = None) -> str:
+    today = (now or datetime.now()).strftime("%Y-%m-%d")
+    if mode == "translate":
+        lang = LANGUAGES.get(target_lang, LANGUAGES["zh"])
+        return (
+            f"你是专业的翻译。把用户发来的内容翻译成{lang}。\n"
+            "只输出译文，不要解释，不要加引号或前缀；保留原文的换行、数字、单位和专有名词。\n"
+            f"如果原文已经是{lang}，就翻译成简体中文。"
+        )
+    return (
+        "你是 FlyknitBuddy，工厂员工的 AI 办公助手。现在员工在手机上和你聊天：\n"
+        "- 回答简洁、分段清楚，适合手机屏幕阅读；能用列表就用列表，少用宽表格\n"
+        "- 用用户使用的语言回答\n"
+        "- 需要操作电脑（找文件、整理表格、查系统）的事，提醒员工切到「办事」，交给他电脑上的 FlyknitBuddy 去做\n"
+        f"今天是 {today}。"
+    )
+
+
+def build_messages(mode: str, target_lang: str, raw: object) -> list[dict]:
+    """手机发来的历史只认 user / assistant 两种角色的纯文字，系统提示词由这里加。"""
+    out: list[dict] = []
+    if isinstance(raw, list):
+        for m in raw[-MAX_HISTORY:]:
+            if not isinstance(m, dict) or m.get("role") not in ("user", "assistant"):
+                continue
+            content = m.get("content")
+            if isinstance(content, str) and content.strip():
+                out.append({"role": m["role"], "content": content[:MAX_MESSAGE_CHARS]})
+    if mode == "translate":
+        # 翻译不需要上下文，只翻最后一句，省 token 也不会被前文带偏
+        out = [m for m in out if m["role"] == "user"][-1:]
+    return [{"role": "system", "content": system_prompt(mode, target_lang)}] + out
+
+
+def delta_of(line: bytes) -> tuple[str, bool]:
+    """从一行 SSE 里取出（正文增量，是否在思考）。"""
+    line = line.strip()
+    if not line.startswith(b"data:"):
+        return "", False
+    body = line[5:].strip()
+    if not body or body == b"[DONE]":
+        return "", False
+    try:
+        obj = json.loads(body)
+    except ValueError:
+        return "", False
+    choices = obj.get("choices") if isinstance(obj, dict) else None
+    if not choices or not isinstance(choices[0], dict):
+        return "", False
+    delta = choices[0].get("delta") or {}
+    text = delta.get("content") or ""
+    thinking = bool(delta.get("reasoning_content") or delta.get("reasoning"))
+    return (text if isinstance(text, str) else ""), thinking
+
+
+# ---------------------------------------------------------------------
+# 审批：电脑上执行到需要确认的操作，交给发起任务的那部手机决定
+# ---------------------------------------------------------------------
+
+@dataclass
+class Approval:
+    id: str
+    message_id: int
+    device_id: int
+    mobile_id: int
+    summary: str
+    detail: str
+    risk: str
+    expires: float
+    status: str = "pending"  # pending / approved / rejected / expired
+    created_at: datetime = field(default_factory=_now)
+    done: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def out(self) -> dict:
+        return {"id": self.id, "task": self.message_id, "summary": self.summary, "detail": self.detail,
+                "risk": self.risk, "status": self.status, "created_at": self.created_at.isoformat(),
+                "expires_in": max(0, int(self.expires - time.monotonic()))}
+
+
+class MobileHub:
+    def __init__(self) -> None:
+        self._sockets: dict[int, set] = {}
+        self._approvals: dict[str, Approval] = {}
+        self._pair_failures: dict[str, list[float]] = {}
+
+    # ---- 连接 ----
+
+    def attach(self, mobile_id: int, ws) -> None:
+        self._sockets.setdefault(mobile_id, set()).add(ws)
+
+    def detach(self, mobile_id: int, ws) -> None:
+        self._sockets.get(mobile_id, set()).discard(ws)
+
+    def connected(self, mobile_id: int) -> bool:
+        return bool(self._sockets.get(mobile_id))
+
+    async def send(self, mobile_id: int, event: dict) -> bool:
+        """推给这部手机的所有连接。手机没连着返回 False（下次打开 App 时按任务列表补齐）。"""
+        sent = False
+        for ws in list(self._sockets.get(mobile_id, ())):
+            try:
+                await ws.send_json(event)
+                sent = True
+            except Exception:  # noqa: BLE001  断了的连接摘掉
+                self.detach(mobile_id, ws)
+        return sent
+
+    async def close_all(self, mobile_id: int) -> None:
+        for ws in list(self._sockets.pop(mobile_id, ())):
+            try:
+                await ws.close(code=4401)
+            except Exception:  # noqa: BLE001
+                pass
+
+    # ---- 配对 ----
+
+    async def new_pair_code(self, session: AsyncSession, device_id: int) -> MobilePairCode:
+        for old in (await session.scalars(select(MobilePairCode).where(MobilePairCode.device_id == device_id))).all():
+            await session.delete(old)
+        while True:
+            code = "".join(secrets.choice(_ALPHABET) for _ in range(PAIR_CODE_LEN))
+            if await session.get(MobilePairCode, code) is None:
+                break
+        row = MobilePairCode(code=code, device_id=device_id, expires_at=_now() + PAIR_CODE_TTL)
+        session.add(row)
+        await session.commit()
+        return row
+
+    def pair_blocked(self, source: str) -> bool:
+        now = time.monotonic()
+        recent = [t for t in self._pair_failures.get(source, []) if now - t < PAIR_FAILURE_WINDOW]
+        self._pair_failures[source] = recent
+        return len(recent) >= MAX_PAIR_FAILURES
+
+    def pair_failed(self, source: str) -> None:
+        self._pair_failures.setdefault(source, []).append(time.monotonic())
+
+    async def pair(self, session: AsyncSession, code: str, name: str, platform: str, app_version: str,
+                   token_hash: str) -> tuple[MobileDevice, Device] | None:
+        row = await session.get(MobilePairCode, code.strip().upper())
+        if row is None or _aware(row.expires_at) < _now():
+            return None
+        device = await session.get(Device, row.device_id)
+        if device is None or device.disabled:
+            return None
+        mobile = MobileDevice(device_id=device.id, name=(name.strip() or "手机")[:100], platform=platform[:20],
+                              app_version=app_version[:50], token_hash=token_hash, last_seen=_now())
+        session.add(mobile)
+        await session.delete(row)  # 一次性
+        await session.flush()
+        # 办事走通道中枢：给这部手机建一条绑定，和钉钉、企业微信的绑定放在一起
+        session.add(ChannelBinding(channel=CHANNEL, external_id=external_id(mobile.id),
+                                   external_name=mobile.name, device_id=device.id))
+        await session.commit()
+        log.info("手机 %s（#%s）绑定到电脑 %s", mobile.name, mobile.id, device.machine_name)
+        return mobile, device
+
+    async def unpair(self, session: AsyncSession, mobile: MobileDevice) -> None:
+        binding = await session.scalar(select(ChannelBinding).where(
+            ChannelBinding.channel == CHANNEL, ChannelBinding.external_id == external_id(mobile.id)))
+        if binding is not None:
+            await session.delete(binding)
+        await session.delete(mobile)
+        await session.commit()
+        for a in [a for a in self._approvals.values() if a.mobile_id == mobile.id and a.status == "pending"]:
+            self._close(a, "rejected")
+        await self.close_all(mobile.id)
+
+    # ---- 任务（办事） ----
+
+    async def task_event(self, row: ChannelMessage, kind: str, text: str) -> None:
+        """电脑上执行到哪一步了。"""
+        if (mid := mobile_id_of(row.external_id)) is not None:
+            await self.send(mid, {"type": "task.event", "task": row.id, "kind": kind, "text": text})
+
+    async def task_changed(self, row: ChannelMessage) -> bool:
+        """任务状态变了（开始、完成、失败、超时）。通道中枢在 finish / expire 时调用。"""
+        mid = mobile_id_of(row.external_id)
+        if mid is None:
+            return False
+        return await self.send(mid, {"type": "task.updated", "task": task_out(row)})
+
+    # ---- 审批 ----
+
+    def request_approval(self, row: ChannelMessage, summary: str, detail: str, risk: str, timeout_min: int) -> Approval | None:
+        mid = mobile_id_of(row.external_id)
+        if mid is None or row.device_id is None:
+            return None
+        a = Approval(id=secrets.token_urlsafe(9), message_id=row.id, device_id=row.device_id, mobile_id=mid,
+                     summary=summary[:500], detail=detail[:2000], risk=risk[:20],
+                     expires=time.monotonic() + timeout_min * 60)
+        self._approvals[a.id] = a
+        self._prune()
+        return a
+
+    def get_approval(self, approval_id: str) -> Approval | None:
+        a = self._approvals.get(approval_id)
+        if a is not None and a.status == "pending" and time.monotonic() > a.expires:
+            self._close(a, "expired")
+        return a
+
+    def pending_for(self, mobile_id: int) -> list[Approval]:
+        return [a for a in list(self._approvals.values())
+                if a.mobile_id == mobile_id and (self.get_approval(a.id) or a).status == "pending"]
+
+    async def answer(self, approval_id: str, mobile_id: int, approve: bool) -> Approval | None:
+        a = self.get_approval(approval_id)
+        if a is None or a.mobile_id != mobile_id:
+            return None
+        if a.status == "pending":
+            self._close(a, "approved" if approve else "rejected")
+            log.info("手机 #%s %s了任务 #%s 的操作：%s", mobile_id, "批准" if approve else "拒绝", a.message_id, a.summary)
+            await self.send(mobile_id, {"type": "approval.closed", "approval": a.out()})
+        return a
+
+    async def wait_approval(self, a: Approval, timeout: float) -> str:
+        if a.status == "pending":
+            remaining = max(0.0, a.expires - time.monotonic())
+            try:
+                await asyncio.wait_for(a.done.wait(), min(timeout, remaining))
+            except asyncio.TimeoutError:
+                pass
+        return (self.get_approval(a.id) or a).status
+
+    def _close(self, a: Approval, status: str) -> None:
+        a.status = status
+        a.done.set()
+
+    def _prune(self) -> None:
+        cutoff = time.monotonic() - 3600
+        for k, a in list(self._approvals.items()):
+            if a.status != "pending" and a.expires < cutoff:
+                self._approvals.pop(k, None)
+
+    # ---- 聊天、翻译：服务端直接调模型，逐字推回 ----
+
+    async def chat(self, ws, http: httpx.AsyncClient, sessionmaker, mobile: MobileDevice, device: Device, req: dict) -> None:
+        rid = str(req.get("id") or "")[:64]
+        mode = "translate" if req.get("mode") == "translate" else "chat"
+        target_lang = str(req.get("target") or "zh")
+        conversation_id = str(req.get("conversation_id") or "")[:56]
+
+        async def emit(event: dict) -> None:
+            event["id"] = rid
+            try:
+                await ws.send_json(event)
+            except Exception:  # noqa: BLE001  手机断了：照样把这一轮的用量记完
+                pass
+
+        messages = build_messages(mode, target_lang, req.get("messages"))
+        if len(messages) < 2:
+            await emit({"type": "chat.error", "message": "没有要发送的内容"})
+            return
+        async with sessionmaker() as session:
+            quota = await usage_store.get_quota(session)
+            limit = usage_store.limit_for(quota, device)
+            if limit and await usage_store.used_today(session, device.id) >= limit:
+                await emit({"type": "chat.error", "message": f"今天的用量已达上限，请联系 {quota['contact_name']} 增加额度"})
+                return
+            try:
+                targets = await model_router.resolve(session, mode)
+            except model_router.NoRouteError as exc:
+                await emit({"type": "chat.error", "message": str(exc)})
+                return
+        body = {"messages": messages, "stream": True, "stream_options": {"include_usage": True}}
+        try:
+            upstream, target = await model_router.open_upstream(http, targets, body)
+        except model_router.UpstreamUnavailable as exc:
+            await emit({"type": "chat.error", "message": f"模型服务暂时不可用：{exc}"})
+            return
+        if upstream.status_code >= 400:
+            await upstream.aclose()
+            await emit({"type": "chat.error", "message": f"模型服务返回错误（HTTP {upstream.status_code}）"})
+            return
+
+        await emit({"type": "chat.start", "model": target.display_name})
+        scanner = usage_store.StreamUsageScanner()
+        text = chat_archive.StreamTextScanner()
+        buffer = b""
+        told_thinking = False
+        recorded = False
+        try:
+            try:
+                async for chunk in upstream.aiter_raw():
+                    scanner.feed(chunk)
+                    text.feed(chunk)
+                    buffer += chunk
+                    while b"\n" in buffer:
+                        line, buffer = buffer.split(b"\n", 1)
+                        delta, thinking = delta_of(line)
+                        if delta:
+                            await emit({"type": "chat.delta", "text": delta})
+                        elif thinking and not told_thinking:
+                            told_thinking = True
+                            await emit({"type": "chat.thinking"})
+                # 先记用量再说完成：手机收到 done 后马上查用量也是准的
+                with anyio.CancelScope(shield=True):
+                    await upstream.aclose()
+                    scanner.finish()
+                    text.finish()
+                    await self._record(sessionmaker, device, mode, conversation_id, messages, text.text, scanner, target)
+                    recorded = True
+                await emit({"type": "chat.done"})
+            except httpx.HTTPError as exc:
+                log.warning("手机 #%s 聊天时上游中途断开：%s", mobile.id, exc)
+                await emit({"type": "chat.error", "message": "模型服务连接中断，请重试"})
+        finally:
+            # 收尾时屏蔽取消：手机断开会取消正在跑的聊天，用量和存档还是要记
+            if not recorded:
+                with anyio.CancelScope(shield=True):
+                    await upstream.aclose()
+                    scanner.finish()
+                    text.finish()
+                    await self._record(sessionmaker, device, mode, conversation_id, messages, text.text, scanner, target)
+
+    async def _record(self, sessionmaker, device: Device, mode: str, conversation_id: str, messages: list[dict],
+                      answer: str, scanner, target) -> None:
+        try:
+            async with sessionmaker() as s:
+                if scanner.prompt > 0 or scanner.completion > 0:
+                    await usage_store.record(s, device.id, "mobile", scanner.prompt, scanner.completion,
+                                             model_id=target.model_id, model_name=target.display_name)
+                user_text = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+                if conversation_id and (user_text or answer):
+                    s.add(ChatRecord(
+                        device_id=device.id, machine_name=device.machine_name, user_name=device.user_name,
+                        conversation_id=f"mobile-{conversation_id}", scene="translate" if mode == "translate" else "chat",
+                        model=target.display_name, user_content=chat_archive.clip(user_text),
+                        assistant_content=chat_archive.clip(answer), attachments=[],
+                        prompt_tokens=max(0, scanner.prompt), completion_tokens=max(0, scanner.completion),
+                    ))
+                    await s.commit()
+        except Exception:  # noqa: BLE001  统计和存档失败不能影响聊天
+            log.warning("记录手机聊天失败 device=%s", device.id, exc_info=True)
+
+
+def task_out(row: ChannelMessage) -> dict:
+    return {
+        "id": row.id, "text": row.text, "status": row.status, "answer": row.answer, "error": row.error,
+        "created_at": _aware(row.created_at).isoformat() if row.created_at else None,
+        "finished_at": _aware(row.finished_at).isoformat() if row.finished_at else None,
+    }
+
+
+hub = MobileHub()

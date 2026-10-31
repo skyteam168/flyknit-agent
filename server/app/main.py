@@ -15,7 +15,7 @@ from sqlalchemy.engine import make_url
 
 from . import __version__, db
 from .config import Settings, get_settings
-from .routers import admin, agents, channels, chats, client, console, experts, feedback, gateway, instructions, landing, mcp, mcp_runtime, releases, speech, subtasks
+from .routers import admin, agents, channels, chats, client, console, experts, feedback, gateway, instructions, landing, mcp, mcp_runtime, mobile, releases, speech, subtasks
 from .services import channel_hub, housekeeping, usage_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -148,6 +148,9 @@ app.include_router(feedback.client_router)
 app.include_router(feedback.admin_router)
 app.include_router(channels.client_router)
 app.include_router(channels.admin_router)
+app.include_router(mobile.router)
+app.include_router(mobile.client_router)
+app.include_router(mobile.admin_router)
 
 
 @app.exception_handler(Exception)
