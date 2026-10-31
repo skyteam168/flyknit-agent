@@ -1,22 +1,25 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Iphone, Refresh } from '@element-plus/icons-vue'
+import { Iphone, Refresh, Upload } from '@element-plus/icons-vue'
+import type { UploadFile, UploadRawFile } from 'element-plus'
 import { api } from '@/api'
-import type { MobileConfig, MobilePhone } from '@/api/types'
-import { dateTime, relative } from '@/utils/format'
+import type { MobileConfig, MobilePhone, MobileRelease } from '@/api/types'
+import { bytes, dateTime, relative } from '@/utils/format'
 
 const cfg = ref<MobileConfig | null>(null)
 const phones = ref<MobilePhone[]>([])
+const releases = ref<MobileRelease[]>([])
 const loading = ref(false)
 const form = reactive({ enabled: false, allow_approval: true, approval_timeout_min: 5 })
 
 async function load() {
   loading.value = true
   try {
-    const [c, p] = await Promise.all([api.mobile(), api.mobilePhones()])
+    const [c, p, r] = await Promise.all([api.mobile(), api.mobilePhones(), api.mobileReleases()])
     cfg.value = c
     phones.value = p
+    releases.value = r
     Object.assign(form, { enabled: c.enabled, allow_approval: c.allow_approval, approval_timeout_min: c.approval_timeout_min })
   } finally {
     loading.value = false
@@ -44,6 +47,78 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+// ---------- App 版本 ----------
+const dialog = ref(false)
+const file = ref<UploadRawFile | null>(null)
+const versionName = ref('')
+const versionCode = ref<number | undefined>(undefined)
+const notes = ref('')
+const progress = ref(-1)
+
+function openUpload() {
+  file.value = null
+  const top = releases.value[0]
+  versionCode.value = top ? top.version_code + 1 : 100
+  versionName.value = ''
+  notes.value = ''
+  dialog.value = true
+}
+
+// 不自动上传时 el-upload 不会调 before-upload，选中的文件要从 on-change 里拿
+function pick(picked: UploadFile) {
+  if (picked.raw) file.value = picked.raw
+}
+
+async function submitUpload() {
+  if (!file.value || !versionName.value.trim() || !versionCode.value) {
+    ElMessage.warning('请选择 APK，并填写和 manifest.json 一致的版本名称、版本号')
+    return
+  }
+  progress.value = 0
+  try {
+    await api.uploadMobileRelease(file.value as unknown as File, versionName.value.trim(), versionCode.value, notes.value,
+                                  (p) => (progress.value = p))
+    dialog.value = false
+    ElMessage.success('已上传。确认无误后点「发布」，员工打开 App 时就会提示升级')
+    await load()
+  } finally {
+    progress.value = -1
+  }
+}
+
+async function setPublished(r: MobileRelease, published: boolean) {
+  if (published) {
+    try {
+      await ElMessageBox.confirm(`发布 ${r.version_name}（版本号 ${r.version_code}）？员工打开 App 时会提示下载安装。`, '发布 App', {
+        type: 'warning',
+        confirmButtonText: '发布',
+        cancelButtonText: '取消',
+      })
+    } catch {
+      return
+    }
+  }
+  await api.updateMobileRelease(r.id, { published })
+  await load()
+}
+
+async function removeRelease(r: MobileRelease) {
+  try {
+    await ElMessageBox.confirm(`删除 ${r.version_name}？安装包文件也会删掉。`, '删除版本', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  } catch {
+    return
+  }
+  await api.deleteMobileRelease(r.id)
+  await load()
+}
+
+const fullLink = (r: MobileRelease) => `${window.location.origin}${r.download_path}`
+
+async function copyLink(r: MobileRelease) {
+  await navigator.clipboard.writeText(fullLink(r))
+  ElMessage.success('下载链接已复制')
 }
 
 async function revoke(p: MobilePhone) {
@@ -113,6 +188,41 @@ async function revoke(p: MobilePhone) {
     </div>
 
     <section class="panel">
+      <div class="panel-title">
+        <h3>App 版本 <small>员工打开 App 时按版本号提示升级</small></h3>
+        <el-button type="primary" :icon="Upload" @click="openUpload">上传 APK</el-button>
+      </div>
+      <el-table :data="releases" empty-text="还没有上传过 App">
+        <el-table-column label="版本" min-width="120">
+          <template #default="{ row }"><strong>{{ row.version_name }}</strong> <small class="muted">（{{ row.version_code }}）</small></template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.file_missing" type="danger" size="small">文件丢失</el-tag>
+            <el-tag v-else-if="row.published" type="success" size="small">下发中</el-tag>
+            <el-tag v-else type="info" size="small">未发布</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="更新说明" min-width="220" show-overflow-tooltip prop="notes" />
+        <el-table-column label="大小" width="100">
+          <template #default="{ row }">{{ bytes(row.size) }}</template>
+        </el-table-column>
+        <el-table-column label="上传" min-width="150">
+          <template #default="{ row }">{{ dateTime(row.created_at) }} · {{ row.uploaded_by }}</template>
+        </el-table-column>
+        <el-table-column width="220" align="right">
+          <template #default="{ row }">
+            <el-button v-if="row.published" link @click="copyLink(row as MobileRelease)">复制下载链接</el-button>
+            <el-button v-if="!row.published" link type="primary" :disabled="row.file_missing" @click="setPublished(row as MobileRelease, true)">发布</el-button>
+            <el-button v-else link @click="setPublished(row as MobileRelease, false)">撤回</el-button>
+            <el-button link type="danger" @click="removeRelease(row as MobileRelease)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <p class="hint">还没装 App 的员工：在电脑上的 FlyknitBuddy「设置 → 手机」里扫「下载 App」的二维码即可下载最新发布的版本。</p>
+    </section>
+
+    <section class="panel">
       <div class="panel-title"><h3>已绑定的手机 <small>{{ phones.length }} 部</small></h3></div>
       <el-table :data="phones" empty-text="还没有手机绑定">
         <el-table-column label="手机" prop="name" min-width="140" />
@@ -135,6 +245,29 @@ async function revoke(p: MobilePhone) {
         </el-table-column>
       </el-table>
     </section>
+    <el-dialog v-model="dialog" title="上传 App 安装包" width="520px">
+      <el-form label-position="top">
+        <el-form-item label="APK 文件">
+          <el-upload drag :auto-upload="false" :show-file-list="false" accept=".apk" :on-change="pick">
+            <div class="drop">{{ file ? file.name : '把 HBuilderX 云打包生成的 .apk 拖到这里，或点击选择' }}</div>
+          </el-upload>
+        </el-form-item>
+        <el-form-item label="版本名称（manifest.json 里的「应用版本名称」）">
+          <el-input v-model="versionName" placeholder="例如 0.1.1" />
+        </el-form-item>
+        <el-form-item label="版本号（manifest.json 里的「应用版本号」，每次打包都要加 1）">
+          <el-input-number v-model="versionCode" :min="1" :step="1" />
+        </el-form-item>
+        <el-form-item label="更新说明">
+          <el-input v-model="notes" type="textarea" :rows="3" placeholder="员工在 App 里看到的升级提示" />
+        </el-form-item>
+      </el-form>
+      <el-progress v-if="progress >= 0" :percentage="progress" />
+      <template #footer>
+        <el-button @click="dialog = false">取消</el-button>
+        <el-button type="primary" :loading="progress >= 0" @click="submitUpload">上传</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -162,6 +295,13 @@ async function revoke(p: MobilePhone) {
 }
 .hint {
   margin-top: 4px;
+}
+.muted {
+  color: var(--ink-soft);
+}
+.drop {
+  padding: 18px 12px;
+  color: var(--ink-soft);
 }
 .unit {
   margin-left: 8px;

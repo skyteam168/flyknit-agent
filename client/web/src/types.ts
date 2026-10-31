@@ -1015,6 +1015,8 @@ export interface MobileInfo {
   /** 连着公司服务器 */
   online: boolean
   phones: MobilePhone[]
+  /** 后台发布过的最新 App：下载地址（扫码直接下载） */
+  app: { versionName: string; url: string } | null
 }
 
 /** 手机扫的二维码：服务器地址 + 一次性配对码 */

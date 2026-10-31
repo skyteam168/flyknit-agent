@@ -1700,7 +1700,7 @@ export function createMockHost(): HostTransport {
       }
       // 手机：生成二维码 5 秒后假装手机扫好了
       case 'mobile.get':
-        return { enabled: true, online: true, phones: mockPhones.map((x) => ({ ...x })) }
+        return { enabled: true, online: true, phones: mockPhones.map((x) => ({ ...x })), app: { versionName: '0.1.1', url: 'http://10.0.0.5:8000/api/v1/mobile/app/Xk2pQ9demo/FlyknitBuddy-0.1.1.apk' } }
       case 'mobile.pairCode':
         setTimeout(() => {
           if (!mockPhones.length) mockPhones.push({ id: 1, name: 'PDA-03', appVersion: '0.1.0', createdAt: new Date().toISOString(), lastSeen: new Date().toISOString(), connected: true })

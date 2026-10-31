@@ -56,13 +56,17 @@ async function showCode() {
 }
 
 /** 二维码 SVG：深色模式下也用白底黑码，扫描枪才认得出 */
-const svg = computed(() => {
-  if (!pair.value) return ''
+function qrSvg(text: string): string {
   const qr = qrcode(0, 'M')
-  qr.addData(pair.value.payload)
+  qr.addData(text)
   qr.make()
   return qr.createSvgTag({ cellSize: 5, margin: 3, scalable: true })
-})
+}
+const svg = computed(() => (pair.value ? qrSvg(pair.value.payload) : ''))
+
+/** 还没装 App：扫码下载 */
+const showDownload = ref(false)
+const downloadSvg = computed(() => (info.value?.app ? qrSvg(info.value.app.url) : ''))
 
 const left = computed(() => {
   if (!pair.value) return ''
@@ -128,6 +132,23 @@ onBeforeUnmount(stopWatching)
       </div>
     </template>
   </section>
+  <section v-if="info?.enabled && info.app" class="card">
+    <div class="row first">
+      <span class="label">
+        <strong>{{ t('ui.mobile.noApp') }}</strong>
+        <small>{{ t('ui.mobile.noAppHint', { v: info.app.versionName }) }}</small>
+      </span>
+      <button type="button" class="btn" @click="showDownload = !showDownload">{{ showDownload ? t('ui.mobile.hideDownload') : t('ui.mobile.download') }}</button>
+    </div>
+    <div v-if="showDownload" class="pair">
+      <div class="qr" v-html="downloadSvg" />
+      <div class="side">
+        <p class="scan">{{ t('ui.mobile.downloadScan') }}</p>
+        <p class="manual">{{ t('ui.mobile.downloadHint') }}</p>
+        <p class="manual"><code class="url">{{ info.app.url }}</code></p>
+      </div>
+    </div>
+  </section>
   <section v-if="info?.enabled" class="card">
     <h3>{{ t('ui.mobile.rulesTitle') }}</h3>
     <ul class="rules">
@@ -182,6 +203,9 @@ h2 {
   justify-content: space-between;
   padding: 12px 0;
   border-top: 1px solid var(--line);
+}
+.row.first {
+  border-top: none;
 }
 .label {
   display: flex;
@@ -274,6 +298,10 @@ dd {
 .code {
   font-size: var(--t-lg);
   letter-spacing: 0.12em;
+}
+.url {
+  overflow-wrap: anywhere;
+  font-size: var(--t-xs);
 }
 .side small {
   color: var(--ink-faint);

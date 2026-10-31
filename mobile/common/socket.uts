@@ -6,6 +6,7 @@
 
 import { Approval, Conv, Msg, applyMe, clearAuth, findTaskMsg, saveConversations, state } from './store.uts'
 import { request } from './api.uts'
+import { autoCheckUpdate } from './update.uts'
 
 let task : SocketTask | null = null
 let retryTimer = 0
@@ -44,6 +45,7 @@ export function connect() {
 		backoff = 2000
 		startPing()
 		void syncTasks()
+		autoCheckUpdate()
 	})
 	t.onMessage((res) => {
 		const data = res.data

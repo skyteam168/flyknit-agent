@@ -5,6 +5,7 @@ import type {
   DingTalkConfig,
   MobileConfig,
   MobilePhone,
+  MobileRelease,
   WeComConfig,
   Expert,
   ExpertDraft,
@@ -195,6 +196,18 @@ export const api = {
   saveMobile: (body: { enabled: boolean; allow_approval: boolean; approval_timeout_min: number }) => put<MobileConfig>('/mobile', body),
   mobilePhones: () => get<MobilePhone[]>('/mobile/phones'),
   revokeMobilePhone: (id: number) => del<{ ok: boolean }>(`/mobile/phones/${id}`),
+  mobileReleases: () => get<MobileRelease[]>('/mobile/releases'),
+  uploadMobileRelease: (file: File, versionName: string, versionCode: number, notes: string, onProgress?: (p: number) => void) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('version_name', versionName)
+    form.append('version_code', String(versionCode))
+    form.append('notes', notes)
+    return upload<MobileRelease>('/mobile/releases', form, onProgress)
+  },
+  updateMobileRelease: (id: number, body: Partial<{ published: boolean; notes: string }>) =>
+    patch<MobileRelease>(`/mobile/releases/${id}`, body),
+  deleteMobileRelease: (id: number) => del(`/mobile/releases/${id}`),
   asr: () => get<AsrConfig>('/asr'),
   setAsrHotwords: (hotwords: string[]) => put<{ shared_hotwords: string[] }>('/asr/hotwords', { hotwords }),
   probeAsr: (save: boolean) => post<AsrProbe>('/asr/probe', undefined, { save }),

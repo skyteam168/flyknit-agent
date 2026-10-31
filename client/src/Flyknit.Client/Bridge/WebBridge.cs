@@ -1350,13 +1350,17 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             {
                 if (!_host.Connected || !_host.Server.IsRegistered)
                 {
-                    return new { enabled = false, online = false, phones = Array.Empty<object>() };
+                    return new { enabled = false, online = false, phones = Array.Empty<object>(), app = (object?)null };
                 }
                 var state = await _host.Server.GetMobileAsync(CancellationToken.None);
                 return new
                 {
                     enabled = state.Enabled,
                     online = true,
+                    // 还没装 App 的手机扫这个下载（不用登录，链接里带随机串）
+                    app = state.App is { } app
+                        ? new { versionName = app.VersionName, url = _host.Server.ServerUrl + app.DownloadPath }
+                        : null,
                     phones = state.Phones.Select(m => new { id = m.Id, name = m.Name, appVersion = m.AppVersion, createdAt = m.CreatedAt, lastSeen = m.LastSeen, connected = m.Connected }).ToList(),
                 };
             }

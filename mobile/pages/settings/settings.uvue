@@ -49,6 +49,14 @@
 				</view>
 			</view>
 
+			<text class="section" :style="{ color: c.inkFaint }">版本</text>
+			<view class="card" :style="{ backgroundColor: c.cloth }">
+				<view class="row-btn" @click="manualUpdate">
+					<text class="key" :style="{ color: c.ink }">检查更新</text>
+					<text class="val" :style="{ color: c.inkFaint }">当前 {{ version }}</text>
+				</view>
+			</view>
+
 			<view class="card danger" :style="{ backgroundColor: c.cloth }" @click="unpair">
 				<text class="danger-text" :style="{ color: c.red }">解除绑定</text>
 			</view>
@@ -63,6 +71,7 @@
 	import { clearAuth, state } from '../../common/store.uts'
 	import { request } from '../../common/api.uts'
 	import { disconnect, notifyLocal } from '../../common/socket.uts'
+	import { checkUpdate } from '../../common/update.uts'
 
 	type ThemeItem = { id : string, label : string }
 	const THEMES = [
@@ -87,6 +96,10 @@
 
 	function pickTheme(id : string) {
 		setThemeMode(id)
+	}
+
+	function manualUpdate() {
+		void checkUpdate(true)
 	}
 
 	function testNotify() {

@@ -224,6 +224,15 @@ public sealed class MobileState
 {
     [JsonPropertyName("enabled")] public bool Enabled { get; set; }
     [JsonPropertyName("phones")] public List<MobilePhoneInfo> Phones { get; set; } = new();
+    /// <summary>后台发布过的最新 App；没有为 null。</summary>
+    [JsonPropertyName("app")] public MobileAppDownload? App { get; set; }
+}
+
+public sealed class MobileAppDownload
+{
+    [JsonPropertyName("version_name")] public string VersionName { get; set; } = "";
+    /// <summary>相对服务器地址的下载路径。</summary>
+    [JsonPropertyName("download_path")] public string DownloadPath { get; set; } = "";
 }
 
 public sealed class MobilePairCode

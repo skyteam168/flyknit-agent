@@ -208,3 +208,80 @@ def test_bad_tokens_cannot_open_the_socket(tc):
     with pytest.raises(WebSocketDisconnect):
         with tc.websocket_connect("/api/v1/mobile/ws?token=fkm_nope") as ws:
             ws.receive_json()
+
+
+# ---------------------------------------------------------------------
+# App 版本发布与升级
+# ---------------------------------------------------------------------
+
+def _apk(marker: str = "v1") -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(zipfile.ZipInfo("AndroidManifest.xml", date_time=(2026, 1, 1, 0, 0, 0)), marker)
+        z.writestr(zipfile.ZipInfo("classes.dex", date_time=(2026, 1, 1, 0, 0, 0)), b"dex")
+    return buf.getvalue()
+
+
+def _upload(tc, name: str, code: int, body: bytes | None = None, filename: str = "app.apk"):
+    return tc.post("/api/v1/admin/mobile/releases", headers=ADMIN,
+                   files={"file": (filename, body if body is not None else _apk(name), "application/vnd.android.package-archive")},
+                   data={"version_name": name, "version_code": str(code), "notes": f"{name} 更新"})
+
+
+def test_app_release_is_offered_after_publishing_and_downloads_by_link(tc):
+    pc = _pc(tc)
+    _enable(tc)
+    phone, _ = _pair(tc, pc)
+
+    r = _upload(tc, "0.1.1", 101)
+    assert r.status_code == 201, r.text
+    rel = r.json()
+    assert rel["published"] is False and rel["download_path"].endswith("/FlyknitBuddy-0.1.1.apk")
+
+    # 没发布：手机看不到、链接也下载不了、电脑上没有下载二维码
+    assert tc.get("/api/v1/mobile/update?version_code=100", headers=phone).json()["available"] is False
+    assert tc.get(rel["download_path"]).status_code == 404
+    assert tc.get("/api/v1/client/mobile", headers=pc).json()["app"] is None
+
+    assert tc.patch(f"/api/v1/admin/mobile/releases/{rel['id']}", headers=ADMIN, json={"published": True}).status_code == 200
+    up = tc.get("/api/v1/mobile/update?version_code=100", headers=phone).json()
+    assert up["available"] is True and up["version_code"] == 101 and up["notes"] == "0.1.1 更新"
+    assert tc.get("/api/v1/mobile/update?version_code=101", headers=phone).json()["available"] is False
+
+    # 下载不要登录（没装 App 的手机扫电脑上的码）
+    d = tc.get(up["download_path"])
+    assert d.status_code == 200 and d.content == _apk("0.1.1")
+    assert tc.get("/api/v1/client/mobile", headers=pc).json()["app"] == {"version_name": "0.1.1", "download_path": up["download_path"]}
+    # 链接里的随机串不对就没有
+    assert tc.get("/api/v1/mobile/app/nope/FlyknitBuddy-0.1.1.apk").status_code == 404
+
+    # 新版本：按 version_code 取最大的
+    newer = _upload(tc, "0.1.2", 102).json()
+    tc.patch(f"/api/v1/admin/mobile/releases/{newer['id']}", headers=ADMIN, json={"published": True})
+    assert tc.get("/api/v1/mobile/update?version_code=101", headers=phone).json()["version_name"] == "0.1.2"
+
+    # 关掉手机端：链接也失效
+    tc.put("/api/v1/admin/mobile", headers=ADMIN, json={"enabled": False})
+    assert tc.get(up["download_path"]).status_code == 404
+
+
+def test_app_uploads_are_checked(tc):
+    _pc(tc)
+    assert _upload(tc, "0.1.1", 101, filename="app.zip").status_code == 400
+    assert _upload(tc, "0.1.1", 101, body=b"not a zip").status_code == 400
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("readme.txt", "x")
+    assert _upload(tc, "0.1.1", 101, body=buf.getvalue()).status_code == 400  # 没有 AndroidManifest.xml
+    assert _upload(tc, "v1", 101).status_code == 400
+    assert _upload(tc, "0.1.1", 101).status_code == 201
+    assert _upload(tc, "0.1.1", 101).status_code == 409  # 同一个版本号
+    rel = tc.get("/api/v1/admin/mobile/releases", headers=ADMIN).json()[0]
+    assert tc.delete(f"/api/v1/admin/mobile/releases/{rel['id']}", headers=ADMIN).status_code == 204
+    assert tc.get("/api/v1/admin/mobile/releases", headers=ADMIN).json() == []

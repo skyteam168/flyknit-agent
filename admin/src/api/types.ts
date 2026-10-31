@@ -737,3 +737,20 @@ export interface MobilePhone {
   machine_name: string
   user_name: string
 }
+
+/** 手机 App 的一个版本（APK） */
+export interface MobileRelease {
+  id: number
+  version_name: string
+  version_code: number
+  notes: string
+  filename: string
+  size: number
+  sha256: string
+  published: boolean
+  uploaded_by: string
+  created_at: string
+  /** 相对服务器地址的下载路径（不需要登录，靠链接里的随机串） */
+  download_path: string
+  file_missing: boolean
+}

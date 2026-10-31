@@ -275,15 +275,28 @@ def _phone(m: MobileDevice) -> PhoneOut:
                     last_seen=m.last_seen, connected=hub.connected(m.id))
 
 
+class AppDownloadOut(BaseModel):
+    version_name: str
+    #: 相对服务器地址的下载路径（电脑上拼成二维码给还没装 App 的手机扫）
+    download_path: str
+
+
 class ClientMobileOut(BaseModel):
     enabled: bool
     phones: list[PhoneOut]
+    #: 后台发布过的最新 App；没有就是 null（员工找 IT 要安装包）
+    app: AppDownloadOut | None = None
 
 
 @client_router.get("", response_model=ClientMobileOut)
 async def my_phones(device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
+    from .mobile_releases import download_path, latest
+
     rows = (await session.scalars(select(MobileDevice).where(MobileDevice.device_id == device.id).order_by(MobileDevice.id))).all()
-    return ClientMobileOut(enabled=bool((await get_config(session))["enabled"]), phones=[_phone(m) for m in rows])
+    enabled = bool((await get_config(session))["enabled"])
+    release = await latest(session) if enabled else None
+    app = AppDownloadOut(version_name=release.version_name, download_path=download_path(release)) if release else None
+    return ClientMobileOut(enabled=enabled, phones=[_phone(m) for m in rows], app=app)
 
 
 @client_router.post("/pair-code", response_model=PairCodeOut)
