@@ -14,7 +14,7 @@ const form = reactive({ enabled: false, client_id: '', client_secret: '', robot_
 const wc = ref<WeComConfig | null>(null)
 const wcForm = reactive({ enabled: false, bot_id: '', secret: '' })
 const tab = ref<'dingtalk' | 'wecom'>('dingtalk')
-const CHANNEL_LABELS: Record<string, string> = { dingtalk: '钉钉', wecom: '企业微信' }
+const CHANNEL_LABELS: Record<string, string> = { dingtalk: '钉钉', wecom: '企业微信', mobile: '手机' }
 
 async function load() {
   loading.value = true

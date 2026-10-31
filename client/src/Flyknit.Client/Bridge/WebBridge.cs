@@ -1326,7 +1326,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     dingtalk = state.DingTalk,
                     wecom = state.WeCom,
                     online = true,
-                    bindings = state.Bindings.Select(b => new { id = b.Id, channel = b.Channel, name = b.ExternalName, createdAt = b.CreatedAt, lastUsed = b.LastUsed }).ToList(),
+                    // 手机的绑定在「设置 → 手机」里管理
+                    bindings = state.Bindings.Where(b => b.Channel != "mobile")
+                        .Select(b => new { id = b.Id, channel = b.Channel, name = b.ExternalName, createdAt = b.CreatedAt, lastUsed = b.LastUsed }).ToList(),
                 };
             }
 
@@ -1340,6 +1342,37 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "channels.unbind":
                 await _host.Server.RemoveChannelBindingAsync(Int("id") ?? 0, CancellationToken.None);
+                _host.NotifyChannelsChanged();
+                return null;
+
+            // ---------- 手机 App：扫码绑定 ----------
+            case "mobile.get":
+            {
+                if (!_host.Connected || !_host.Server.IsRegistered)
+                {
+                    return new { enabled = false, online = false, phones = Array.Empty<object>() };
+                }
+                var state = await _host.Server.GetMobileAsync(CancellationToken.None);
+                return new
+                {
+                    enabled = state.Enabled,
+                    online = true,
+                    phones = state.Phones.Select(m => new { id = m.Id, name = m.Name, appVersion = m.AppVersion, createdAt = m.CreatedAt, lastSeen = m.LastSeen, connected = m.Connected }).ToList(),
+                };
+            }
+
+            case "mobile.pairCode":
+            {
+                var code = await _host.Server.NewMobilePairCodeAsync(CancellationToken.None);
+                // 手机扫完马上就能让电脑办事：中继先开始等，不用等 5 分钟一轮的状态检查
+                _host.NotifyChannelsChanged(expectBinding: true);
+                // 二维码内容：服务器地址 + 配对码。手机和电脑连同一个服务器，扫完直接配对
+                var payload = $"flyknit://pair?s={Uri.EscapeDataString(_host.Server.ServerUrl)}&c={code.Code}";
+                return new { code = code.Code, expiresAt = code.ExpiresAt, payload, server = _host.Server.ServerUrl };
+            }
+
+            case "mobile.unpair":
+                await _host.Server.RemoveMobilePhoneAsync(Int("id") ?? 0, CancellationToken.None);
                 _host.NotifyChannelsChanged();
                 return null;
 

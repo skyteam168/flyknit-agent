@@ -267,6 +267,7 @@ export function createMockHost(): HostTransport {
   ]
 
   const mockChannelBindings: { id: number; channel: string; name: string; createdAt: string; lastUsed: string | null }[] = []
+  const mockPhones: { id: number; name: string; appVersion: string; createdAt: string; lastSeen: string | null; connected: boolean }[] = []
   const mockPreviews: Record<string, unknown> = {
     'D:\\工作区\\日报\\FlyknitBuddy_产品介绍页.html': {
       kind: 'html',
@@ -1695,6 +1696,19 @@ export function createMockHost(): HostTransport {
       case 'channels.unbind': {
         const i = mockChannelBindings.findIndex((b) => b.id === p.id)
         if (i >= 0) mockChannelBindings.splice(i, 1)
+        return null
+      }
+      // 手机：生成二维码 5 秒后假装手机扫好了
+      case 'mobile.get':
+        return { enabled: true, online: true, phones: mockPhones.map((x) => ({ ...x })) }
+      case 'mobile.pairCode':
+        setTimeout(() => {
+          if (!mockPhones.length) mockPhones.push({ id: 1, name: 'PDA-03', appVersion: '0.1.0', createdAt: new Date().toISOString(), lastSeen: new Date().toISOString(), connected: true })
+        }, 5000)
+        return { code: 'K7P3M9QX', expiresAt: new Date(Date.now() + 300_000).toISOString(), payload: 'flyknit://pair?s=http%3A%2F%2F10.0.0.5%3A8000&c=K7P3M9QX', server: 'http://10.0.0.5:8000' }
+      case 'mobile.unpair': {
+        const i = mockPhones.findIndex((b) => b.id === p.id)
+        if (i >= 0) mockPhones.splice(i, 1)
         return null
       }
       case 'files.saveBlob': {

@@ -9,6 +9,8 @@
  */
 import type {
   ChannelsInfo,
+  MobileInfo,
+  MobilePairCode,
   NetworkReport,
   UpdateCheckResult,
   AppInfo,
@@ -350,6 +352,9 @@ class Bridge {
   channels = () => this.call<ChannelsInfo>('channels.get')
   channelBindCode = () => this.call<{ code: string; expiresAt: string }>('channels.bindCode')
   channelUnbind = (id: number) => this.call<void>('channels.unbind', { id })
+  mobile = () => this.call<MobileInfo>('mobile.get')
+  mobilePairCode = () => this.call<MobilePairCode>('mobile.pairCode')
+  mobileUnpair = (id: number) => this.call<void>('mobile.unpair', { id })
   libraryReveal = (id: string) => this.call<{ ok: boolean; message: string }>('library.reveal', { id })
   libraryPreview = (id: string) => this.call<PreviewDoc>('library.preview', { id }, undefined, 40_000)
   libraryAttachments = (ids: string[]) => this.call<AttachmentRef[]>('library.attachments', { ids })

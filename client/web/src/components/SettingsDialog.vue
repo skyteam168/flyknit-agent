@@ -15,6 +15,7 @@ import {
   Lock,
   LogOut,
   MessagesSquare,
+  Smartphone,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -35,12 +36,13 @@ import PersonalizePanel from './PersonalizePanel.vue'
 import SecurityPanel from './SecurityPanel.vue'
 import ShortcutsPanel from './ShortcutsPanel.vue'
 import ChannelsPanel from './ChannelsPanel.vue'
+import MobilePanel from './MobilePanel.vue'
 
 const { t } = useI18n()
 const themes: Theme[] = ['system', 'light', 'dark']
 
 // ---------- 左侧菜单 ----------
-type Page = 'general' | 'notify' | 'shortcuts' | 'network' | 'personalize' | 'memory' | 'dingtalk' | 'data' | 'security' | 'about'
+type Page = 'general' | 'notify' | 'shortcuts' | 'network' | 'personalize' | 'memory' | 'dingtalk' | 'mobile' | 'data' | 'security' | 'about'
 const nav: { group: string; pages: { id: Page; icon: Component; label: string }[] }[] = [
   {
     group: 'settings.nav.groupSettings',
@@ -57,6 +59,7 @@ const nav: { group: string; pages: { id: Page; icon: Component; label: string }[
       { id: 'personalize', icon: Sparkles, label: 'settings.nav.personalize' },
       { id: 'memory', icon: Lightbulb, label: 'settings.nav.memory' },
       { id: 'dingtalk', icon: MessagesSquare, label: 'settings.nav.dingtalk' },
+      { id: 'mobile', icon: Smartphone, label: 'settings.nav.mobile' },
     ],
   },
   {
@@ -553,6 +556,7 @@ onMounted(async () => {
 
         <!-- 钉钉 -->
         <ChannelsPanel v-else-if="page === 'dingtalk'" />
+        <MobilePanel v-else-if="page === 'mobile'" />
 
         <!-- 数据管理 -->
         <template v-else-if="page === 'data'">

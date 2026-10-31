@@ -997,3 +997,30 @@ export interface ChannelsInfo {
   online: boolean
   bindings: ChannelBindingInfo[]
 }
+
+/** 绑定在这台电脑上的一部手机（FlyknitBuddy 安卓 App） */
+export interface MobilePhone {
+  id: number
+  name: string
+  appVersion: string
+  createdAt: string
+  lastSeen: string | null
+  /** App 现在连着服务器 */
+  connected: boolean
+}
+
+export interface MobileInfo {
+  /** 管理员开了手机端 */
+  enabled: boolean
+  /** 连着公司服务器 */
+  online: boolean
+  phones: MobilePhone[]
+}
+
+/** 手机扫的二维码：服务器地址 + 一次性配对码 */
+export interface MobilePairCode {
+  code: string
+  expiresAt: string
+  payload: string
+  server: string
+}
