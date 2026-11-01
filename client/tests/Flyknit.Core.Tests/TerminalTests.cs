@@ -35,6 +35,15 @@ public sealed class TerminalTests : IDisposable
         }),
     };
 
+    // 命令在 Windows 上是 PowerShell（CI 就在 Windows 上跑），其他系统是 /bin/sh
+    private static readonly bool Win = OperatingSystem.IsWindows();
+    private static readonly string ExitThreeWithStderr = Win
+        ? "echo one; [Console]::Error.WriteLine('two'); exit 3"
+        : "echo one; echo two 1>&2; exit 3";
+    private static readonly string TickForever = Win
+        ? "echo ready; while ($true) { echo tick; Start-Sleep -Milliseconds 200 }"
+        : "echo ready; while true; do echo tick; sleep 0.2; done";
+
     private static JsonElement Args(object o) => JsonDocument.Parse(JsonSerializer.Serialize(o)).RootElement.Clone();
 
     [Fact]
@@ -47,7 +56,7 @@ public sealed class TerminalTests : IDisposable
         _hub.Output += (_, text) => { lock (chunks) chunks.Add(text); };
         _hub.Ended += r => { lock (ended) ended.Add(r); };
 
-        var result = await new RunShellTool().ExecuteAsync(Args(new { command = "echo one; echo two 1>&2; exit 3" }), Ctx(), default);
+        var result = await new RunShellTool().ExecuteAsync(Args(new { command = ExitThreeWithStderr }), Ctx(), default);
 
         Assert.False(result.Ok);
         Assert.Contains("退出码：3", result.Output);
@@ -59,7 +68,7 @@ public sealed class TerminalTests : IDisposable
         Assert.Equal(3, run.ExitCode);
         Assert.Contains("one", run.Output);
         Assert.Contains("two", run.Output);
-        Assert.Equal(new[] { "echo one; echo two 1>&2; exit 3" }, started);
+        Assert.Equal(new[] { ExitThreeWithStderr }, started);
         Assert.Contains(chunks, c => c.Contains("one"));
         Assert.Single(ended);
     }
@@ -82,7 +91,7 @@ public sealed class TerminalTests : IDisposable
     {
         var ctx = Ctx();
         var start = await new RunShellTool().ExecuteAsync(
-            Args(new { command = "echo ready; while true; do echo tick; sleep 0.2; done", background = true, wait_seconds = 1 }), ctx, default);
+            Args(new { command = TickForever, background = true, wait_seconds = 1 }), ctx, default);
 
         Assert.True(start.Ok, start.Output);
         Assert.Contains("t", start.Output);

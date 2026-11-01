@@ -45,6 +45,9 @@ public sealed class TerminalRun
 
     internal Process? Process { get; set; }
 
+    /// <summary>已经要求停掉：进程随后退出时记成「已停止」，而不是被杀掉的退出码。</summary>
+    internal volatile bool StopRequested;
+
     /// <summary>进程结束（或被停掉）时完成。</summary>
     internal TaskCompletionSource Exited { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -108,19 +111,21 @@ public sealed class TerminalRun
         }
     }
 
-    internal void MarkExited(int? exitCode, bool stopped)
+    /// <summary>记下结束。已经记过返回 false（停止和进程退出可能同时到，只算一次）。</summary>
+    internal bool MarkExited(int? exitCode, bool stopped)
     {
         lock (_gate)
         {
             if (EndedAt is not null)
             {
-                return;
+                return false;
             }
             ExitCode = stopped ? null : exitCode;
             Stopped = stopped;
             EndedAt = DateTimeOffset.Now;
         }
         Exited.TrySetResult();
+        return true;
     }
 }
 
@@ -234,8 +239,10 @@ public sealed class TerminalHub : IDisposable
         }
         catch (Exception)
         {
-            run.MarkExited(-1, stopped: false);
-            Raise(() => Ended?.Invoke(run));
+            if (run.MarkExited(-1, stopped: false))
+            {
+                Raise(() => Ended?.Invoke(run));
+            }
             process.Dispose();
             throw;
         }
@@ -269,6 +276,8 @@ public sealed class TerminalHub : IDisposable
         {
             return false;
         }
+        // 先标记再杀：杀掉后进程退出的回调可能先到，它看到这个标记就记成「已停止」
+        run.StopRequested = true;
         try
         {
             run.Process?.Kill(entireProcessTree: true);
@@ -277,8 +286,10 @@ public sealed class TerminalHub : IDisposable
         {
             // 已经退出了，或者没权限：照样标成停掉
         }
-        run.MarkExited(null, stopped: true);
-        Raise(() => Ended?.Invoke(run));
+        if (run.MarkExited(null, stopped: true))
+        {
+            Raise(() => Ended?.Invoke(run));
+        }
         return true;
     }
 
@@ -315,9 +326,8 @@ public sealed class TerminalHub : IDisposable
         catch (Exception)
         {
         }
-        if (run.Running)
+        if (run.MarkExited(code, stopped: run.StopRequested))
         {
-            run.MarkExited(code, stopped: false);
             Raise(() => Ended?.Invoke(run));
         }
         process.Dispose();
