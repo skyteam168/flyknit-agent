@@ -228,6 +228,13 @@ public sealed class ToolContext
     /// <summary>AI 浏览器（看得见的网页窗口）。为空表示没开启浏览器操作。</summary>
     public Browser.IBrowserDriver? Browser { get; init; }
 
+    /// <summary>终端：命令的输出实时推给界面，后台命令也记在这里。为空（单测、专家子任务）时每条命令单独跑。</summary>
+    public Terminal.TerminalHub? Terminal { get; init; }
+
+    /// <summary>能不能在后台启动一直运行的命令（IT 在安全中心打开「后台命令」）。默认不能。</summary>
+    public bool BackgroundCommands =>
+        Security?.On(Flyknit.Core.Security.SecuritySettings.BackgroundCommands, fallback: false) ?? false;
+
     /// <summary>这一轮已经建议了几件新任务（suggest_task 限制次数用）。</summary>
     public int SuggestionsMade { get; set; }
 

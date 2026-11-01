@@ -3,7 +3,7 @@
  * 模拟会话存储、流式回复、工具调用与确认流程，便于在没有 Windows 的情况下开发界面。
  */
 import type { HostTransport } from './bridge'
-import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, SubtaskDto, UiMessage } from './types'
+import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, SubtaskDto, TerminalRun, UiMessage } from './types'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -56,6 +56,8 @@ export function createMockHost(): HostTransport {
   ]
   const conversations = new Map<string, Conversation>()
   const messages = new Map<string, UiMessage[]>()
+  /** 开发预览：每个对话的后台命令（终端标签里能停） */
+  const terminalRuns = new Map<string, TerminalRun[]>()
   const confirmWaiters = new Map<string, (choice: string) => void>()
   const mockCompacted = new Set<string>()
   const stopped = new Set<string>()
@@ -704,6 +706,21 @@ export function createMockHost(): HostTransport {
       emit({ type: 'browser.state', active: true, url: 'http://erp.company.local/report/daily', title: '生产日报 - ERP', action: '打开了网页' })
       await sleep(400)
       emit({ type: 'browser.state', active: true, url: 'http://erp.company.local/report/daily', title: '生产日报 - ERP', action: '在 [3] 填写' })
+    }
+    if (/调试|终端|debug|terminal/i.test(text)) {
+      // 开发预览：AI 在后台启动开发服务器调试，右侧出现「终端」标签，输出一段段推过来
+      const runId = `t${uid().slice(0, 4)}`
+      const base = { id: runId, conversationId: id, command: 'npm run dev', shell: 'powershell', cwd: 'D:\\项目\\报表系统', background: true, startedAt: now(), running: true, stopped: false }
+      terminalRuns.set(id, [...(terminalRuns.get(id) ?? []), base])
+      emit({ type: 'terminal.started', run: base })
+      for (const line of ['> report@1.0.0 dev', '> vite', '', '  VITE v5.4.0  ready in 412 ms', '  ➜  Local:   http://localhost:5173/', '[vite] page reload src/App.vue']) {
+        await sleep(200)
+        emit({ type: 'terminal.output', conversationId: id, runId, text: line + '\n' })
+      }
+      const once = { ...base, id: `${runId}b`, command: 'npm test', background: false, startedAt: now() }
+      emit({ type: 'terminal.started', run: once })
+      emit({ type: 'terminal.output', conversationId: id, runId: once.id, text: ' ✓ src/report.test.ts (6 tests) 18ms\n Test Files  1 passed (1)\n' })
+      emit({ type: 'terminal.ended', run: { ...once, running: false, exitCode: 0, endedAt: now() } })
     }
     if (/给建议|suggest/i.test(text)) {
       // 开发预览：AI 做事时顺带发现了范围外的问题，给一张「建议新任务」卡片
@@ -1717,6 +1734,17 @@ export function createMockHost(): HostTransport {
         return
       }
       case 'browser.show':
+        return
+      case 'terminal.list':
+        return []
+      case 'terminal.stop': {
+        const run = terminalRuns.get(p.conversationId)?.find((r) => r.id === p.runId)
+        if (!run) return false
+        emit({ type: 'terminal.ended', run: { ...run, running: false, stopped: true, endedAt: now() } })
+        terminalRuns.set(p.conversationId, (terminalRuns.get(p.conversationId) ?? []).filter((r) => r.id !== p.runId))
+        return true
+      }
+      case 'terminal.clear':
         return
       case 'sidechat.stop':
         return

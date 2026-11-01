@@ -695,6 +695,11 @@ public sealed partial class AgentHost : IDisposable
             {
                 Log.Info($"对话 {id}：AI 浏览器{(browser is null ? "未开启（安全中心「浏览器操作」关着，或界面未就绪）" : "已开启")}");
             }
+            // 后台命令：IT 打开了「后台命令」、这一轮能执行命令时才有（提示词和工具要一致）
+            var backgroundCommands = conv.Mode == ConversationMode.Agent
+                && Security.On(Flyknit.Core.Security.SecuritySettings.BackgroundCommands, fallback: false)
+                && Tools.Get("run_shell") is { } shellTool
+                && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, shellTool));
             var prompt = promptBuilder.Build(new PromptContext
             {
                 Tone = persona.Tone,
@@ -712,6 +717,7 @@ public sealed partial class AgentHost : IDisposable
                 McpServers = mcpServers,
                 Expert = expert,
                 BrowserAvailable = browser is not null && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, Flyknit.Core.Browser.BrowserToolSet.All[0])),
+                BackgroundCommands = backgroundCommands,
             });
             // 派遣专家：开关开着、这一轮有候选专家时，主助手才看得到名单和 ask_expert
             var delegation = DelegationFor(conv, expert, DelegationQuery(stored, text), semantic);
@@ -797,6 +803,7 @@ public sealed partial class AgentHost : IDisposable
             Backup = Security.On(Flyknit.Core.Security.SecuritySettings.AutoBackup) ? _backup : null,
             RecordChange = ChangeRecorder(id, user.Id),
             Browser = browser,
+            Terminal = conv.Mode == ConversationMode.Agent ? Terminal : null,
             Security = Security,
             };
 
@@ -833,6 +840,11 @@ public sealed partial class AgentHost : IDisposable
                         extra.Add(tool);
                     }
                 }
+            }
+            if (backgroundCommands)
+            {
+                extra.AddRange(Flyknit.Core.Terminal.TerminalToolSet.All
+                    .Where(t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t)));
             }
             if (extra.Count > 0)
             {
@@ -1432,6 +1444,7 @@ public sealed partial class AgentHost : IDisposable
         _keepAwakeTimer?.Dispose();
         _keepAwake.Dispose();
         Scheduler.Dispose();
+        DisposeTerminal();
         Skills.Dispose();
         Mcp.Dispose();
         Audit.FlushAsync().Wait(TimeSpan.FromSeconds(3));

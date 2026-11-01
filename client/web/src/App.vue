@@ -38,6 +38,7 @@ import {
   currentExpert,
   currentState,
   expertWithdrawn,
+  hasRunningBackground,
   init,
   newConversation,
   openConversation,
@@ -99,7 +100,11 @@ const showRight = computed(
     state.view === 'chat' &&
     !!current.value &&
     !narrow.value &&
-    (!!state.preview || state.sessionPanel || state.browser.active || (showPlan.value && !state.rightClosed)),
+    (!!state.preview ||
+      state.sessionPanel ||
+      // AI 浏览器在用、有后台命令在跑时自动显示（员工点了关闭就不再自动弹）
+      ((state.browser.active || hasRunningBackground(state.currentId)) && !state.rightClosed) ||
+      (showPlan.value && !state.rightClosed)),
 )
 /** 有当前对话时显示对话视图，否则显示新任务首页 */
 const inConversation = computed(() => current.value !== null)

@@ -1646,6 +1646,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "conversation.delete":
                 _host.Stop(Str("id"));
+                _host.StopTerminalFor(Str("id"));
                 await Task.Run(() => _host.Store.Delete(Str("id")));
                 return null;
 
@@ -1739,6 +1740,17 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "browser.show":
                 _host.ShowBrowser();
+                return null;
+
+            // ---------- 终端：AI 执行的命令和输出，后台命令可以停 ----------
+            case "terminal.list":
+                return _host.TerminalRuns(Str("conversationId"));
+
+            case "terminal.stop":
+                return _host.StopTerminalRun(Str("conversationId"), Str("runId"));
+
+            case "terminal.clear":
+                _host.ClearTerminal(Str("conversationId"));
                 return null;
 
             // ---------- 侧聊：顺便问一句，读任务对话、不写回 ----------
