@@ -8,6 +8,7 @@ import { changesForAnswer, current, currentState, editAndResend, mcpToolLabel, o
 import type { OutputFile, UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 import ExpertTaskCard from './ExpertTaskCard.vue'
+import SuggestionCard from './SuggestionCard.vue'
 import { AskExpertTool } from '../subtasks'
 import OutputFiles from './OutputFiles.vue'
 import { snippet } from '../pasted'
@@ -105,6 +106,8 @@ interface Fold {
   labels: string[]
   seconds: string | null
   outputs: OutputFile[]
+  /** 收起来的过程里 AI 建议的新任务：卡片照样露在外面，不能被折叠藏掉 */
+  suggestions: { id: string; arguments: string }[]
 }
 
 const expanded = ref(new Set<string>())
@@ -138,7 +141,7 @@ const folds = computed(() => {
     if (tools.some((x) => x && (x.state === 'waiting' || x.state === 'running'))) continue
     const labels: string[] = []
     for (const c of calls) {
-      if (c.name === 'update_plan' || c.name === 'memory_write') continue
+      if (c.name === 'update_plan' || c.name === 'memory_write' || c.name === 'suggest_task') continue
       const l = c.name === AskExpertTool ? t('ui.fold.expert') : toolLabel(c.name)
       if (!labels.includes(l)) labels.push(l)
     }
@@ -150,6 +153,7 @@ const folds = computed(() => {
       labels,
       seconds: answer.trace ? traceSeconds(answer.trace) : null,
       outputs: process.flatMap((m) => m.outputs ?? []),
+      suggestions: calls.filter((c) => c.name === 'suggest_task').map((c) => ({ id: c.id, arguments: c.arguments })),
     }
     for (const m of process) byId.set(m.id, fold)
   }
@@ -383,6 +387,9 @@ const isImage = (mime: string) => mime.startsWith('image/')
               <ChevronRight :size="14" class="chev" />
             </button>
             <OutputFiles v-if="f.key === m.id && !expanded.has(f.key) && f.outputs.length" :files="f.outputs" />
+            <template v-if="f.key === m.id && !expanded.has(f.key)">
+              <SuggestionCard v-for="sg in f.suggestions" :key="sg.id" :call-id="sg.id" :args="sg.arguments" :conversation-id="current!.id" />
+            </template>
           </template>
         </template>
         <!-- 助手消息 -->
@@ -394,8 +401,10 @@ const isImage = (mime: string) => mime.startsWith('image/')
           <div v-if="stripToolMarkup(m.content).trim()" class="md" v-html="renderMarkdown(stripToolMarkup(m.content))" />
           <template v-for="c in m.toolCalls ?? []" :key="c.id">
             <!-- 派给专家的子任务：专门的卡片，显示专家在做什么、交回了什么 -->
+            <!-- AI 建议的新任务：卡片，员工点了才开始 -->
+            <SuggestionCard v-if="c.name === 'suggest_task'" :call-id="c.id" :args="c.arguments" :conversation-id="current!.id" />
             <ExpertTaskCard
-              v-if="c.name === AskExpertTool"
+              v-else-if="c.name === AskExpertTool"
               :tool="s.tools[c.id] ?? { callId: c.id, name: c.name, summary: '', args: c.arguments, risk: 'auto', state: 'done' }"
               :conversation-id="current!.id"
             />

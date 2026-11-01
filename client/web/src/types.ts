@@ -911,6 +911,7 @@ export type HostEvent =
   | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
   | { type: 'chat.paused'; conversationId: string; paused: boolean }
   | { type: 'runs.changed' }
+  | { type: 'browser.state'; active: boolean; url: string; title: string; action?: string; shot?: string }
   | { type: 'sidechat.delta'; requestId: string; text: string }
   | { type: 'sidechat.done'; requestId: string; content?: string; stopped?: boolean }
   | { type: 'sidechat.error'; requestId: string; message: string }

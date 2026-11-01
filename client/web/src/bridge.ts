@@ -318,6 +318,8 @@ class Bridge {
   /** 运行中又发一句。返回 false：已经不在运行了，照常发送 */
   interject = (conversationId: string, text: string, mode: InterjectMode, messageId: string) =>
     this.call<boolean>('chat.interject', { conversationId, text, mode, messageId })
+  /** 把 AI 浏览器窗口叫到前面 */
+  showBrowser = () => this.call<void>('browser.show')
   /** 侧聊：顺便问一句，读任务对话、不写回。答案通过 sidechat.delta / done / error 事件推回来 */
   askSide = (conversationId: string, requestId: string, question: string, history: { role: string; content: string }[]) =>
     this.call<void>('sidechat.ask', { conversationId, requestId, question, history })

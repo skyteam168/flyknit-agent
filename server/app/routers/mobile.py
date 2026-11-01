@@ -507,7 +507,12 @@ async def get_web_search(session: AsyncSession = Depends(get_session)):
 
 
 @admin_router.put("/web-search", response_model=WebSearchOut)
-async def put_web_search(data: WebSearchIn, session: AsyncSession = Depends(get_session)):
+async def put_web_search(
+    data: WebSearchIn,
+    # 密钥是公司付费账号的凭据：和手机端总开关同一档权限，只有超级管理员能改
+    _owner: AdminUser | None = Depends(require_owner),
+    session: AsyncSession = Depends(get_session),
+):
     try:
         cfg = await web_search.save_config(
             session,

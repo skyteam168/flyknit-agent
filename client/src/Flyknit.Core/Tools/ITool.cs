@@ -225,6 +225,9 @@ public sealed class ToolContext
             Policy?.Config.BatchConfirmThreshold ?? 20)
         ?? Policy?.Config.BatchConfirmThreshold ?? 20;
 
+    /// <summary>这一轮已经建议了几件新任务（suggest_task 限制次数用）。</summary>
+    public int SuggestionsMade { get; set; }
+
     /// <summary>update_plan 工具写入的计划，Agent 循环会把变化通知界面。</summary>
     public List<PlanItem> Plan { get; } = new();
 
