@@ -35,16 +35,23 @@ const groups = [
   { id: 'sandbox', keys: ['sandbox', 'network_allowlist', 'system_tools'] },
   { id: 'data', keys: ['delete_protection', 'auto_backup', 'backup_quota_mb', 'batch_delete_threshold'] },
   { id: 'learning', keys: ['learn_preferences', 'learn_facts', 'learn_experience', 'learn_episodes', 'learn_skills'] },
-  { id: 'quality', keys: ['plan_guidance', 'verify_outputs'] },
+  { id: 'quality', keys: ['plan_guidance', 'verify_outputs', 'long_tasks', 'browser_tools'] },
   { id: 'personal', keys: ['persona_playful', 'persona_custom', 'keep_awake', 'keep_screen_on', 'screenshot_ask'] },
 ]
 
 const byKey = computed(() => Object.fromEntries(items.value.map((i) => [i.key, i])))
-const grouped = computed(() =>
-  groups
+/**
+ * 按上面的分组排；服务端以后新加的、这里还没归组的开关放进「其他」，照样显示——
+ * 不然 IT 在后台打开了，员工在这里却看不到（长任务模式、浏览器操作就出过这个问题）。
+ */
+const grouped = computed(() => {
+  // 通知、提示音在「通知」设置页里管，这里不重复
+  const listed = new Set([...groups.flatMap((g) => g.keys), 'notifications', 'notification_sound'])
+  const rest = items.value.filter((i) => !listed.has(i.key))
+  return [...groups, { id: 'other', keys: rest.map((i) => i.key) }]
     .map((g) => ({ ...g, items: g.keys.map((k) => byKey.value[k]).filter(Boolean) as SecurityItem[] }))
-    .filter((g) => g.items.length > 0),
-)
+    .filter((g) => g.items.length > 0)
+})
 
 /**
  * 每一项下面那行小字。锁住的项也要把这项是干什么的讲清楚——只写「由 IT 配置」
