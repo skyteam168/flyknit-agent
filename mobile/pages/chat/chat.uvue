@@ -62,7 +62,12 @@
 							<text class="task-title" :style="{ color: c.inkSoft }">在 {{ machineName }} 上执行</text>
 							<text class="chip" :style="{ backgroundColor: taskChipBg(m.taskStatus), color: taskChipInk(m.taskStatus) }">{{ taskLabel(m.taskStatus) }}</text>
 						</view>
-						<view v-for="(st, sti) in lastSteps(m.steps)" :key="sti" class="step">
+						<!-- 办完了：过程收成一行，点开看每一步 -->
+						<view v-if="taskFolded(m)" class="fold" @click="toggleSteps(m.id)">
+							<text class="fold-text" :style="{ color: c.inkFaint }">{{ stepsSummary(m) }}</text>
+							<text class="fold-chev" :style="{ color: c.inkFaint }">{{ openSteps.includes(m.id) ? '收起' : '展开' }}</text>
+						</view>
+						<view v-for="(st, sti) in visibleSteps(m)" :key="sti" class="step">
 							<view class="step-dot" :style="{ backgroundColor: c.lineStrong }"></view>
 							<text class="step-text" :style="{ color: c.inkSoft }" :lines="2">{{ st }}</text>
 						</view>
@@ -667,6 +672,39 @@
 		return steps.length <= 6 ? steps : steps.slice(steps.length - 6)
 	}
 
+	/** 展开了过程的任务卡片（消息 ID） */
+	const openSteps = ref([] as Array<string>)
+
+	/** 办完了（成功、失败、超时）且有过程：收成一行 */
+	function taskFolded(m : Msg) : boolean {
+		return m.steps.length > 0 && m.taskStatus != 'pending' && m.taskStatus != 'running' && m.taskStatus != 'sending'
+	}
+
+	function visibleSteps(m : Msg) : Array<string> {
+		if (!taskFolded(m)) {
+			return lastSteps(m.steps)
+		}
+		return openSteps.value.includes(m.id) ? m.steps : ([] as Array<string>)
+	}
+
+	function toggleSteps(id : string) {
+		const i = openSteps.value.indexOf(id)
+		if (i >= 0) {
+			openSteps.value.splice(i, 1)
+		} else {
+			openSteps.value.push(id)
+		}
+	}
+
+	function stepsSummary(m : Msg) : string {
+		const bad = m.steps.filter((x : string) : boolean => x.startsWith('已拒绝：')).length
+		let text = '电脑上执行了 ' + m.steps.length.toString() + ' 步'
+		if (bad > 0) {
+			text += '（' + bad.toString() + ' 步被拒绝）'
+		}
+		return text
+	}
+
 	// ---------- 审批 ----------
 
 	async function answer(approve : boolean) {
@@ -969,6 +1007,20 @@
 		font-size: 12px;
 		padding: 2px 8px;
 		border-radius: 10px;
+	}
+	.fold {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		padding: 6px 0 2px 0;
+	}
+	.fold-text {
+		flex: 1;
+		font-size: 13px;
+	}
+	.fold-chev {
+		font-size: 13px;
+		margin-left: 12px;
 	}
 	.step {
 		flex-direction: row;

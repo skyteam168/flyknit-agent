@@ -1015,6 +1015,14 @@ const zh = {
       rule2: '需要你确认的操作（删除文件、安装软件等）不会远程执行，结果里会列出来，回到电脑上再做。',
       rule3: '远程发来的任务会出现在左侧「钉钉 · 名字」或「企业微信 · 名字」对话里，可以接着在电脑上问。',
     },
+    fold: {
+      summary: '已完成 {n} 步：{names}',
+      sep: '、',
+      more: ' 等',
+      expert: '请教专家',
+      problems: '{n} 步没成功',
+      seconds: '用时 {s} 秒',
+    },
     interject: {
       placeholder: 'AI 正在处理…可以接着说，回车插话（长按发送有更多选项）',
       sendHint: '插话：AI 下一步就看到。长按或右键：打断并优先 / 排到本轮之后',
@@ -2282,6 +2290,14 @@ const vi: Messages = {
       rule2: 'Thao tác cần bạn xác nhận (xóa tệp, cài phần mềm…) sẽ không chạy từ xa, kết quả sẽ liệt kê để bạn làm trên máy.',
       rule3: 'Việc gửi từ xa nằm trong cuộc trò chuyện "钉钉 · tên" hoặc "企业微信 · tên" ở thanh bên, có thể hỏi tiếp trên máy.',
     },
+    fold: {
+      summary: 'Đã xong {n} bước: {names}',
+      sep: ', ',
+      more: '…',
+      expert: 'Hỏi chuyên gia',
+      problems: '{n} bước không thành công',
+      seconds: '{s} giây',
+    },
     interject: {
       placeholder: 'AI đang xử lý… có thể nói thêm, Enter để chen ngang (nhấn giữ nút gửi để xem thêm)',
       sendHint: 'Chen ngang: AI sẽ thấy ở bước tiếp theo. Nhấn giữ hoặc chuột phải: dừng và ưu tiên / xếp sau lượt này',
@@ -3546,6 +3562,14 @@ const en: Messages = {
       rule1: "Direct messages only; {'@'}-mentioning the bot in a group asks you to message it directly.",
       rule2: 'Actions that need your approval (deleting files, installing software…) are not run remotely; the reply lists them so you can do them at the computer.',
       rule3: 'Remote requests appear in the "钉钉 · name" or "企业微信 · name" conversation in the sidebar, where you can keep going on the computer.',
+    },
+    fold: {
+      summary: 'Done in {n} steps: {names}',
+      sep: ', ',
+      more: '…',
+      expert: 'Asked an expert',
+      problems: '{n} steps did not succeed',
+      seconds: '{s}s',
     },
     interject: {
       placeholder: 'AI is working… keep typing, Enter to interject (long-press send for more)',
