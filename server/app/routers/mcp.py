@@ -7,6 +7,7 @@ MCP 连接器：管理员在后台引入厂商，员工端列出来、点「连�
 import json
 import logging
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +53,7 @@ def _admin_out(v: McpVendor) -> McpVendorOut:
         headers=v.headers or {}, auth=v.auth, fields=v.fields or [],
         preset_masked={k: mask(val) for k, val in _preset(v).items() if val},
         oauth=v.oauth or {}, examples=v.examples or [], timeout_ms=v.timeout_ms,
+        skip_tls_verify=bool(v.skip_tls_verify),
         sort_order=v.sort_order, enabled=v.enabled, updated_at=v.updated_at,
     )
 
@@ -65,7 +67,8 @@ def _client_out(v: McpVendor) -> McpClientVendorOut:
         transport=v.transport, url=v.url, command=v.command, args=v.args or [], env=v.env or {},
         headers=v.headers or {}, auth=v.auth, fields=fields, preset=preset,
         needs_input=mcp_catalog.needs_input(fields, preset),
-        oauth=v.oauth or {}, examples=v.examples or [], timeout_ms=v.timeout_ms, updated_at=v.updated_at,
+        oauth=v.oauth or {}, examples=v.examples or [], timeout_ms=v.timeout_ms,
+        skip_tls_verify=bool(v.skip_tls_verify), updated_at=v.updated_at,
     )
 
 
@@ -79,8 +82,10 @@ def _check(data: McpVendorIn) -> None:
 def _apply(v: McpVendor, data: McpVendorIn) -> None:
     for name in ("name", "description", "detail", "icon", "publisher", "category", "homepage", "transport",
                  "url", "command", "args", "env", "headers", "auth", "oauth", "examples", "timeout_ms",
-                 "sort_order", "enabled"):
+                 "skip_tls_verify", "sort_order", "enabled"):
         setattr(v, name, getattr(data, name))
+    if v.transport == "stdio":
+        v.skip_tls_verify = False
     v.url = v.url.strip()
     v.command = v.command.strip()
     v.examples = [e.strip() for e in data.examples if e.strip()][:8]
@@ -197,7 +202,12 @@ async def test_vendor(vendor_id: str, data: McpTestIn, request: Request, session
         return McpTestOut(ok=False, error=f"先填上 {', '.join(missing)} 才能测试")
     url = mcp_catalog.expand(v.url, values)
     headers = {k: mcp_catalog.expand(val, values) for k, val in (v.headers or {}).items()}
-    result = await mcp_catalog.probe(request.app.state.http, url, headers)
+    if v.skip_tls_verify:
+        # 只影响这一次试连，不改全局 http 客户端
+        async with httpx.AsyncClient(verify=False, timeout=httpx.Timeout(30.0, connect=10.0)) as insecure:
+            result = await mcp_catalog.probe(insecure, url, headers)
+    else:
+        result = await mcp_catalog.probe(request.app.state.http, url, headers)
     return McpTestOut(**result.__dict__)
 
 

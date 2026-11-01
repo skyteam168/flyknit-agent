@@ -80,6 +80,7 @@ const form = reactive({
   oauthScopes: '',
   examplesText: '',
   timeoutSec: 60,
+  skip_tls_verify: false,
   sort_order: 0,
   enabled: true,
 })
@@ -130,6 +131,7 @@ function fill(v: Partial<McpVendor> & { preset?: Record<string, string> }) {
   form.oauthScopes = v.oauth?.scopes ?? ''
   form.examplesText = (v.examples ?? []).join('\n')
   form.timeoutSec = Math.round((v.timeout_ms ?? 60000) / 1000)
+  form.skip_tls_verify = !!v.skip_tls_verify
   form.sort_order = v.sort_order ?? 0
   form.enabled = v.enabled ?? true
 }
@@ -205,6 +207,7 @@ function payload(): McpVendorIn {
     oauth,
     examples: form.examplesText.split('\n').map((e) => e.trim()).filter(Boolean),
     timeout_ms: Math.max(5, Math.min(600, form.timeoutSec || 60)) * 1000,
+    skip_tls_verify: form.transport !== 'stdio' && !!form.skip_tls_verify,
     sort_order: form.sort_order,
     enabled: form.enabled,
   }
@@ -415,6 +418,10 @@ async function runTest() {
         <template v-if="form.transport !== 'stdio'">
           <el-form-item label="服务地址" required><el-input v-model="form.url" placeholder="https://docs.qq.com/openapi/mcp" /></el-form-item>
           <el-form-item label="请求头"><el-input v-model="form.headersText" type="textarea" :rows="2" placeholder="一行一个，例如&#10;Authorization: Bearer ${API_KEY}" /></el-form-item>
+          <el-form-item label="证书校验">
+            <el-checkbox v-model="form.skip_tls_verify">不校验证书（自签名 / 内网 HTTPS）</el-checkbox>
+            <p class="hint">仅对方是自签或公司内网证书时勾选。正规公网 HTTPS 与明文 HTTP 请保持关闭。</p>
+          </el-form-item>
         </template>
         <template v-else>
           <el-form-item label="启动命令" required><el-input v-model="form.command" placeholder="npx" /></el-form-item>

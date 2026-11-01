@@ -17,7 +17,7 @@ from ..db import get_session
 from ..deps import require_device
 from ..models import ChatRecord, Device
 from ..db import get_sessionmaker
-from ..services import chat_archive, model_router, subtask_store, usage_store
+from ..services import chat_archive, model_router, subtask_store, usage_store, web_search
 
 log = logging.getLogger("flyknit.gateway")
 router = APIRouter(prefix="/api/v1", tags=["gateway"])
@@ -123,6 +123,21 @@ async def chat_completions(
     except model_router.NoRouteError as exc:
         return _error(503, str(exc))
 
+    # 桌面「对话」联网：客户端带 flyknit_web_search；流量从服务器出网，与手机共用后台配置
+    want_search = bool(body.pop("flyknit_web_search", False)) and scene == "chat"
+    sources_json = ""
+    if want_search:
+        search_cfg = await web_search.get_config(session)
+        if web_search.is_ready(search_cfg):
+            query = web_search.last_user_query(body["messages"])
+            try:
+                hits = await web_search.search(request.app.state.http, search_cfg, query)
+                body["messages"] = web_search.inject_into_messages(body["messages"], hits)
+                sources_json = json.dumps(web_search.hits_out(hits), ensure_ascii=False)
+            except web_search.SearchError as exc:
+                log.warning("桌面联网搜索失败 device=%s: %s", device.id, exc)
+                sources_json = "[]"
+
     client = request.app.state.http
     try:
         upstream, target = await model_router.open_upstream(client, targets, body)
@@ -137,6 +152,8 @@ async def chat_completions(
         # 客户端据此计算上下文预算，决定何时压缩对话
         "X-Flyknit-Context": str(target.context_length),
     }
+    if sources_json:
+        headers["X-Flyknit-Sources"] = quote(sources_json, safe="")
 
     if upstream.status_code >= 400:
         try:

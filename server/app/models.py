@@ -508,6 +508,8 @@ class McpVendor(Base):
     #: 「试试这样用」的示例问题
     examples: Mapped[list] = mapped_column(JSON, default=list)
     timeout_ms: Mapped[int] = mapped_column(Integer, default=60000)
+    #: 仅 http/sse：对方是内网自签 HTTPS 时勾上，跳过证书校验。正式公网证书请保持关闭。
+    skip_tls_verify: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

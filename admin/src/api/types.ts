@@ -134,6 +134,8 @@ export interface McpVendor {
   oauth: Record<string, string>
   examples: string[]
   timeout_ms: number
+  /** 内网自签 HTTPS：跳过证书校验。正式公网证书请保持 false */
+  skip_tls_verify: boolean
   sort_order: number
   enabled: boolean
   updated_at: string

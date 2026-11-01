@@ -4,10 +4,12 @@ import { useI18n } from 'vue-i18n'
 import {
   ArrowLeftRight,
   ArrowUp,
+  Brain,
   Check,
   ChevronDown,
   ChevronRight,
   CornerDownRight,
+  Globe,
   ListPlus,
   FileText,
   ImageIcon,
@@ -138,6 +140,38 @@ async function submit(how?: InterjectMode) {
     await nextTick()
     resize()
   }
+}
+
+const deepThinking = computed(() => !!state.app?.deepThinking)
+const webSearchAvailable = computed(() => !!state.app?.webSearchEnabled)
+const webSearchOn = computed(() => !!state.app?.webSearch && webSearchAvailable.value)
+
+async function toggleDeep() {
+  if (mode.value === 'translate') {
+    toast(t('input.noDeepTranslate'))
+    return
+  }
+  const next = !deepThinking.value
+  if (state.app) state.app.deepThinking = next
+  await bridge.setChatPrefs({ deepThinking: next })
+}
+
+async function toggleWeb() {
+  if (mode.value === 'translate') {
+    toast(t('input.noWebTranslate'))
+    return
+  }
+  if (mode.value === 'agent') {
+    toast(t('input.noWebAgent'))
+    return
+  }
+  if (!webSearchAvailable.value) {
+    toast(t('input.webSearchOff'))
+    return
+  }
+  const next = !webSearchOn.value
+  if (state.app) state.app.webSearch = next
+  await bridge.setChatPrefs({ webSearch: next })
 }
 
 // ---------- 运行中发送：长按 / 右键出菜单 ----------
@@ -522,6 +556,30 @@ onBeforeUnmount(() => {
 
         <!-- 模型 -->
         <ModelPicker :mode="mode" />
+
+        <!-- 深度思考 / 联网：对齐手机端；火花图标仍是「增强提示词」 -->
+        <button
+          v-if="mode !== 'translate'"
+          type="button"
+          class="tool-btn"
+          :class="{ on: deepThinking }"
+          :title="t('input.deepThinking')"
+          @click="toggleDeep"
+        >
+          <Brain :size="15" />
+          <span class="hide-narrow">{{ t('input.deepThinking') }}</span>
+        </button>
+        <button
+          v-if="mode === 'chat'"
+          type="button"
+          class="tool-btn"
+          :class="{ on: webSearchOn }"
+          :title="webSearchAvailable ? t('input.webSearch') : t('input.webSearchOff')"
+          @click="toggleWeb"
+        >
+          <Globe :size="15" />
+          <span class="hide-narrow">{{ t('input.webSearch') }}</span>
+        </button>
 
         <!-- 技能（办事模式） -->
         <Popover v-if="mode === 'agent'" :width="300">
@@ -981,6 +1039,10 @@ textarea::placeholder {
 .tool-btn.open {
   background: var(--chip);
   color: var(--ink);
+}
+.tool-btn.on {
+  background: var(--indigo-wash, color-mix(in srgb, var(--indigo) 14%, transparent));
+  color: var(--indigo);
 }
 .expert-chip {
   max-width: 220px;

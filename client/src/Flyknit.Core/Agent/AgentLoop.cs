@@ -186,7 +186,8 @@ public sealed class AgentLoop
         bool useTools,
         CancellationToken ct,
         int? modelId = null,
-        Context.ContextManager? context = null)
+        Context.ContextManager? context = null,
+        IReadOnlyDictionary<string, System.Text.Json.Nodes.JsonNode?>? extraBody = null)
     {
         var newMessages = new List<ChatMessage>();
         var trace = new Trace(ctx.ConversationId);
@@ -288,6 +289,7 @@ public sealed class AgentLoop
                             Stream = true,
                             ModelId = modelId,
                             ConversationId = ctx.ConversationId,
+                            ExtraBody = extraBody,
                         },
                         observer,
                         ct);

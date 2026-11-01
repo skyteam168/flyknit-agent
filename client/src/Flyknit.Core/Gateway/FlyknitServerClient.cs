@@ -36,6 +36,8 @@ public sealed class ClientConfig
     [JsonPropertyName("revision")] public int Revision { get; set; }
     [JsonPropertyName("owner")] public string Owner { get; set; } = "";
     [JsonPropertyName("department")] public string Department { get; set; } = "";
+    /// <summary>后台已开启联网搜索且密钥就绪。</summary>
+    [JsonPropertyName("web_search_enabled")] public bool WebSearchEnabled { get; set; }
 }
 
 public sealed class ClientModel
@@ -934,6 +936,11 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
             var context = resp.Headers.TryGetValues("X-Flyknit-Context", out var ctxValues) && int.TryParse(ctxValues.FirstOrDefault(), out var len)
                 ? len
                 : 0;
+            var sources = ParseSourcesHeader(resp);
+            if (sources.Count > 0)
+            {
+                sink?.OnSources(sources);
+            }
             var acc = new SseAccumulator(sink);
             using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
@@ -961,7 +968,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
                 {
                     throw new GatewayException(BrokenMessage, null, ex) { IsNetworkError = true };
                 }
-                return acc.Build(model, context);
+                return acc.Build(model, context, sources);
             }
 
             // 每读一行都重新计时：连接悄悄断掉（没有 FIN/RST）时不会一直挂着
@@ -994,8 +1001,42 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
             {
                 throw new GatewayException(TruncatedMessage);
             }
-            return acc.Build(model, context);
+            return acc.Build(model, context, sources);
         }
+    }
+
+    private static IReadOnlyList<WebSource> ParseSourcesHeader(HttpResponseMessage resp)
+    {
+        if (!resp.Headers.TryGetValues("X-Flyknit-Sources", out var values) || values.FirstOrDefault() is not { Length: > 0 } raw)
+        {
+            return Array.Empty<WebSource>();
+        }
+        try
+        {
+            var json = Uri.UnescapeDataString(raw);
+            var list = JsonSerializer.Deserialize<List<WebSourceDto>>(json);
+            if (list is null || list.Count == 0)
+            {
+                return Array.Empty<WebSource>();
+            }
+            return list.Select(s => new WebSource
+            {
+                Title = s.Title ?? "",
+                Url = s.Url ?? "",
+                Snippet = s.Snippet ?? "",
+            }).ToList();
+        }
+        catch (Exception)
+        {
+            return Array.Empty<WebSource>();
+        }
+    }
+
+    private sealed class WebSourceDto
+    {
+        [JsonPropertyName("title")] public string? Title { get; set; }
+        [JsonPropertyName("url")] public string? Url { get; set; }
+        [JsonPropertyName("snippet")] public string? Snippet { get; set; }
     }
 
     /// <summary>文字转向量：POST api/v1/embeddings（OpenAI 兼容），模型由服务端的 embedding 场景决定。</summary>

@@ -106,6 +106,12 @@ public sealed class AppSettings
     /// <summary>任务结束后自动复盘，学习偏好与经验。</summary>
     public bool EnableLearning { get; set; } = true;
 
+    /// <summary>对话深度思考（翻译模式服务端会忽略）。默认关，避免空等很久。</summary>
+    public bool DeepThinking { get; set; }
+
+    /// <summary>对话联网搜索（仅「对话」模式，且管理员已开启）。</summary>
+    public bool WebSearch { get; set; }
+
     /// <summary>办事模式一轮最多执行多少步（调用模型的次数）。空转另有检测，这里只是最后的保险。</summary>
     public int AgentMaxSteps { get; set; } = Flyknit.Core.Agent.AgentOptions.DefaultMaxSteps;
 

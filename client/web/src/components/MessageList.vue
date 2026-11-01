@@ -394,6 +394,10 @@ const isImage = (mime: string) => mime.startsWith('image/')
         </template>
         <!-- 助手消息 -->
         <div v-if="m.role !== 'user' && !folded(m)" class="assistant" :class="{ cont: isContinuation(i), translation: isTranslate, 'in-fold': folds.has(m.id) }">
+          <details v-if="m.sources?.length" class="sources">
+            <summary>{{ t('message.searched', { n: m.sources.length }) }} <ChevronRight :size="14" class="chev" /></summary>
+            <a v-for="(src, si) in m.sources" :key="si" class="source" :href="src.url" target="_blank" rel="noopener">{{ src.title || src.url }}</a>
+          </details>
           <details v-if="m.reasoning" class="reasoning">
             <summary><Brain :size="14" /> {{ t('message.thinking') }} <ChevronRight :size="14" class="chev" /></summary>
             <p>{{ m.reasoning }}</p>
@@ -492,12 +496,17 @@ const isImage = (mime: string) => mime.startsWith('image/')
 
       <!-- 流式输出中的回答 -->
       <div v-if="s.busy" class="assistant live" :class="{ cont: visible.length > 0 && visible[visible.length - 1].role === 'assistant' }">
+        <div v-if="s.draft?.sources == null && !s.draft?.content && !s.draft?.reasoning && state.app?.webSearch && current?.mode === 'chat'" class="searching">{{ t('message.searching') }}</div>
+        <details v-if="s.draft?.sources?.length" class="sources" open>
+          <summary>{{ t('message.searched', { n: s.draft.sources.length }) }} <ChevronRight :size="14" class="chev" /></summary>
+          <a v-for="(src, si) in s.draft.sources" :key="si" class="source" :href="src.url" target="_blank" rel="noopener">{{ src.title || src.url }}</a>
+        </details>
         <details v-if="s.draft?.reasoning" class="reasoning" open>
           <summary><Brain :size="14" /> {{ t('message.thinkingLive') }} <ChevronRight :size="14" class="chev" /></summary>
           <p>{{ s.draft.reasoning }}</p>
         </details>
         <div v-if="draftText" class="md" v-html="renderMarkdown(draftText, { streaming: true })" />
-        <div v-else-if="!s.draft?.reasoning && orphanTools.length === 0 && !waiting && !expertRunning" class="dots" aria-label="…"><i /><i /><i /></div>
+        <div v-else-if="!s.draft?.reasoning && !s.draft?.sources?.length && orphanTools.length === 0 && !waiting && !expertRunning" class="dots" aria-label="…"><i /><i /><i /></div>
         <template v-for="tool in orphanTools" :key="tool.callId">
           <ExpertTaskCard v-if="tool.name === AskExpertTool" :tool="tool" :conversation-id="current!.id" />
           <ToolCard v-else :tool="tool" :conversation-id="current!.id" />
@@ -816,6 +825,45 @@ const isImage = (mime: string) => mime.startsWith('image/')
 .assistant.in-fold {
   padding-left: 12px;
   border-left: 2px solid var(--line);
+}
+.sources {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+}
+.sources summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  list-style: none;
+}
+.sources summary::-webkit-details-marker {
+  display: none;
+}
+.sources .chev {
+  transition: transform 150ms;
+}
+.sources[open] .chev {
+  transform: rotate(90deg);
+}
+.sources .source {
+  display: block;
+  margin: 4px 0 0 12px;
+  color: var(--indigo);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.sources .source:hover {
+  text-decoration: underline;
+}
+.searching {
+  margin: 0 0 8px;
+  color: var(--ink-faint);
+  font-size: var(--t-sm);
 }
 .reasoning {
   margin: 0 0 8px;

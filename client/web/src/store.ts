@@ -46,7 +46,7 @@ interface ConversationState {
   loadError?: string
   busy: boolean
   /** 正在流式输出的回答 */
-  draft: { content: string; reasoning: string } | null
+  draft: { content: string; reasoning: string; sources?: import('./types').WebSource[] } | null
   tools: Record<string, ToolActivity>
   plan: PlanItem[]
   notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'stuck' | 'budget' | 'failed'; text?: string } | null
@@ -1483,11 +1483,20 @@ function onHostEvent(e: HostEvent) {
       s.draft.reasoning += e.text
       break
     }
+    case 'chat.sources': {
+      const s = markRunning(e.conversationId)
+      s.draft ??= { content: '', reasoning: '' }
+      s.draft.sources = e.sources
+      break
+    }
     case 'chat.message': {
       // 用户的话由宿主推来：插话交给 AI 了，或者排队的话接着发了（这时新的一轮开始）
       const s = e.message.role === 'user' ? markRunning(e.conversationId) : convState(e.conversationId)
       if (e.message.role === 'user' && s.messages.some((m) => m.id === e.message.id)) break
       if (e.message.role === 'user') s.inputs = s.inputs.filter((x) => x.id !== e.message.id)
+      if (e.message.role === 'assistant' && s.draft?.sources?.length && !e.message.sources?.length) {
+        e.message.sources = s.draft.sources
+      }
       s.messages.push(e.message)
       if (e.message.role === 'assistant') s.draft = { content: '', reasoning: '' }
       break
@@ -1609,6 +1618,10 @@ function onHostEvent(e: HostEvent) {
         if (e.keepAwakeAllowed !== undefined) state.app.keepAwakeAllowed = e.keepAwakeAllowed
         if (e.keepScreenAllowed !== undefined) state.app.keepScreenAllowed = e.keepScreenAllowed
         if (e.contextDetails !== undefined) state.app.contextDetails = e.contextDetails
+        if (e.longTasks !== undefined) state.app.longTasks = e.longTasks
+        if (e.webSearchEnabled !== undefined) state.app.webSearchEnabled = e.webSearchEnabled
+        if (e.deepThinking !== undefined) state.app.deepThinking = e.deepThinking
+        if (e.webSearch !== undefined) state.app.webSearch = e.webSearch
       }
       break
     case 'tool.ask': {

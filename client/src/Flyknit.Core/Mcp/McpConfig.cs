@@ -38,6 +38,8 @@ public sealed class McpVendor
     [JsonPropertyName("oauth")] public Dictionary<string, string> OAuth { get; set; } = new();
     [JsonPropertyName("examples")] public List<string> Examples { get; set; } = new();
     [JsonPropertyName("timeout_ms")] public int TimeoutMs { get; set; } = 60000;
+    /// <summary>内网自签 HTTPS：跳过证书校验。</summary>
+    [JsonPropertyName("skip_tls_verify")] public bool SkipTlsVerify { get; set; }
     [JsonPropertyName("updated_at")] public DateTimeOffset UpdatedAt { get; set; }
 
     /// <summary>
@@ -52,7 +54,7 @@ public sealed class McpVendor
         foreach (var (k, v) in Env.OrderBy(p => p.Key, StringComparer.Ordinal)) sb.Append(k).Append('=').Append(v).Append('\u0001');
         foreach (var (k, v) in Headers.OrderBy(p => p.Key, StringComparer.Ordinal)) sb.Append(k).Append(':').Append(v).Append('\u0001');
         foreach (var (k, v) in Preset.OrderBy(p => p.Key, StringComparer.Ordinal)) sb.Append(k).Append('=').Append(v).Append('\u0001');
-        sb.Append(Auth).Append(TimeoutMs);
+        sb.Append(Auth).Append(TimeoutMs).Append(SkipTlsVerify ? '1' : '0');
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())))[..16];
     }
 }
@@ -79,6 +81,7 @@ public sealed record McpServerConfig
     public IReadOnlyDictionary<string, string> Env { get; init; } = new Dictionary<string, string>();
     public IReadOnlyDictionary<string, string> Headers { get; init; } = new Dictionary<string, string>();
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(60);
+    public bool SkipTlsVerify { get; init; }
 }
 
 /// <summary>${KEY} / ${KEY:-默认值} 占位符。</summary>
@@ -142,6 +145,7 @@ public static partial class McpTemplate
                 .Where(p => p.Value.Length > 0)
                 .ToDictionary(p => p.Key, p => p.Value),
             Timeout = TimeSpan.FromMilliseconds(Math.Clamp(vendor.TimeoutMs, 5000, 600000)),
+            SkipTlsVerify = vendor.Transport != "stdio" && vendor.SkipTlsVerify,
         };
     }
 }

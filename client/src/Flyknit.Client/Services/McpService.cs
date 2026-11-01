@@ -41,6 +41,8 @@ public sealed class McpService : IDisposable
     private readonly CancellationTokenSource _life = new();
     private readonly McpRuntimeManager _runtimes;
     private HttpClient _http;
+    /// <summary>仅用于管理员勾了「不校验证书」的连接器；正规 HTTPS 仍走 _http。</summary>
+    private HttpClient _httpInsecure;
     private List<McpVendor> _vendors = new();
     private DateTime _vendorsAt;
     private Store _store;
@@ -54,18 +56,23 @@ public sealed class McpService : IDisposable
         _server = server;
         _tools = tools;
         _clientVersion = clientVersion;
-        _http = CreateHttp(settings);
+        _http = CreateHttp(settings, skipTlsVerify: false);
+        _httpInsecure = CreateHttp(settings, skipTlsVerify: true);
         _store = Store.Load();
         _runtimes = new McpRuntimeManager(server, AppPaths.Runtimes);
     }
 
     public static string StoreFile => Path.Combine(AppPaths.Root, "mcp-connections.json");
 
-    private static HttpClient CreateHttp(AppSettings settings)
+    private static HttpClient CreateHttp(AppSettings settings, bool skipTlsVerify)
     {
         // 重定向自己处理：.NET 自动跟随时会丢掉 Authorization，登录拿到的令牌一跳转就没了（见 McpRedirectHandler）
         var handler = ProxyFactory.CreateHandler(settings);
         handler.AllowAutoRedirect = false;
+        if (skipTlsVerify)
+        {
+            handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+        }
         var http = new HttpClient(new McpRedirectHandler(handler));
         // 超时由每次请求自己控制：旧版 SSE 的长连接、要跑几分钟的工具都不能被 100 秒的默认值掐断
         http.Timeout = Timeout.InfiniteTimeSpan;
@@ -73,16 +80,25 @@ public sealed class McpService : IDisposable
         return http;
     }
 
+    private HttpClient HttpFor(McpServerConfig config) =>
+        config.SkipTlsVerify ? _httpInsecure : _http;
+
     /// <summary>代理设置改了：换一个 HttpClient，已连上的远程连接器重连一次。</summary>
     public void ApplyProxy()
     {
         var old = _http;
-        _http = CreateHttp(_settings);
+        var oldInsecure = _httpInsecure;
+        _http = CreateHttp(_settings, skipTlsVerify: false);
+        _httpInsecure = CreateHttp(_settings, skipTlsVerify: true);
         foreach (var id in _runtime.Where(p => p.Value.Status == McpStatus.Connected && p.Value.Transport != "stdio").Select(p => p.Key).ToList())
         {
             _ = ReconnectAsync(id, "网络代理已切换");
         }
-        _ = Task.Delay(TimeSpan.FromMinutes(2)).ContinueWith(_ => old.Dispose());
+        _ = Task.Delay(TimeSpan.FromMinutes(2)).ContinueWith(_ =>
+        {
+            old.Dispose();
+            oldInsecure.Dispose();
+        });
     }
 
     // ---------- 启动与同步 ----------
@@ -377,16 +393,17 @@ public sealed class McpService : IDisposable
         }
         try
         {
-            return await McpConnection.ConnectAsync(config, _http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime);
+            var http = HttpFor(config);
+            return await McpConnection.ConnectAsync(config, http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime);
         }
         catch (McpAuthRequiredException ex) when (interactive && WantsBrowserLogin(vendor, ex))
         {
             // 没登录过或者登录过期：在浏览器里登录一次，回来再连
             Set(vendor.Id, rt, McpStatus.Authorizing, "请在打开的浏览器里登录并授权");
-            await AuthorizeAsync(vendor, new Uri(config.Url), ex.WwwAuthenticate, ct);
+            await AuthorizeAsync(vendor, new Uri(config.Url), ex.WwwAuthenticate, ct, config.SkipTlsVerify);
             try
             {
-                return await McpConnection.ConnectAsync(config, _http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime);
+                return await McpConnection.ConnectAsync(config, HttpFor(config), _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime);
             }
             catch (McpAuthRequiredException again)
             {
@@ -421,19 +438,22 @@ public sealed class McpService : IDisposable
         }
         if (tokens.NeedsRefresh(DateTimeOffset.Now))
         {
-            tokens = await McpOAuth.RefreshAsync(_http, tokens, DateTimeOffset.Now, ct);
+            var vendor = Vendors().FirstOrDefault(v => v.Id == id);
+            var http = vendor is { SkipTlsVerify: true } ? _httpInsecure : _http;
+            tokens = await McpOAuth.RefreshAsync(http, tokens, DateTimeOffset.Now, ct);
             saved!.Tokens = tokens;
             _store.Put(id, saved);
         }
         return tokens.AccessToken;
     }
 
-    private async Task AuthorizeAsync(McpVendor vendor, Uri url, string? challenge, CancellationToken ct)
+    private async Task AuthorizeAsync(McpVendor vendor, Uri url, string? challenge, CancellationToken ct, bool skipTlsVerify = false)
     {
+        var http = skipTlsVerify ? _httpInsecure : _http;
         using var receiver = new LoopbackReceiver();
         vendor.OAuth.TryGetValue("client_id", out var clientId);
         vendor.OAuth.TryGetValue("scopes", out var scopes);
-        var auth = await McpOAuth.BeginAsync(_http, url, challenge, receiver.RedirectUri, clientId, scopes, ct);
+        var auth = await McpOAuth.BeginAsync(http, url, challenge, receiver.RedirectUri, clientId, scopes, ct);
         Process.Start(new ProcessStartInfo(auth.AuthorizeUrl.ToString()) { UseShellExecute = true });
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -456,7 +476,7 @@ public sealed class McpService : IDisposable
         {
             throw new McpException("登录回调里没有授权码");
         }
-        var tokens = await McpOAuth.ExchangeAsync(_http, auth, code, DateTimeOffset.Now, ct);
+        var tokens = await McpOAuth.ExchangeAsync(http, auth, code, DateTimeOffset.Now, ct);
         var saved = _store.Get(vendor.Id) ?? new SavedConnection { Enabled = true };
         saved.Tokens = tokens;
         _store.Put(vendor.Id, saved);
@@ -615,6 +635,7 @@ public sealed class McpService : IDisposable
             }
         }
         _http.Dispose();
+        _httpInsecure.Dispose();
     }
 
     // ---------- 运行时状态 ----------

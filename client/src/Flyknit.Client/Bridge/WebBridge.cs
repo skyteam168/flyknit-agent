@@ -105,6 +105,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             keepScreenAllowed = _host.KeepScreenOnAllowed,
             contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
             longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
+            webSearchEnabled = _host.WebSearchEnabled,
+            deepThinking = _settings.DeepThinking,
+            webSearch = _settings.WebSearch,
         });
     }
 
@@ -450,6 +453,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     keepScreenAllowed = _host.KeepScreenOnAllowed,
                     contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
                     longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
+                    webSearchEnabled = _host.WebSearchEnabled,
+                    deepThinking = _settings.DeepThinking,
+                    webSearch = _settings.WebSearch,
                     proxyMode = _settings.ProxyMode,
                     proxyUrl = _settings.ProxyUrl,
                     proxyUser = _settings.ProxyUser,
@@ -562,6 +568,29 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _settings.Save();
                 return n;
             }
+
+            case "settings.setChatPrefs":
+                // 深度思考 / 联网：输入框开关，写本地，下一轮对话生效
+                if (p.TryGetProperty("deepThinking", out var dt) && (dt.ValueKind is JsonValueKind.True or JsonValueKind.False))
+                {
+                    _settings.DeepThinking = dt.GetBoolean();
+                }
+                if (p.TryGetProperty("webSearch", out var ws) && (ws.ValueKind is JsonValueKind.True or JsonValueKind.False))
+                {
+                    _settings.WebSearch = ws.GetBoolean();
+                }
+                _settings.Save();
+                Post(new
+                {
+                    type = "app.status",
+                    connected = _host.Connected,
+                    serverMessage = _host.ServerMessage,
+                    modelName = _host.ModelName,
+                    webSearchEnabled = _host.WebSearchEnabled,
+                    deepThinking = _settings.DeepThinking,
+                    webSearch = _settings.WebSearch,
+                });
+                return null;
 
             case "settings.setLearning":
                 _settings.EnableLearning = Bool("enabled");

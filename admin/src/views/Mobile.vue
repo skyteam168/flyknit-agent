@@ -90,7 +90,7 @@ async function saveSearch() {
 
 async function clearSearchKey() {
   try {
-    await ElMessageBox.confirm('清空联网搜索的 API Key？手机上将无法使用联网。', '清空密钥', {
+    await ElMessageBox.confirm('清空联网搜索的 API Key？手机和电脑上将无法使用联网。', '清空密钥', {
       type: 'warning',
       confirmButtonText: '清空',
       cancelButtonText: '取消',
@@ -247,14 +247,14 @@ async function revoke(p: MobilePhone) {
 
     <section class="panel">
       <div class="panel-title">
-        <h3>联网搜索 <small>仅手机「对话」；流量从服务器出网</small></h3>
+        <h3>联网搜索 <small>手机 / 电脑「对话」；流量从服务器出网</small></h3>
         <el-tag v-if="searchCfg?.ready" type="success" effect="plain">可用</el-tag>
         <el-tag v-else type="info" effect="plain">未就绪</el-tag>
       </div>
       <el-form :model="searchForm" label-width="140px" style="max-width: 640px">
         <el-form-item label="开启联网搜索">
           <el-switch v-model="searchForm.enabled" />
-          <p class="hint">开启后，员工可在手机对话里打开「联网」开关；翻译不受影响。</p>
+          <p class="hint">开启后，员工可在手机和电脑的「对话」里打开联网开关；翻译与办事不受影响。</p>
         </el-form-item>
         <el-form-item label="提供商">
           <el-select v-model="searchForm.provider" style="width: 260px">

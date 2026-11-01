@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Flyknit.Client.Bridge;
@@ -241,6 +242,8 @@ public sealed partial class AgentHost : IDisposable
     /// <summary>后台填的台账：这台电脑的使用者实名与所属部门。界面上显示。</summary>
     public string Owner { get; private set; } = "";
     public string Department { get; private set; } = "";
+    /// <summary>后台联网搜索已就绪；界面据此显示「联网」开关。</summary>
+    public bool WebSearchEnabled { get; private set; }
 
     /// <summary>服务端配置版本号，长轮询用它判断配置有没有变。</summary>
     private int _configRevision;
@@ -478,6 +481,7 @@ public sealed partial class AgentHost : IDisposable
             _configRevision = config.Revision;
             Owner = config.Owner;
             Department = config.Department;
+            WebSearchEnabled = config.WebSearchEnabled;
             _configTimer.Change(TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
             // 顺带把本机信息报上去。配置拉得到就说明在线，两件事本来就是同一个信号。
             // 失败不影响对话，所以吞掉异常，不改 Connected。
@@ -576,6 +580,23 @@ public sealed partial class AgentHost : IDisposable
             Store.DeleteMessagesFrom(id, messageId, inclusive: true);
             return NewUserMessage(newMessageId, text, original.Attachments);
         });
+    }
+
+    /// <summary>深度思考 / 联网：写进请求 ExtraBody，翻译不带思考，联网仅「对话」。</summary>
+    private IReadOnlyDictionary<string, JsonNode?>? ChatExtraBody(Conversation conv)
+    {
+        var thinking = _settings.DeepThinking && conv.Mode != ConversationMode.Translate;
+        var search = _settings.WebSearch && conv.Mode == ConversationMode.Chat && WebSearchEnabled;
+        // 显式传 enable_thinking，避免模型配置里默认开思考
+        var body = new Dictionary<string, JsonNode?>
+        {
+            ["enable_thinking"] = thinking,
+        };
+        if (search)
+        {
+            body["flyknit_web_search"] = true;
+        }
+        return body;
     }
 
     /// <summary>附件收进资料库；收录失败不影响发送。</summary>
@@ -862,7 +883,8 @@ public sealed partial class AgentHost : IDisposable
                 Pause = PauseGateFor(id),
                 Persist = PersistFor(id),
             };
-            var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context);
+            var extraBody = ChatExtraBody(conv);
+            var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context, extraBody);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
             var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
             if (observer.Outputs.Count > 0)
@@ -1578,6 +1600,14 @@ public sealed partial class AgentHost : IDisposable
         public void OnContent(string delta) => _events.Post(new { type = "chat.delta", conversationId = _id, text = delta });
 
         public void OnReasoning(string delta) => _events.Post(new { type = "chat.reasoning", conversationId = _id, text = delta });
+
+        public void OnSources(IReadOnlyList<Flyknit.Core.Gateway.WebSource> sources) =>
+            _events.Post(new
+            {
+                type = "chat.sources",
+                conversationId = _id,
+                sources = sources.Select(s => new { title = s.Title, url = s.Url, snippet = s.Snippet }).ToList(),
+            });
 
         public void OnAssistantMessage(ChatMessage message) =>
             _events.Post(new { type = "chat.message", conversationId = _id, message = MessageDto.From(message) });

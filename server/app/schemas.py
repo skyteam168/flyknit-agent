@@ -288,6 +288,8 @@ class ClientConfigOut(BaseModel):
     #: 管理员在后台填的台账：使用者实名、部门。客户端界面上显示
     owner: str = ""
     department: str = ""
+    #: 后台已开启联网搜索且密钥就绪；桌面「对话」可显示联网开关
+    web_search_enabled: bool = False
 
 
 class DevicePolicyIn(BaseModel):
@@ -615,6 +617,7 @@ class McpVendorIn(BaseModel):
     oauth: dict[str, str] = {}
     examples: list[str] = []
     timeout_ms: int = Field(default=60000, ge=5000, le=600000)
+    skip_tls_verify: bool = False
     sort_order: int = 0
     enabled: bool = True
 
@@ -647,6 +650,7 @@ class McpVendorOut(BaseModel):
     oauth: dict[str, str] = {}
     examples: list[str] = []
     timeout_ms: int = 60000
+    skip_tls_verify: bool = False
     sort_order: int = 0
     enabled: bool = True
     updated_at: datetime
@@ -677,6 +681,7 @@ class McpClientVendorOut(BaseModel):
     oauth: dict[str, str] = {}
     examples: list[str] = []
     timeout_ms: int = 60000
+    skip_tls_verify: bool = False
     updated_at: datetime
 
 

@@ -1,7 +1,23 @@
 // 相册选图、拍照、语音转写（有 ASR 走服务器；没有就提示）。
+// 读图：App 端不用 getFileSystemManager（Android/iOS 常未实现，会 TypeError），改走原生读文件。
 
 import { state } from './store.uts'
 import { t, tf } from './i18n.uts'
+
+// #ifdef APP-ANDROID
+import File from 'java.io.File'
+import FileInputStream from 'java.io.FileInputStream'
+import ByteArrayOutputStream from 'java.io.ByteArrayOutputStream'
+import InputStream from 'java.io.InputStream'
+import Base64 from 'android.util.Base64'
+import Uri from 'android.net.Uri'
+import { UTSAndroid } from 'DCloudUTSAndroid'
+// #endif
+
+// #ifdef APP-IOS
+import { UTSiOS } from 'DCloudUTSFoundation'
+import NSData from 'Foundation.NSData'
+// #endif
 
 export type PickedImage = {
 	path : string
@@ -17,18 +33,150 @@ function guessMime(path : string) : string {
 	return 'image/jpeg'
 }
 
-function readAsDataUrl(path : string) : Promise<string> {
+function stripFileScheme(path : string) : string {
+	if (path.indexOf('file://') == 0) {
+		return path.substring(7)
+	}
+	return path
+}
+
+// #ifdef APP-ANDROID
+/** Android：file 路径或 content:// 都读成 base64（无 data: 前缀） */
+function androidFileToBase64(path : string) : string {
+	let stream : InputStream | null = null
+	try {
+		if (path.indexOf('content://') == 0) {
+			const activity = UTSAndroid.getUniActivity()
+			if (activity == null) {
+				return ''
+			}
+			stream = activity.getContentResolver().openInputStream(Uri.parse(path))
+		} else {
+			const abs = UTSAndroid.convert2AbsFullPath(stripFileScheme(path))
+			stream = new FileInputStream(new File(abs))
+		}
+		if (stream == null) {
+			return ''
+		}
+		const bos = new ByteArrayOutputStream()
+		const buffer = ByteArray(8192)
+		let n = stream!.read(buffer)
+		while (n > 0) {
+			bos.write(buffer, 0, n)
+			n = stream!.read(buffer)
+		}
+		stream!.close()
+		stream = null
+		return Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP) ?? ''
+	} catch (_) {
+		try {
+			stream?.close()
+		} catch (_) { }
+		return ''
+	}
+}
+// #endif
+
+// #ifdef APP-IOS
+function iosFileToBase64(path : string) : string {
+	try {
+		const abs = UTSiOS.convert2AbsFullPath(stripFileScheme(path))
+		const data = NSData.dataWithContentsOfFile(abs)
+		if (data == null) {
+			return ''
+		}
+		return data.base64EncodedStringWithOptions(0)
+	} catch (_) {
+		return ''
+	}
+}
+// #endif
+
+function readViaFsManager(path : string) : Promise<string> {
 	return new Promise<string>((resolve, reject) => {
-		uni.getFileSystemManager().readFile({
-			filePath: path,
-			encoding: 'base64',
+		try {
+			const fs = uni.getFileSystemManager()
+			fs.readFile({
+				filePath: path,
+				encoding: 'base64',
+				success: (res) => {
+					resolve('' + (res.data as string))
+				},
+				fail: (err) => {
+					reject(err.errMsg)
+				}
+			})
+		} catch (e) {
+			reject('' + e)
+		}
+	})
+}
+
+// #ifdef WEB
+function readViaWeb(path : string) : Promise<string> {
+	return new Promise<string>((resolve, reject) => {
+		uni.request({
+			url: path,
+			method: 'GET',
+			responseType: 'arraybuffer',
 			success: (res) => {
-				const b64 = res.data as string
-				resolve('data:' + guessMime(path) + ';base64,' + b64)
+				try {
+					const buf = res.data as ArrayBuffer
+					const b64 = uni.arrayBufferToBase64(buf)
+					resolve(b64)
+				} catch (e) {
+					reject('' + e)
+				}
 			},
 			fail: (err) => {
 				reject(err.errMsg)
 			}
+		})
+	})
+}
+// #endif
+
+function readAsDataUrl(path : string) : Promise<string> {
+	const mime = guessMime(path)
+	return new Promise<string>((resolve, reject) => {
+		const done = (b64 : string) => {
+			if (b64 == '') {
+				reject('empty')
+				return
+			}
+			resolve('data:' + mime + ';base64,' + b64)
+		}
+
+		// #ifdef APP-ANDROID
+		try {
+			const b64 = androidFileToBase64(path)
+			if (b64 != '') {
+				done(b64)
+				return
+			}
+		} catch (_) { }
+		// #endif
+
+		// #ifdef APP-IOS
+		try {
+			const b64 = iosFileToBase64(path)
+			if (b64 != '') {
+				done(b64)
+				return
+			}
+		} catch (_) { }
+		// #endif
+
+		// #ifdef WEB
+		readViaWeb(path).then(done).catch((msg) => {
+			reject(msg)
+		})
+		return
+		// #endif
+
+		// 鸿蒙等仍支持 getFileSystemManager 的平台
+		readViaFsManager(path).then(done).catch((msg) => {
+			reject(msg)
 		})
 	})
 }

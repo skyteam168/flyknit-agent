@@ -130,7 +130,7 @@ def _add_column_ddl(connection: Connection, table: sa.Table, column: sa.Column, 
     # 可空的列只用显式写的默认值，没写就是 NULL。以前也给它们补「零值」：
     # 可空时间列补成 CURRENT_TIMESTAMP（SQLite 加列时拒绝非常量默认值，升级直接失败），
     # devices.daily_tokens（NULL = 跟全局配额）补成 0（= 不限制），老电脑全都绕过了每日配额
-    default_sql = _default_literal(column, zero_fallback=not column.nullable)
+    default_sql = _default_literal(connection, column, zero_fallback=not column.nullable)
     if not column.nullable:
         if default_sql is None:
             # 不知道填什么，就先允许为空，至少不会卡住启动
@@ -143,7 +143,13 @@ def _add_column_ddl(connection: Connection, table: sa.Table, column: sa.Column, 
     return " ".join(parts)
 
 
-def _default_literal(column: sa.Column, zero_fallback: bool = True) -> str | None:
+def _bool_literal(connection: Connection, value: bool) -> str:
+    # PostgreSQL：BOOLEAN 默认值必须是 true/false，不能用 0/1（会报 DatatypeMismatchError）
+    # SQLite：0/1 和 false/true 都能用；统一写 false/true 两边都过
+    return "true" if value else "false"
+
+
+def _default_literal(connection: Connection, column: sa.Column, zero_fallback: bool = True) -> str | None:
     """把列的默认值转成 SQL 字面量。只处理常量，函数默认值（如 utcnow）交给应用层。"""
     if column.server_default is not None and hasattr(column.server_default, "arg"):
         return str(column.server_default.arg)
@@ -159,14 +165,14 @@ def _default_literal(column: sa.Column, zero_fallback: bool = True) -> str | Non
         if isinstance(column.type, (sa.Integer, sa.BigInteger, sa.SmallInteger, sa.Numeric, sa.Float)):
             return "0"
         if isinstance(column.type, sa.Boolean):
-            return "0"
+            return _bool_literal(connection, False)
         if isinstance(column.type, (sa.DateTime, sa.Date)):
             # 用升级这一刻的常量，不用 CURRENT_TIMESTAMP：表里已经有数据时，SQLite 拒绝加非常量默认值的列
             return "'" + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") + "'"
         return None
 
     if isinstance(value, bool):
-        return "1" if value else "0"
+        return _bool_literal(connection, value)
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, str):

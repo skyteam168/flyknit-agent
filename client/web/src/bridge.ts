@@ -307,6 +307,10 @@ class Bridge {
   revokeApproval = (id: string) => this.call<void>('approvals.revoke', { id })
   clearApprovals = () => this.call<void>('approvals.clear')
 
+  /** 深度思考 / 联网开关（写本地，下一轮生效） */
+  setChatPrefs = (prefs: { deepThinking?: boolean; webSearch?: boolean }) =>
+    this.call<void>('settings.setChatPrefs', prefs)
+
   // ---------- 对话 ----------
   send = (conversationId: string, text: string, attachments: AttachmentRef[], messageId: string) =>
     this.call<{ pending?: boolean } | null>('chat.send', { conversationId, text, attachments, messageId })

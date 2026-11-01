@@ -35,6 +35,13 @@ public sealed class ChatRequest
     public string? SubtaskId { get; init; }
 }
 
+public sealed class WebSource
+{
+    public string Title { get; init; } = "";
+    public string Url { get; init; } = "";
+    public string Snippet { get; init; } = "";
+}
+
 public sealed class ChatTurn
 {
     public string Content { get; init; } = "";
@@ -48,6 +55,9 @@ public sealed class ChatTurn
 
     /// <summary>实际使用模型的上下文长度（服务端通过响应头告知，未知时为 0）。</summary>
     public int ContextLength { get; init; }
+
+    /// <summary>联网搜索命中（服务端响应头 X-Flyknit-Sources）。</summary>
+    public IReadOnlyList<WebSource> Sources { get; init; } = Array.Empty<WebSource>();
 }
 
 public sealed record TokenUsage(int PromptTokens, int CompletionTokens)
@@ -63,6 +73,11 @@ public interface IStreamSink
 {
     void OnContent(string delta);
     void OnReasoning(string delta);
+
+    /// <summary>联网搜索结果（流开始前由服务端一次下发）。</summary>
+    void OnSources(IReadOnlyList<WebSource> sources)
+    {
+    }
 }
 
 public interface IChatGateway

@@ -557,6 +557,12 @@ export interface ToolCallRef {
   arguments: string
 }
 
+export interface WebSource {
+  title: string
+  url: string
+  snippet?: string
+}
+
 export interface UiMessage {
   id: string
   role: 'user' | 'assistant' | 'tool'
@@ -576,6 +582,8 @@ export interface UiMessage {
   outputs?: OutputFile[] | null
   /** 这一轮的执行链路（JSON 字符串） */
   trace?: string | null
+  /** 联网搜索来源 */
+  sources?: WebSource[] | null
 }
 
 export interface PlanItem {
@@ -631,6 +639,12 @@ export interface AppInfo {
   sandboxed: boolean
   /** IT 允不允许开长任务模式 */
   longTasks?: boolean
+  /** 后台联网搜索已就绪 */
+  webSearchEnabled?: boolean
+  /** 本地偏好：深度思考 */
+  deepThinking?: boolean
+  /** 本地偏好：联网搜索（仅对话） */
+  webSearch?: boolean
 }
 
 /** 任务中心：正在跑的任务 */
@@ -872,6 +886,7 @@ export type ConfirmChoice = 'allowOnce' | 'allowForSession' | 'allowAlways' | 'r
 export type HostEvent =
   | { type: 'chat.delta'; conversationId: string; text: string }
   | { type: 'chat.reasoning'; conversationId: string; text: string }
+  | { type: 'chat.sources'; conversationId: string; sources: WebSource[] }
   | { type: 'chat.message'; conversationId: string; message: UiMessage }
   | { type: 'tool.started'; conversationId: string; callId: string; name: string; summary: string; args?: string; risk: Risk }
   | {
@@ -953,7 +968,7 @@ export type HostEvent =
   | { type: 'shell.request'; action: 'ask' | 'summarize' | 'translate' | 'workspace'; attachments?: AttachmentRef[]; path?: string }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
-      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails'>
+      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
     >)
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }
