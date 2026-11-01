@@ -196,6 +196,8 @@ public class SecuritySwitchTests
             SecuritySettings.ContextDetails,
             // AgentHost.LongModeOn / SetLongMode 读这一项：IT 关掉后长任务模式打不开；WebBridge 推给界面决定显不显示开关
             SecuritySettings.LongTasks,
+            // AgentHost.BrowserToolsFor 读这一项：关着（默认）时这一轮没有浏览器工具
+            SecuritySettings.BrowserTools,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

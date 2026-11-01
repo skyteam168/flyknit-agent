@@ -72,6 +72,9 @@ public sealed class SecuritySettings
 
     /// <summary>长任务模式：IT 关掉后员工不能开，已经开着的对话按普通任务跑。</summary>
     public const string LongTasks = "long_tasks";
+
+    /// <summary>AI 浏览器（看得见的网页窗口里打开、读、点、填）。默认关闭，IT 打开后才有浏览器工具。</summary>
+    public const string BrowserTools = "browser_tools";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字

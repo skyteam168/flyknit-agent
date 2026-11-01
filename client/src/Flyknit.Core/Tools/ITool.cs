@@ -225,6 +225,9 @@ public sealed class ToolContext
             Policy?.Config.BatchConfirmThreshold ?? 20)
         ?? Policy?.Config.BatchConfirmThreshold ?? 20;
 
+    /// <summary>AI 浏览器（看得见的网页窗口）。为空表示没开启浏览器操作。</summary>
+    public Browser.IBrowserDriver? Browser { get; init; }
+
     /// <summary>这一轮已经建议了几件新任务（suggest_task 限制次数用）。</summary>
     public int SuggestionsMade { get; set; }
 

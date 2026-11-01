@@ -699,6 +699,12 @@ export function createMockHost(): HostTransport {
     if (addUser) list.push({ id: messageId ?? uid(), role: 'user', content: text, attachments, createdAt: now() })
 
     let finalText: string
+    if (/网页|浏览器|browser/i.test(text)) {
+      // 开发预览：AI 浏览器在操作内部网页，右侧出现「浏览器」标签
+      emit({ type: 'browser.state', active: true, url: 'http://erp.company.local/report/daily', title: '生产日报 - ERP', action: '打开了网页' })
+      await sleep(400)
+      emit({ type: 'browser.state', active: true, url: 'http://erp.company.local/report/daily', title: '生产日报 - ERP', action: '在 [3] 填写' })
+    }
     if (/给建议|suggest/i.test(text)) {
       // 开发预览：AI 做事时顺带发现了范围外的问题，给一张「建议新任务」卡片
       const callId = uid()

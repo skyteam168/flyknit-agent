@@ -773,6 +773,8 @@ public sealed partial class AgentHost : IDisposable
                 history.AddRange(window);
             }
 
+            // AI 浏览器：IT 打开了「浏览器操作」时这一轮才有
+            var browser = BrowserFor(conv);
             var ctx = new ToolContext
             {
                 Policy = _policy,
@@ -789,6 +791,7 @@ public sealed partial class AgentHost : IDisposable
                     : new PermanentDeleter(),
             Backup = Security.On(Flyknit.Core.Security.SecuritySettings.AutoBackup) ? _backup : null,
             RecordChange = ChangeRecorder(id, user.Id),
+            Browser = browser,
             Security = Security,
             };
 
@@ -815,6 +818,16 @@ public sealed partial class AgentHost : IDisposable
             if (AskUserFor(conv) is { } askUser && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, askUser)))
             {
                 extra.Add(askUser);
+            }
+            if (browser is not null)
+            {
+                foreach (var tool in Flyknit.Core.Browser.BrowserToolSet.All)
+                {
+                    if (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, tool))
+                    {
+                        extra.Add(tool);
+                    }
+                }
             }
             if (extra.Count > 0)
             {
