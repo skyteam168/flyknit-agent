@@ -550,7 +550,7 @@ public sealed class TranslatePopup : Window
     }
 
     /// <summary>去掉系统按钮那一圈 3D 边框，只留圆角背景和内容。</summary>
-    private static ControlTemplate FlatTemplate(Type target)
+    internal static ControlTemplate FlatTemplate(Type target)
     {
         var border = new FrameworkElementFactory(typeof(Border));
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
@@ -563,7 +563,7 @@ public sealed class TranslatePopup : Window
         return new ControlTemplate(target) { VisualTree = border };
     }
 
-    private sealed record Palette(Brush Background, Brush Surface, Brush Border, Brush Text, Brush Subtle, Brush Accent, Brush AccentHover)
+    internal sealed record Palette(Brush Background, Brush Surface, Brush Border, Brush Text, Brush Subtle, Brush Accent, Brush AccentHover)
     {
         public static Palette For(string theme)
         {

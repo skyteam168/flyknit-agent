@@ -628,13 +628,14 @@ public sealed partial class AgentHost : IDisposable
         }
         ActiveRunsChanged?.Invoke(_runs.Count);
         _runContext[conversationId] = (uiLanguage, confirm, events);
+        BeginProgress(conversationId);
         _ = Task.Run(() => RunAsync(conv, newUser, uiLanguage, confirm, events, cts));
     }
 
     private async Task RunAsync(Conversation conv, ChatMessage? newUser, string uiLanguage, IConfirmationHandler confirm, IHostEvents events, CancellationTokenSource cts)
     {
         var id = conv.Id;
-        var observer = new RunObserver(id, events);
+        var observer = new RunObserver(id, events, this);
         try
         {
             await Task.WhenAny(_initialConfig); // 启动后立刻发的任务：等 IT 的安全策略先拉下来
@@ -820,6 +821,7 @@ public sealed partial class AgentHost : IDisposable
             var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(), Approvals)
             {
                 Interjections = InterjectionsFor(id),
+                Pause = PauseGateFor(id),
             };
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
@@ -909,6 +911,7 @@ public sealed partial class AgentHost : IDisposable
         {
             _runs.TryRemove(id, out _);
             cts.Dispose();
+            EndProgress(id);
             ActiveRunsChanged?.Invoke(_runs.Count);
             // 排队的话接着发。钉钉、企业微信、手机发来的任务由 RunChannelMessageAsync 收尾后再接着发
             if (!_remoteRuns.ContainsKey(id))
@@ -1285,6 +1288,7 @@ public sealed partial class AgentHost : IDisposable
             cts.Dispose();
             return new InstructionOutcome(false, "", "会话正忙", conv.Id);
         }
+        BeginProgress(conv.Id);
         ActiveRunsChanged?.Invoke(_runs.Count);
         try
         {
@@ -1335,6 +1339,7 @@ public sealed partial class AgentHost : IDisposable
             var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(), Approvals)
             {
                 Interjections = InterjectionsFor(conv.Id),
+                Pause = PauseGateFor(conv.Id),
             };
             var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
             Store.AddMessages(conv.Id, result.NewMessages);
@@ -1359,6 +1364,7 @@ public sealed partial class AgentHost : IDisposable
         {
             _runs.TryRemove(conv.Id, out _);
             cts.Dispose();
+            EndProgress(conv.Id);
             ActiveRunsChanged?.Invoke(_runs.Count);
         }
     }
@@ -1514,11 +1520,13 @@ public sealed partial class AgentHost : IDisposable
     {
         private readonly string _id;
         private readonly IHostEvents _events;
+        private readonly AgentHost? _host;
 
-        public RunObserver(string id, IHostEvents events)
+        public RunObserver(string id, IHostEvents events, AgentHost? host = null)
         {
             _id = id;
             _events = events;
+            _host = host;
         }
 
         public void OnContent(string delta) => _events.Post(new { type = "chat.delta", conversationId = _id, text = delta });
@@ -1531,7 +1539,13 @@ public sealed partial class AgentHost : IDisposable
         public void OnToolMessage(ChatMessage message) =>
             _events.Post(new { type = "chat.message", conversationId = _id, message = MessageDto.From(message) });
 
-        public void OnToolStarted(ToolCall call, string summary, PolicyDecision decision) => _events.Post(new
+        public void OnToolStarted(ToolCall call, string summary, PolicyDecision decision)
+        {
+            _host?.NoteStep(_id, summary);
+            PostToolStarted(call, summary, decision);
+        }
+
+        private void PostToolStarted(ToolCall call, string summary, PolicyDecision decision) => _events.Post(new
         {
             type = "tool.started",
             conversationId = _id,
@@ -1585,7 +1599,13 @@ public sealed partial class AgentHost : IDisposable
             });
         }
 
-        public void OnPlanUpdated(IReadOnlyList<PlanItem> plan) => _events.Post(new
+        public void OnPlanUpdated(IReadOnlyList<PlanItem> plan)
+        {
+            PostPlan(plan);
+            _host?.NotePlan();
+        }
+
+        private void PostPlan(IReadOnlyList<PlanItem> plan) => _events.Post(new
         {
             type = "plan.updated",
             conversationId = _id,

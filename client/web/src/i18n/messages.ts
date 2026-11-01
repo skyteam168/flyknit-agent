@@ -1015,6 +1015,12 @@ const zh = {
       rule2: '需要你确认的操作（删除文件、安装软件等）不会远程执行，结果里会列出来，回到电脑上再做。',
       rule3: '远程发来的任务会出现在左侧「钉钉 · 名字」或「企业微信 · 名字」对话里，可以接着在电脑上问。',
     },
+    pause: {
+      pause: '暂停（做完手上这一步后停住）',
+      resume: '继续',
+      banner: '已暂停：AI 做完手上这一步后停住了，可以插话补充，或者点继续',
+      placeholder: '已暂停…可以补充要求，继续后 AI 会先看到',
+    },
     fold: {
       summary: '已完成 {n} 步：{names}',
       sep: '、',
@@ -2290,6 +2296,12 @@ const vi: Messages = {
       rule2: 'Thao tác cần bạn xác nhận (xóa tệp, cài phần mềm…) sẽ không chạy từ xa, kết quả sẽ liệt kê để bạn làm trên máy.',
       rule3: 'Việc gửi từ xa nằm trong cuộc trò chuyện "钉钉 · tên" hoặc "企业微信 · tên" ở thanh bên, có thể hỏi tiếp trên máy.',
     },
+    pause: {
+      pause: 'Tạm dừng (dừng sau bước đang làm)',
+      resume: 'Tiếp tục',
+      banner: 'Đã tạm dừng: AI dừng sau bước đang làm. Có thể nói thêm, hoặc bấm Tiếp tục',
+      placeholder: 'Đã tạm dừng… có thể bổ sung yêu cầu, AI sẽ thấy khi tiếp tục',
+    },
     fold: {
       summary: 'Đã xong {n} bước: {names}',
       sep: ', ',
@@ -3562,6 +3574,12 @@ const en: Messages = {
       rule1: "Direct messages only; {'@'}-mentioning the bot in a group asks you to message it directly.",
       rule2: 'Actions that need your approval (deleting files, installing software…) are not run remotely; the reply lists them so you can do them at the computer.',
       rule3: 'Remote requests appear in the "钉钉 · name" or "企业微信 · name" conversation in the sidebar, where you can keep going on the computer.',
+    },
+    pause: {
+      pause: 'Pause (stops after the current step)',
+      resume: 'Resume',
+      banner: 'Paused: the AI stopped after its current step. Add something, or resume',
+      placeholder: 'Paused… add to the request; the AI sees it when it resumes',
     },
     fold: {
       summary: 'Done in {n} steps: {names}',

@@ -55,6 +55,8 @@ interface ConversationState {
   subtaskCalls: Record<string, string>
   /** 运行中又发的话：AI 还没读到的插话、排到本轮之后的话 */
   inputs: PendingInput[]
+  /** 用户暂停了这一轮（悬浮球或输入框上的暂停） */
+  paused?: boolean
 }
 
 export const state = reactive({
@@ -913,6 +915,20 @@ export async function interject(text: string, mode: InterjectMode): Promise<bool
   }
 }
 
+/** 暂停 / 继续当前对话的这一轮 */
+export async function togglePause() {
+  const id = state.currentId
+  if (!id) return
+  const s = convState(id)
+  try {
+    const was = !!s.paused
+    // 宿主也会推 chat.paused；这里按结果直接定下来，不用取反（事件可能先到）
+    if (await (was ? bridge.resume(id) : bridge.pause(id))) s.paused = !was
+  } catch (e) {
+    fail(e)
+  }
+}
+
 /** 待发的话改一下（AI 读到之前）；已经被读走了就提示一下 */
 export async function editPending(id: string, text: string) {
   const conv = state.currentId
@@ -1199,6 +1215,7 @@ function markRunning(conversationId: string): ConversationState {
 /** 一轮结束（正常结束或出错）：还在跑、还在等确认的工具卡片都算失败，收起压缩进度，刷新列表和用量 */
 function finishRun(s: ConversationState, conversationId: string) {
   s.busy = false
+  s.paused = false
   s.draft = null
   for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
   // 专家的结束事件没收到（宿主那边出错、事件丢了）：向宿主要一次最终状态，卡片不要一直转圈
@@ -1376,6 +1393,9 @@ function onHostEvent(e: HostEvent) {
       }
       break
     }
+    case 'chat.paused':
+      convState(e.conversationId).paused = e.paused
+      break
     case 'chat.pending':
       convState(e.conversationId).inputs = e.items
       break

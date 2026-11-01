@@ -97,6 +97,54 @@ public class InterjectionTests : IDisposable
     }
 
     [Fact]
+    public async Task PausingHoldsTheRunBeforeTheNextStepUntilResumed()
+    {
+        var gate = new TaskCompletionSource();
+        var paused = true;
+        var gateway = new Gateway((n, _) => n == 1 ? ListDir() : new ChatTurn { Content = "列好了" });
+        var loop = new AgentLoop(gateway, ToolRegistry.CreateDefault(), new Reject())
+        {
+            Pause = ct => paused ? gate.Task.WaitAsync(ct).ContinueWith(_ => { }, TaskScheduler.Default) : Task.CompletedTask,
+        };
+
+        var run = loop.RunAsync(new List<ChatMessage> { ChatMessage.User("列一下文件") }, Scenes.Agent, Context(), new Observer(), true, CancellationToken.None);
+        await Task.Delay(150);
+        Assert.False(run.IsCompleted);
+        Assert.Empty(gateway.Seen);          // 暂停中：模型一次都没调
+
+        paused = false;
+        gate.SetResult();
+        var result = await run.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(AgentStopReason.Completed, result.StopReason);
+        Assert.Equal(2, gateway.Seen.Count);
+    }
+
+    [Fact]
+    public async Task StoppingWhilePausedEndsTheRunCleanly()
+    {
+        using var cts = new CancellationTokenSource();
+        var gateway = new Gateway((_, _) => ListDir());
+        var calls = 0;
+        var loop = new AgentLoop(gateway, ToolRegistry.CreateDefault(), new Reject())
+        {
+            // 第一步放行；之后（工具执行前）一直暂停，直到被停止
+            Pause = ct => ++calls == 1 ? Task.CompletedTask : Task.Delay(Timeout.Infinite, ct).ContinueWith(_ => { }, TaskScheduler.Default),
+        };
+
+        var run = loop.RunAsync(new List<ChatMessage> { ChatMessage.User("列一下文件") }, Scenes.Agent, Context(), new Observer(), true, cts.Token);
+        await Task.Delay(150);
+        Assert.False(run.IsCompleted);
+        cts.Cancel();
+        var result = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(AgentStopReason.Cancelled, result.StopReason);
+        // 发起了的工具调用有结果（没执行），上下文配得上
+        var tool = Assert.Single(result.NewMessages, m => m.Role == ChatRole.Tool);
+        Assert.Contains("停止", tool.Content);
+        Assert.Single(gateway.Seen);
+    }
+
+    [Fact]
     public async Task AnInterjectionJustBeforeTheAnswerKeepsTheRunGoing()
     {
         var inbox = new Queue<ChatMessage>();

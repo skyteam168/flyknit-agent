@@ -315,6 +315,9 @@ class Bridge {
   /** 运行中又发一句。返回 false：已经不在运行了，照常发送 */
   interject = (conversationId: string, text: string, mode: InterjectMode, messageId: string) =>
     this.call<boolean>('chat.interject', { conversationId, text, mode, messageId })
+  /** 暂停：正在做的这一步做完后停住；继续后接着往下走 */
+  pause = (conversationId: string) => this.call<boolean>('chat.pause', { conversationId })
+  resume = (conversationId: string) => this.call<boolean>('chat.resume', { conversationId })
   pendingInputs = (conversationId: string) => this.call<PendingInput[]>('chat.pending', { conversationId })
   /** AI 读到之前改一句；已经被读走返回 false */
   updatePending = (conversationId: string, id: string, text: string, mode?: 'steer' | 'queue') =>

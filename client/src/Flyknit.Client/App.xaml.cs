@@ -256,6 +256,9 @@ public partial class App : Application
             _activeRuns = count;
             UpdateBall();
         });
+        // 任务换了一步、计划有进展、暂停 / 继续：悬浮球的进度和任务面板跟着变
+        _host.RunStatusChanged += () => Dispatcher.BeginInvoke(UpdateBall);
+        _ball.HoverChanged += OnBallHover;
 
         // Windows 系统通知：确认按钮直接生效，点通知回到对应任务
         _notifications = new NotificationService { SoundSetting = () => _host.NotificationSoundChoice() };
@@ -413,7 +416,118 @@ public partial class App : Application
         return string.IsNullOrEmpty(active) || active == conversationId;
     }
 
-    private void UpdateBall() => _ball?.SetState(_activeRuns > 0, _pendingConfirms > 0);
+    private void UpdateBall()
+    {
+        if (_ball is null)
+        {
+            return;
+        }
+        _ball.SetState(_activeRuns > 0, _pendingConfirms > 0);
+        var runs = _host?.RunSnapshots() ?? Array.Empty<RunSnapshot>();
+        _ball.SetProgress(runs, _pendingConfirms > 0);
+        _taskPanel?.Update(runs);
+    }
+
+    // ---------- 悬浮球任务面板 ----------
+
+    private BallTaskPanel? _taskPanel;
+    private System.Windows.Threading.DispatcherTimer? _panelTimer;
+    private bool _overBall;
+    private bool _overPanel;
+
+    /// <summary>鼠标停在悬浮球上、有任务在跑：稍等一下弹出任务面板（划过去不弹）。</summary>
+    private void OnBallHover(bool over)
+    {
+        _overBall = over;
+        if (over && _activeRuns > 0)
+        {
+            var delay = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+            delay.Tick += (_, _) =>
+            {
+                delay.Stop();
+                if (_overBall && _activeRuns > 0)
+                {
+                    ShowTaskPanel();
+                }
+            };
+            delay.Start();
+        }
+        ScheduleHidePanel();
+    }
+
+    private void ShowTaskPanel()
+    {
+        if (_ball is null || _host is null)
+        {
+            return;
+        }
+        if (_taskPanel is null)
+        {
+            _taskPanel = new BallTaskPanel(_settings.Theme);
+            _taskPanel.MouseEnter += (_, _) => _overPanel = true;
+            _taskPanel.MouseLeave += (_, _) =>
+            {
+                _overPanel = false;
+                ScheduleHidePanel();
+            };
+            _taskPanel.Deactivated += (_, _) => ScheduleHidePanel();
+            _taskPanel.OpenRequested += id =>
+            {
+                _taskPanel.Hide();
+                OpenConversation(id);
+            };
+            _taskPanel.PauseRequested += id => _host.Pause(id);
+            _taskPanel.ResumeRequested += id => _host.Resume(id);
+            _taskPanel.StopRequested += id =>
+            {
+                _host.Resume(id);
+                _host.Stop(id);
+            };
+            _taskPanel.InterjectRequested += (id, text, mode) =>
+            {
+                if (!_host.Interject(id, text, mode, null))
+                {
+                    // 这一轮刚好结束了：照常作为新的一句发出去，免得白打
+                    if (!_host.SendAfterRun(id, text))
+                    {
+                        _tray?.ShowBalloonTip(4000, "FlyknitBuddy", NativeStrings.T("ball.panel.ended"), System.Windows.Forms.ToolTipIcon.Info);
+                    }
+                }
+            };
+        }
+        _taskPanel.Update(_host.RunSnapshots());
+        _taskPanel.ShowNear(_ball.Bounds);
+        // 面板开着时每秒刷新一次用时
+        _panelTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _panelTimer.Tick -= OnPanelTick;
+        _panelTimer.Tick += OnPanelTick;
+        _panelTimer.Start();
+    }
+
+    private void OnPanelTick(object? sender, EventArgs e)
+    {
+        if (_taskPanel is not { IsVisible: true } || _host is null)
+        {
+            _panelTimer?.Stop();
+            return;
+        }
+        _taskPanel.Update(_host.RunSnapshots());
+    }
+
+    /// <summary>鼠标离开悬浮球和面板一会儿后收起；正在面板里打插话时不收。</summary>
+    private void ScheduleHidePanel()
+    {
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (_taskPanel is { IsVisible: true } panel && !_overBall && !_overPanel && !panel.Editing)
+            {
+                panel.Hide();
+            }
+        };
+        timer.Start();
+    }
 
     // ---------- 悬浮球右键菜单 ----------
 

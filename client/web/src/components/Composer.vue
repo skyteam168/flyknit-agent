@@ -16,7 +16,9 @@ import {
   MessageSquare,
   Mic,
   Paperclip,
+  Pause,
   Pencil,
+  Play,
   Plug,
   Puzzle,
   RotateCcw,
@@ -47,6 +49,7 @@ import {
   draftMode,
   finishSpeech,
   interject,
+  togglePause,
   withdrawPending,
   onSpeechText,
   pickFiles,
@@ -71,6 +74,7 @@ const mode = computed<Mode>(() => current.value?.mode ?? draftMode.mode)
 const expertMode = computed(() => !!(current.value?.expertId ?? draftMode.expertId))
 const placeholder = computed(() => {
   if (offline.value) return t('input.disconnected')
+  if (paused.value && !props.home) return t('ui.pause.placeholder')
   if (busy.value && !props.home) return t('ui.interject.placeholder')
   if (mode.value === 'translate') return t('input.placeholderTranslate')
   if (currentExpert.value) return t('ui.experts.placeholder', { name: currentExpert.value.name })
@@ -79,6 +83,7 @@ const placeholder = computed(() => {
 const from = computed(() => current.value?.translateFrom ?? draftMode.translateFrom)
 const to = computed(() => current.value?.translateTo ?? draftMode.translateTo)
 const busy = computed(() => currentState.value?.busy ?? false)
+const paused = computed(() => !!currentState.value?.paused)
 const offline = computed(() => state.app !== null && !state.app.connected)
 const canSend = computed(
   () => !offline.value && (busy.value ? text.value.trim().length > 0 : text.value.trim().length > 0 || state.pending.length > 0),
@@ -392,6 +397,12 @@ onBeforeUnmount(() => {
     <AskBar v-if="!props.home" />
     <UsageWarning />
     <div class="card" :class="{ busy }">
+      <!-- 暂停中：做完手上这一步后停住，点继续接着往下走 -->
+      <div v-if="paused" class="paused-bar">
+        <Pause :size="14" />
+        <span>{{ t('ui.pause.banner') }}</span>
+        <button type="button" class="paused-go" @click="togglePause"><Play :size="13" /> {{ t('ui.pause.resume') }}</button>
+      </div>
       <!-- 运行中又发的话：AI 读到之前可以撤回、拿回输入框改 -->
       <div v-if="inputs.length" class="inputs">
         <div v-for="item in inputs" :key="item.id" class="input-row">
@@ -631,6 +642,9 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </span>
+          <button type="button" class="tool-btn icon-only" :class="{ on: paused }" :title="t(paused ? 'ui.pause.resume' : 'ui.pause.pause')" @click="togglePause">
+            <component :is="paused ? Play : Pause" :size="16" />
+          </button>
           <button type="button" class="send stop" :title="t('input.stop')" @click="stop">
             <Square :size="13" fill="currentColor" />
           </button>
@@ -1009,6 +1023,33 @@ textarea::placeholder {
 }
 .send.stop {
   background: var(--pill);
+}
+.paused-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 10px 0;
+  padding: 6px 6px 6px 10px;
+  border-radius: 8px;
+  background: var(--amber-wash);
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+}
+.paused-bar > span {
+  flex: 1;
+}
+.paused-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: var(--cloth);
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+.paused-go:hover {
+  background: var(--chip);
 }
 .send-wrap {
   position: relative;

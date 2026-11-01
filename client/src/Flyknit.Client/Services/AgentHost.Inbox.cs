@@ -44,6 +44,21 @@ public sealed partial class AgentHost
         return true;
     }
 
+    /// <summary>
+    /// 从悬浮球插话时这一轮刚好结束了：作为新的一句接着发（用这个对话上一次的界面语言和确认方式）。
+    /// 没运行过、对话没了返回 false。
+    /// </summary>
+    public bool SendAfterRun(string conversationId, string text)
+    {
+        if (!_runContext.ContainsKey(conversationId) || Store.Get(conversationId) is null || text.Trim().Length == 0)
+        {
+            return false;
+        }
+        Inbox.Add(conversationId, text, RunInbox.Queue);
+        ContinuePending(conversationId);
+        return true;
+    }
+
     /// <summary>给 AgentLoop：每一步取走这个对话的插话，变成用户消息。</summary>
     private Func<IReadOnlyList<ChatMessage>> InterjectionsFor(string conversationId) => () =>
         Inbox.TakeSteer(conversationId).Select(p => NewUserMessage(p.Id, p.Text, Array.Empty<Attachment>())).ToList();

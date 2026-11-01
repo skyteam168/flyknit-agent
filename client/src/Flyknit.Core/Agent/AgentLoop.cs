@@ -154,6 +154,12 @@ public sealed class AgentLoop
     /// </summary>
     public Func<IReadOnlyList<ChatMessage>>? Interjections { get; init; }
 
+    /// <summary>
+    /// 暂停闸门：每一步调模型之前、每个工具执行之前过一下。宿主在用户暂停时让它一直等着（直到继续或停止），
+    /// 正在进行的那次模型调用 / 那个工具会先做完，不会被打断在半中间。停止时应正常返回（不抛异常），由循环自己收尾。
+    /// </summary>
+    public Func<CancellationToken, Task>? Pause { get; init; }
+
     public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
@@ -210,6 +216,10 @@ public sealed class AgentLoop
         {
             for (var step = 0; step < _options.MaxSteps; step++)
             {
+                if (Pause is not null)
+                {
+                    await Pause(ct);
+                }
                 if (ct.IsCancellationRequested)
                 {
                     return Result(AgentStopReason.Cancelled);
@@ -673,6 +683,16 @@ public sealed class AgentLoop
 
         async Task<bool> HandleCallAsync(ToolCall call, string rationale, ToolContext context, IAgentObserver obs, Trace trace, CancellationToken token)
         {
+            if (Pause is not null)
+            {
+                await Pause(token);
+                if (token.IsCancellationRequested)
+                {
+                    // 暂停中被停止：这个调用不执行了，但要给它一个结果，上下文里调用和结果才配得上
+                    AppendTool(call, "已停止：用户在执行前停止了任务");
+                    return false;
+                }
+            }
             var prepared = await PrepareCallAsync(call, rationale, context, obs, trace, token);
             if (!prepared.Ready)
             {

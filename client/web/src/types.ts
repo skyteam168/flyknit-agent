@@ -869,6 +869,7 @@ export type HostEvent =
   | { type: 'speech.autoStop' }
   | { type: 'chat.notice'; conversationId: string; text: string }
   | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
+  | { type: 'chat.paused'; conversationId: string; paused: boolean }
   | {
       type: 'context.compacting'
       conversationId: string

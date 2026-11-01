@@ -1665,6 +1665,12 @@ export function createMockHost(): HostTransport {
         emitInbox(p.conversationId)
         return true
       }
+      case 'chat.pause':
+      case 'chat.resume': {
+        if (!runningConvs.has(p.conversationId)) return false
+        emit({ type: 'chat.paused', conversationId: p.conversationId, paused: method === 'chat.pause' })
+        return true
+      }
       case 'chat.pending':
         return inbox.get(p.conversationId) ?? []
       case 'chat.pending.update': {

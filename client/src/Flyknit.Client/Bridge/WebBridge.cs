@@ -1697,6 +1697,13 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _host.Stop(Str("conversationId"));
                 return null;
 
+            // 暂停 / 继续：正在做的这一步做完后停住，继续后接着往下走
+            case "chat.pause":
+                return _host.Pause(Str("conversationId"));
+
+            case "chat.resume":
+                return _host.Resume(Str("conversationId"));
+
             // 运行中又发的话：steer 插话 / queue 排到本轮之后 / interrupt 打断并优先。返回 false 表示已经不在运行，界面照常发送
             case "chat.interject":
                 return _host.Interject(Str("conversationId"), Str("text"), Str("mode"), OptStr("messageId"));
