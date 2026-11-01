@@ -84,6 +84,30 @@ def has_image(messages: list) -> bool:
     return False
 
 
+# 手机端默认优先：快模型。名字或上游型号对得上就用它，避免路由到会长时间思考的大模型
+PREFERRED_MOBILE = re.compile(r"deepseek-v4\.?1-flash|deepseek.*flash", re.I)
+
+
+async def list_chat_models(session: AsyncSession) -> list[ModelConfig]:
+    """员工 / 手机可选的对话模型（启用、非向量语音类）。"""
+    rows = (
+        await session.scalars(
+            select(ModelConfig).options(joinedload(ModelConfig.provider)).order_by(ModelConfig.provider_id, ModelConfig.name)
+        )
+    ).unique().all()
+    return [m for m in rows if _usable(m) and not NON_CHAT_MODEL.search(m.model)]
+
+
+async def prefer_mobile(session: AsyncSession, scene: str, model_id: int | None = None) -> list[Target]:
+    """手机选模型：指定了就用指定的；否则优先 deepseek flash，再退回场景路由。"""
+    if model_id is not None:
+        return await resolve(session, scene, model_id)
+    for m in await list_chat_models(session):
+        if PREFERRED_MOBILE.search(m.model) or PREFERRED_MOBILE.search(m.name):
+            return await resolve(session, scene, m.id)
+    return await resolve(session, scene)
+
+
 async def resolve(session: AsyncSession, scene: str, model_id: int | None = None) -> list[Target]:
     """返回按优先级排列的候选模型（主模型、备用模型）。chat 场景未配置时回退到 agent，反之亦然。
 

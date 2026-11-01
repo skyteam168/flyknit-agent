@@ -91,7 +91,20 @@ export const theme = reactive({
 const THEME_KEY = 'fk.theme'
 
 function systemIsDark() : boolean {
-	return uni.getSystemInfoSync().osTheme == 'dark'
+	const osTheme = uni.getSystemInfoSync().osTheme
+	if (osTheme == 'dark') {
+		return true
+	}
+	if (osTheme == 'light') {
+		return false
+	}
+	// Web 端没有 osTheme，用浏览器的配色偏好
+	// #ifdef WEB
+	return window.matchMedia('(prefers-color-scheme: dark)').matches
+	// #endif
+	// #ifndef WEB
+	return false
+	// #endif
 }
 
 function apply() {
@@ -107,9 +120,17 @@ export function applySystemTheme() {
 		theme.mode = saved as string
 	}
 	apply()
+	// onOsThemeChange 只有 App 有；浏览器里监听系统配色变化
+	// #ifdef APP
 	uni.onOsThemeChange((_ : OsThemeChangeResult) => {
 		apply()
 	})
+	// #endif
+	// #ifdef WEB
+	window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (_ : Event) => {
+		apply()
+	})
+	// #endif
 }
 
 export function setThemeMode(mode : string) {

@@ -14,7 +14,8 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,9 +24,11 @@ from ..crypto import hash_token, new_token
 from ..db import get_session, get_sessionmaker
 from ..deps import require_admin, require_device, require_owner
 from ..models import AdminUser, ChannelBinding, ChannelMessage, Device, MobileDevice
-from ..services import mobile_hub
+from ..schemas import ClientModelOut
+from ..services import asr, mobile_hub, model_router, settings_store, usage_store, web_search
 from ..services.channel_hub import hub as channels
 from ..services.mobile_hub import CHANNEL, external_id, get_config, hub, save_config, task_out
+from .speech import ALLOWED_FORMATS, build_target
 
 log = logging.getLogger("flyknit.mobile")
 
@@ -87,18 +90,21 @@ class MeOut(BaseModel):
     computer: ComputerOut
     #: 电脑上执行到需要确认的操作时，能不能在手机上批准
     approvals: bool
+    #: 管理员已开启联网搜索且配好了密钥；App 据此显示「联网」开关
+    web_search_enabled: bool = False
 
 
 class PairOut(MeOut):
     token: str
 
 
-def _me(mobile: MobileDevice, device: Device, cfg: dict) -> dict:
+def _me(mobile: MobileDevice, device: Device, cfg: dict, web_search_enabled: bool = False) -> dict:
     return {
         "id": mobile.id, "name": mobile.name,
         "computer": {"machine_name": device.machine_name, "user_name": device.user_name,
                      "online": channels.online(device.id)},
         "approvals": bool(cfg["allow_approval"]),
+        "web_search_enabled": bool(web_search_enabled),
     }
 
 
@@ -116,13 +122,85 @@ async def pair(data: PairIn, request: Request, session: AsyncSession = Depends(g
         hub.pair_failed(source)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "配对码不对或已过期，请在电脑上重新生成二维码")
     mobile, device = result
-    return PairOut(token=token, **_me(mobile, device, cfg))
+    search_cfg = await web_search.get_config(session)
+    return PairOut(token=token, **_me(mobile, device, cfg, web_search.is_ready(search_cfg)))
 
 
 @router.get("/me", response_model=MeOut)
 async def me(ctx: tuple[MobileDevice, Device] = Depends(require_mobile), session: AsyncSession = Depends(get_session)):
     mobile, device = ctx
-    return _me(mobile, device, await get_config(session))
+    search_cfg = await web_search.get_config(session)
+    return _me(mobile, device, await get_config(session), web_search.is_ready(search_cfg))
+
+
+@router.get("/models", response_model=list[ClientModelOut])
+async def mobile_models(ctx: tuple[MobileDevice, Device] = Depends(require_mobile), session: AsyncSession = Depends(get_session)):
+    """手机可选的对话模型（和管理后台启用的列表一致）。默认会优先 deepseek flash。"""
+    _ = ctx
+    return [
+        ClientModelOut(
+            id=m.id,
+            name=m.name,
+            model=m.model,
+            provider=m.provider.name,
+            supports_tools=m.supports_tools,
+            supports_vision=m.supports_vision,
+        )
+        for m in await model_router.list_chat_models(session)
+    ]
+
+
+@router.post("/speech/transcribe")
+async def mobile_transcribe(
+    request: Request,
+    audio: UploadFile = File(...),
+    audio_format: str = Form("wav"),
+    language: str = Form(""),
+    ctx: tuple[MobileDevice, Device] = Depends(require_mobile),
+    session: AsyncSession = Depends(get_session),
+):
+    """手机录音转文字：用量记在绑定的那台电脑上。"""
+    _, device = ctx
+    fmt = (audio_format or "").lower().lstrip(".")
+    if fmt not in ALLOWED_FORMATS:
+        return JSONResponse({"error": {"message": f"不支持的音频格式：{audio_format}"}}, status_code=400)
+    data = await audio.read()
+    if not data:
+        return JSONResponse({"error": {"message": "没有收到录音内容"}}, status_code=400)
+    if len(data) > asr.MAX_AUDIO_BYTES:
+        return JSONResponse({"error": {"message": "录音太长了，请分段说"}}, status_code=413)
+    try:
+        target = await build_target(session)
+    except model_router.NoRouteError:
+        return JSONResponse(
+            {"error": {"message": "还没有配置语音识别模型，请联系 IT"}},
+            status_code=503,
+        )
+    if language:
+        target.language = language
+    shared = (await settings_store.get_value(session, "asr", {})).get("hotwords") or []
+    if isinstance(shared, str):
+        shared = [w for w in (p.strip() for p in shared.replace("，", ",").split(",")) if w]
+    if shared:
+        target.hotwords = list(dict.fromkeys([*target.hotwords, *shared]))
+    try:
+        result = await asr.transcribe(request.app.state.http, target, data, fmt)
+    except asr.AsrError as exc:
+        return JSONResponse({"error": {"message": str(exc), "retryable": exc.retryable}}, status_code=502)
+    except Exception:  # noqa: BLE001
+        log.exception("手机语音识别异常 device=%s", device.id)
+        return JSONResponse({"error": {"message": "语音识别出错了，请再说一次", "retryable": True}}, status_code=502)
+    try:
+        await usage_store.record_request(session, device.id, "asr")
+    except Exception:  # noqa: BLE001
+        log.warning("记录手机语音用量失败 device=%s", device.id, exc_info=True)
+    return {
+        "text": result.text,
+        "language": result.language,
+        "duration_seconds": result.duration_seconds,
+        "transport": result.transport,
+        "model": target.display_name,
+    }
 
 
 @router.delete("/me")
@@ -251,7 +329,7 @@ async def answer_approval(approval_id: str, data: AnswerIn, ctx: tuple[MobileDev
 async def socket(ws: WebSocket, token: str = Query(default="")):
     """
     一条长连接干两件事：
-    - 手机发 {"type":"chat", id, mode, target, conversation_id, messages}，服务端逐字推回 chat.delta / chat.done
+    - 手机发 {"type":"chat", id, mode, target, conversation_id, messages}，服务端逐字推回 chat.reasoning / chat.delta / chat.done
     - 服务端推办事进度（task.event / task.updated）和审批请求（approval.request / approval.closed）
     """
     auth = ws.headers.get("authorization") or ""
@@ -261,6 +339,7 @@ async def socket(ws: WebSocket, token: str = Query(default="")):
         async with sessionmaker() as s:
             mobile, device = await _resolve(s, raw)
             cfg = await get_config(s)
+            search_ready = web_search.is_ready(await web_search.get_config(s))
     except HTTPException as exc:
         await ws.close(code=4401 if exc.status_code == 401 else 4403, reason="")
         return
@@ -268,8 +347,10 @@ async def socket(ws: WebSocket, token: str = Query(default="")):
     hub.attach(mobile.id, ws)
     chats: dict[str, asyncio.Task] = {}
     try:
-        await ws.send_json({"type": "hello", **_me(mobile, device, cfg),
+        await ws.send_json({"type": "hello", **_me(mobile, device, cfg, search_ready),
                             "approvals_pending": [a.out() for a in hub.pending_for(mobile.id)]})
+        # 后台预热上游，别让员工第一句聊天去付 TLS/模型冷启的账
+        asyncio.create_task(hub.warm_upstream(ws.app.state.http, sessionmaker))
         while True:
             msg = await ws.receive_json()
             kind = msg.get("type") if isinstance(msg, dict) else None
@@ -401,6 +482,43 @@ async def put_mobile(
         for mid in list(hub._sockets):
             await hub.close_all(mid)
     return await _config_out(session)
+
+
+class WebSearchOut(BaseModel):
+    enabled: bool
+    provider: str
+    count: int
+    api_key_masked: str
+    api_key_set: bool
+    ready: bool
+
+
+class WebSearchIn(BaseModel):
+    enabled: bool = False
+    provider: str = "bocha"
+    count: int = Field(default=5, ge=1, le=10)
+    #: 不传表示不改；传空字符串清空
+    api_key: str | None = None
+
+
+@admin_router.get("/web-search", response_model=WebSearchOut)
+async def get_web_search(session: AsyncSession = Depends(get_session)):
+    return WebSearchOut(**web_search.public_out(await web_search.get_config(session)))
+
+
+@admin_router.put("/web-search", response_model=WebSearchOut)
+async def put_web_search(data: WebSearchIn, session: AsyncSession = Depends(get_session)):
+    try:
+        cfg = await web_search.save_config(
+            session,
+            enabled=data.enabled,
+            provider=data.provider,
+            count=data.count,
+            api_key=data.api_key,
+        )
+    except web_search.SearchError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return WebSearchOut(**web_search.public_out(cfg))
 
 
 class AdminPhoneOut(PhoneOut):

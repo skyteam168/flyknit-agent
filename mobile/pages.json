@@ -17,5 +17,11 @@
 		"navigationBarTextStyle": "black",
 		"navigationBarBackgroundColor": "#ffffff",
 		"backgroundColor": "#ffffff"
+	},
+	"easycom": {
+		"autoscan": true,
+		"custom": {
+			"^fk-(.*)": "@/components/fk-$1/fk-$1.uvue"
+		}
 	}
 }

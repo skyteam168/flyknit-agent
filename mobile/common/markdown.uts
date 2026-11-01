@@ -41,7 +41,7 @@ function isWord(ch : string) : boolean {
 	return /[A-Za-z0-9]/.test(ch)
 }
 
-/** 行内：**粗体**、*斜体*、`代码`、[文字](链接)（只留文字） */
+/** 行内：**粗体**、*斜体*、`代码`、$公式$、[文字](链接)（只留文字） */
 export function parseInline(src : string) : Array<MdSpan> {
 	const out = [] as Array<MdSpan>
 	// 链接只保留文字
@@ -64,6 +64,19 @@ export function parseInline(src : string) : Array<MdSpan> {
 				flush()
 				out.push(span(s.substring(i + 1, end), false, false, true))
 				i = end + 1
+				continue
+			}
+		}
+		// 行内公式：$...$ 或 $$...$$，手机上用等宽样式显示
+		if (ch == '$') {
+			const dbl = i + 1 < s.length && s.charAt(i + 1) == '$'
+			const openLen = dbl ? 2 : 1
+			const close = dbl ? '$$' : '$'
+			const end = s.indexOf(close, i + openLen)
+			if (end > i) {
+				flush()
+				out.push(span(s.substring(i + openLen, end).trim(), false, false, true))
+				i = end + openLen
 				continue
 			}
 		}

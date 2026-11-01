@@ -4,6 +4,7 @@ import type {
   ChannelMessageRow,
   DingTalkConfig,
   MobileConfig,
+  MobileWebSearchConfig,
   MobilePhone,
   MobileRelease,
   WeComConfig,
@@ -194,6 +195,9 @@ export const api = {
   channelMessages: (limit = 100) => get<ChannelMessageRow[]>('/channels/messages', { limit }),
   mobile: () => get<MobileConfig>('/mobile'),
   saveMobile: (body: { enabled: boolean; allow_approval: boolean; approval_timeout_min: number }) => put<MobileConfig>('/mobile', body),
+  mobileWebSearch: () => get<MobileWebSearchConfig>('/mobile/web-search'),
+  saveMobileWebSearch: (body: { enabled: boolean; provider: string; count: number; api_key?: string | null }) =>
+    put<MobileWebSearchConfig>('/mobile/web-search', body),
   mobilePhones: () => get<MobilePhone[]>('/mobile/phones'),
   revokeMobilePhone: (id: number) => del<{ ok: boolean }>(`/mobile/phones/${id}`),
   mobileReleases: () => get<MobileRelease[]>('/mobile/releases'),

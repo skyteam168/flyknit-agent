@@ -4,23 +4,42 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Iphone, Refresh, Upload } from '@element-plus/icons-vue'
 import type { UploadFile, UploadRawFile } from 'element-plus'
 import { api } from '@/api'
-import type { MobileConfig, MobilePhone, MobileRelease } from '@/api/types'
+import type { MobileConfig, MobilePhone, MobileRelease, MobileWebSearchConfig } from '@/api/types'
 import { bytes, dateTime, relative } from '@/utils/format'
 
 const cfg = ref<MobileConfig | null>(null)
+const searchCfg = ref<MobileWebSearchConfig | null>(null)
 const phones = ref<MobilePhone[]>([])
 const releases = ref<MobileRelease[]>([])
 const loading = ref(false)
 const form = reactive({ enabled: false, allow_approval: true, approval_timeout_min: 5 })
+const searchForm = reactive({
+  enabled: false,
+  provider: 'bocha',
+  count: 5,
+  api_key: '',
+})
 
 async function load() {
   loading.value = true
   try {
-    const [c, p, r] = await Promise.all([api.mobile(), api.mobilePhones(), api.mobileReleases()])
+    const [c, s, p, r] = await Promise.all([
+      api.mobile(),
+      api.mobileWebSearch(),
+      api.mobilePhones(),
+      api.mobileReleases(),
+    ])
     cfg.value = c
+    searchCfg.value = s
     phones.value = p
     releases.value = r
     Object.assign(form, { enabled: c.enabled, allow_approval: c.allow_approval, approval_timeout_min: c.approval_timeout_min })
+    Object.assign(searchForm, {
+      enabled: s.enabled,
+      provider: s.provider || 'bocha',
+      count: s.count || 5,
+      api_key: '',
+    })
   } finally {
     loading.value = false
   }
@@ -47,6 +66,45 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+const savingSearch = ref(false)
+async function saveSearch() {
+  savingSearch.value = true
+  try {
+    const body: { enabled: boolean; provider: string; count: number; api_key?: string | null } = {
+      enabled: searchForm.enabled,
+      provider: searchForm.provider,
+      count: searchForm.count,
+    }
+    if (searchForm.api_key.trim() !== '') {
+      body.api_key = searchForm.api_key.trim()
+    }
+    searchCfg.value = await api.saveMobileWebSearch(body)
+    searchForm.api_key = ''
+    ElMessage.success(searchCfg.value.ready ? '联网搜索已保存并可用' : '已保存（还需开启并填写 API Key）')
+  } finally {
+    savingSearch.value = false
+  }
+}
+
+async function clearSearchKey() {
+  try {
+    await ElMessageBox.confirm('清空联网搜索的 API Key？手机上将无法使用联网。', '清空密钥', {
+      type: 'warning',
+      confirmButtonText: '清空',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  searchCfg.value = await api.saveMobileWebSearch({
+    enabled: searchForm.enabled,
+    provider: searchForm.provider,
+    count: searchForm.count,
+    api_key: '',
+  })
+  ElMessage.success('已清空密钥')
 }
 
 // ---------- App 版本 ----------
@@ -186,6 +244,45 @@ async function revoke(p: MobilePhone) {
         </ol>
       </section>
     </div>
+
+    <section class="panel">
+      <div class="panel-title">
+        <h3>联网搜索 <small>仅手机「对话」；流量从服务器出网</small></h3>
+        <el-tag v-if="searchCfg?.ready" type="success" effect="plain">可用</el-tag>
+        <el-tag v-else type="info" effect="plain">未就绪</el-tag>
+      </div>
+      <el-form :model="searchForm" label-width="140px" style="max-width: 640px">
+        <el-form-item label="开启联网搜索">
+          <el-switch v-model="searchForm.enabled" />
+          <p class="hint">开启后，员工可在手机对话里打开「联网」开关；翻译不受影响。</p>
+        </el-form-item>
+        <el-form-item label="提供商">
+          <el-select v-model="searchForm.provider" style="width: 260px">
+            <el-option label="博查 Bocha（国内）" value="bocha" />
+            <el-option label="Serper（国际）" value="serper" />
+            <el-option label="Tavily（国际）" value="tavily" />
+          </el-select>
+          <p class="hint">服务器在国外访问不了博查时，改选 Serper 或 Tavily，并填对应 Key。</p>
+        </el-form-item>
+        <el-form-item label="API Key">
+          <el-input
+            v-model="searchForm.api_key"
+            type="password"
+            show-password
+            placeholder="不改请留空"
+            style="max-width: 360px"
+          />
+          <el-button v-if="searchCfg?.api_key_set" link type="danger" style="margin-left: 8px" @click="clearSearchKey">清空</el-button>
+          <p class="hint" v-if="searchCfg?.api_key_set">当前：{{ searchCfg.api_key_masked }}</p>
+        </el-form-item>
+        <el-form-item label="结果条数">
+          <el-input-number v-model="searchForm.count" :min="1" :max="10" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="savingSearch" @click="saveSearch">保存联网搜索</el-button>
+        </el-form-item>
+      </el-form>
+    </section>
 
     <section class="panel">
       <div class="panel-title">

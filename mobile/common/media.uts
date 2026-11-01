@@ -1,0 +1,108 @@
+// 相册选图、拍照、语音转写（有 ASR 走服务器；没有就提示）。
+
+import { state } from './store.uts'
+
+export type PickedImage = {
+	path : string
+	/** data:image/jpeg;base64,... 发给模型用 */
+	dataUrl : string
+}
+
+function guessMime(path : string) : string {
+	const lower = path.toLowerCase()
+	if (lower.endsWith('.png')) return 'image/png'
+	if (lower.endsWith('.webp')) return 'image/webp'
+	if (lower.endsWith('.gif')) return 'image/gif'
+	return 'image/jpeg'
+}
+
+function readAsDataUrl(path : string) : Promise<string> {
+	return new Promise<string>((resolve, reject) => {
+		uni.getFileSystemManager().readFile({
+			filePath: path,
+			encoding: 'base64',
+			success: (res) => {
+				const b64 = res.data as string
+				resolve('data:' + guessMime(path) + ';base64,' + b64)
+			},
+			fail: (err) => {
+				reject(err.errMsg)
+			}
+		})
+	})
+}
+
+function pick(source : string) : Promise<PickedImage | null> {
+	return new Promise<PickedImage | null>((resolve) => {
+		uni.chooseImage({
+			count: 1,
+			sizeType: ['compressed'],
+			sourceType: [source],
+			success: (res) => {
+				const path = res.tempFilePaths.length > 0 ? res.tempFilePaths[0] : ''
+				if (path == '') {
+					resolve(null)
+					return
+				}
+				readAsDataUrl(path).then((dataUrl) => {
+					resolve({ path: path, dataUrl: dataUrl } as PickedImage)
+				}).catch((msg) => {
+					uni.showToast({ title: '读图失败：' + msg, icon: 'none' })
+					resolve(null)
+				})
+			},
+			fail: (_) => {
+				resolve(null)
+			}
+		})
+	})
+}
+
+export function pickFromAlbum() : Promise<PickedImage | null> {
+	return pick('album')
+}
+
+export function takePhoto() : Promise<PickedImage | null> {
+	return pick('camera')
+}
+
+/**
+ * 录音后交给服务端转写。电脑端同一套 /api/v1/speech/transcribe；
+ * 没有配语音模型时会失败，提示员工改用打字。
+ */
+export async function transcribeFile(filePath : string) : Promise<string> {
+	if (state.token == '' || state.server == '') {
+		return ''
+	}
+	return new Promise<string>((resolve) => {
+		uni.uploadFile({
+			url: state.server + '/api/v1/mobile/speech/transcribe',
+			filePath: filePath,
+			name: 'audio',
+			formData: { audio_format: 'wav' } as UTSJSONObject,
+			header: { Authorization: 'Bearer ' + state.token },
+			success: (res) => {
+				if (res.statusCode < 200 || res.statusCode >= 300) {
+					uni.showToast({ title: '语音识别不可用，请打字发送', icon: 'none' })
+					resolve('')
+					return
+				}
+				try {
+					const body = JSON.parse(res.data) as UTSJSONObject
+					resolve(body.getString('text') ?? '')
+				} catch (_) {
+					resolve('')
+				}
+			},
+			fail: (_) => {
+				uni.showToast({ title: '语音识别失败，请打字发送', icon: 'none' })
+				resolve('')
+			}
+		})
+	})
+}
+
+/** 浏览器端没有录音基座时，用这个占位提示 */
+export function voiceUnsupported() {
+	uni.showToast({ title: '浏览器里暂不支持按住说话，请用真机 App 或打字', icon: 'none' })
+}

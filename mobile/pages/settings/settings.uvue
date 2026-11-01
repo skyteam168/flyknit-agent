@@ -32,13 +32,38 @@
 				</view>
 			</view>
 
+			<text class="section" :style="{ color: c.inkFaint }">模型</text>
+			<view class="card" :style="{ backgroundColor: c.cloth }">
+				<view class="row-btn" @click="pickModel">
+					<text class="key" :style="{ color: c.ink }">对话模型</text>
+					<text class="val" :style="{ color: c.inkFaint }" :lines="1">{{ modelName }}</text>
+				</view>
+				<view class="row" :style="{ borderTopColor: c.line }">
+					<text class="key" :style="{ color: c.inkSoft }">深度思考</text>
+					<switch :checked="deepThinking" @change="onDeep" color="#3446c9" />
+				</view>
+				<view class="row" :style="{ borderTopColor: c.line }">
+					<text class="key" :style="{ color: c.inkSoft }">联网搜索</text>
+					<switch :checked="webSearch" :disabled="!webSearchAvailable" @change="onWeb" color="#3446c9" />
+				</view>
+				<text class="hint" :style="{ color: c.inkFaint }">默认关思考、优先 Flash。需要实时资讯时打开联网（管理员需先配置搜索）；翻译不受影响。</text>
+			</view>
+
 			<text class="section" :style="{ color: c.inkFaint }">外观</text>
 			<view class="card" :style="{ backgroundColor: c.cloth }">
+				<text class="sub-label" :style="{ color: c.inkFaint }">主题</text>
 				<view class="seg" :style="{ backgroundColor: c.chip }">
 					<view v-for="m in THEMES" :key="m.id" class="seg-item" :style="m.id == themeMode ? { backgroundColor: c.cloth } : {}" @click="pickTheme(m.id)">
 						<text class="seg-text" :style="{ color: m.id == themeMode ? c.ink : c.inkSoft }">{{ m.label }}</text>
 					</view>
 				</view>
+				<text class="sub-label" :style="{ color: c.inkFaint }">聊天字体</text>
+				<view class="seg" :style="{ backgroundColor: c.chip }">
+					<view v-for="f in FONTS" :key="f.id" class="seg-item" :style="f.id == fontSize ? { backgroundColor: c.cloth } : {}" @click="pickFont(f.id)">
+						<text class="seg-text" :style="{ color: f.id == fontSize ? c.ink : c.inkSoft }">{{ f.label }}</text>
+					</view>
+				</view>
+				<text class="preview" :style="{ color: c.ink, fontSize: previewFont, lineHeight: previewLine }">预览：有什么问题尽管问</text>
 			</view>
 
 			<text class="section" :style="{ color: c.inkFaint }">通知</text>
@@ -72,12 +97,18 @@
 	import { request } from '../../common/api.uts'
 	import { disconnect, notifyLocal } from '../../common/socket.uts'
 	import { checkUpdate } from '../../common/update.uts'
+	import { ModelInfo, bodyFontPx, bodyLinePx, modelLabel, prefs, refreshModels, setDeepThinking, setFontSize, setModelId, setWebSearch } from '../../common/prefs.uts'
 
 	type ThemeItem = { id : string, label : string }
 	const THEMES = [
 		{ id: 'system', label: '跟随系统' } as ThemeItem,
 		{ id: 'light', label: '浅色' } as ThemeItem,
 		{ id: 'dark', label: '深色' } as ThemeItem
+	]
+	const FONTS = [
+		{ id: 'small', label: '小' } as ThemeItem,
+		{ id: 'medium', label: '标准' } as ThemeItem,
+		{ id: 'large', label: '大' } as ThemeItem
 	]
 
 	const c = computed(() => theme.c)
@@ -88,6 +119,13 @@
 	const server = computed(() : string => state.server)
 	const approvals = computed(() : boolean => state.approvalsAllowed)
 	const themeMode = computed(() : string => theme.mode)
+	const fontSize = computed(() : string => prefs.fontSize)
+	const previewFont = computed(() : string => bodyFontPx().toString() + 'px')
+	const previewLine = computed(() : string => bodyLinePx().toString() + 'px')
+	const modelName = computed(() : string => modelLabel())
+	const deepThinking = computed(() : boolean => prefs.deepThinking)
+	const webSearch = computed(() : boolean => prefs.webSearch)
+	const webSearchAvailable = computed(() : boolean => state.webSearchEnabled)
 	const version = uni.getAppBaseInfo().appVersion ?? ''
 
 	function back() {
@@ -96,6 +134,44 @@
 
 	function pickTheme(id : string) {
 		setThemeMode(id)
+	}
+
+	function pickFont(id : string) {
+		setFontSize(id)
+	}
+
+	function onDeep(e : UniSwitchChangeEvent) {
+		setDeepThinking(e.detail.value)
+	}
+
+	function onWeb(e : UniSwitchChangeEvent) {
+		if (!state.webSearchEnabled) {
+			uni.showToast({ title: '管理员未开启联网搜索', icon: 'none' })
+			return
+		}
+		setWebSearch(e.detail.value)
+	}
+
+	function pickModel() {
+		void refreshModels().then(() => {
+			const items = ['自动（优先 Flash）'] as Array<string>
+			prefs.models.forEach((m : ModelInfo) => {
+				items.push(m.name)
+			})
+			uni.showActionSheet({
+				itemList: items,
+				success: (r) => {
+					if (r.tapIndex == 0) {
+						setModelId(0)
+					} else {
+						const m = prefs.models[r.tapIndex - 1]
+						if (m != null) {
+							setModelId(m.id)
+						}
+					}
+				}
+			})
+		})
 	}
 
 	function manualUpdate() {
@@ -175,6 +251,11 @@
 		justify-content: center;
 		padding: 8px 0;
 	}
+	.hint {
+		font-size: 12px;
+		line-height: 18px;
+		padding: 0 0 12px 0;
+	}
 	.key {
 		font-size: 15px;
 	}
@@ -183,9 +264,16 @@
 		margin-left: 12px;
 		flex-shrink: 1;
 	}
+	.sub-label {
+		font-size: 12px;
+		margin-top: 12px;
+	}
+	.preview {
+		padding: 4px 0 14px 0;
+	}
 	.seg {
 		flex-direction: row;
-		margin: 12px 0;
+		margin: 8px 0 4px 0;
 		padding: 3px;
 		border-radius: 12px;
 	}

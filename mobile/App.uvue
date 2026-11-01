@@ -2,14 +2,17 @@
 	import { loadAuth, loadConversations, state } from './common/store.uts'
 	import { applySystemTheme } from './common/theme.uts'
 	import { connect, disconnect } from './common/socket.uts'
+	import { loadPrefs, refreshModels } from './common/prefs.uts'
 
 	export default {
 		onLaunch() {
 			loadAuth()
 			loadConversations()
+			loadPrefs()
 			applySystemTheme()
 			if (state.token != '') {
 				connect()
+				void refreshModels()
 			}
 		},
 		onShow() {
@@ -30,6 +33,11 @@
 </script>
 
 <style>
+	@font-face {
+		font-family: iconfont;
+		src: url('/static/font/iconfont.ttf');
+	}
+
 	/* uvue 的全局样式只放通用的几样，页面里的配色跟着主题走（见 common/theme.uts） */
 	.flex-row {
 		flex-direction: row;

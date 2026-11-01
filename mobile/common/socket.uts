@@ -1,11 +1,12 @@
 // 和服务器的一条 WebSocket 长连接：
-// - 聊天、翻译：发 {type:'chat'}，服务器逐字推回 chat.delta，直到 chat.done / chat.error
+// - 聊天、翻译：发 {type:'chat'}，服务器先逐字推 chat.reasoning（思考），再逐字推 chat.delta（正文），直到 chat.done / chat.error
 // - 办事：电脑上的执行进度 task.event、状态变化 task.updated
 // - 审批：电脑上执行到需要确认的操作 approval.request，回答后 approval.closed
 // 断了自动重连（2 秒起，最长 30 秒）；每 25 秒 ping 一次，顺便知道电脑在不在线。
 
-import { Approval, Conv, Msg, applyMe, clearAuth, findTaskMsg, saveConversations, state } from './store.uts'
+import { Approval, Conv, Msg, SearchSource, applyMe, clearAuth, findTaskMsg, notifyMessages, saveConversations, state } from './store.uts'
 import { request } from './api.uts'
+import { prefs } from './prefs.uts'
 import { autoCheckUpdate } from './update.uts'
 
 let task : SocketTask | null = null
@@ -123,23 +124,54 @@ function send(obj : UTSJSONObject) : boolean {
 
 // ---------- 聊天、翻译 ----------
 
-/** 把这个对话交给模型。answer 是已经放进对话里的空助手消息，回答逐字写进它 */
-export function sendChat(conv : Conv, answer : Msg) : boolean {
+/** 把这个对话交给模型。answer 是已经放进对话里的空助手消息，回答逐字写进它。
+ *  images：这一轮用户消息附带的图（data URL），只挂在最后一条 user 上。
+ */
+export function sendChat(conv : Conv, answer : Msg, images : Array<string> = []) : boolean {
 	const history = [] as Array<UTSJSONObject>
 	conv.messages.forEach((m : Msg) => {
-		if (m.id != answer.id && m.taskId == 0 && m.status != 'error' && m.content != '') {
+		if (m.id == answer.id || m.taskId != 0 || m.status == 'error') {
+			return
+		}
+		if (m.content == '' && m.role != 'user') {
+			return
+		}
+		// 最后一条用户消息：可带图
+		const isLastUser = m.role == 'user' && conv.messages.indexOf(m) == conv.messages.length - 2
+		if (isLastUser && images.length > 0) {
+			const parts = [] as Array<UTSJSONObject>
+			if (m.content != '') {
+				parts.push({ type: 'text', text: m.content } as UTSJSONObject)
+			}
+			images.forEach((url : string) => {
+				parts.push({ type: 'image_url', image_url: { url: url } } as UTSJSONObject)
+			})
+			history.push({ role: 'user', content: parts } as UTSJSONObject)
+			return
+		}
+		if (m.content != '') {
 			history.push({ role: m.role, content: m.content } as UTSJSONObject)
 		}
 	})
 	const rid = answer.id
-	const ok = send({
+	answer.reasoning = ''
+	answer.reasoningMs = 0
+	answer.searching = false
+	answer.sources = [] as Array<SearchSource>
+	const payload = {
 		type: 'chat',
 		id: rid,
 		mode: conv.mode == 'translate' ? 'translate' : 'chat',
 		target: conv.target,
 		conversation_id: conv.id,
+		thinking: prefs.deepThinking && conv.mode != 'translate',
+		web_search: prefs.webSearch && conv.mode == 'chat' && state.webSearchEnabled,
 		messages: history
-	} as UTSJSONObject)
+	} as UTSJSONObject
+	if (prefs.modelId > 0) {
+		payload['model_id'] = prefs.modelId
+	}
+	const ok = send(payload)
 	if (ok) {
 		pending.set(rid, answer)
 	}
@@ -151,6 +183,7 @@ export function stopChat(answer : Msg) {
 	if (pending.has(answer.id)) {
 		pending.delete(answer.id)
 		answer.status = 'done'
+		notifyMessages(true)
 		saveConversations()
 	}
 }
@@ -163,6 +196,7 @@ function failPending(reason : string) {
 		}
 	})
 	pending.clear()
+	notifyMessages(true)
 	saveConversations()
 }
 
@@ -202,6 +236,7 @@ function handle(raw : string) {
 			const text = ev.getString('text') ?? ''
 			if (text != '' && (m.steps.length == 0 || m.steps[m.steps.length - 1] != text)) {
 				m.steps.push(text)
+				notifyMessages()
 				saveConversations()
 			}
 		}
@@ -235,21 +270,80 @@ function onChat(type : string, ev : UTSJSONObject) {
 	if (m == null) {
 		return
 	}
-	if (type == 'chat.thinking') {
+	if (type == 'chat.searching') {
+		m.searching = true
+		notifyMessages()
+	} else if (type == 'chat.sources') {
+		m.searching = false
+		const raw = ev.getArray('sources')
+		const list = [] as Array<SearchSource>
+		if (raw != null) {
+			raw.forEach((item : any | null) => {
+				if (item == null) {
+					return
+				}
+				const o = item as UTSJSONObject
+				const url = o.getString('url') ?? ''
+				if (url == '') {
+					return
+				}
+				list.push({
+					title: o.getString('title') ?? url,
+					url: url,
+					snippet: o.getString('snippet') ?? ''
+				} as SearchSource)
+			})
+		}
+		m.sources = list
+		notifyMessages(true)
+	} else if (type == 'chat.start') {
+		m.searching = false
+		m.status = prefs.deepThinking ? 'thinking' : 'streaming'
+		notifyMessages()
+	} else if (type == 'chat.thinking' || type == 'chat.reasoning') {
+		// 没开深度思考时忽略思考增量，界面保持「正在回答」
+		if (!prefs.deepThinking) {
+			return
+		}
 		m.status = 'thinking'
+		const piece = ev.getString('text') ?? ''
+		if (piece != '') {
+			const prev = m.reasoning ?? ''
+			let next = prev + piece
+			if (next.length > 4000) {
+				next = next.substring(next.length - 4000)
+			}
+			m.reasoning = next
+		}
+		// 原地改 reasoning/status：不 bump 的话界面会一直停在「正在思考」
+		notifyMessages()
 	} else if (type == 'chat.delta') {
+		if ((m.reasoning ?? '') != '' && (m.reasoningMs ?? 0) == 0) {
+			m.reasoningMs = Math.max(1, Date.now() - m.createdAt)
+		}
 		m.status = 'streaming'
 		m.content += ev.getString('text') ?? ''
+		notifyMessages()
 		saveConversations()
 	} else if (type == 'chat.done') {
+		const full = ev.getString('text') ?? ''
+		// 中途漏掉的增量，用服务端拼好的全文补上
+		if (full != '' && full.length >= m.content.length) {
+			m.content = full
+		}
+		if ((m.reasoning ?? '') != '' && (m.reasoningMs ?? 0) == 0) {
+			m.reasoningMs = Math.max(1, Date.now() - m.createdAt)
+		}
 		m.status = 'done'
 		pending.delete(rid)
+		notifyMessages(true)
 		saveConversations()
 	} else if (type == 'chat.error') {
 		m.status = 'error'
 		const reason = ev.getString('message') ?? '出错了'
 		m.content = m.content == '' ? reason : m.content + '\n\n（' + reason + '）'
 		pending.delete(rid)
+		notifyMessages(true)
 		saveConversations()
 	}
 }
@@ -278,6 +372,7 @@ function applyTask(t : UTSJSONObject, notify : boolean) {
 		m.content = t.getString('error') ?? ''
 		m.status = 'error'
 	}
+	notifyMessages(true)
 	saveConversations()
 	const title = TASK_TITLES.get(status)
 	if (notify && changed && title != null && !state.foreground) {

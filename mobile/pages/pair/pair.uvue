@@ -72,6 +72,7 @@
 	import { normalizeServer, pair, parsePairPayload } from '../../common/api.uts'
 	import { connect } from '../../common/socket.uts'
 	import { scanCode } from '../../common/scan.uts'
+	import { refreshModels } from '../../common/prefs.uts'
 
 	const c = computed(() => theme.c)
 	const topInset = uni.getWindowInfo().statusBarHeight + 24
@@ -99,6 +100,7 @@
 		state.token = body.getString('token') ?? ''
 		applyMe(body)
 		connect()
+		void refreshModels()
 		uni.showToast({ title: '已绑定 ' + state.machineName, icon: 'none' })
 		uni.reLaunch({ url: '/pages/chat/chat' })
 	}

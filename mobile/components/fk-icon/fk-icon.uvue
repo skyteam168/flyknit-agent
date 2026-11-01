@@ -1,0 +1,23 @@
+<template>
+	<text class="fk-icon" :style="{ color: color, fontSize: size.toString() + 'px', lineHeight: size.toString() + 'px' }">{{ glyph }}</text>
+</template>
+
+<script setup lang="uts">
+	import { computed } from 'vue'
+	import { iconChar } from '../../common/icons.uts'
+
+	const props = defineProps({
+		name: { type: String, default: '' },
+		color: { type: String, default: '#52525b' },
+		size: { type: Number, default: 18 }
+	})
+
+	const glyph = computed(() : string => iconChar(props.name))
+</script>
+
+<style>
+	.fk-icon {
+		font-family: iconfont;
+		font-style: normal;
+	}
+</style>

@@ -4,9 +4,7 @@
 		<view class="main" :style="{ paddingTop: px(statusBar) }">
 			<view class="topbar">
 				<view class="icon-btn" @click="openDrawer">
-					<view class="bar" :style="{ backgroundColor: c.ink }"></view>
-					<view class="bar mid" :style="{ backgroundColor: c.ink }"></view>
-					<view class="bar" :style="{ backgroundColor: c.ink }"></view>
+					<fk-icon name="menu" :color="c.ink" :size="22"></fk-icon>
 				</view>
 				<view class="top-title" @click="openDrawer">
 					<text class="top-name" :style="{ color: c.ink }" :lines="1">{{ topTitle }}</text>
@@ -16,8 +14,7 @@
 					</view>
 				</view>
 				<view class="icon-btn" @click="newChat">
-					<view class="plus-h" :style="{ backgroundColor: c.ink }"></view>
-					<view class="plus-v" :style="{ backgroundColor: c.ink }"></view>
+					<fk-icon name="jiahao" :color="c.ink" :size="22"></fk-icon>
 				</view>
 			</view>
 
@@ -52,7 +49,7 @@
 					<view v-if="m.role == 'user'" class="row-user">
 						<text v-if="m.tag != null && m.tag != ''" class="user-tag" :style="{ color: c.indigo }">{{ m.tag }}</text>
 						<view class="bubble" :style="{ backgroundColor: c.chip }" @longpress="copyText(m.content)">
-							<text class="bubble-text" :style="{ color: c.ink }" :selectable="true">{{ m.content }}</text>
+							<text class="bubble-text" :style="{ color: c.ink, fontSize: chatFont, lineHeight: chatLine }" :selectable="true">{{ m.content }}</text>
 						</view>
 					</view>
 
@@ -73,21 +70,73 @@
 						</view>
 						<text v-if="m.taskStatus == 'pending' || m.taskStatus == 'running'" class="task-wait" :style="{ color: c.inkFaint }">{{ m.taskStatus == 'pending' ? waitingText : '电脑正在处理，办完会推送到这里' }}</text>
 						<view v-if="m.taskStatus == 'succeeded' && m.content != ''" class="task-answer" :style="{ borderTopColor: c.line }">
-							<md-view :content="m.content"></md-view>
+							<md-view :content="m.content" :font-size="prefs.fontSize"></md-view>
 						</view>
 						<text v-if="m.status == 'error' && m.content != ''" class="err" :style="{ color: c.red }">{{ m.content }}</text>
 					</view>
 
 					<!-- 助手 -->
 					<view v-else class="row-ai">
-						<view v-if="m.content == '' && (m.status == 'thinking' || m.status == 'streaming')" class="thinking">
+						<!-- 联网搜索：胶囊「已搜索到 N 个网页」+ 站点图标，点开看来源 -->
+						<view v-if="m.searching == true" class="search-pill" :style="{ backgroundColor: c.sunk, borderColor: c.line }">
 							<view class="pulse" :style="{ backgroundColor: c.indigo }"></view>
-							<text class="thinking-text" :style="{ color: c.inkFaint }">正在思考…</text>
+							<text class="search-pill-text" :style="{ color: c.inkSoft }">正在搜索网页…</text>
 						</view>
-						<md-view v-else-if="m.status != 'error'" :content="m.content"></md-view>
-						<text v-else class="err" :style="{ color: c.red }">{{ m.content }}</text>
-						<view v-if="m.status == 'done' && m.content != ''" class="actions">
-							<text class="action" :style="{ color: c.inkFaint }" @click="copyText(m.content)">复制</text>
+						<view v-else-if="(m.sources ?? []).length > 0" class="sources">
+							<view class="search-pill" :style="{ backgroundColor: c.sunk, borderColor: c.line }" @click="toggleSources(m.id)">
+								<fk-icon name="hulianwangoff" :color="c.inkSoft" :size="14"></fk-icon>
+								<text class="search-pill-text" :style="{ color: c.inkSoft }">已搜索到 {{ (m.sources ?? []).length }} 个网页</text>
+								<view class="fav-stack">
+									<image
+										v-for="(s, si) in sourcePreview(m)"
+										:key="si"
+										class="fav"
+										:style="{ marginLeft: si == 0 ? '0px' : '-6px' }"
+										:src="faviconUrl(s.url)"
+										mode="aspectFill"
+									></image>
+								</view>
+								<text class="search-pill-chev" :style="{ color: c.inkFaint }">{{ openSources.includes(m.id) ? '▾' : '▸' }}</text>
+							</view>
+							<view v-if="openSources.includes(m.id)" class="source-list">
+								<view v-for="(s, si) in m.sources" :key="si" class="source" :style="{ backgroundColor: c.cloth, borderColor: c.line }" @click="openSource(s.url)">
+									<image class="source-fav" :src="faviconUrl(s.url)" mode="aspectFill"></image>
+									<view class="source-body">
+										<text class="source-title" :style="{ color: c.ink }" :lines="1">{{ s.title }}</text>
+										<text class="source-host" :style="{ color: c.inkFaint }" :lines="1">{{ sourceHost(s.url) }}</text>
+									</view>
+								</view>
+							</view>
+						</view>
+						<!-- 深度思考：进行中或可展开的「已思考」 -->
+						<view v-if="deepThinking && ((m.reasoning ?? '') != '' || (m.status == 'thinking' && m.content == ''))" class="think-box">
+							<view class="think-head" @click="toggleReasoning(m.id)">
+								<fk-icon name="aisikao" :color="c.inkFaint" :size="14"></fk-icon>
+								<text class="think-title" :style="{ color: c.inkFaint }">{{ thinkTitle(m) }}</text>
+								<text class="think-chev" :style="{ color: c.inkFaint }">{{ openReasoning.includes(m.id) || m.status == 'thinking' ? '▾' : '▸' }}</text>
+							</view>
+							<text v-if="(openReasoning.includes(m.id) || m.status == 'thinking') && reasoningTail(m) != ''" class="reasoning" :style="{ color: c.inkSoft, borderLeftColor: c.lineStrong }">{{ reasoningTail(m) }}</text>
+						</view>
+						<view v-if="m.content == '' && m.searching != true && (m.status == 'streaming' || (!deepThinking && m.status == 'thinking'))" class="thinking">
+							<view class="pulse" :style="{ backgroundColor: c.indigo }"></view>
+							<text class="thinking-text" :style="{ color: c.inkFaint }">正在回答…</text>
+						</view>
+						<!-- contentRev：强制 md-view 跟着流式正文刷新（仅改 prop 时子组件偶发不更新） -->
+						<md-view v-else-if="m.content != '' && m.status != 'error'" :content="m.content" :content-rev="state.msgRev" :font-size="prefs.fontSize"></md-view>
+						<text v-else-if="m.status == 'error'" class="err" :style="{ color: c.red }">{{ m.content }}</text>
+						<view v-if="(m.status == 'done' || m.status == 'error') && m.content != ''" class="actions">
+							<view class="act" @click="copyText(m.content)">
+								<fk-icon name="fuzhi" :color="c.inkFaint" :size="18"></fk-icon>
+							</view>
+							<view class="act" @click="rateMsg(m, 'up')">
+								<fk-icon name="dianzan" :color="(m.feedback ?? '') == 'up' ? c.indigo : c.inkFaint" :size="18"></fk-icon>
+							</view>
+							<view class="act" @click="rateMsg(m, 'down')">
+								<fk-icon name="chaping" :color="(m.feedback ?? '') == 'down' ? c.red : c.inkFaint" :size="18"></fk-icon>
+							</view>
+							<view class="act" @click="regenerate(m)">
+								<fk-icon name="shuaxin" :color="c.inkFaint" :size="18"></fk-icon>
+							</view>
 						</view>
 					</view>
 				</view>
@@ -104,10 +153,22 @@
 					<text class="queued-btn" :style="{ color: c.inkFaint }" @click="dropQueued(q.id)">撤回</text>
 				</view>
 				<text v-if="busyHint != ''" class="busy-hint" :style="{ color: c.inkFaint }">{{ busyHint }}</text>
+				<view v-if="pendingImages.length > 0" class="attach-row">
+					<view v-for="(img, ii) in pendingImages" :key="ii" class="attach">
+						<image class="attach-img" :src="img.path" mode="aspectFill"></image>
+						<text class="attach-x" :style="{ color: c.actionInk, backgroundColor: c.red }" @click="dropImage(ii)">×</text>
+					</view>
+				</view>
+				<!-- 模型单独一行，不挤占上传/语音 -->
+				<view class="model-row" @click="pickModel">
+					<text class="model-label" :style="{ color: c.inkFaint }">模型</text>
+					<text class="model-name" :style="{ color: c.inkSoft }" :lines="1">{{ modelChip }}</text>
+					<text class="model-chev" :style="{ color: c.inkFaint }">▾</text>
+				</view>
 				<view class="box" :style="{ backgroundColor: c.cloth, borderColor: c.lineStrong }">
 					<textarea
 						class="input"
-						:style="{ color: c.ink }"
+						:style="{ color: c.ink, fontSize: chatFont, lineHeight: chatLine }"
 						:value="draft"
 						:placeholder="placeholder"
 						:placeholder-style="'color:' + c.inkFaint"
@@ -117,11 +178,38 @@
 						@input="onDraft"
 						@confirm="send"
 					/>
-					<view v-if="streaming != null && draft.trim() == ''" class="send" :style="{ backgroundColor: c.action }" @click="stop">
-						<view class="stop-square" :style="{ backgroundColor: c.actionInk }"></view>
-					</view>
-					<view v-else class="send" :style="{ backgroundColor: draft.trim() == '' ? c.lineStrong : c.action }" @click="send" @longpress="sendMenu">
-						<text class="send-arrow" :style="{ color: c.actionInk }">↑</text>
+					<view class="box-tools">
+						<view class="tool-row chips">
+							<view class="chip-btn" :style="deepThinking ? { backgroundColor: c.indigoWash } : { backgroundColor: c.chip }" @click="toggleDeep">
+								<fk-icon name="aisikao" :color="deepThinking ? c.indigo : c.inkSoft" :size="15"></fk-icon>
+								<text class="chip-text" :style="{ color: deepThinking ? c.indigo : c.inkSoft }">深度思考</text>
+							</view>
+							<view class="chip-btn" :style="webSearchOn ? { backgroundColor: c.indigoWash } : { backgroundColor: c.chip }" @click="toggleWeb">
+								<fk-icon name="hulianwangoff" :color="webSearchOn ? c.indigo : c.inkSoft" :size="15"></fk-icon>
+								<text class="chip-text" :style="{ color: webSearchOn ? c.indigo : c.inkSoft }">智能搜索</text>
+							</view>
+						</view>
+						<view class="tool-row end">
+							<view class="icon-round" :style="{ backgroundColor: c.chip }" @click="attachMenu">
+								<fk-icon name="jiahao" :color="c.inkSoft" :size="20"></fk-icon>
+							</view>
+							<view
+								v-if="streaming == null && draft.trim() == '' && pendingImages.length == 0"
+								class="icon-round"
+								:style="{ backgroundColor: recording ? c.indigoWash : c.chip }"
+								@touchstart="voiceStart"
+								@touchend="voiceEnd"
+								@touchcancel="voiceEnd"
+							>
+								<fk-icon :name="recording ? 'jianpan' : 'yuyin'" :color="recording ? c.indigo : c.inkSoft" :size="20"></fk-icon>
+							</view>
+							<view v-else-if="streaming != null && draft.trim() == ''" class="send" :style="{ backgroundColor: c.action }" @click="stop">
+								<fk-icon name="tingzhi" :color="c.actionInk" :size="18"></fk-icon>
+							</view>
+							<view v-else class="send" :style="{ backgroundColor: canSend ? c.action : c.lineStrong }" @click="send" @longpress="sendMenu">
+								<fk-icon name="zhixiangshang" :color="c.actionInk" :size="18"></fk-icon>
+							</view>
+						</view>
 					</view>
 				</view>
 			</view>
@@ -135,7 +223,8 @@
 				<text class="drawer-brand" :style="{ color: c.ink }">FlyknitBuddy</text>
 			</view>
 			<view class="new-btn" :style="{ backgroundColor: c.indigoWash }" @click="newChat">
-				<text class="new-text" :style="{ color: c.indigo }">＋ 新对话</text>
+				<fk-icon name="jiahao" :color="c.indigo" :size="16"></fk-icon>
+				<text class="new-text" :style="{ color: c.indigo }">新对话</text>
 			</view>
 			<scroll-view direction="vertical" class="conv-list" :show-scrollbar="false">
 				<view v-for="g in groups" :key="g.label" class="group">
@@ -185,9 +274,12 @@
 <script setup lang="uts">
 	import { computed, nextTick, ref, watch } from 'vue'
 	import { theme } from '../../common/theme.uts'
-	import { Approval, Conv, Msg, createConv, currentConv, newId, newMsg, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
+	import { Approval, Conv, Msg, SearchSource, createConv, currentConv, newId, newMsg, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
 	import { request } from '../../common/api.uts'
 	import { answerApproval, connect, sendChat, stopChat } from '../../common/socket.uts'
+	import { ModelInfo, bodyFontPx, bodyLinePx, modelLabel, prefs, refreshModels, setDeepThinking, setModelId, setWebSearch } from '../../common/prefs.uts'
+	import { PickedImage, pickFromAlbum, takePhoto, transcribeFile, voiceUnsupported } from '../../common/media.uts'
+	import FkIcon from '../../components/fk-icon/fk-icon.uvue'
 
 	type ModeItem = { id : string, label : string }
 	type Group = { label : string, items : Array<Conv> }
@@ -218,6 +310,23 @@
 	const target = ref('vi')
 	const draft = ref('')
 	const listRef = ref<UniScrollViewElement | null>(null)
+	const pendingImages = ref<Array<PickedImage>>([] as Array<PickedImage>)
+	const openReasoning = ref<Array<string>>([] as Array<string>)
+	const openSources = ref<Array<string>>([] as Array<string>)
+	const recording = ref(false)
+	let recorder : RecorderManager | null = null
+	const deepThinking = computed(() : boolean => prefs.deepThinking)
+	const webSearchOn = computed(() : boolean => prefs.webSearch && state.webSearchEnabled && mode.value == 'chat')
+	const modelChip = computed(() : string => modelLabel())
+	const chatFont = computed(() : string => {
+		const _ = prefs.fontSize
+		return bodyFontPx().toString() + 'px'
+	})
+	const chatLine = computed(() : string => {
+		const _ = prefs.fontSize
+		return bodyLinePx().toString() + 'px'
+	})
+	const canSend = computed(() : boolean => draft.value.trim() != '' || pendingImages.value.length > 0)
 
 	// ---------- 状态 ----------
 
@@ -228,7 +337,15 @@
 		const i = state.conversations.findIndex((x : Conv) : boolean => x.id == id)
 		return i >= 0 ? state.conversations[i] : null
 	})
-	const messages = computed(() : Array<Msg> => conv.value?.messages ?? ([] as Array<Msg>))
+	/** 依赖 msgRev：流式原地改 content/status 时，必须换一份数组引用，列表才会重绘 */
+	const messages = computed(() : Array<Msg> => {
+		const _rev = state.msgRev
+		const cv = conv.value
+		if (cv == null) {
+			return [] as Array<Msg>
+		}
+		return cv.messages.slice()
+	})
 	const machineName = computed(() : string => state.machineName)
 	const userName = computed(() : string => state.userName != '' ? state.userName : state.phoneName)
 	const computerOnline = computed(() : boolean => state.computerOnline)
@@ -252,15 +369,18 @@
 
 	const topTitle = computed(() : string => {
 		const cv = conv.value
+		let t = 'FlyknitBuddy'
 		if (cv != null && cv.title != '') {
-			return cv.title
+			t = cv.title
 		}
-		return 'FlyknitBuddy'
+		// 顶栏只有一行宽度，过长就截断，避免把状态行挤换行
+		return t.length > 16 ? t.substring(0, 16) + '…' : t
 	})
 	const statusText = computed(() : string => {
 		if (state.socket == 'connecting') return '正在连接…'
-		if (state.socket != 'open') return '未连接服务器，正在重试'
-		return state.machineName + (state.computerOnline ? ' · 在线' : ' · 电脑离线（办事会排队）')
+		if (state.socket != 'open') return '未连接，重试中'
+		const name = state.machineName != '' ? state.machineName : '电脑'
+		return name + (state.computerOnline ? ' · 在线' : ' · 离线')
 	})
 	const statusColor = computed(() : string => {
 		if (state.socket != 'open') return c.value.amber
@@ -289,7 +409,7 @@
 	const placeholder = computed(() : string => {
 		if (mode.value == 'translate') return '输入要翻译的内容'
 		if (mode.value == 'agent') return '让电脑帮你做什么？'
-		return '有问题尽管问'
+		return '发消息或按住说话'
 	})
 	const waitingText = computed(() : string => state.computerOnline ? '已交给电脑，马上开始' : '电脑现在不在线，开机并打开 FlyknitBuddy 后 30 分钟内会接着办')
 
@@ -562,24 +682,32 @@
 
 	async function send() {
 		const text = draft.value.trim()
-		if (text == '') {
+		const imgs = pendingImages.value.slice()
+		if (text == '' && imgs.length == 0) {
 			return
 		}
 		// 电脑在办事：默认插话；AI 在回答：排到回答之后
 		const task = runningTask.value
 		if (task != null && mode.value == 'agent') {
+			if (text == '') {
+				uni.showToast({ title: '办事请先输入文字', icon: 'none' })
+				return
+			}
 			await sendInput(task, text, 'steer')
 			return
 		}
 		if (streaming.value != null) {
-			queueLocal(text)
+			if (text != '') {
+				queueLocal(text)
+			}
 			return
 		}
 		draft.value = ''
-		await sendText(text, '')
+		pendingImages.value = [] as Array<PickedImage>
+		await sendText(text, '', imgs)
 	}
 
-	async function sendText(text : string, tag : string) {
+	async function sendText(text : string, tag : string, images : Array<PickedImage> = []) {
 		if (state.socket != 'open' && mode.value != 'agent') {
 			connect()
 			uni.showToast({ title: '正在连接服务器，请稍候再发', icon: 'none' })
@@ -591,7 +719,8 @@
 		}
 		const theConv = cv!
 		if (theConv.title == '') {
-			theConv.title = text.length > 18 ? text.substring(0, 18) + '…' : text
+			const seed = text != '' ? text : '图片'
+			theConv.title = seed.length > 18 ? seed.substring(0, 18) + '…' : seed
 		}
 		const user = newMsg('user', text, 'done')
 		if (tag != '') {
@@ -604,11 +733,13 @@
 			await submitTask(theConv, text)
 			return
 		}
-		const answer = newMsg('assistant', '', 'thinking')
+		const waitStatus = prefs.deepThinking && theConv.mode != 'translate' ? 'thinking' : 'streaming'
+		const answer = newMsg('assistant', '', waitStatus)
 		theConv.messages.push(answer)
 		// 拿数组里的那份（响应式），流式输出写进它界面才会跟着变
 		const live = theConv.messages[theConv.messages.length - 1]
-		if (!sendChat(theConv, live)) {
+		const urls = images.map((x : PickedImage) : string => x.dataUrl)
+		if (!sendChat(theConv, live, urls)) {
 			live.status = 'error'
 			live.content = '没连上服务器，请稍后再试'
 		}
@@ -643,6 +774,235 @@
 	}
 
 	// ---------- 办事卡片 ----------
+
+	/** 思考还在进行时，只留最近一段，新到的字能看见 */
+	function reasoningTail(m : Msg) : string {
+		const r = m.reasoning ?? ''
+		if (r.length <= 280) {
+			return r
+		}
+		return '…' + r.substring(r.length - 280)
+	}
+
+	function thinkTitle(m : Msg) : string {
+		if (m.status == 'thinking' && m.content == '') {
+			return '正在思考…'
+		}
+		const ms = m.reasoningMs ?? 0
+		if (ms > 0) {
+			const sec = Math.max(1, Math.round(ms / 1000))
+			return '已思考（用时 ' + sec.toString() + ' 秒）'
+		}
+		return (m.reasoning ?? '') != '' ? '已思考' : '思考过程'
+	}
+
+	function toggleReasoning(id : string) {
+		const i = openReasoning.value.indexOf(id)
+		if (i >= 0) {
+			openReasoning.value.splice(i, 1)
+		} else {
+			openReasoning.value.push(id)
+		}
+	}
+
+	function toggleDeep() {
+		if (mode.value == 'translate') {
+			uni.showToast({ title: '翻译不需要深度思考，会直接出译文', icon: 'none' })
+			return
+		}
+		setDeepThinking(!prefs.deepThinking)
+	}
+
+	function toggleWeb() {
+		if (mode.value == 'translate') {
+			uni.showToast({ title: '翻译不需要联网搜索', icon: 'none' })
+			return
+		}
+		if (mode.value == 'agent') {
+			uni.showToast({ title: '办事时由电脑执行，请在对话里用联网', icon: 'none' })
+			return
+		}
+		if (!state.webSearchEnabled) {
+			uni.showToast({ title: '管理员未开启联网搜索', icon: 'none' })
+			return
+		}
+		setWebSearch(!prefs.webSearch)
+	}
+
+	function sourceHost(url : string) : string {
+		const m = url.match(/^https?:\/\/([^\/?#]+)/)
+		return m != null && m.length > 1 ? m[1] : url
+	}
+
+	function faviconUrl(url : string) : string {
+		const host = sourceHost(url)
+		if (host == '' || host == url) {
+			return ''
+		}
+		return 'https://www.google.com/s2/favicons?sz=64&domain=' + host
+	}
+
+	function sourcePreview(m : Msg) : Array<SearchSource> {
+		const list = m.sources ?? ([] as Array<SearchSource>)
+		if (list.length <= 4) {
+			return list
+		}
+		return list.slice(0, 4)
+	}
+
+	function toggleSources(id : string) {
+		const i = openSources.value.indexOf(id)
+		if (i >= 0) {
+			openSources.value.splice(i, 1)
+		} else {
+			openSources.value.push(id)
+		}
+	}
+
+	function openSource(url : string) {
+		if (url == '') {
+			return
+		}
+		try {
+			plus.runtime.openURL(url)
+		} catch (err) {
+			uni.setClipboardData({ data: url })
+			uni.showToast({ title: '链接已复制', icon: 'none' })
+		}
+	}
+
+	function pickModel() {
+		void refreshModels().then(() => {
+			const items = ['自动（优先 Flash）'] as Array<string>
+			prefs.models.forEach((m : ModelInfo) => {
+				items.push(m.name + (m.supportsVision ? ' · 看图' : ''))
+			})
+			uni.showActionSheet({
+				itemList: items,
+				success: (r) => {
+					if (r.tapIndex == 0) {
+						setModelId(0)
+					} else {
+						const m = prefs.models[r.tapIndex - 1]
+						if (m != null) {
+							setModelId(m.id)
+						}
+					}
+				}
+			})
+		})
+	}
+
+	function attachMenu() {
+		uni.showActionSheet({
+			itemList: ['拍照', '从相册选择'],
+			success: (r) => {
+				const job = r.tapIndex == 0 ? takePhoto() : pickFromAlbum()
+				void job.then((img : PickedImage | null) => {
+					if (img != null) {
+						pendingImages.value = [img]
+					}
+				})
+			}
+		})
+	}
+
+	function rateMsg(m : Msg, kind : string) {
+		if (m.status != 'done' && m.status != 'error') {
+			return
+		}
+		m.feedback = (m.feedback ?? '') == kind ? '' : kind
+		saveConversations()
+		if (m.feedback == 'up') {
+			uni.showToast({ title: '已点赞', icon: 'none' })
+		} else if (m.feedback == 'down') {
+			uni.showToast({ title: '已反馈，我们会改进', icon: 'none' })
+		}
+	}
+
+	/** 用上一条用户话重问：删掉这条及之后的助手回答，再生成一次 */
+	function regenerate(m : Msg) {
+		if (streaming.value != null) {
+			uni.showToast({ title: '请等当前回答结束', icon: 'none' })
+			return
+		}
+		const cv = conv.value
+		if (cv == null || cv.mode == 'agent') {
+			return
+		}
+		if (state.socket != 'open') {
+			connect()
+			uni.showToast({ title: '正在连接服务器，请稍候再试', icon: 'none' })
+			return
+		}
+		const idx = cv.messages.findIndex((x : Msg) : boolean => x.id == m.id)
+		if (idx <= 0) {
+			return
+		}
+		let hasUser = false
+		for (let i = idx - 1; i >= 0; i--) {
+			if (cv.messages[i].role == 'user' && cv.messages[i].taskId == 0) {
+				hasUser = true
+				break
+			}
+		}
+		if (!hasUser) {
+			uni.showToast({ title: '找不到要重问的内容', icon: 'none' })
+			return
+		}
+		cv.messages.splice(idx, cv.messages.length - idx)
+		const waitStatus = prefs.deepThinking && cv.mode != 'translate' ? 'thinking' : 'streaming'
+		const answer = newMsg('assistant', '', waitStatus)
+		cv.messages.push(answer)
+		const live = cv.messages[cv.messages.length - 1]
+		if (!sendChat(cv, live)) {
+			live.status = 'error'
+			live.content = '没连上服务器，请稍后再试'
+		}
+		touch(cv)
+		saveConversations()
+	}
+
+	function dropImage(_ : number) {
+		pendingImages.value = [] as Array<PickedImage>
+	}
+
+	function voiceStart() {
+		// #ifdef WEB
+		voiceUnsupported()
+		return
+		// #endif
+		// #ifndef WEB
+		try {
+			if (recorder == null) {
+				recorder = uni.getRecorderManager()
+				recorder.onStop((res) => {
+					recording.value = false
+					void transcribeFile(res.tempFilePath).then((text : string) => {
+						if (text.trim() != '') {
+							draft.value = draft.value.trim() == '' ? text.trim() : draft.value + text.trim()
+						}
+					})
+				})
+				recorder.onError((_) => {
+					recording.value = false
+					uni.showToast({ title: '录音失败', icon: 'none' })
+				})
+			}
+			recording.value = true
+			recorder!.start({ format: 'wav', sampleRate: 16000, numberOfChannels: 1 } as RecorderManagerStartOptions)
+		} catch (_) {
+			voiceUnsupported()
+		}
+		// #endif
+	}
+
+	function voiceEnd() {
+		if (!recording.value || recorder == null) {
+			return
+		}
+		recorder.stop()
+	}
 
 	function taskLabel(s : string) : string {
 		if (s == 'sending') return '提交中'
@@ -816,12 +1176,14 @@
 		flex-direction: row;
 		align-items: center;
 		padding: 0 8px;
+		flex-shrink: 0;
 	}
 	.icon-btn {
 		width: 44px;
 		height: 44px;
 		align-items: center;
 		justify-content: center;
+		flex-shrink: 0;
 	}
 	.bar {
 		width: 20px;
@@ -847,24 +1209,42 @@
 	}
 	.top-title {
 		flex: 1;
+		min-width: 0;
+		overflow: hidden;
 		align-items: center;
+		padding: 0 6px;
 	}
 	.top-name {
+		width: 100%;
 		font-size: 16px;
 		font-weight: bold;
+		lines: 1;
+		text-align: center;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.top-status {
 		flex-direction: row;
 		align-items: center;
+		justify-content: center;
 		margin-top: 2px;
+		width: 100%;
+		overflow: hidden;
 	}
 	.dot {
 		width: 6px;
 		height: 6px;
 		border-radius: 3px;
 		margin-right: 5px;
+		flex-shrink: 0;
 	}
 	.top-sub {
+		flex-shrink: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		lines: 1;
 		font-size: 11px;
 	}
 	.seg {
@@ -957,16 +1337,105 @@
 		padding: 9px 14px;
 	}
 	.bubble-text {
-		font-size: 15px;
-		line-height: 23px;
 	}
 	.row-ai {
 		flex-direction: column;
+	}
+	.sources {
+		flex-direction: column;
+		margin-bottom: 10px;
+		align-items: flex-start;
+	}
+	.search-pill {
+		flex-direction: row;
+		align-items: center;
+		border-width: 1px;
+		border-style: solid;
+		border-radius: 16px;
+		padding: 5px 10px 5px 8px;
+		max-width: 100%;
+	}
+	.search-pill-text {
+		font-size: 13px;
+		margin-left: 6px;
+		margin-right: 8px;
+	}
+	.search-pill-chev {
+		font-size: 11px;
+		margin-left: 4px;
+	}
+	.fav-stack {
+		flex-direction: row;
+		align-items: center;
+		height: 18px;
+	}
+	.fav {
+		width: 18px;
+		height: 18px;
+		border-radius: 9px;
+		background-color: #ffffff;
+	}
+	.source-list {
+		flex-direction: column;
+		margin-top: 8px;
+		align-self: stretch;
+	}
+	.source {
+		flex-direction: row;
+		align-items: center;
+		border-width: 1px;
+		border-style: solid;
+		border-radius: 12px;
+		padding: 8px 10px;
+		margin-bottom: 6px;
+	}
+	.source-fav {
+		width: 20px;
+		height: 20px;
+		border-radius: 10px;
+		margin-right: 10px;
+		flex-shrink: 0;
+	}
+	.source-body {
+		flex: 1;
+		flex-direction: column;
+	}
+	.source-title {
+		font-size: 13px;
+		line-height: 19px;
+	}
+	.source-host {
+		font-size: 11px;
+		margin-top: 2px;
+	}
+	.think-box {
+		flex-direction: column;
+		margin-bottom: 8px;
+	}
+	.think-head {
+		flex-direction: row;
+		align-items: center;
+	}
+	.think-title {
+		font-size: 13px;
+		margin-left: 6px;
+	}
+	.think-chev {
+		font-size: 12px;
+		margin-left: 6px;
 	}
 	.thinking {
 		flex-direction: row;
 		align-items: center;
 		height: 28px;
+	}
+	.reasoning {
+		font-size: 13px;
+		line-height: 20px;
+		margin-top: 6px;
+		padding-left: 10px;
+		border-left-width: 2px;
+		border-left-style: solid;
 	}
 	.pulse {
 		width: 8px;
@@ -979,10 +1448,15 @@
 	}
 	.actions {
 		flex-direction: row;
+		align-items: center;
+		margin-top: 8px;
 	}
-	.action {
-		font-size: 12px;
-		padding: 4px 8px 4px 0;
+	.act {
+		width: 36px;
+		height: 32px;
+		align-items: center;
+		justify-content: center;
+		margin-right: 4px;
 	}
 	.err {
 		font-size: 14px;
@@ -1053,21 +1527,102 @@
 	.composer {
 		padding: 6px 12px 0 12px;
 	}
-	.box {
+	.attach-row {
 		flex-direction: row;
-		align-items: flex-end;
+		margin-bottom: 8px;
+	}
+	.attach {
+		position: relative;
+		width: 64px;
+		height: 64px;
+		margin-right: 8px;
+	}
+	.attach-img {
+		width: 64px;
+		height: 64px;
+		border-radius: 10px;
+	}
+	.attach-x {
+		position: absolute;
+		right: 0;
+		top: 0;
+		width: 20px;
+		height: 20px;
+		border-radius: 10px;
+		text-align: center;
+		font-size: 14px;
+		line-height: 20px;
+	}
+	.model-row {
+		flex-direction: row;
+		align-items: center;
+		padding: 0 6px 6px 6px;
+	}
+	.model-label {
+		font-size: 12px;
+		margin-right: 6px;
+	}
+	.model-name {
+		flex: 1;
+		font-size: 13px;
+	}
+	.model-chev {
+		font-size: 12px;
+		margin-left: 4px;
+	}
+	.box {
+		flex-direction: column;
 		border-width: 1px;
 		border-style: solid;
-		border-radius: 24px;
-		padding: 6px 6px 6px 16px;
+		border-radius: 22px;
+		padding: 10px 12px 8px 12px;
 	}
 	.input {
-		flex: 1;
-		font-size: 15px;
-		line-height: 22px;
+		width: 100%;
 		min-height: 36px;
 		max-height: 140px;
-		padding: 7px 0;
+		padding: 0;
+	}
+	.box-tools {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-top: 8px;
+	}
+	.tool-row {
+		flex-direction: row;
+		align-items: center;
+		flex-shrink: 0;
+	}
+	.chips {
+		flex: 1;
+		flex-shrink: 1;
+		margin-right: 8px;
+	}
+	.end {
+		justify-content: flex-end;
+	}
+	.chip-btn {
+		height: 30px;
+		padding: 0 10px;
+		border-radius: 15px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-right: 6px;
+	}
+	.chip-text {
+		font-size: 12px;
+		margin-left: 4px;
+	}
+	.icon-round {
+		width: 36px;
+		height: 36px;
+		border-radius: 18px;
+		align-items: center;
+		justify-content: center;
+		margin-left: 6px;
+		flex-shrink: 0;
 	}
 	.queued {
 		flex-direction: row;
@@ -1105,7 +1660,8 @@
 		border-radius: 18px;
 		align-items: center;
 		justify-content: center;
-		margin-left: 8px;
+		margin-left: 6px;
+		flex-shrink: 0;
 	}
 	.send-arrow {
 		font-size: 18px;
@@ -1149,12 +1705,14 @@
 		margin: 4px 12px 8px 12px;
 		height: 42px;
 		border-radius: 12px;
+		flex-direction: row;
 		align-items: center;
 		justify-content: center;
 	}
 	.new-text {
 		font-size: 15px;
 		font-weight: bold;
+		margin-left: 4px;
 	}
 	.conv-list {
 		flex: 1;

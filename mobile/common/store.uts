@@ -3,6 +3,12 @@
 
 import { reactive } from 'vue'
 
+export type SearchSource = {
+	title : string
+	url : string
+	snippet : string
+}
+
 export type Msg = {
 	id : string
 	/** user / assistant */
@@ -19,6 +25,16 @@ export type Msg = {
 	createdAt : number
 	/** 员工的话：插话 / 排队 / 打断（电脑在办事、AI 在回答时又说的），普通的话为空 */
 	tag ?: string
+	/** 模型思考过程；正文出来后仍可展开查看 */
+	reasoning ?: string
+	/** 思考用时（毫秒），0 表示还没结束 */
+	reasoningMs ?: number
+	/** 评价：'' / up / down */
+	feedback ?: string
+	/** 联网搜索进行中 */
+	searching ?: boolean
+	/** 联网来源 */
+	sources ?: Array<SearchSource>
 }
 
 export type Conv = {
@@ -51,12 +67,19 @@ export type AppState = {
 	userName : string
 	computerOnline : boolean
 	approvalsAllowed : boolean
+	/** 管理员已开启联网搜索；App 据此显示开关 */
+	webSearchEnabled : boolean
 	/** idle / connecting / open / closed */
 	socket : string
 	foreground : boolean
 	conversations : Array<Conv>
 	currentId : string
 	approvals : Array<Approval>
+	/**
+	 * 流式改消息字段时，uni-app x 经常不重绘列表。
+	 * 每次内容/状态有变就 +1，页面用它强制重算 messages。
+	 */
+	msgRev : number
 }
 
 export const state = reactive({
@@ -67,12 +90,35 @@ export const state = reactive({
 	userName: '',
 	computerOnline: false,
 	approvalsAllowed: false,
+	webSearchEnabled: false,
 	socket: 'idle',
 	foreground: true,
 	conversations: [] as Array<Conv>,
 	currentId: '',
-	approvals: [] as Array<Approval>
+	approvals: [] as Array<Approval>,
+	msgRev: 0
 } as AppState)
+
+let msgRevTimer = 0
+
+/** 通知界面：对话消息字段变了。流式时约 32ms 合一次，结束时立刻刷。 */
+export function notifyMessages(immediate : boolean = false) {
+	if (immediate) {
+		if (msgRevTimer != 0) {
+			clearTimeout(msgRevTimer)
+			msgRevTimer = 0
+		}
+		state.msgRev = state.msgRev + 1
+		return
+	}
+	if (msgRevTimer != 0) {
+		return
+	}
+	msgRevTimer = setTimeout(() => {
+		msgRevTimer = 0
+		state.msgRev = state.msgRev + 1
+	}, 32)
+}
 
 const AUTH_KEY = 'fk.auth'
 const CONV_KEY = 'fk.conversations'
@@ -85,12 +131,33 @@ export function newId() : string {
 
 // ---------- 绑定信息 ----------
 
-export function loadAuth() {
-	const raw = uni.getStorageSync(AUTH_KEY)
-	if (raw == null || typeof raw != 'string') {
-		return
+/**
+ * 读本地 JSON。键不存在时，Web 端 getStorageSync 返回空字符串，
+ * 直接 JSON.parse 会抛 Unexpected end of JSON input。
+ */
+function readJson(key : string) : any | null {
+	const raw = uni.getStorageSync(key)
+	if (raw == null) {
+		return null
 	}
-	const obj = JSON.parse(raw as string)
+	if (typeof raw != 'string') {
+		return raw
+	}
+	const text = (raw as string).trim()
+	if (text == '') {
+		return null
+	}
+	try {
+		return JSON.parse(text)
+	} catch (err) {
+		// 空内容或损坏的数据都当成还没存过，避免启动被打断
+		console.error(err)
+		return null
+	}
+}
+
+export function loadAuth() {
+	const obj = readJson(AUTH_KEY)
 	if (obj == null) {
 		return
 	}
@@ -119,6 +186,7 @@ export function saveAuth() {
 export function applyMe(me : UTSJSONObject) {
 	state.phoneName = me.getString('name') ?? state.phoneName
 	state.approvalsAllowed = me.getBoolean('approvals') ?? false
+	state.webSearchEnabled = me.getBoolean('web_search_enabled') ?? false
 	const computer = me.getJSON('computer')
 	if (computer != null) {
 		state.machineName = computer.getString('machine_name') ?? ''
@@ -134,6 +202,7 @@ export function clearAuth() {
 	state.machineName = ''
 	state.userName = ''
 	state.computerOnline = false
+	state.webSearchEnabled = false
 	state.approvals = []
 	uni.removeStorageSync(AUTH_KEY)
 }
@@ -141,13 +210,9 @@ export function clearAuth() {
 // ---------- 对话 ----------
 
 export function loadConversations() {
-	const raw = uni.getStorageSync(CONV_KEY)
-	if (raw == null || typeof raw != 'string') {
-		return
-	}
-	const list = JSON.parse<Array<Conv>>(raw as string)
+	const list = readJson(CONV_KEY)
 	if (list != null) {
-		state.conversations = list
+		state.conversations = list as Array<Conv>
 	}
 }
 
@@ -247,6 +312,11 @@ export function newMsg(role : string, content : string, status : string) : Msg {
 		taskId: 0,
 		taskStatus: '',
 		steps: [] as Array<string>,
-		createdAt: Date.now()
+		createdAt: Date.now(),
+		reasoning: '',
+		reasoningMs: 0,
+		feedback: '',
+		searching: false,
+		sources: [] as Array<SearchSource>
 	} as Msg
 }

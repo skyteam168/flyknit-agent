@@ -1,23 +1,23 @@
 <template>
 	<view class="md">
 		<view v-for="(b, bi) in blocks" :key="bi" class="md-block">
-			<text v-if="b.kind == 'heading'" class="md-heading" :style="{ color: c.ink, fontSize: headingSize(b.level) }" :selectable="true">
+			<text v-if="b.kind == 'heading'" class="md-heading" :style="headingStyle(b.level)" :selectable="true">
 				<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
 			</text>
 
-			<text v-else-if="b.kind == 'para'" class="md-para" :style="{ color: c.ink }" :selectable="true">
+			<text v-else-if="b.kind == 'para'" class="md-para" :style="bodyStyle(c.ink)" :selectable="true">
 				<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
 			</text>
 
 			<view v-else-if="b.kind == 'bullet' || b.kind == 'ordered'" class="md-item" :style="{ paddingLeft: (b.level * 16).toString() + 'px' }">
-				<text class="md-mark" :style="{ color: b.label == 'done' ? c.thread : c.inkSoft }">{{ markOf(b) }}</text>
-				<text class="md-item-text" :style="{ color: b.label == 'done' ? c.inkFaint : c.ink }" :selectable="true">
+				<text class="md-mark" :style="{ color: b.label == 'done' ? c.thread : c.inkSoft, fontSize: bodySize, lineHeight: bodyLine }">{{ markOf(b) }}</text>
+				<text class="md-item-text" :style="bodyStyle(b.label == 'done' ? c.inkFaint : c.ink)" :selectable="true">
 					<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
 				</text>
 			</view>
 
 			<view v-else-if="b.kind == 'quote'" class="md-quote" :style="{ borderLeftColor: c.lineStrong }">
-				<text class="md-para" :style="{ color: c.inkSoft }" :selectable="true">
+				<text class="md-para" :style="bodyStyle(c.inkSoft)" :selectable="true">
 					<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
 				</text>
 			</view>
@@ -28,14 +28,14 @@
 					<text class="md-code-copy" :style="{ color: c.indigo }" @click="copy(b.text)">复制</text>
 				</view>
 				<scroll-view direction="horizontal" class="md-code-scroll">
-					<text class="md-code-text" :style="{ color: c.ink }" :selectable="true">{{ b.text }}</text>
+					<text class="md-code-text" :style="{ color: c.ink, fontSize: codeSize, lineHeight: bodyLine }" :selectable="true">{{ b.text }}</text>
 				</scroll-view>
 			</view>
 
 			<scroll-view v-else-if="b.kind == 'table'" direction="horizontal" class="md-table-scroll">
 				<view class="md-table" :style="{ borderColor: c.line }">
 					<view v-for="(row, ri) in b.rows" :key="ri" class="md-tr" :style="{ backgroundColor: ri == 0 ? c.sunk : c.cloth, borderBottomColor: c.line }">
-						<text v-for="(cell, ci) in row" :key="ci" class="md-td" :style="{ color: c.ink, fontWeight: ri == 0 ? 'bold' : 'normal', borderRightColor: c.line }">{{ cell }}</text>
+						<text v-for="(cell, ci) in row" :key="ci" class="md-td" :style="{ color: c.ink, fontWeight: ri == 0 ? 'bold' : 'normal', borderRightColor: c.line, fontSize: tableSize }">{{ cell }}</text>
 					</view>
 				</view>
 			</scroll-view>
@@ -53,19 +53,56 @@
 <script setup lang="uts">
 	import { computed } from 'vue'
 	import { MdBlock, MdSpan, parseMarkdown } from '../../common/markdown.uts'
+	import { bodyFontPx, bodyLinePx, headingFontPx } from '../../common/prefs.uts'
 	import { theme } from '../../common/theme.uts'
 
 	const props = defineProps({
-		content: { type: String, default: '' }
+		content: { type: String, default: '' },
+		/** 父级流式 bump；确保 blocks 跟着重算 */
+		contentRev: { type: Number, default: 0 },
+		/** 父级传入字号档，切换后强制刷新 */
+		fontSize: { type: String, default: 'medium' }
 	})
 
 	const c = computed(() => theme.c)
-	const blocks = computed(() : Array<MdBlock> => parseMarkdown(props.content))
+	const blocks = computed(() : Array<MdBlock> => {
+		const _ = props.contentRev
+		const __ = props.fontSize
+		return parseMarkdown(props.content)
+	})
+	const bodySize = computed(() : string => {
+		const _ = props.fontSize
+		return bodyFontPx().toString() + 'px'
+	})
+	const bodyLine = computed(() : string => {
+		const _ = props.fontSize
+		return bodyLinePx().toString() + 'px'
+	})
+	const codeSize = computed(() : string => {
+		const _ = props.fontSize
+		return Math.max(12, bodyFontPx() - 2).toString() + 'px'
+	})
+	const tableSize = computed(() : string => {
+		const _ = props.fontSize
+		return Math.max(12, bodyFontPx() - 2).toString() + 'px'
+	})
 
-	function headingSize(level : number) : string {
-		if (level <= 1) return '20px'
-		if (level == 2) return '18px'
-		return '16px'
+	function headingStyle(level : number) : UTSJSONObject {
+		const _ = props.fontSize
+		const px = headingFontPx(level)
+		return {
+			color: theme.c.ink,
+			fontSize: px.toString() + 'px',
+			lineHeight: Math.round(px * 1.4).toString() + 'px'
+		} as UTSJSONObject
+	}
+
+	function bodyStyle(color : string) : UTSJSONObject {
+		return {
+			color: color,
+			fontSize: bodySize.value,
+			lineHeight: bodyLine.value
+		} as UTSJSONObject
 	}
 
 	function spanStyle(s : MdSpan) : UTSJSONObject {
@@ -110,12 +147,9 @@
 	}
 	.md-heading {
 		font-weight: bold;
-		line-height: 28px;
 		margin-top: 4px;
 	}
 	.md-para {
-		font-size: 15px;
-		line-height: 24px;
 	}
 	.md-item {
 		flex-direction: row;
@@ -123,13 +157,9 @@
 	}
 	.md-mark {
 		width: 22px;
-		font-size: 15px;
-		line-height: 24px;
 	}
 	.md-item-text {
 		flex: 1;
-		font-size: 15px;
-		line-height: 24px;
 	}
 	.md-quote {
 		border-left-width: 3px;

@@ -228,7 +228,7 @@ def test_approvals_can_be_turned_off_and_other_channels_never_get_them(tc):
     assert r.json() == {"enabled": False}
 
 
-def test_chat_streams_over_the_socket_and_is_counted(tc):
+def test_chat_streams_over_the_socket_and_is_counted(tc, caplog):
     pc = _pc(tc)
     _enable(tc)
     phone, _ = _pair(tc, pc)
@@ -251,15 +251,21 @@ def test_chat_streams_over_the_socket_and_is_counted(tc):
             events = []
             while not events or events[-1]["type"] not in ("chat.done", "chat.error"):
                 events.append(ws.receive_json())
-    assert [e["type"] for e in events] == ["chat.start", "chat.thinking", "chat.delta", "chat.delta", "chat.done"]
+    # 翻译默认关思考：上游即使吐了 reasoning 也不推给手机
+    assert [e["type"] for e in events] == ["chat.start", "chat.delta", "chat.delta", "chat.done"]
     assert "".join(e["text"] for e in events if e["type"] == "chat.delta") == "Xin chào"
-    sent = json.loads(route.calls[0].request.content)
+    assert events[-1]["text"] == "Xin chào"
+    # 预热会先打一枪，真正的翻译请求是后面这一次
+    sent = json.loads(route.calls[-1].request.content)
+    assert sent["enable_thinking"] is False
     # 系统提示词服务端给；手机发来的 system 被丢掉；翻译只带最后一句
     assert [m["role"] for m in sent["messages"]] == ["system", "user"]
     assert "越南语" in sent["messages"][0]["content"] and sent["messages"][1]["content"] == "你好"
 
     usage = tc.get("/api/v1/client/usage", headers=pc).json()
     assert {s["scene"]: s["total"] for s in usage["by_scene"]} == {"mobile": 120}
+    # attachments 是附件个数。传 [] 会在 PostgreSQL 上把整条归档（含用量）一起回滚
+    assert "记录手机聊天失败" not in caplog.text
 
 
 def test_bad_tokens_cannot_open_the_socket(tc):

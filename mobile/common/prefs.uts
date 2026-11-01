@@ -1,0 +1,151 @@
+// 手机端偏好：选中的模型、是否开深度思考。存在本地，跟账号无关。
+
+import { reactive } from 'vue'
+import { request } from './api.uts'
+
+export type ModelInfo = {
+	id : number
+	name : string
+	model : string
+	provider : string
+	supportsTools : boolean
+	supportsVision : boolean
+}
+
+export type Prefs = {
+	/** 0 = 自动（优先 deepseek flash） */
+	modelId : number
+	/** 深度思考；翻译模式服务端会忽略 */
+	deepThinking : boolean
+	/** 联网搜索；仅对话，且需管理员开启 */
+	webSearch : boolean
+	/** 聊天正文字号：small / medium / large */
+	fontSize : string
+	models : Array<ModelInfo>
+	modelsLoaded : boolean
+}
+
+export const prefs = reactive({
+	modelId: 0,
+	deepThinking: false,
+	webSearch: false,
+	fontSize: 'medium',
+	models: [] as Array<ModelInfo>,
+	modelsLoaded: false
+} as Prefs)
+
+const PREFS_KEY = 'fk.prefs'
+
+export function loadPrefs() {
+	const raw = uni.getStorageSync(PREFS_KEY)
+	if (raw == null || typeof raw != 'string' || (raw as string).trim() == '') {
+		return
+	}
+	try {
+		const o = JSON.parse(raw as string) as UTSJSONObject
+		prefs.modelId = o.getNumber('modelId') ?? 0
+		prefs.deepThinking = o.getBoolean('deepThinking') ?? false
+		prefs.webSearch = o.getBoolean('webSearch') ?? false
+		const fs = o.getString('fontSize') ?? 'medium'
+		prefs.fontSize = (fs == 'small' || fs == 'large') ? fs : 'medium'
+	} catch (err) {
+		console.error(err)
+	}
+}
+
+function savePrefs() {
+	uni.setStorageSync(PREFS_KEY, JSON.stringify({
+		modelId: prefs.modelId,
+		deepThinking: prefs.deepThinking,
+		webSearch: prefs.webSearch,
+		fontSize: prefs.fontSize
+	} as UTSJSONObject))
+}
+
+export function setDeepThinking(on : boolean) {
+	prefs.deepThinking = on
+	savePrefs()
+}
+
+export function setWebSearch(on : boolean) {
+	prefs.webSearch = on
+	savePrefs()
+}
+
+export function setFontSize(size : string) {
+	prefs.fontSize = (size == 'small' || size == 'large') ? size : 'medium'
+	savePrefs()
+}
+
+export function setModelId(id : number) {
+	prefs.modelId = id
+	savePrefs()
+}
+
+/** 对话正文基准字号（px） */
+export function bodyFontPx() : number {
+	if (prefs.fontSize == 'small') return 14
+	if (prefs.fontSize == 'large') return 17
+	return 15
+}
+
+export function bodyLinePx() : number {
+	if (prefs.fontSize == 'small') return 22
+	if (prefs.fontSize == 'large') return 28
+	return 24
+}
+
+export function headingFontPx(level : number) : number {
+	const bump = prefs.fontSize == 'large' ? 2 : (prefs.fontSize == 'small' ? -1 : 0)
+	if (level <= 1) return 20 + bump
+	if (level == 2) return 18 + bump
+	return 16 + bump
+}
+
+export function fontSizeLabel() : string {
+	if (prefs.fontSize == 'small') return '小'
+	if (prefs.fontSize == 'large') return '大'
+	return '标准'
+}
+
+export function currentModel() : ModelInfo | null {
+	if (prefs.modelId == 0) {
+		return null
+	}
+	const i = prefs.models.findIndex((m : ModelInfo) : boolean => m.id == prefs.modelId)
+	return i >= 0 ? prefs.models[i] : null
+}
+
+export function modelLabel() : string {
+	const m = currentModel()
+	return m != null ? m.name : '自动（优先 Flash）'
+}
+
+/** 从服务器拉可选模型；失败不打断使用 */
+export async function refreshModels() : Promise<void> {
+	const res = await request('GET', '/api/v1/mobile/models', null)
+	if (!res.ok || res.data == null) {
+		prefs.modelsLoaded = true
+		return
+	}
+	const list = res.data as Array<any>
+	const out = [] as Array<ModelInfo>
+	list.forEach((item : any) => {
+		const o = item as UTSJSONObject
+		out.push({
+			id: o.getNumber('id') ?? 0,
+			name: o.getString('name') ?? '',
+			model: o.getString('model') ?? '',
+			provider: o.getString('provider') ?? '',
+			supportsTools: o.getBoolean('supports_tools') ?? false,
+			supportsVision: o.getBoolean('supports_vision') ?? false
+		} as ModelInfo)
+	})
+	prefs.models = out
+	prefs.modelsLoaded = true
+	// 选中的模型被管理员下线了：退回自动
+	if (prefs.modelId != 0 && out.findIndex((m : ModelInfo) : boolean => m.id == prefs.modelId) < 0) {
+		prefs.modelId = 0
+		savePrefs()
+	}
+}

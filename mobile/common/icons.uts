@@ -1,0 +1,41 @@
+// iconfont 字符表。uvue 对 :before 支持不稳，直接用 unicode + font-family 渲染。
+
+const GLYPHS = new Map<string, string>([
+	['menu', '\uE601'],
+	['jiahao', '\uE602'],
+	['chaping', '\uE606'],
+	['hulianwangoff', '\uE60D'],
+	['shoujihao', '\uE60F'],
+	['shanchu', '\uE612'],
+	['yuyan', '\uE615'],
+	['chaping1', '\uE617'],
+	['shuaxin', '\uE618'],
+	['tingzhi', '\uE619'],
+	['dianzan', '\uE61B'],
+	['fuzhi', '\uE61D'],
+	['guanbi', '\uE62C'],
+	['tuichu', '\uE62F'],
+	['taiyang', '\uE635'],
+	['chaping2', '\uE63A'],
+	['tupian', '\uE63D'],
+	['yonghuxieyi', '\uE657'],
+	['jianpan', '\uE661'],
+	['weixin', '\uE665'],
+	['aisikao', '\uE66A'],
+	['shanchuzhanghu', '\uE66F'],
+	['paizhao', '\uE672'],
+	['tuodaoshouzhang', '\uE67C'],
+	['yuyin', '\uE68D'],
+	['shangchuan2', '\uE6B3'],
+	['yishangchuan', '\uE719'],
+	['zhishiku', '\uE786'],
+	['shangchuan', '\uE7E4'],
+	['gantanhao', '\uE8EC'],
+	['zhixiangshang', '\uE8F5'],
+	['lianxiwomen', '\uE600'],
+	['zhishiku1', '\uE629']
+])
+
+export function iconChar(name : string) : string {
+	return GLYPHS.get(name) ?? ''
+}

@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ChannelBinding, ChannelMessage, ChatRecord, Device, MobileDevice, MobilePairCode
-from . import chat_archive, model_router, settings_store, usage_store
+from . import chat_archive, model_router, settings_store, usage_store, web_search
 
 log = logging.getLogger("flyknit.mobile")
 
@@ -108,45 +108,78 @@ def system_prompt(mode: str, target_lang: str, now: datetime | None = None) -> s
         "- 回答简洁、分段清楚，适合手机屏幕阅读；能用列表就用列表，少用宽表格\n"
         "- 用用户使用的语言回答\n"
         "- 需要操作电脑（找文件、整理表格、查系统）的事，提醒员工切到「办事」，交给他电脑上的 FlyknitBuddy 去做\n"
+        "- 若下文附有联网检索结果，请优先依据它们回答，并在关键处标注来源；不要编造检索里没有的网页\n"
         f"今天是 {today}。"
     )
 
 
+def _mobile_content(content: object) -> str | list | None:
+    """纯文字，或带图的 OpenAI 分片（手机拍照 / 相册）。"""
+    if isinstance(content, str) and content.strip():
+        return content[:MAX_MESSAGE_CHARS]
+    if not isinstance(content, list):
+        return None
+    parts: list[dict] = []
+    text_budget = MAX_MESSAGE_CHARS
+    for part in content[:8]:
+        if not isinstance(part, dict):
+            continue
+        kind = part.get("type")
+        if kind == "text":
+            text = str(part.get("text") or "")[:text_budget]
+            text_budget = max(0, text_budget - len(text))
+            if text:
+                parts.append({"type": "text", "text": text})
+        elif kind == "image_url":
+            url = part.get("image_url")
+            if isinstance(url, dict):
+                url = url.get("url")
+            if isinstance(url, str) and url.startswith(("data:image/", "http://", "https://")) and len(url) < 4_000_000:
+                parts.append({"type": "image_url", "image_url": {"url": url}})
+    return parts or None
+
+
 def build_messages(mode: str, target_lang: str, raw: object) -> list[dict]:
-    """手机发来的历史只认 user / assistant 两种角色的纯文字，系统提示词由这里加。"""
+    """手机发来的历史只认 user / assistant；用户消息可带图。系统提示词由这里加。"""
     out: list[dict] = []
     if isinstance(raw, list):
         for m in raw[-MAX_HISTORY:]:
             if not isinstance(m, dict) or m.get("role") not in ("user", "assistant"):
                 continue
-            content = m.get("content")
-            if isinstance(content, str) and content.strip():
-                out.append({"role": m["role"], "content": content[:MAX_MESSAGE_CHARS]})
+            content = _mobile_content(m.get("content"))
+            if content is None:
+                continue
+            # 助手历史只留纯文字，避免把旧图反复塞回上下文
+            if m["role"] == "assistant" and not isinstance(content, str):
+                continue
+            out.append({"role": m["role"], "content": content})
     if mode == "translate":
         # 翻译不需要上下文，只翻最后一句，省 token 也不会被前文带偏
         out = [m for m in out if m["role"] == "user"][-1:]
     return [{"role": "system", "content": system_prompt(mode, target_lang)}] + out
 
 
-def delta_of(line: bytes) -> tuple[str, bool]:
-    """从一行 SSE 里取出（正文增量，是否在思考）。"""
+def delta_of(line: bytes) -> tuple[str, str]:
+    """从一行 SSE 里取出（正文增量，思考增量）。思考在 reasoning_content，正文在 content。"""
     line = line.strip()
     if not line.startswith(b"data:"):
-        return "", False
+        return "", ""
     body = line[5:].strip()
     if not body or body == b"[DONE]":
-        return "", False
+        return "", ""
     try:
         obj = json.loads(body)
     except ValueError:
-        return "", False
+        return "", ""
     choices = obj.get("choices") if isinstance(obj, dict) else None
     if not choices or not isinstance(choices[0], dict):
-        return "", False
+        return "", ""
     delta = choices[0].get("delta") or {}
+    if not isinstance(delta, dict):
+        return "", ""
     text = delta.get("content") or ""
-    thinking = bool(delta.get("reasoning_content") or delta.get("reasoning"))
-    return (text if isinstance(text, str) else ""), thinking
+    reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""
+    return (text if isinstance(text, str) else ""), (reasoning if isinstance(reasoning, str) else "")
 
 
 # ---------------------------------------------------------------------
@@ -194,11 +227,47 @@ class MobileHub:
         self._approvals: dict[str, Approval] = {}
         self._pair_failures: dict[str, list[float]] = {}
         self._inputs: dict[int, TaskInbox] = {}
+        #: 已预热过的上游主机，避免每部手机连上都打一枪
+        self._warm_hosts: set[str] = set()
+        self._warm_lock = asyncio.Lock()
 
     # ---- 连接 ----
 
     def attach(self, mobile_id: int, ws) -> None:
         self._sockets.setdefault(mobile_id, set()).add(ws)
+
+    async def warm_upstream(self, http: httpx.AsyncClient, sessionmaker) -> None:
+        """手机连上后预热上游：TLS + 连接池 + 模型冷启动。
+
+        第一次聊天慢、第二次快，多半是连阿里云和模型冷启；这里用 1 token 的短请求提前热好。
+        """
+        host = ""
+        try:
+            async with sessionmaker() as session:
+                targets = await model_router.prefer_mobile(session, "chat")
+            target = targets[0]
+            host = httpx.URL(target.url).host or target.url
+            async with self._warm_lock:
+                if host in self._warm_hosts:
+                    return
+                self._warm_hosts.add(host)
+            body = {
+                "messages": [{"role": "user", "content": "."}],
+                "stream": True,
+                "max_tokens": 1,
+                "enable_thinking": False,
+            }
+            upstream, _ = await model_router.open_upstream(http, targets, body)
+            try:
+                async for _ in upstream.aiter_raw():
+                    break
+            finally:
+                await upstream.aclose()
+            log.info("手机上游已预热 host=%s model=%s", host, target.display_name)
+        except Exception:  # noqa: BLE001  预热失败不影响正常聊天，下次连上再试
+            if host:
+                self._warm_hosts.discard(host)
+            log.debug("手机上游预热跳过", exc_info=True)
 
     def detach(self, mobile_id: int, ws) -> None:
         self._sockets.get(mobile_id, set()).discard(ws)
@@ -388,6 +457,13 @@ class MobileHub:
         mode = "translate" if req.get("mode") == "translate" else "chat"
         target_lang = str(req.get("target") or "zh")
         conversation_id = str(req.get("conversation_id") or "")[:56]
+        # 默认关思考：手机上开着的话会先空等很久才出字。只有点了「深度思考」才打开
+        thinking = bool(req.get("thinking")) and mode != "translate"
+        raw_model = req.get("model_id")
+        try:
+            model_id = int(raw_model) if raw_model not in (None, "") else None
+        except (TypeError, ValueError):
+            model_id = None
 
         async def emit(event: dict) -> None:
             event["id"] = rid
@@ -400,6 +476,12 @@ class MobileHub:
         if len(messages) < 2:
             await emit({"type": "chat.error", "message": "没有要发送的内容"})
             return
+        want_search = bool(req.get("web_search")) and mode == "chat"
+        if model_router.has_image(messages):
+            # 带图时走 vision 场景路由（用户指定了模型则仍用那个，前提是它能看图）
+            mode_for_route = "vision"
+        else:
+            mode_for_route = mode
         async with sessionmaker() as session:
             quota = await usage_store.get_quota(session)
             limit = usage_store.limit_for(quota, device)
@@ -407,11 +489,34 @@ class MobileHub:
                 await emit({"type": "chat.error", "message": f"今天的用量已达上限，请联系 {quota['contact_name']} 增加额度"})
                 return
             try:
-                targets = await model_router.resolve(session, mode)
+                targets = await model_router.prefer_mobile(session, mode_for_route, model_id)
             except model_router.NoRouteError as exc:
                 await emit({"type": "chat.error", "message": str(exc)})
                 return
-        body = {"messages": messages, "stream": True, "stream_options": {"include_usage": True}}
+            if model_router.has_image(messages) and not targets[0].supports_vision:
+                await emit({"type": "chat.error", "message": "当前模型不支持看图，请在设置里换一个带视觉的模型，或去掉图片"})
+                return
+            search_cfg = await web_search.get_config(session) if want_search else None
+        if want_search:
+            await emit({"type": "chat.searching"})
+            if search_cfg is None or not web_search.is_ready(search_cfg):
+                await emit({"type": "chat.sources", "sources": [], "skipped": "管理员未开启联网搜索"})
+            else:
+                query = web_search.last_user_query(messages)
+                try:
+                    hits = await web_search.search(http, search_cfg, query)
+                    messages = web_search.inject_into_messages(messages, hits)
+                    await emit({"type": "chat.sources", "sources": web_search.hits_out(hits)})
+                except web_search.SearchError as exc:
+                    log.warning("手机 #%s 联网搜索失败：%s", mobile.id, exc)
+                    await emit({"type": "chat.sources", "sources": [], "skipped": str(exc)})
+        body = {
+            "messages": messages,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            # 显式关掉思考；模型 extra_body 里的同名字段不会覆盖（setdefault）
+            "enable_thinking": thinking,
+        }
         try:
             upstream, target = await model_router.open_upstream(http, targets, body)
         except model_router.UpstreamUnavailable as exc:
@@ -426,7 +531,6 @@ class MobileHub:
         scanner = usage_store.StreamUsageScanner()
         text = chat_archive.StreamTextScanner()
         buffer = b""
-        told_thinking = False
         recorded = False
         try:
             try:
@@ -436,20 +540,25 @@ class MobileHub:
                     buffer += chunk
                     while b"\n" in buffer:
                         line, buffer = buffer.split(b"\n", 1)
-                        delta, thinking = delta_of(line)
+                        delta, reasoning = delta_of(line)
+                        # 没开深度思考时上游偶发 reasoning 也不推，避免手机一直停在「正在思考」
+                        if thinking and reasoning:
+                            await emit({"type": "chat.reasoning", "text": reasoning})
                         if delta:
                             await emit({"type": "chat.delta", "text": delta})
-                        elif thinking and not told_thinking:
-                            told_thinking = True
-                            await emit({"type": "chat.thinking"})
-                # 先记用量再说完成：手机收到 done 后马上查用量也是准的
+                if buffer.strip():
+                    delta, reasoning = delta_of(buffer)
+                    if thinking and reasoning:
+                        await emit({"type": "chat.reasoning", "text": reasoning})
+                    if delta:
+                        await emit({"type": "chat.delta", "text": delta})
                 with anyio.CancelScope(shield=True):
                     await upstream.aclose()
                     scanner.finish()
                     text.finish()
                     await self._record(sessionmaker, device, mode, conversation_id, messages, text.text, scanner, target)
                     recorded = True
-                await emit({"type": "chat.done"})
+                await emit({"type": "chat.done", "text": text.text})
             except httpx.HTTPError as exc:
                 log.warning("手机 #%s 聊天时上游中途断开：%s", mobile.id, exc)
                 await emit({"type": "chat.error", "message": "模型服务连接中断，请重试"})
@@ -469,13 +578,13 @@ class MobileHub:
                 if scanner.prompt > 0 or scanner.completion > 0:
                     await usage_store.record(s, device.id, "mobile", scanner.prompt, scanner.completion,
                                              model_id=target.model_id, model_name=target.display_name)
-                user_text = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+                user_text, attachments = chat_archive.last_user_message(messages)
                 if conversation_id and (user_text or answer):
                     s.add(ChatRecord(
                         device_id=device.id, machine_name=device.machine_name, user_name=device.user_name,
                         conversation_id=f"mobile-{conversation_id}", scene="translate" if mode == "translate" else "chat",
                         model=target.display_name, user_content=chat_archive.clip(user_text),
-                        assistant_content=chat_archive.clip(answer), attachments=[],
+                        assistant_content=chat_archive.clip(answer), attachments=attachments,
                         prompt_tokens=max(0, scanner.prompt), completion_tokens=max(0, scanner.completion),
                     ))
                     await s.commit()

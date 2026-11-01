@@ -724,6 +724,16 @@ export interface MobileConfig {
   connected: number
 }
 
+/** 手机对话联网搜索（博查 / Serper / Tavily） */
+export interface MobileWebSearchConfig {
+  enabled: boolean
+  provider: 'bocha' | 'serper' | 'tavily' | string
+  count: number
+  api_key_masked: string
+  api_key_set: boolean
+  ready: boolean
+}
+
 /** 绑定到员工电脑的一部手机 */
 export interface MobilePhone {
   id: number
