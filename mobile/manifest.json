@@ -1,6 +1,6 @@
 {
 	"name": "FlyknitBuddy",
-	"appid": "",
+	"appid": "__UNI__9AFC65D",
 	"description": "FlyknitBuddy 手机端：聊天、翻译，让自己电脑上的 FlyknitBuddy 办事",
 	"versionName": "0.1.0",
 	"versionCode": "100",
@@ -9,12 +9,17 @@
 		"distribute": {
 			"icons": {},
 			"modules": {
-				"uni-push": {}
+				"uni-push": {},
+				"uni-barcode-scanning": {},
+				"Camera": {}
 			},
 			"android": {
 				"minSdkVersion": 21,
 				"targetSdkVersion": 33,
-				"abiFilters": ["arm64-v8a", "armeabi-v7a"],
+				"abiFilters": [
+					"arm64-v8a",
+					"armeabi-v7a"
+				],
 				"permissions": [
 					"<uses-permission android:name=\"android.permission.INTERNET\"/>",
 					"<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
@@ -23,6 +28,57 @@
 					"<uses-permission android:name=\"android.permission.VIBRATE\"/>",
 					"<uses-permission android:name=\"android.permission.REQUEST_INSTALL_PACKAGES\"/>"
 				]
+			}
+		}
+	},
+	"app-android": {
+		"distribute": {
+			"minSdkVersion": 21,
+			"targetSdkVersion": 33,
+			"abiFilters": [
+				"arm64-v8a",
+				"armeabi-v7a"
+			],
+			"permissions": [
+				"<uses-permission android:name=\"android.permission.INTERNET\"/>",
+				"<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+				"<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
+				"<uses-permission android:name=\"android.permission.CAMERA\"/>",
+				"<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+				"<uses-permission android:name=\"android.permission.REQUEST_INSTALL_PACKAGES\"/>"
+			],
+			"modules": {
+				"uni-push": {},
+				"uni-barcode-scanning": {},
+				"Camera": {}
+			},
+			"icons": {
+				"hdpi": "F:/flyknit/mobile/static/logo.png",
+				"xhdpi": "F:/flyknit/mobile/static/logo.png",
+				"xxhdpi": "F:/flyknit/mobile/static/logo.png",
+				"xxxhdpi": "F:/flyknit/mobile/static/logo.png"
+			},
+			"splashScreens": {
+				"default": {
+					"xhdpi": "E:/softdownload/20260729/ScreenShot_2026-11-01_213406_889.png",
+					"xxhdpi": "E:/softdownload/20260729/ScreenShot_2026-11-01_213423_337.png",
+					"xxxhdpi": "E:/softdownload/20260729/ScreenShot_2026-11-01_213440_468.png"
+				}
+			}
+		}
+	},
+	"app-ios": {
+		"distribute": {
+			"modules": {
+				"uni-push": {},
+				"uni-barcode-scanning": {},
+				"Camera": {}
+			},
+			"icons": {},
+			"splashScreens": {},
+			"privacyDescription": {
+				"NSCameraUsageDescription": "用于扫描电脑端绑定二维码",
+				"NSPhotoLibraryUsageDescription": "用于发送图片给助手"
 			}
 		}
 	}

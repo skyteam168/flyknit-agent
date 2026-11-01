@@ -9,7 +9,15 @@
 			"style": { "navigationStyle": "custom" }
 		},
 		{
+			"path": "pages/scan/scan",
+			"style": { "navigationStyle": "custom" }
+		},
+		{
 			"path": "pages/settings/settings",
+			"style": { "navigationStyle": "custom" }
+		},
+		{
+			"path": "pages/visual/visual",
 			"style": { "navigationStyle": "custom" }
 		}
 	],
@@ -21,7 +29,8 @@
 	"easycom": {
 		"autoscan": true,
 		"custom": {
-			"^fk-(.*)": "@/components/fk-$1/fk-$1.uvue"
+			"^fk-(.*)": "@/components/fk-$1/fk-$1.uvue",
+			"^md-(.*)": "@/components/md-$1/md-$1.uvue"
 		}
 	}
 }

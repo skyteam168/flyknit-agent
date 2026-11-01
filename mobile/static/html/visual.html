@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes" />
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: #fff; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    #root {
+      position: absolute; inset: 0;
+      box-sizing: border-box;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #root.svg-mode { padding: 0; }
+    #stage {
+      transform-origin: 0 0;
+      will-change: transform;
+      display: inline-block;
+      min-width: 100%;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    #stage svg { max-width: none; height: auto; display: block; }
+    .err {
+      font: 12px/1.45 sans-serif; white-space: pre-wrap; opacity: 0.85;
+      padding: 12px; overflow: auto; height: 100%; box-sizing: border-box;
+    }
+    .chart { width: 100%; height: 100%; min-height: 280px; }
+    .boot { font: 13px/1.4 sans-serif; opacity: 0.55; padding: 16px; }
+    .zoom-bar {
+      position: fixed; right: 12px; bottom: 18px; z-index: 20;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .zoom-bar button {
+      width: 40px; height: 40px; border: none; border-radius: 20px;
+      background: rgba(30,30,36,0.78); color: #fff; font-size: 20px;
+      line-height: 40px; padding: 0;
+    }
+    .hint {
+      position: fixed; left: 12px; bottom: 22px; z-index: 20;
+      font-size: 11px; color: #888; background: rgba(255,255,255,0.85);
+      padding: 4px 8px; border-radius: 6px; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"><div class="boot">加载中…</div></div>
+  <div class="zoom-bar" id="zoomBar" style="display:none">
+    <button type="button" id="zIn" aria-label="放大">+</button>
+    <button type="button" id="zOut" aria-label="缩小">−</button>
+    <button type="button" id="zReset" aria-label="复位">↺</button>
+  </div>
+  <div class="hint" id="hint" style="display:none">双指缩放 · 单指拖动</div>
+  <script src="vendor/mermaid.min.js"></script>
+  <script src="vendor/echarts.min.js"></script>
+  <script>
+    var Palette = ['#2f6df6', '#13b5b1', '#f2a33c', '#8b5cf6', '#e5556f', '#3fa34d', '#6b7280', '#d97706']
+    var seq = 0
+    var pan = { scale: 1, x: 0, y: 0 }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    }
+
+    function parseLoose(text) {
+      var src = String(text || '').replace(/^\uFEFF/, '').trim()
+      try { return JSON.parse(src) } catch (e1) {
+        var fixed = src
+          .replace(/\/\/[^\n]*/g, '')
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .replace(/,\s*([}\]])/g, '$1')
+          .replace(/'/g, '"')
+          .replace(/，/g, ',')
+          .replace(/：/g, ':')
+        return JSON.parse(fixed)
+      }
+    }
+
+    function parseEchartsOption(code) {
+      var s = String(code || '').replace(/^\uFEFF/, '').trim()
+      s = s.replace(/^\s*(?:export\s+default\s+)?(?:const|let|var)?\s*option\s*=\s*/i, '')
+      s = s.replace(/;\s*$/, '')
+      // 去掉注释，保留字符串（粗粒度：先按行去 //）
+      s = s.replace(/\/\*[\s\S]*?\*\//g, '')
+      s = s.split('\n').map(function (line) {
+        var inStr = false, quote = '', out = ''
+        for (var i = 0; i < line.length; i++) {
+          var ch = line.charAt(i)
+          if (inStr) {
+            out += ch
+            if (ch === '\\') { out += line.charAt(++i) || ''; continue }
+            if (ch === quote) inStr = false
+            continue
+          }
+          if (ch === '"' || ch === "'" || ch === '`') { inStr = true; quote = ch; out += ch; continue }
+          if (ch === '/' && line.charAt(i + 1) === '/') break
+          out += ch
+        }
+        return out
+      }).join('\n')
+      // 优先 Function：保留单引号 / 箭头函数
+      try {
+        return (new Function('return (' + s + ')'))()
+      } catch (e1) {
+        return parseLoose(s)
+      }
+    }
+
+    function toOption(spec, theme) {
+      var dark = theme === 'dark'
+      var ink = dark ? '#d7dbe3' : '#2b3040'
+      var soft = dark ? '#8b93a4' : '#6b7280'
+      var line = dark ? '#333a49' : '#e3e7ef'
+      var type = String(spec.type || 'bar').toLowerCase()
+      var series = (spec.series || []).map(function (s) {
+        return {
+          name: s.name ? String(s.name) : undefined,
+          data: (s.data || []).map(Number),
+          stack: s.stack ? String(s.stack) : (spec.stacked ? 'total' : undefined)
+        }
+      })
+      var categories = Array.isArray(spec.categories) ? spec.categories.map(String) : []
+      var base = {
+        color: Palette,
+        backgroundColor: 'transparent',
+        textStyle: { color: ink },
+        title: spec.title ? { text: String(spec.title), left: 'center', textStyle: { color: ink, fontSize: 14, fontWeight: 600 } } : undefined,
+        tooltip: { trigger: type === 'pie' || type === 'donut' ? 'item' : 'axis' },
+        legend: (series.length > 1 || type === 'pie' || type === 'donut') ? { bottom: 0, textStyle: { color: soft } } : undefined,
+        animationDuration: 360
+      }
+      if (type === 'pie' || type === 'donut') {
+        var data = categories.map(function (name, i) { return { name: name, value: (series[0] && series[0].data[i]) || 0 } })
+        return Object.assign({}, base, {
+          series: [{
+            type: 'pie',
+            radius: type === 'donut' ? ['46%', '70%'] : '66%',
+            center: ['50%', spec.title ? '54%' : '48%'],
+            data: data,
+            label: { color: ink },
+            labelLine: { lineStyle: { color: line } }
+          }]
+        })
+      }
+      var categoryAxis = { type: 'category', data: categories, name: spec.xLabel, axisLabel: { color: soft }, axisLine: { lineStyle: { color: line } } }
+      var valueAxis = { type: 'value', name: spec.yLabel, axisLabel: { color: soft }, splitLine: { lineStyle: { color: line } } }
+      var horizontal = type === 'hbar'
+      return Object.assign({}, base, {
+        grid: { left: 8, right: 12, top: spec.title ? 40 : 12, bottom: base.legend ? 36 : 8, containLabel: true },
+        xAxis: horizontal ? valueAxis : categoryAxis,
+        yAxis: horizontal ? categoryAxis : valueAxis,
+        series: series.map(function (s) {
+          return {
+            name: s.name,
+            type: (type === 'line' || type === 'area') ? 'line' : (type === 'scatter' ? 'scatter' : 'bar'),
+            data: s.data,
+            stack: s.stack,
+            smooth: type === 'line' || type === 'area',
+            areaStyle: type === 'area' ? {} : undefined,
+            barMaxWidth: 40
+          }
+        })
+      })
+    }
+
+    function quoteMermaid(code) {
+      var first = String(code).trimStart().split('\n', 1)[0].trim().toLowerCase()
+      if (first.indexOf('flowchart') !== 0 && first.indexOf('graph') !== 0) return code
+      var nodeId = '[A-Za-z0-9_\\u4e00-\\u9fa5]+'
+      function qt(t) { return '"' + String(t).trim().replace(/"/g, '#quot;') + '"' }
+      function outside(line, fix) {
+        return line.split(/("[^"\\n]*")/).map(function (part, i) { return i % 2 ? part : fix(part) }).join('')
+      }
+      var passes = [
+        [new RegExp('(' + nodeId + ')\\[(?![\\[(/\\\\])([^\\[\\]\\n]+?)\\](?!\\])', 'g'), function (id, t) { return id + '[' + qt(t) + ']' }],
+        [new RegExp('(' + nodeId + ')\\((?![(\\[])([^()\\n]+?)\\)(?!\\))', 'g'), function (id, t) { return id + '(' + qt(t) + ')' }],
+        [new RegExp('(' + nodeId + ')\\{(?!\\{)([^{}\\n]+?)\\}', 'g'), function (id, t) { return id + '{' + qt(t) + '}' }]
+      ]
+      return String(code).split('\n').map(function (line) {
+        passes.forEach(function (p) {
+          line = outside(line, function (part) {
+            return part.replace(p[0], function (_m, id, t) { return p[1](id, t) })
+          })
+        })
+        return outside(line, function (part) {
+          return part.replace(/\|([^|\n]+?)\|/g, function (_m, t) { return '|' + qt(t) + '|' })
+        })
+      }).join('\n')
+    }
+
+    function drawMermaid(code) {
+      function once(id, src) {
+        return new Promise(function (resolve, reject) {
+          var settled = false
+          function done(svg) {
+            if (settled) return
+            settled = true
+            resolve(typeof svg === 'string' ? svg : ((svg && svg.svg) || ''))
+          }
+          try {
+            var out = mermaid.render(id, src, function (svg) { done(svg) })
+            if (out && typeof out.then === 'function') {
+              out.then(done).catch(reject)
+            } else if (typeof out === 'string') {
+              done(out)
+            }
+          } catch (e) {
+            reject(e)
+          }
+        })
+      }
+      return once('mmd' + (++seq), code).catch(function (e0) {
+        var fixed = quoteMermaid(code)
+        if (fixed === code) return Promise.reject(e0)
+        return once('mmd' + (++seq), fixed)
+      })
+    }
+
+    function applyPan() {
+      var stage = document.getElementById('stage')
+      if (!stage) return
+      stage.style.transform = 'translate(' + pan.x + 'px,' + pan.y + 'px) scale(' + pan.scale + ')'
+    }
+
+    function enablePanZoom() {
+      var root = document.getElementById('root')
+      var stage = document.getElementById('stage')
+      if (!root || !stage) return
+      document.getElementById('zoomBar').style.display = 'flex'
+      document.getElementById('hint').style.display = 'block'
+      pan = { scale: 1, x: 0, y: 0 }
+      applyPan()
+
+      var mode = '', lastX = 0, lastY = 0, lastDist = 0
+
+      root.ontouchstart = function (e) {
+        if (e.touches.length === 1) {
+          mode = 'pan'
+          lastX = e.touches[0].clientX
+          lastY = e.touches[0].clientY
+        } else if (e.touches.length >= 2) {
+          mode = 'pinch'
+          lastDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          )
+        }
+      }
+      root.ontouchmove = function (e) {
+        e.preventDefault()
+        if (mode === 'pan' && e.touches.length === 1) {
+          pan.x += e.touches[0].clientX - lastX
+          pan.y += e.touches[0].clientY - lastY
+          lastX = e.touches[0].clientX
+          lastY = e.touches[0].clientY
+          applyPan()
+        } else if (e.touches.length >= 2) {
+          var dist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          )
+          if (lastDist > 0) {
+            var midX = (e.touches[0].clientX + e.touches[1].clientX) / 2
+            var midY = (e.touches[0].clientY + e.touches[1].clientY) / 2
+            var factor = dist / lastDist
+            var next = Math.min(5, Math.max(0.4, pan.scale * factor))
+            // 以双指中点为缩放中心
+            pan.x = midX - (midX - pan.x) * (next / pan.scale)
+            pan.y = midY - (midY - pan.y) * (next / pan.scale)
+            pan.scale = next
+            applyPan()
+          }
+          lastDist = dist
+          mode = 'pinch'
+        }
+      }
+      root.ontouchend = function () {
+        mode = ''
+        lastDist = 0
+      }
+
+      document.getElementById('zIn').onclick = function () {
+        pan.scale = Math.min(5, pan.scale * 1.25)
+        applyPan()
+      }
+      document.getElementById('zOut').onclick = function () {
+        pan.scale = Math.max(0.4, pan.scale / 1.25)
+        applyPan()
+      }
+      document.getElementById('zReset').onclick = function () {
+        pan = { scale: 1, x: 0, y: 0 }
+        applyPan()
+      }
+    }
+
+    window.renderBlock = async function (payload) {
+      var lang = String((payload && payload.lang) || '').toLowerCase()
+      var code = String((payload && payload.code) || '')
+      var theme = (payload && payload.theme) === 'dark' ? 'dark' : 'light'
+      var root = document.getElementById('root')
+      root.className = ''
+      root.innerHTML = ''
+      document.getElementById('zoomBar').style.display = 'none'
+      document.getElementById('hint').style.display = 'none'
+      document.body.style.background = theme === 'dark' ? '#141418' : '#ffffff'
+      document.body.style.color = theme === 'dark' ? '#ececef' : '#18181b'
+      try {
+        if (lang === 'mermaid' || lang === 'mmd') {
+          if (!window.mermaid) throw new Error('Mermaid 未加载（检查 vendor/mermaid.min.js）')
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: theme === 'dark' ? 'dark' : 'default',
+            securityLevel: 'strict',
+            fontFamily: 'inherit'
+          })
+          var svg = await drawMermaid(code)
+          root.className = 'svg-mode'
+          root.innerHTML = '<div id="stage">' + svg + '</div>'
+          enablePanZoom()
+        } else if (lang === 'chart' || lang === 'flyknit-chart') {
+          if (!window.echarts) throw new Error('ECharts 未加载（检查 vendor/echarts.min.js）')
+          var spec = parseLoose(code)
+          var el = document.createElement('div')
+          el.className = 'chart'
+          el.style.height = window.innerHeight + 'px'
+          root.appendChild(el)
+          var chart = echarts.init(el, undefined, { renderer: 'svg' })
+          chart.setOption(toOption(spec, theme))
+          window.addEventListener('resize', function () { chart.resize() })
+        } else if (lang === 'echarts' || lang === 'echarts-option' || lang === 'javascript' || lang === 'js') {
+          if (!window.echarts) throw new Error('ECharts 未加载（检查 vendor/echarts.min.js）')
+          var opt = parseEchartsOption(code)
+          // graph 等复杂图默认开漫游
+          try {
+            var series = opt.series
+            if (Array.isArray(series)) {
+              series.forEach(function (s) {
+                if (s && (s.type === 'graph' || s.type === 'tree' || s.type === 'sankey')) {
+                  if (s.roam == null) s.roam = true
+                }
+              })
+            }
+          } catch (eR) {}
+          var host = document.createElement('div')
+          host.className = 'chart'
+          host.style.height = window.innerHeight + 'px'
+          root.appendChild(host)
+          var ch = echarts.init(host, undefined, { renderer: 'canvas' })
+          ch.setOption(opt)
+          window.addEventListener('resize', function () { ch.resize() })
+        } else {
+          root.innerHTML = '<div class="err">' + escapeHtml(code) + '</div>'
+        }
+      } catch (err) {
+        root.innerHTML = '<div class="err">' + escapeHtml(String(err && err.message ? err.message : err)) +
+          '\n\n' + escapeHtml(code) + '</div>'
+      }
+    }
+
+    // H5：整段数据走 URL；App 长数据由 createWebViewContext.evalJS 注入
+    ;(function boot() {
+      try {
+        var q = location.search ? location.search.substring(1) : ''
+        if (!q && location.href.indexOf('?') >= 0) q = location.href.split('?')[1].split('#')[0]
+        var parts = q.split('&')
+        for (var i = 0; i < parts.length; i++) {
+          var eq = parts[i].indexOf('=')
+          if (eq < 0) continue
+          if (parts[i].substring(0, eq) === 'p') {
+            var v = parts[i].substring(eq + 1)
+            if (v) {
+              window.renderBlock(JSON.parse(decodeURIComponent(v)))
+              return
+            }
+          }
+        }
+      } catch (e) {
+        document.getElementById('root').innerHTML = '<div class="err">' + escapeHtml(String(e && e.message ? e.message : e)) + '</div>'
+        return
+      }
+      document.getElementById('root').innerHTML = '<div class="boot">等待数据…</div>'
+    })()
+
+    window.renderBlockReady = true
+  </script>
+</body>
+</html>

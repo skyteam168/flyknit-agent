@@ -1,0 +1,261 @@
+<template>
+	<view class="chart" :style="{ backgroundColor: c.sunk, borderColor: c.line }">
+		<text v-if="spec != null && spec.title != ''" class="title" :style="{ color: c.ink }">{{ spec.title }}</text>
+		<text v-if="spec == null" class="err" :style="{ color: c.red }" @click="copy">{{ t('chat.mdVisualFail') }}</text>
+
+		<!-- 柱状 / 折线：竖柱 -->
+		<view v-if="spec != null && (spec.type == 'bar' || spec.type == 'line' || spec.type == 'area' || spec.type == 'scatter')" class="bars">
+			<view v-for="(cat, i) in spec.categories" :key="i" class="col">
+				<view class="col-bars">
+					<view
+						v-for="(s, si) in spec.series"
+						:key="si"
+						class="bar"
+						:style="{ height: barH(s.data, i), backgroundColor: colorAt(si), width: barW }"
+					></view>
+				</view>
+				<text class="lab" :style="{ color: c.inkFaint }" :lines="1">{{ cat }}</text>
+				<text class="val" :style="{ color: c.inkSoft }" :lines="1">{{ firstVal(i) }}</text>
+			</view>
+		</view>
+
+		<!-- 条形图 -->
+		<view v-else-if="spec != null && spec.type == 'hbar'" class="hbars">
+			<view v-for="(cat, i) in spec.categories" :key="i" class="hrow">
+				<text class="hlab" :style="{ color: c.inkSoft }" :lines="1">{{ cat }}</text>
+				<view class="htrack" :style="{ backgroundColor: c.chip }">
+					<view class="hfill" :style="{ width: barPct(spec.series[0].data, i), backgroundColor: colorAt(0) }"></view>
+				</view>
+				<text class="hval" :style="{ color: c.inkFaint }">{{ numAt(spec.series[0].data, i) }}</text>
+			</view>
+		</view>
+
+		<!-- 饼/环：列表 + 色块比例（原生无 canvas 扇区时的可读方案） -->
+		<view v-else-if="spec != null && (spec.type == 'pie' || spec.type == 'donut')" class="pie">
+			<view class="pie-track" :style="{ backgroundColor: c.chip }">
+				<view
+					v-for="(cat, i) in spec.categories"
+					:key="i"
+					class="pie-seg"
+					:style="{ width: piePct(i), backgroundColor: colorAt(i) }"
+				></view>
+			</view>
+			<view v-for="(cat, i) in spec.categories" :key="i" class="pie-row">
+				<view class="dot" :style="{ backgroundColor: colorAt(i) }"></view>
+				<text class="pie-name" :style="{ color: c.ink }" :lines="1">{{ cat }}</text>
+				<text class="pie-val" :style="{ color: c.inkSoft }">{{ numAt(spec.series[0].data, i) }}</text>
+			</view>
+		</view>
+
+		<view v-else-if="spec != null" class="hbars">
+			<view v-for="(cat, i) in spec.categories" :key="i" class="hrow">
+				<text class="hlab" :style="{ color: c.inkSoft }" :lines="1">{{ cat }}</text>
+				<view class="htrack" :style="{ backgroundColor: c.chip }">
+					<view class="hfill" :style="{ width: barPct(spec.series[0].data, i), backgroundColor: colorAt(0) }"></view>
+				</view>
+				<text class="hval" :style="{ color: c.inkFaint }">{{ numAt(spec.series[0].data, i) }}</text>
+			</view>
+		</view>
+
+		<view v-if="spec != null && spec.series.length > 1" class="legend">
+			<view v-for="(s, si) in spec.series" :key="si" class="leg">
+				<view class="dot" :style="{ backgroundColor: colorAt(si) }"></view>
+				<text class="leg-t" :style="{ color: c.inkSoft }">{{ s.name != '' ? s.name : ('S' + (si + 1).toString()) }}</text>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { computed } from 'vue'
+	import { CHART_COLORS, ChartSpec, chartMax, parseChart } from '../../common/chart.uts'
+	import { theme } from '../../common/theme.uts'
+	import { t } from '../../common/i18n.uts'
+
+	const props = defineProps({
+		code: { type: String, default: '' }
+	})
+
+	const c = computed(() => theme.c)
+	const spec = computed(() : ChartSpec | null => parseChart(props.code))
+	const maxV = computed(() : number => {
+		const s = spec.value
+		return s == null ? 1 : chartMax(s)
+	})
+	const barW = computed(() : string => {
+		const s = spec.value
+		if (s == null) return '14px'
+		const n = s.series.length
+		if (n <= 1) return '18px'
+		if (n == 2) return '12px'
+		return '8px'
+	})
+
+	function colorAt(i : number) : string {
+		return CHART_COLORS[i % CHART_COLORS.length]
+	}
+
+	function numAt(data : Array<number>, i : number) : string {
+		if (i < 0 || i >= data.length) return '0'
+		const n = data[i]
+		if (Math.abs(n - Math.round(n)) < 0.05) return Math.round(n).toString()
+		return (Math.round(n * 10) / 10).toString()
+	}
+
+	function firstVal(i : number) : string {
+		const s = spec.value
+		if (s == null || s.series.length == 0) return ''
+		return numAt(s.series[0].data, i)
+	}
+
+	function barH(data : Array<number>, i : number) : string {
+		const v = (i >= 0 && i < data.length) ? data[i] : 0
+		const px = Math.max(4, Math.round(v / maxV.value * 120))
+		return px.toString() + 'px'
+	}
+
+	function barPct(data : Array<number>, i : number) : string {
+		const v = (i >= 0 && i < data.length) ? data[i] : 0
+		const pct = Math.max(2, Math.round(v / maxV.value * 100))
+		return pct.toString() + '%'
+	}
+
+	function piePct(i : number) : string {
+		const s = spec.value
+		if (s == null || s.series.length == 0) return '0%'
+		let sum = 0
+		s.series[0].data.forEach((n : number) => { sum += n })
+		if (sum <= 0) return '0%'
+		const v = (i >= 0 && i < s.series[0].data.length) ? s.series[0].data[i] : 0
+		return Math.max(2, Math.round(v / sum * 100)).toString() + '%'
+	}
+
+	function copy() {
+		if (props.code == '') return
+		uni.setClipboardData({ data: props.code })
+		uni.showToast({ title: t('chat.copied'), icon: 'none' })
+	}
+</script>
+
+<style>
+	.chart {
+		border-width: 1px;
+		border-style: solid;
+		border-radius: 10px;
+		padding: 10px 10px 8px 10px;
+		flex-direction: column;
+	}
+	.title {
+		font-size: 14px;
+		font-weight: bold;
+		margin-bottom: 8px;
+	}
+	.err {
+		font-size: 12px;
+	}
+	.bars {
+		flex-direction: row;
+		align-items: flex-end;
+		justify-content: space-between;
+		min-height: 160px;
+	}
+	.col {
+		flex: 1;
+		flex-direction: column;
+		align-items: center;
+		padding: 0 2px;
+	}
+	.col-bars {
+		flex-direction: row;
+		align-items: flex-end;
+		height: 120px;
+	}
+	.bar {
+		border-radius: 4px 4px 0 0;
+		margin-left: 1px;
+		margin-right: 1px;
+	}
+	.lab {
+		font-size: 11px;
+		margin-top: 4px;
+		max-width: 56px;
+		text-align: center;
+	}
+	.val {
+		font-size: 10px;
+	}
+	.hbars {
+		flex-direction: column;
+	}
+	.hrow {
+		flex-direction: row;
+		align-items: center;
+		margin-bottom: 8px;
+	}
+	.hlab {
+		width: 52px;
+		font-size: 12px;
+	}
+	.htrack {
+		flex: 1;
+		height: 14px;
+		border-radius: 7px;
+		overflow: hidden;
+		margin: 0 8px;
+	}
+	.hfill {
+		height: 14px;
+		border-radius: 7px;
+	}
+	.hval {
+		width: 40px;
+		font-size: 11px;
+		text-align: right;
+	}
+	.pie {
+		flex-direction: column;
+	}
+	.pie-track {
+		flex-direction: row;
+		height: 14px;
+		border-radius: 7px;
+		overflow: hidden;
+		margin-bottom: 10px;
+	}
+	.pie-seg {
+		height: 14px;
+	}
+	.pie-row {
+		flex-direction: row;
+		align-items: center;
+		margin-bottom: 6px;
+	}
+	.pie-name {
+		flex: 1;
+		font-size: 13px;
+		margin-left: 8px;
+	}
+	.pie-val {
+		font-size: 12px;
+	}
+	.dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 4px;
+	}
+	.legend {
+		flex-direction: row;
+		flex-wrap: wrap;
+		margin-top: 8px;
+	}
+	.leg {
+		flex-direction: row;
+		align-items: center;
+		margin-right: 12px;
+		margin-bottom: 4px;
+	}
+	.leg-t {
+		font-size: 11px;
+		margin-left: 4px;
+	}
+</style>

@@ -1,0 +1,47 @@
+<template>
+	<!-- 列表内不再嵌 web-view；统一点进全屏页渲染 -->
+	<view class="card" :style="{ backgroundColor: c.indigoWash }" @click="open">
+		<text class="card-title" :style="{ color: c.indigo }">{{ title }}</text>
+		<text class="card-hint" :style="{ color: c.inkSoft }">{{ t('chat.mdVisualOpen') }}</text>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { computed } from 'vue'
+	import { theme } from '../../common/theme.uts'
+	import { t } from '../../common/i18n.uts'
+
+	const props = defineProps({
+		lang: { type: String, default: '' },
+		code: { type: String, default: '' },
+		title: { type: String, default: '' }
+	})
+
+	const c = computed(() => theme.c)
+
+	function open() {
+		if (props.code == '') return
+		const payload = {
+			lang: props.lang,
+			code: props.code,
+			title: props.title != '' ? props.title : t('chat.mdFlow')
+		} as UTSJSONObject
+		uni.setStorageSync('fk_visual_payload', JSON.stringify(payload))
+		uni.navigateTo({ url: '/pages/visual/visual' })
+	}
+</script>
+
+<style>
+	.card {
+		border-radius: 10px;
+		padding: 10px 12px;
+	}
+	.card-title {
+		font-size: 14px;
+		font-weight: bold;
+	}
+	.card-hint {
+		font-size: 12px;
+		margin-top: 2px;
+	}
+</style>

@@ -1,0 +1,96 @@
+// 车间离线：用原生 view 画 flyknit-chart，不依赖 web-view / ECharts。
+
+export type ChartSeries = {
+	name : string
+	data : Array<number>
+}
+
+export type ChartSpec = {
+	type : string
+	title : string
+	categories : Array<string>
+	series : Array<ChartSeries>
+}
+
+function trimJson(src : string) : string {
+	return src.replace(/^\uFEFF/, '').trim()
+		.replace(/\/\/[^\n]*/g, '')
+		.replace(/\/\*[\s\S]*?\*\//g, '')
+		.replace(/,\s*([}\]])/g, '$1')
+		.replace(/'/g, '"')
+		.replace(/，/g, ',')
+		.replace(/：/g, ':')
+}
+
+export function parseChart(code : string) : ChartSpec | null {
+	try {
+		const raw = JSON.parse(trimJson(code)) as UTSJSONObject
+		const type = (raw.getString('type') ?? 'bar').toLowerCase()
+		const title = raw.getString('title') ?? ''
+		const cats = [] as Array<string>
+		const catArr = raw.getArray('categories')
+		if (catArr != null) {
+			catArr.forEach((item : any | null) => {
+				if (item != null) {
+					cats.push('' + item)
+				}
+			})
+		}
+		const series = [] as Array<ChartSeries>
+		const serArr = raw.getArray('series')
+		if (serArr != null) {
+			serArr.forEach((item : any | null) => {
+				if (item == null) {
+					return
+				}
+				const s = item as UTSJSONObject
+				const data = [] as Array<number>
+				const darr = s.getArray('data')
+				if (darr != null) {
+					darr.forEach((v : any | null) => {
+						const n = parseFloat('' + v)
+						data.push(isNaN(n) ? 0 : n)
+					})
+				}
+				if (data.length == 0) {
+					return
+				}
+				series.push({
+					name: s.getString('name') ?? '',
+					data: data
+				} as ChartSeries)
+			})
+		}
+		if (series.length == 0) {
+			return null
+		}
+		// 没写 categories 时用 1..n 顶上
+		if (cats.length == 0) {
+			const n = series[0].data.length
+			for (let i = 0; i < n; i++) {
+				cats.push((i + 1).toString())
+			}
+		}
+		return {
+			type: type,
+			title: title,
+			categories: cats,
+			series: series
+		} as ChartSpec
+	} catch (e) {
+		console.error(e)
+		return null
+	}
+}
+
+export function chartMax(spec : ChartSpec) : number {
+	let m = 0
+	spec.series.forEach((s : ChartSeries) => {
+		s.data.forEach((n : number) => {
+			if (n > m) m = n
+		})
+	})
+	return m <= 0 ? 1 : m
+}
+
+export const CHART_COLORS = ['#2f6df6', '#13b5b1', '#f2a33c', '#8b5cf6', '#e5556f', '#3fa34d', '#6b7280', '#d97706']

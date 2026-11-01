@@ -137,14 +137,16 @@ export function sendChat(conv : Conv, answer : Msg, images : Array<string> = [])
 		if (m.content == '' && m.role != 'user') {
 			return
 		}
-		// 最后一条用户消息：可带图
+		// 只有「当前这一轮」用户消息带图；更早的图只在本地气泡展示，避免历史里反复塞 base64
 		const isLastUser = m.role == 'user' && conv.messages.indexOf(m) == conv.messages.length - 2
-		if (isLastUser && images.length > 0) {
+		const own = m.images ?? ([] as Array<string>)
+		const imgs = images.length > 0 ? images : own
+		if (isLastUser && imgs.length > 0) {
 			const parts = [] as Array<UTSJSONObject>
 			if (m.content != '') {
 				parts.push({ type: 'text', text: m.content } as UTSJSONObject)
 			}
-			images.forEach((url : string) => {
+			imgs.forEach((url : string) => {
 				parts.push({ type: 'image_url', image_url: { url: url } } as UTSJSONObject)
 			})
 			history.push({ role: 'user', content: parts } as UTSJSONObject)
@@ -152,6 +154,8 @@ export function sendChat(conv : Conv, answer : Msg, images : Array<string> = [])
 		}
 		if (m.content != '') {
 			history.push({ role: m.role, content: m.content } as UTSJSONObject)
+		} else if (m.role == 'user' && own.length > 0) {
+			history.push({ role: 'user', content: '[image]' } as UTSJSONObject)
 		}
 	})
 	const rid = answer.id

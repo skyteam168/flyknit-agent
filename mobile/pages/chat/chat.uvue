@@ -80,7 +80,17 @@
 					<!-- 员工 -->
 					<view v-if="m.role == 'user'" class="row-user">
 						<text v-if="m.tag != null && m.tag != ''" class="user-tag" :style="{ color: c.indigo }">{{ m.tag }}</text>
-						<view class="bubble" :style="{ backgroundColor: c.chip }" @longpress="copyText(m.content)">
+						<view v-if="(m.images ?? []).length > 0" class="user-imgs">
+							<image
+								v-for="(src, ii) in (m.images ?? [])"
+								:key="ii"
+								class="user-img"
+								:src="src"
+								mode="aspectFill"
+								@click="previewMsgImage(m, ii)"
+							></image>
+						</view>
+						<view v-if="m.content != ''" class="bubble" :style="{ backgroundColor: c.chip }" @longpress="copyText(m.content)">
 							<text class="bubble-text" :style="{ color: c.ink, fontSize: chatFont, lineHeight: chatLine }" :selectable="true">{{ m.content }}</text>
 						</view>
 					</view>
@@ -102,7 +112,7 @@
 						</view>
 						<text v-if="m.taskStatus == 'pending' || m.taskStatus == 'running'" class="task-wait" :style="{ color: c.inkFaint }">{{ m.taskStatus == 'pending' ? waitingText : t('chat.taskRunning') }}</text>
 						<view v-if="m.taskStatus == 'succeeded' && m.content != ''" class="task-answer" :style="{ borderTopColor: c.line }">
-							<md-view :content="m.content" :font-size="prefs.fontSize"></md-view>
+							<md-view :content="m.content" :font-size="prefs.fontSize" :rich-ready="true"></md-view>
 						</view>
 						<text v-if="m.status == 'error' && m.content != ''" class="err" :style="{ color: c.red }">{{ m.content }}</text>
 					</view>
@@ -154,7 +164,7 @@
 							<text class="thinking-text" :style="{ color: c.inkFaint }">{{ t('chat.answering') }}</text>
 						</view>
 						<!-- contentRev：强制 md-view 跟着流式正文刷新（仅改 prop 时子组件偶发不更新） -->
-						<md-view v-else-if="m.content != '' && m.status != 'error'" :content="m.content" :content-rev="state.msgRev" :font-size="prefs.fontSize"></md-view>
+						<md-view v-else-if="m.content != '' && m.status != 'error'" :content="m.content" :content-rev="state.msgRev" :font-size="prefs.fontSize" :rich-ready="m.status == 'done'"></md-view>
 						<text v-else-if="m.status == 'error'" class="err" :style="{ color: c.red }">{{ m.content }}</text>
 						<view v-if="(m.status == 'done' || m.status == 'error') && m.content != ''" class="actions">
 							<view class="act" @click="copyText(m.content)">
@@ -745,6 +755,10 @@
 		if (tag != '') {
 			user.tag = tag
 		}
+		const urls = images.map((x : PickedImage) : string => x.dataUrl)
+		if (urls.length > 0) {
+			user.images = urls
+		}
 		theConv.messages.push(user)
 		touch(theConv)
 
@@ -757,12 +771,22 @@
 		theConv.messages.push(answer)
 		// 拿数组里的那份（响应式），流式输出写进它界面才会跟着变
 		const live = theConv.messages[theConv.messages.length - 1]
-		const urls = images.map((x : PickedImage) : string => x.dataUrl)
 		if (!sendChat(theConv, live, urls)) {
 			live.status = 'error'
 			live.content = t('chat.noServer')
 		}
 		saveConversations()
+	}
+
+	function previewMsgImage(m : Msg, index : number) {
+		const list = m.images ?? ([] as Array<string>)
+		if (list.length == 0) {
+			return
+		}
+		uni.previewImage({
+			urls: list,
+			current: list[index]
+		})
 	}
 
 	async function submitTask(cv : Conv, text : string) {
@@ -1400,6 +1424,20 @@
 	.row-user {
 		flex-direction: column;
 		align-items: flex-end;
+	}
+	.user-imgs {
+		flex-direction: row;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		max-width: 82%;
+		margin-bottom: 6px;
+	}
+	.user-img {
+		width: 120px;
+		height: 120px;
+		border-radius: 12px;
+		margin-left: 6px;
+		margin-bottom: 6px;
 	}
 	.bubble {
 		max-width: 82%;

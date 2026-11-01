@@ -1,0 +1,176 @@
+<template>
+	<view class="page" :style="{ backgroundColor: c.loom }">
+		<view class="nav" :style="{ paddingTop: px(statusTop), backgroundColor: c.cloth, borderBottomColor: c.line }">
+			<text class="back" :style="{ color: c.indigo }" @click="goBack">{{ t('common.back') }}</text>
+			<text class="nav-title" :style="{ color: c.ink }" :lines="1">{{ title }}</text>
+			<text class="copy" :style="{ color: c.indigo }" @click="copy">{{ t('chat.copy') }}</text>
+		</view>
+		<web-view
+			id="visualFull"
+			class="wv"
+			:src="pageSrc"
+			:fullscreen="false"
+			:horizontal-scroll-bar-access="true"
+			:vertical-scroll-bar-access="true"
+			@load="onWebLoad"
+			@error="onWebError"
+		></web-view>
+		<view v-if="status != ''" class="banner" :style="{ backgroundColor: c.sunk }">
+			<text class="banner-t" :style="{ color: c.inkSoft }">{{ status }}</text>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { computed, getCurrentInstance, ref } from 'vue'
+	import { theme } from '../../common/theme.uts'
+	import { t } from '../../common/i18n.uts'
+
+	const c = computed(() => theme.c)
+	const title = ref(t('chat.mdFlow'))
+	const code = ref('')
+	const lang = ref('mermaid')
+	const status = ref(t('chat.mdVisualLoading'))
+	const statusTop = ref(24)
+	const tick = ref(0)
+	const instance = getCurrentInstance()
+
+	function buildPayloadJson() : string {
+		const payload = {
+			lang: lang.value,
+			code: code.value,
+			theme: theme.dark ? 'dark' : 'light'
+		} as UTSJSONObject
+		return JSON.stringify(payload)
+	}
+
+	/**
+	 * H5：createWebViewContext 不存在，数据必须放 URL（浏览器 URL 很长，够用）。
+	 * App：长代码不放 URL（防截断），用 createWebViewContext.evalJS 注入。
+	 */
+	const pageSrc = computed(() : string => {
+		const base = '/hybrid/html/visual.html?t=' + tick.value.toString()
+		if (code.value == '') {
+			return base
+		}
+		// #ifdef WEB
+		return base + '&p=' + encodeURIComponent(buildPayloadJson())
+		// #endif
+		// #ifndef WEB
+		if (code.value.length < 1800) {
+			return base + '&p=' + encodeURIComponent(buildPayloadJson())
+		}
+		return base
+		// #endif
+	})
+
+	function px(n : number) : string {
+		return n.toString() + 'px'
+	}
+
+	function goBack() {
+		uni.navigateBack({})
+	}
+
+	function copy() {
+		if (code.value == '') return
+		uni.setClipboardData({ data: code.value })
+		uni.showToast({ title: t('chat.copied'), icon: 'none' })
+	}
+
+	function pushByContext() {
+		// #ifdef APP-ANDROID || APP-IOS || APP-HARMONY
+		if (code.value == '') return
+		try {
+			const proxy = instance?.proxy
+			const ctx = proxy != null ? uni.createWebViewContext('visualFull', proxy) : null
+			if (ctx == null) {
+				return
+			}
+			const encoded = encodeURIComponent(buildPayloadJson())
+			const js = '(function tryPaint(n){if(window.renderBlock){window.renderBlock(JSON.parse(decodeURIComponent("' +
+				encoded +
+				'")));return;}if(n<30){setTimeout(function(){tryPaint(n+1)},100)}})(0)'
+			ctx.evalJS(js)
+			status.value = ''
+		} catch (e) {
+			console.error(e)
+		}
+		// #endif
+	}
+
+	function onWebLoad(_ : UniWebViewLoadEvent) {
+		status.value = ''
+		// #ifdef APP-ANDROID || APP-IOS || APP-HARMONY
+		setTimeout(() => { pushByContext() }, 200)
+		// #endif
+	}
+
+	function onWebError(_ : UniWebViewErrorEvent) {
+		status.value = t('chat.mdVisualFail')
+	}
+
+	onLoad((_ : OnLoadOptions) => {
+		try {
+			const info = uni.getWindowInfo()
+			statusTop.value = info.statusBarHeight ?? 24
+		} catch (_) {}
+		try {
+			const raw = uni.getStorageSync('fk_visual_payload')
+			if (raw != null && ('' + raw) != '') {
+				const o = JSON.parse('' + raw) as UTSJSONObject
+				lang.value = o.getString('lang') ?? 'mermaid'
+				code.value = o.getString('code') ?? ''
+				title.value = o.getString('title') ?? t('chat.mdFlow')
+				tick.value = Date.now()
+				status.value = t('chat.mdVisualLoading')
+			} else {
+				status.value = t('chat.mdVisualFail')
+			}
+		} catch (e) {
+			status.value = t('chat.mdVisualFail')
+			console.error(e)
+		}
+	})
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		flex-direction: column;
+	}
+	.nav {
+		flex-direction: row;
+		align-items: center;
+		padding-left: 12px;
+		padding-right: 12px;
+		padding-bottom: 10px;
+		border-bottom-width: 1px;
+		border-bottom-style: solid;
+	}
+	.back {
+		font-size: 15px;
+		width: 52px;
+	}
+	.nav-title {
+		flex: 1;
+		text-align: center;
+		font-size: 16px;
+		font-weight: bold;
+	}
+	.copy {
+		font-size: 15px;
+		width: 52px;
+		text-align: right;
+	}
+	.wv {
+		flex: 1;
+		width: 100%;
+	}
+	.banner {
+		padding: 8px 12px;
+	}
+	.banner-t {
+		font-size: 12px;
+	}
+</style>

@@ -11,12 +11,12 @@ import ByteArrayOutputStream from 'java.io.ByteArrayOutputStream'
 import InputStream from 'java.io.InputStream'
 import Base64 from 'android.util.Base64'
 import Uri from 'android.net.Uri'
-import { UTSAndroid } from 'DCloudUTSAndroid'
+// UTSAndroid 是 App-Android 内置对象，不要 import DCloudUTSAndroid（打包会 Could not resolve）
 // #endif
 
 // #ifdef APP-IOS
-import { UTSiOS } from 'DCloudUTSFoundation'
 import NSData from 'Foundation.NSData'
+// UTSiOS 是 App-iOS 内置对象，不要从 DCloudUTSFoundation import
 // #endif
 
 export type PickedImage = {

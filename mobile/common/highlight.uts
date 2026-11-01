@@ -1,0 +1,202 @@
+// 轻量代码高亮：按语言用正则切 token，md-view 用彩色 <text> 画出来。
+// 不引 highlight.js（UTS/原生端不好打包），覆盖办公场景常见语言即可。
+
+export type HlTok = {
+	text : string
+	/** plain / kw / str / com / num / type / punct */
+	kind : string
+}
+
+const KW_JS = 'break case catch class const continue debugger default delete do else export extends finally for function if import in instanceof let new return static super switch this throw try typeof var void while with yield async await of from as'
+const KW_PY = 'and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield'
+const KW_SQL = 'select from where join left right inner outer full on group by order having limit offset insert into values update set delete create table alter drop index view as and or not null is in like between distinct count sum avg min max case when then else end union all'
+const KW_GO = 'break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var true false nil'
+const KW_JAVA = 'abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null'
+const KW_C = 'auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while true false NULL'
+const KW_RUST = 'as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while'
+
+function setOf(s : string) : Map<string, boolean> {
+	const m = new Map<string, boolean>()
+	s.split(' ').forEach((w : string) => {
+		if (w != '') m.set(w, true)
+	})
+	return m
+}
+
+function normLang(lang : string) : string {
+	const k = lang.trim().toLowerCase()
+	if (k == 'js' || k == 'jsx' || k == 'mjs' || k == 'cjs' || k == 'ts' || k == 'tsx' || k == 'javascript' || k == 'typescript') return 'js'
+	if (k == 'py' || k == 'python') return 'py'
+	if (k == 'sh' || k == 'shell' || k == 'zsh' || k == 'bash' || k == 'ps1' || k == 'powershell' || k == 'bat' || k == 'cmd') return 'sh'
+	if (k == 'yml' || k == 'yaml') return 'yaml'
+	if (k == 'htm' || k == 'html' || k == 'xml' || k == 'svg' || k == 'vue') return 'xml'
+	if (k == 'cs' || k == 'c#' || k == 'csharp') return 'java'
+	if (k == 'c++' || k == 'cpp' || k == 'hpp' || k == 'h' || k == 'c') return 'c'
+	if (k == 'rs' || k == 'rust') return 'rust'
+	if (k == 'golang') return 'go'
+	if (k == 'json' || k == 'jsonc') return 'json'
+	if (k == 'sql') return 'sql'
+	if (k == 'go') return 'go'
+	if (k == 'java' || k == 'kt' || k == 'kotlin') return 'java'
+	if (k == 'css' || k == 'scss' || k == 'less') return 'css'
+	if (k == 'ini' || k == 'toml' || k == 'conf' || k == 'cfg' || k == 'env') return 'ini'
+	return k
+}
+
+function keywords(lang : string) : Map<string, boolean> {
+	if (lang == 'js') return setOf(KW_JS)
+	if (lang == 'py') return setOf(KW_PY)
+	if (lang == 'sql') return setOf(KW_SQL)
+	if (lang == 'go') return setOf(KW_GO)
+	if (lang == 'java') return setOf(KW_JAVA)
+	if (lang == 'c') return setOf(KW_C)
+	if (lang == 'rust') return setOf(KW_RUST)
+	return new Map<string, boolean>()
+}
+
+function push(out : Array<HlTok>, text : string, kind : string) {
+	if (text == '') return
+	const last = out.length > 0 ? out[out.length - 1] : null
+	if (last != null && last.kind == kind) {
+		last.text = last.text + text
+		return
+	}
+	out.push({ text: text, kind: kind } as HlTok)
+}
+
+function paintLine(line : string, lang : string, kws : Map<string, boolean>) : Array<HlTok> {
+	const out = [] as Array<HlTok>
+	let i = 0
+	while (i < line.length) {
+		const ch = line.charAt(i)
+		const two = i + 1 < line.length ? line.substring(i, i + 2) : ch
+
+		// 注释
+		if (lang == 'py' || lang == 'yaml' || lang == 'ini' || lang == 'sh') {
+			if (ch == '#' || (lang == 'ini' && ch == ';')) {
+				push(out, line.substring(i), 'com')
+				break
+			}
+		}
+		if (lang != 'py' && lang != 'yaml' && lang != 'ini' && two == '//') {
+			push(out, line.substring(i), 'com')
+			break
+		}
+		if (lang == 'sql' && two.toLowerCase() == '--') {
+			push(out, line.substring(i), 'com')
+			break
+		}
+
+		// 字符串
+		if (ch == '"' || ch == "'" || ch == '`') {
+			const quote = ch
+			let j = i + 1
+			while (j < line.length) {
+				if (line.charAt(j) == '\\' && j + 1 < line.length) {
+					j += 2
+					continue
+				}
+				if (line.charAt(j) == quote) {
+					j += 1
+					break
+				}
+				j += 1
+			}
+			push(out, line.substring(i, j), 'str')
+			i = j
+			continue
+		}
+
+		// 数字
+		if (/[0-9]/.test(ch) && (i == 0 || !/[A-Za-z_]/.test(line.charAt(i - 1)))) {
+			let j = i + 1
+			while (j < line.length && /[0-9.xXa-fA-F_]/.test(line.charAt(j))) j += 1
+			push(out, line.substring(i, j), 'num')
+			i = j
+			continue
+		}
+
+		// 标识符 / 关键字
+		if (/[A-Za-z_\u4e00-\u9fa5$]/.test(ch)) {
+			let j = i + 1
+			while (j < line.length && /[A-Za-z0-9_\u4e00-\u9fa5$]/.test(line.charAt(j))) j += 1
+			const word = line.substring(i, j)
+			const low = lang == 'sql' ? word.toLowerCase() : word
+			if (kws.get(low) == true || kws.get(word) == true) {
+				push(out, word, 'kw')
+			} else if (/^[A-Z][A-Za-z0-9_]+$/.test(word)) {
+				push(out, word, 'type')
+			} else {
+				push(out, word, 'plain')
+			}
+			i = j
+			continue
+		}
+
+		// 标点
+		if (/[{}\[\]().,;:<>+\-*/%=!&|?]/.test(ch)) {
+			push(out, ch, 'punct')
+			i += 1
+			continue
+		}
+
+		push(out, ch, 'plain')
+		i += 1
+	}
+	return out
+}
+
+/** 按行高亮；太长或空语言则整行 plain，避免卡顿 */
+export function highlightLines(code : string, lang : string) : Array<Array<HlTok>> {
+	const lines = code.replace(/\r\n/g, '\n').split('\n')
+	if (code.length > 80000 || lines.length > 1200) {
+		return lines.map((l : string) : Array<HlTok> => {
+			const a = [] as Array<HlTok>
+			a.push({ text: l, kind: 'plain' } as HlTok)
+			return a
+		})
+	}
+	const n = normLang(lang)
+	const kws = keywords(n)
+	const out = [] as Array<Array<HlTok>>
+	let inBlock = false
+	for (let li = 0; li < lines.length; li++) {
+		let line = lines[li]
+		if (n != 'py' && n != 'yaml' && n != 'ini' && n != 'sh' && n != 'sql') {
+			if (inBlock) {
+				const end = line.indexOf('*/')
+				if (end >= 0) {
+					const row = [] as Array<HlTok>
+					push(row, line.substring(0, end + 2), 'com')
+					const rest = paintLine(line.substring(end + 2), n, kws)
+					rest.forEach((t : HlTok) => row.push(t))
+					out.push(row)
+					inBlock = false
+					continue
+				}
+				out.push([{ text: line, kind: 'com' } as HlTok])
+				continue
+			}
+			const start = line.indexOf('/*')
+			if (start >= 0 && line.indexOf('*/', start + 2) < 0) {
+				const row = paintLine(line.substring(0, start), n, kws)
+				push(row, line.substring(start), 'com')
+				out.push(row)
+				inBlock = true
+				continue
+			}
+		}
+		out.push(paintLine(line, n, kws))
+	}
+	return out
+}
+
+export function tokColor(kind : string, dark : boolean) : string {
+	if (kind == 'kw') return dark ? '#c792ea' : '#7c3aed'
+	if (kind == 'str') return dark ? '#c3e88d' : '#15803d'
+	if (kind == 'com') return dark ? '#6d6d77' : '#9ca3af'
+	if (kind == 'num') return dark ? '#f78c6c' : '#c2410c'
+	if (kind == 'type') return dark ? '#82aaff' : '#2563eb'
+	if (kind == 'punct') return dark ? '#a9a9b2' : '#6b7280'
+	return dark ? '#ececef' : '#18181b'
+}

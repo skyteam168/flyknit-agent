@@ -1,5 +1,5 @@
 // 把 AI 的回答（markdown）切成段落块，页面用原生 <text> 渲染：标题、段落、列表、引用、代码、表格。
-// 电脑端那种图表、流程图、界面卡片代码块，手机上换成一张「请在电脑上查看」的卡片。
+// Mermaid / 图表代码块交给 md-visual（App web-view）；ui / graphviz 仍显示「请在电脑上查看」。
 // 只做手机上看得清楚需要的那部分语法，不追求和电脑端一模一样。
 
 export type MdSpan = {
@@ -20,7 +20,7 @@ export type MdBlock = {
 	rows : Array<Array<string>>
 }
 
-const VISUAL_LANGS = ['chart', 'flyknit-chart', 'mermaid', 'mmd', 'dot', 'graphviz', 'gv', 'ui', 'flyknit-ui']
+const VISUAL_LANGS = ['chart', 'flyknit-chart', 'echarts', 'mermaid', 'mmd', 'dot', 'graphviz', 'gv', 'ui', 'flyknit-ui']
 
 function block(kind : string) : MdBlock {
 	return {
@@ -152,6 +152,7 @@ export function parseMarkdown(src : string) : Array<MdBlock> {
 			if (VISUAL_LANGS.indexOf(lang) >= 0) {
 				const b = block('visual')
 				b.label = lang
+				b.text = body.join('\n')
 				out.push(b)
 			} else {
 				const b = block('code')

@@ -35,9 +35,9 @@ mobile/
 2. `manifest.json` →「基础配置」→ 点「重新获取」生成 DCloud AppID（仓库里留空）。
 3. **图标**：`manifest.json` →「App 图标配置」用 `static/logo.png` 自动生成各尺寸。
 4. **系统通知**（`uni.createPushMessage`）：在「App 模块配置」里勾选 **uni-push**（manifest 已声明 `uni-push` 模块）。办完事、需要确认时，App 在后台会发系统通知；Android 13 以上首次会请求通知权限。
-5. **摄像头扫码**（可选）：uni-app x 的 `uni.scanCode` 在 Android 上不是内置能力。到插件市场导入一个实现了 `uni.scanCode` 的插件（例如 *zs-scanner*），然后「运行 → 运行到手机 → 制作自定义调试基座」。
-   - **PDA 扫描枪不需要这个插件**：在绑定页点一下输入框，按扫描键，扫到的内容会直接打进输入框并自动绑定。
-   - 不想装插件时，删掉 `common/scan.uts` 里的调用、把绑定页的「扫码绑定」按钮去掉即可。
+5. **摄像头扫码**：`manifest.json` 须包含 `uni-barcode-scanning` 与 `Camera` 模块（已配置）。绑定页「扫码绑定」打开 `pages/scan`（`camera mode="scanCode"`）。
+   - **PDA 扫描枪**：在绑定页点一下输入框，按扫描键即可，不必开摄像头。
+   - 改模块配置后需**重新云打包**才会进包。
 6. 「发行 → 原生 App-云打包」生成 APK，在内部分发。
 
 ## 发版与升级

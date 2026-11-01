@@ -22,27 +22,67 @@
 				</text>
 			</view>
 
+			<!-- 模型常把 ECharts 写成 ```javascript option = {...} -->
+			<md-inline-visual
+				v-else-if="b.kind == 'code' && looksLikeEcharts(b.text)"
+				lang="echarts"
+				:code="stripFence(b.text)"
+				:title="t('chat.mdChart')"
+				:ready="richReady"
+				:height="320"
+			></md-inline-visual>
+
 			<view v-else-if="b.kind == 'code'" class="md-code" :style="{ backgroundColor: c.codeBg, borderColor: c.line }">
 				<view class="md-code-head">
 					<text class="md-code-lang" :style="{ color: c.inkFaint }">{{ b.label != '' ? b.label : 'code' }}</text>
 					<text class="md-code-copy" :style="{ color: c.indigo }" @click="copy(b.text)">{{ t('chat.copy') }}</text>
 				</view>
 				<scroll-view direction="horizontal" class="md-code-scroll">
-					<text class="md-code-text" :style="{ color: c.ink, fontSize: codeSize, lineHeight: bodyLine }" :selectable="true">{{ b.text }}</text>
+					<view class="md-code-body">
+						<text
+							v-for="(line, li) in codeLines(b)"
+							:key="li"
+							class="md-code-line"
+							:style="{ fontSize: codeSize, lineHeight: bodyLine }"
+							:selectable="true"
+						>
+							<text v-for="(tok, ti) in line" :key="ti" :style="{ color: tokColor(tok.kind) }">{{ tok.text }}</text>
+							<text v-if="line.length == 0" :style="{ color: tokColor('plain') }"> </text>
+						</text>
+					</view>
 				</scroll-view>
 			</view>
 
 			<scroll-view v-else-if="b.kind == 'table'" direction="horizontal" class="md-table-scroll">
 				<view class="md-table" :style="{ borderColor: c.line }">
 					<view v-for="(row, ri) in b.rows" :key="ri" class="md-tr" :style="{ backgroundColor: ri == 0 ? c.sunk : c.cloth, borderBottomColor: c.line }">
-						<text v-for="(cell, ci) in row" :key="ci" class="md-td" :style="{ color: c.ink, fontWeight: ri == 0 ? 'bold' : 'normal', borderRightColor: c.line, fontSize: tableSize }">{{ cell }}</text>
+						<view v-for="(cell, ci) in row" :key="ci" class="md-td" :style="{ borderRightColor: c.line }">
+							<text class="md-td-text" :style="{ color: c.ink, fontWeight: ri == 0 ? 'bold' : 'normal', fontSize: tableSize }" :selectable="true">
+								<text v-for="(s, si) in cellSpans(cell)" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+							</text>
+						</view>
 					</view>
 				</view>
 			</scroll-view>
 
 			<view v-else-if="b.kind == 'rule'" class="md-rule" :style="{ backgroundColor: c.line }"></view>
 
-			<view v-else-if="b.kind == 'visual'" class="md-visual" :style="{ backgroundColor: c.indigoWash }">
+			<!-- flyknit-chart：流式中占位，结束后原生绘制 -->
+			<view v-else-if="b.kind == 'visual' && isChart(b.label) && !richReady" class="md-loading" :style="{ backgroundColor: c.sunk, borderColor: c.line }">
+				<view class="md-loading-dot" :style="{ backgroundColor: c.indigo }"></view>
+				<text class="md-loading-t" :style="{ color: c.inkSoft }">{{ t('chat.mdChartLoading') }}</text>
+			</view>
+			<md-chart v-else-if="b.kind == 'visual' && isChart(b.label)" :code="b.text"></md-chart>
+			<!-- Mermaid / ECharts：流式结束后对话内嵌渲染 -->
+			<md-inline-visual
+				v-else-if="b.kind == 'visual' && isRichVisual(b.label)"
+				:lang="b.label"
+				:code="b.text"
+				:title="visualTitle(b.label)"
+				:ready="richReady"
+				:height="isFlow(b.label) ? 260 : 320"
+			></md-inline-visual>
+			<view v-else-if="b.kind == 'visual'" class="md-visual" :style="{ backgroundColor: c.indigoWash }" @click="copy(b.text)">
 				<text class="md-visual-title" :style="{ color: c.indigo }">{{ visualTitle(b.label) }}</text>
 				<text class="md-visual-hint" :style="{ color: c.inkSoft }">{{ t('chat.mdVisualHint') }}</text>
 			</view>
@@ -52,7 +92,8 @@
 
 <script setup lang="uts">
 	import { computed } from 'vue'
-	import { MdBlock, MdSpan, parseMarkdown } from '../../common/markdown.uts'
+	import { MdBlock, MdSpan, parseInline, parseMarkdown } from '../../common/markdown.uts'
+	import { HlTok, highlightLines, tokColor as hlColor } from '../../common/highlight.uts'
 	import { bodyFontPx, bodyLinePx, headingFontPx } from '../../common/prefs.uts'
 	import { theme } from '../../common/theme.uts'
 	import { t } from '../../common/i18n.uts'
@@ -62,13 +103,17 @@
 		/** 父级流式 bump；确保 blocks 跟着重算 */
 		contentRev: { type: Number, default: 0 },
 		/** 父级传入字号档，切换后强制刷新 */
-		fontSize: { type: String, default: 'medium' }
+		fontSize: { type: String, default: 'medium' },
+		/** 流式结束后再渲染图表/流程图（避免边输出边反复建 web-view） */
+		richReady: { type: Boolean, default: true }
 	})
 
 	const c = computed(() => theme.c)
+	const richReady = computed(() : boolean => props.richReady)
 	const blocks = computed(() : Array<MdBlock> => {
 		const _ = props.contentRev
 		const __ = props.fontSize
+		const ___ = props.richReady
 		return parseMarkdown(props.content)
 	})
 	const bodySize = computed(() : string => {
@@ -128,13 +173,69 @@
 		return '•'
 	}
 
+	function isChart(lang : string) : boolean {
+		return lang == 'chart' || lang == 'flyknit-chart'
+	}
+
+	function isRichVisual(lang : string) : boolean {
+		return lang == 'mermaid' || lang == 'mmd' || lang == 'echarts'
+	}
+
+	function isFlow(lang : string) : boolean {
+		return lang == 'mermaid' || lang == 'mmd'
+	}
+
+	function looksLikeEcharts(text : string) : boolean {
+		const s = text.trim()
+		if (s.length < 40) return false
+		const hasOption = s.indexOf('option') >= 0 || s.indexOf('xAxis') >= 0 || s.indexOf('yAxis') >= 0
+		const hasSeries = s.indexOf('series') >= 0
+		return hasOption && hasSeries
+	}
+
 	function visualTitle(lang : string) : string {
 		if (lang == 'mermaid' || lang == 'mmd' || lang == 'dot' || lang == 'graphviz' || lang == 'gv') return t('chat.mdFlow')
 		if (lang == 'ui' || lang == 'flyknit-ui') return t('chat.mdCard')
 		return t('chat.mdChart')
 	}
 
+	function stripFence(src : string) : string {
+		let s = src.trim()
+		if (s.startsWith('```')) {
+			const nl = s.indexOf('\n')
+			if (nl > 0) s = s.substring(nl + 1)
+		}
+		if (s.endsWith('```')) {
+			s = s.substring(0, s.length - 3).trim()
+		}
+		return s
+	}
+
+	function openVisual(lang : string, raw : string) {
+		const code = stripFence(raw)
+		const payload = {
+			lang: lang,
+			code: code,
+			title: visualTitle(lang)
+		} as UTSJSONObject
+		uni.setStorageSync('fk_visual_payload', JSON.stringify(payload))
+		uni.navigateTo({ url: '/pages/visual/visual' })
+	}
+
+	function codeLines(b : MdBlock) : Array<Array<HlTok>> {
+		return highlightLines(b.text, b.label)
+	}
+
+	function tokColor(kind : string) : string {
+		return hlColor(kind, theme.dark)
+	}
+
+	function cellSpans(cell : string) : Array<MdSpan> {
+		return parseInline(cell)
+	}
+
 	function copy(text : string) {
+		if (text == '') return
 		uni.setClipboardData({ data: text })
 	}
 </script>
@@ -187,10 +288,12 @@
 	.md-code-scroll {
 		flex-direction: row;
 	}
-	.md-code-text {
+	.md-code-body {
+		flex-direction: column;
+	}
+	.md-code-line {
 		font-family: monospace;
-		font-size: 13px;
-		line-height: 20px;
+		white-space: pre;
 	}
 	.md-table-scroll {
 		flex-direction: row;
@@ -207,12 +310,15 @@
 		border-bottom-style: solid;
 	}
 	.md-td {
-		width: 120px;
+		min-width: 88px;
+		max-width: 200px;
 		padding: 6px 8px;
-		font-size: 13px;
-		line-height: 19px;
 		border-right-width: 1px;
 		border-right-style: solid;
+		flex-direction: column;
+	}
+	.md-td-text {
+		line-height: 19px;
 	}
 	.md-rule {
 		height: 1px;
@@ -229,5 +335,23 @@
 	.md-visual-hint {
 		font-size: 12px;
 		margin-top: 2px;
+	}
+	.md-loading {
+		height: 200px;
+		border-width: 1px;
+		border-style: solid;
+		border-radius: 10px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+	.md-loading-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 4px;
+		margin-right: 8px;
+	}
+	.md-loading-t {
+		font-size: 13px;
 	}
 </style>

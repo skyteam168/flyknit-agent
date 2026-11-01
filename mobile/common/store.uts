@@ -25,6 +25,8 @@ export type Msg = {
 	createdAt : number
 	/** 员工的话：插话 / 排队 / 打断（电脑在办事、AI 在回答时又说的），普通的话为空 */
 	tag ?: string
+	/** 用户消息附带的图（data URL），对话里展示 + 重问时再发给模型 */
+	images ?: Array<string>
 	/** 模型思考过程；正文出来后仍可展开查看 */
 	reasoning ?: string
 	/** 思考用时（毫秒），0 表示还没结束 */
@@ -313,6 +315,7 @@ export function newMsg(role : string, content : string, status : string) : Msg {
 		taskStatus: '',
 		steps: [] as Array<string>,
 		createdAt: Date.now(),
+		images: [] as Array<string>,
 		reasoning: '',
 		reasoningMs: 0,
 		feedback: '',

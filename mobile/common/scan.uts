@@ -1,21 +1,79 @@
-// 摄像头扫码。uni-app x 的 uni.scanCode 在 Android 上不是内置能力，需要从插件市场导入实现了
-// uni.scanCode 的插件（例如 zs-scanner）并打自定义基座，见 mobile/README.md。
-// PDA 的扫描枪不走这里：它把扫到的内容当键盘输入打进输入框（见 pages/pair/pair.uvue）。
+// 摄像头扫码（普通手机）。
+// uni-app x 打包须在 manifest 声明 uni-barcode-scanning。
+// 实现走自研页 pages/scan（camera mode="scanCode"），比 uni.scanCode 对话框更稳。
+// PDA 扫描枪不走这里：当键盘输入打进绑定页输入框。
 
-import { tf } from './i18n.uts'
+import { t, tf } from './i18n.uts'
 
-export function scanCode(onResult : (text : string) => void, onError : (msg : string) => void) {
-	uni.scanCode({
-		onlyFromCamera: true,
-		scanType: ['qrCode'],
-		success: (res) => {
-			onResult(res.result)
-		},
-		fail: (err) => {
-			// 用户取消不算错误
-			if (err.errMsg.indexOf('cancel') < 0) {
-				onError(tf('scan.fail', err.errMsg))
-			}
+type ScanOk = (text : string) => void
+type ScanErr = (msg : string) => void
+
+let pendingOk : ScanOk | null = null
+let pendingErr : ScanErr | null = null
+
+function clearPending() {
+	pendingOk = null
+	pendingErr = null
+}
+
+/** 扫码页成功回调 */
+export function deliverScanResult(text : string) {
+	const ok = pendingOk
+	clearPending()
+	if (ok != null && text.trim() != '') {
+		ok(text.trim())
+	}
+}
+
+/** 扫码页失败 / 取消 */
+export function deliverScanError(msg : string) {
+	const err = pendingErr
+	clearPending()
+	if (err != null && msg.indexOf('cancel') < 0 && msg.indexOf('取消') < 0) {
+		err(msg)
+	}
+}
+
+function openScanPage(onResult : ScanOk, onError : ScanErr) {
+	pendingOk = onResult
+	pendingErr = onError
+	uni.navigateTo({
+		url: '/pages/scan/scan',
+		fail: (e) => {
+			clearPending()
+			onError(tf('scan.fail', e.errMsg))
 		}
 	})
+}
+
+function ensureCameraThen(run : () => void) {
+	// #ifdef APP-ANDROID || APP-IOS || APP-HARMONY
+	try {
+		uni.authorize({
+			scope: 'scope.camera',
+			success: () => {
+				run()
+			},
+			fail: () => {
+				// 仍打开扫码页；拒绝权限时由 camera @error 提示
+				run()
+			}
+		})
+		return
+	} catch (_) { }
+	// #endif
+	run()
+}
+
+/** 调起摄像头扫二维码（自研 camera 扫码页） */
+export function scanCode(onResult : ScanOk, onError : ScanErr) {
+	// #ifdef WEB
+	onError(t('scan.webUnsupported'))
+	return
+	// #endif
+	// #ifndef WEB
+	ensureCameraThen(() => {
+		openScanPage(onResult, onError)
+	})
+	// #endif
 }
