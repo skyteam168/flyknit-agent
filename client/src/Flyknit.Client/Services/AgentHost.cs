@@ -205,7 +205,13 @@ public sealed partial class AgentHost : IDisposable
         Events = events;
         Confirm = confirm;
         Questions = confirm as Flyknit.Core.Tools.IQuestionHandler;
+        Inbox.Changed -= PostPending;
+        Inbox.Changed += PostPending;
     }
+
+    /// <summary>待发的插话、排队的话有变化：界面上输入框上方那一排跟着变。</summary>
+    private void PostPending(string conversationId) =>
+        Events?.Post(new { type = "chat.pending", conversationId, items = PendingDto(Inbox.List(conversationId)) });
 
     /// <summary>
     /// 这一轮能不能用选项向员工提问：只有员工看着的办事对话才有（定时任务、派出去的专家走别的路，没人回答）。
@@ -544,6 +550,7 @@ public sealed partial class AgentHost : IDisposable
     /// <param name="messageId">界面生成的消息 ID，保证界面与数据库中的 ID 一致（编辑、重发时使用）。</param>
     public void Send(string conversationId, string text, IReadOnlyList<Attachment> attachments, string? messageId, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
     {
+        _autoContinues.TryRemove(conversationId, out _); // 员工自己说了话：自动续跑重新计数
         StartRun(conversationId, uiLanguage, confirm, events, id => NewUserMessage(messageId, text, IngestUploads(attachments, id)));
     }
 
@@ -621,13 +628,16 @@ public sealed partial class AgentHost : IDisposable
             throw;
         }
         ActiveRunsChanged?.Invoke(_runs.Count);
+        _runContext[conversationId] = (uiLanguage, confirm, events);
+        MarkRunStarted(conversationId, _remoteRuns.ContainsKey(conversationId) ? "remote" : "ui");
+        BeginProgress(conversationId);
         _ = Task.Run(() => RunAsync(conv, newUser, uiLanguage, confirm, events, cts));
     }
 
     private async Task RunAsync(Conversation conv, ChatMessage? newUser, string uiLanguage, IConfirmationHandler confirm, IHostEvents events, CancellationTokenSource cts)
     {
         var id = conv.Id;
-        var observer = new RunObserver(id, events);
+        var observer = new RunObserver(id, events, this);
         try
         {
             await Task.WhenAny(_initialConfig); // 启动后立刻发的任务：等 IT 的安全策略先拉下来
@@ -636,6 +646,11 @@ public sealed partial class AgentHost : IDisposable
                 Store.AddMessages(id, new[] { newUser });
             }
             var stored = Store.GetMessages(id);
+            // 上次在某个工具执行的半路被关掉：那一步没有结果，补一句说明，不然模型服务会拒绝整段历史
+            if (HistoryRepair.CloseDanglingToolCalls(stored) is > 0 and var repaired)
+            {
+                Log.Info($"对话 {id} 有 {repaired} 个上次没执行完的工具调用，已补上说明");
+            }
             var user = stored.LastOrDefault(m => m.Role == ChatRole.User) ?? throw new InvalidOperationException("没有可以回答的问题");
             var text = user.Content;
             var attachments = user.Attachments;
@@ -773,6 +788,7 @@ public sealed partial class AgentHost : IDisposable
                     ? new RecycleBinDeleter()
                     : new PermanentDeleter(),
             Backup = Security.On(Flyknit.Core.Security.SecuritySettings.AutoBackup) ? _backup : null,
+            RecordChange = ChangeRecorder(id, user.Id),
             Security = Security,
             };
 
@@ -810,7 +826,12 @@ public sealed partial class AgentHost : IDisposable
                 }
                 tools = perRun;
             }
-            var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
+            var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(conv), Approvals)
+            {
+                Interjections = InterjectionsFor(id),
+                Pause = PauseGateFor(id),
+                Persist = PersistFor(id),
+            };
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
             var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
@@ -833,6 +854,7 @@ public sealed partial class AgentHost : IDisposable
                 });
             }
             Store.AddMessages(id, result.NewMessages);
+            QueueAutoContinue(conv, result.StopReason);
             if (answer is not null)
             {
                 try
@@ -899,7 +921,14 @@ public sealed partial class AgentHost : IDisposable
         {
             _runs.TryRemove(id, out _);
             cts.Dispose();
+            MarkRunEnded(id);
+            EndProgress(id);
             ActiveRunsChanged?.Invoke(_runs.Count);
+            // 排队的话接着发。钉钉、企业微信、手机发来的任务由 RunChannelMessageAsync 收尾后再接着发
+            if (!_remoteRuns.ContainsKey(id))
+            {
+                ContinuePending(id);
+            }
         }
     }
 
@@ -935,9 +964,9 @@ public sealed partial class AgentHost : IDisposable
     }
 
     /// <summary>Agent 循环的设置：步数上限来自本机设置，规划提醒、产出检查由 IT 在安全中心开关（没下发时默认开）。</summary>
-    private AgentOptions AgentOptionsFor() => new()
+    private AgentOptions AgentOptionsFor(Conversation? conv = null) => new()
     {
-        MaxSteps = _settings.ResolveAgentMaxSteps(),
+        MaxSteps = LongModeOn(conv) ? Math.Max(_settings.ResolveAgentMaxSteps(), LongModeSteps) : _settings.ResolveAgentMaxSteps(),
         PlanGuidance = Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
         VerifyOutputs = Security.On(Flyknit.Core.Security.SecuritySettings.VerifyOutputs),
     };
@@ -1270,6 +1299,8 @@ public sealed partial class AgentHost : IDisposable
             cts.Dispose();
             return new InstructionOutcome(false, "", "会话正忙", conv.Id);
         }
+        MarkRunStarted(conv.Id, "headless");
+        BeginProgress(conv.Id);
         ActiveRunsChanged?.Invoke(_runs.Count);
         try
         {
@@ -1314,10 +1345,16 @@ public sealed partial class AgentHost : IDisposable
                     ? new RecycleBinDeleter()
                     : new PermanentDeleter(),
                 Backup = Security.On(Flyknit.Core.Security.SecuritySettings.AutoBackup) ? _backup : null,
+                RecordChange = ChangeRecorder(conv.Id, user.Id),
                 Security = Security,
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(conv), Approvals)
+            {
+                Interjections = InterjectionsFor(conv.Id),
+                Pause = PauseGateFor(conv.Id),
+                Persist = PersistFor(conv.Id),
+            };
             var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
             Store.AddMessages(conv.Id, result.NewMessages);
             if (result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant) is { } done)
@@ -1341,6 +1378,8 @@ public sealed partial class AgentHost : IDisposable
         {
             _runs.TryRemove(conv.Id, out _);
             cts.Dispose();
+            MarkRunEnded(conv.Id);
+            EndProgress(conv.Id);
             ActiveRunsChanged?.Invoke(_runs.Count);
         }
     }
@@ -1496,11 +1535,13 @@ public sealed partial class AgentHost : IDisposable
     {
         private readonly string _id;
         private readonly IHostEvents _events;
+        private readonly AgentHost? _host;
 
-        public RunObserver(string id, IHostEvents events)
+        public RunObserver(string id, IHostEvents events, AgentHost? host = null)
         {
             _id = id;
             _events = events;
+            _host = host;
         }
 
         public void OnContent(string delta) => _events.Post(new { type = "chat.delta", conversationId = _id, text = delta });
@@ -1513,7 +1554,13 @@ public sealed partial class AgentHost : IDisposable
         public void OnToolMessage(ChatMessage message) =>
             _events.Post(new { type = "chat.message", conversationId = _id, message = MessageDto.From(message) });
 
-        public void OnToolStarted(ToolCall call, string summary, PolicyDecision decision) => _events.Post(new
+        public void OnToolStarted(ToolCall call, string summary, PolicyDecision decision)
+        {
+            _host?.NoteStep(_id, summary);
+            PostToolStarted(call, summary, decision);
+        }
+
+        private void PostToolStarted(ToolCall call, string summary, PolicyDecision decision) => _events.Post(new
         {
             type = "tool.started",
             conversationId = _id,
@@ -1546,6 +1593,10 @@ public sealed partial class AgentHost : IDisposable
 
         public void OnNotice(string text) => _events.Post(new { type = "chat.notice", conversationId = _id, text });
 
+        /// <summary>插话交给 AI 了：放进对话里（在它前后的工具卡片之间）。</summary>
+        public void OnInterjection(ChatMessage message) =>
+            _events.Post(new { type = "chat.message", conversationId = _id, message = MessageDto.From(message) });
+
         public void OnOutputsProduced(IReadOnlyList<OutputFile> files)
         {
             foreach (var f in files)
@@ -1563,7 +1614,13 @@ public sealed partial class AgentHost : IDisposable
             });
         }
 
-        public void OnPlanUpdated(IReadOnlyList<PlanItem> plan) => _events.Post(new
+        public void OnPlanUpdated(IReadOnlyList<PlanItem> plan)
+        {
+            PostPlan(plan);
+            _host?.NotePlan();
+        }
+
+        private void PostPlan(IReadOnlyList<PlanItem> plan) => _events.Post(new
         {
             type = "plan.updated",
             conversationId = _id,

@@ -129,7 +129,7 @@ async def test_reply_uses_session_webhook_then_falls_back_to_robot_api():
 
 async def test_off_by_default_and_secret_is_never_shown(client, device_headers, fake_dingtalk):
     r = await client.get("/api/v1/client/channels", headers=device_headers)
-    assert r.json() == {"dingtalk": False, "wecom": False, "bindings": []}
+    assert r.json() == {"dingtalk": False, "wecom": False, "mobile": False, "bindings": []}
     assert (await client.post("/api/v1/client/channels/bind-code", headers=device_headers)).status_code == 409
 
     await _enable(client)

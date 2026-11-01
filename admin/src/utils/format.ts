@@ -58,6 +58,7 @@ export const SCENE_LABELS: Record<string, string> = {
   schedule: '定时任务',
   channel: '钉钉/企业微信',
   instruction: 'IT 指令',
+  mobile: '手机',
 }
 export const sceneLabel = (s: string) => SCENE_LABELS[s] ?? s
 

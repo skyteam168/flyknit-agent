@@ -1,0 +1,1287 @@
+<template>
+	<view class="page" :style="{ backgroundColor: c.loom }" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd" @touchcancel="onTouchEnd">
+		<!-- 主区域 -->
+		<view class="main" :style="{ paddingTop: px(statusBar) }">
+			<view class="topbar">
+				<view class="icon-btn" @click="openDrawer">
+					<view class="bar" :style="{ backgroundColor: c.ink }"></view>
+					<view class="bar mid" :style="{ backgroundColor: c.ink }"></view>
+					<view class="bar" :style="{ backgroundColor: c.ink }"></view>
+				</view>
+				<view class="top-title" @click="openDrawer">
+					<text class="top-name" :style="{ color: c.ink }" :lines="1">{{ topTitle }}</text>
+					<view class="top-status">
+						<view class="dot" :style="{ backgroundColor: statusColor }"></view>
+						<text class="top-sub" :style="{ color: c.inkFaint }" :lines="1">{{ statusText }}</text>
+					</view>
+				</view>
+				<view class="icon-btn" @click="newChat">
+					<view class="plus-h" :style="{ backgroundColor: c.ink }"></view>
+					<view class="plus-v" :style="{ backgroundColor: c.ink }"></view>
+				</view>
+			</view>
+
+			<!-- 模式：和电脑端一样，对话 / 翻译 / 办事 -->
+			<view v-if="canSwitchMode" class="seg" :style="{ backgroundColor: c.chip }">
+				<view v-for="m in MODES" :key="m.id" class="seg-item" :style="m.id == mode ? { backgroundColor: c.cloth } : {}" @click="setMode(m.id)">
+					<text class="seg-text" :style="{ color: m.id == mode ? c.ink : c.inkSoft, fontWeight: m.id == mode ? 'bold' : 'normal' }">{{ m.label }}</text>
+				</view>
+			</view>
+			<scroll-view v-if="mode == 'translate'" direction="horizontal" class="langs">
+				<view class="langs-row">
+					<text class="langs-label" :style="{ color: c.inkFaint }">译成</text>
+					<view v-for="l in LANGS" :key="l.id" class="lang" :style="{ backgroundColor: l.id == target ? c.indigoWash : c.chip }" @click="setTarget(l.id)">
+						<text class="lang-text" :style="{ color: l.id == target ? c.indigo : c.inkSoft }">{{ l.label }}</text>
+					</view>
+				</view>
+			</scroll-view>
+
+			<scroll-view ref="listRef" direction="vertical" class="list" :show-scrollbar="false">
+				<!-- 空状态 -->
+				<view v-if="messages.length == 0" class="empty">
+					<image class="empty-logo" src="/static/logo.png" mode="aspectFit"></image>
+					<text class="empty-title" :style="{ color: c.ink }">{{ greeting }}</text>
+					<text class="empty-sub" :style="{ color: c.inkSoft }">{{ modeHint }}</text>
+					<view v-for="(s, si) in suggestions" :key="si" class="suggest" :style="{ backgroundColor: c.sunk }" @click="useSuggestion(s)">
+						<text class="suggest-text" :style="{ color: c.ink }">{{ s }}</text>
+					</view>
+				</view>
+
+				<view v-for="m in messages" :key="m.id" class="msg">
+					<!-- 员工 -->
+					<view v-if="m.role == 'user'" class="row-user">
+						<text v-if="m.tag != null && m.tag != ''" class="user-tag" :style="{ color: c.indigo }">{{ m.tag }}</text>
+						<view class="bubble" :style="{ backgroundColor: c.chip }" @longpress="copyText(m.content)">
+							<text class="bubble-text" :style="{ color: c.ink }" :selectable="true">{{ m.content }}</text>
+						</view>
+					</view>
+
+					<!-- 办事：电脑上执行的任务卡片 -->
+					<view v-else-if="m.taskId > 0" class="task" :style="{ backgroundColor: c.sunk, borderColor: c.line }">
+						<view class="task-head">
+							<text class="task-title" :style="{ color: c.inkSoft }">在 {{ machineName }} 上执行</text>
+							<text class="chip" :style="{ backgroundColor: taskChipBg(m.taskStatus), color: taskChipInk(m.taskStatus) }">{{ taskLabel(m.taskStatus) }}</text>
+						</view>
+						<!-- 办完了：过程收成一行，点开看每一步 -->
+						<view v-if="taskFolded(m)" class="fold" @click="toggleSteps(m.id)">
+							<text class="fold-text" :style="{ color: c.inkFaint }">{{ stepsSummary(m) }}</text>
+							<text class="fold-chev" :style="{ color: c.inkFaint }">{{ openSteps.includes(m.id) ? '收起' : '展开' }}</text>
+						</view>
+						<view v-for="(st, sti) in visibleSteps(m)" :key="sti" class="step">
+							<view class="step-dot" :style="{ backgroundColor: c.lineStrong }"></view>
+							<text class="step-text" :style="{ color: c.inkSoft }" :lines="2">{{ st }}</text>
+						</view>
+						<text v-if="m.taskStatus == 'pending' || m.taskStatus == 'running'" class="task-wait" :style="{ color: c.inkFaint }">{{ m.taskStatus == 'pending' ? waitingText : '电脑正在处理，办完会推送到这里' }}</text>
+						<view v-if="m.taskStatus == 'succeeded' && m.content != ''" class="task-answer" :style="{ borderTopColor: c.line }">
+							<md-view :content="m.content"></md-view>
+						</view>
+						<text v-if="m.status == 'error' && m.content != ''" class="err" :style="{ color: c.red }">{{ m.content }}</text>
+					</view>
+
+					<!-- 助手 -->
+					<view v-else class="row-ai">
+						<view v-if="m.content == '' && (m.status == 'thinking' || m.status == 'streaming')" class="thinking">
+							<view class="pulse" :style="{ backgroundColor: c.indigo }"></view>
+							<text class="thinking-text" :style="{ color: c.inkFaint }">正在思考…</text>
+						</view>
+						<md-view v-else-if="m.status != 'error'" :content="m.content"></md-view>
+						<text v-else class="err" :style="{ color: c.red }">{{ m.content }}</text>
+						<view v-if="m.status == 'done' && m.content != ''" class="actions">
+							<text class="action" :style="{ color: c.inkFaint }" @click="copyText(m.content)">复制</text>
+						</view>
+					</view>
+				</view>
+				<view class="list-end"></view>
+			</scroll-view>
+
+			<!-- 输入框 -->
+			<view class="composer" :style="{ paddingBottom: px(bottomInset + 8) }">
+				<!-- 回答还没完又发的话：排着，回答完按顺序发；发出去之前能撤回、拿回输入框改 -->
+				<view v-for="q in queuedHere" :key="q.id" class="queued" :style="{ backgroundColor: c.sunk, borderColor: c.lineStrong }">
+					<text class="queued-tag" :style="{ color: c.inkSoft }">排队</text>
+					<text class="queued-text" :style="{ color: c.ink }" :lines="1">{{ q.text }}</text>
+					<text class="queued-btn" :style="{ color: c.indigo }" @click="editQueued(q.id)">改</text>
+					<text class="queued-btn" :style="{ color: c.inkFaint }" @click="dropQueued(q.id)">撤回</text>
+				</view>
+				<text v-if="busyHint != ''" class="busy-hint" :style="{ color: c.inkFaint }">{{ busyHint }}</text>
+				<view class="box" :style="{ backgroundColor: c.cloth, borderColor: c.lineStrong }">
+					<textarea
+						class="input"
+						:style="{ color: c.ink }"
+						:value="draft"
+						:placeholder="placeholder"
+						:placeholder-style="'color:' + c.inkFaint"
+						:auto-height="true"
+						maxlength="4000"
+						confirm-type="send"
+						@input="onDraft"
+						@confirm="send"
+					/>
+					<view v-if="streaming != null && draft.trim() == ''" class="send" :style="{ backgroundColor: c.action }" @click="stop">
+						<view class="stop-square" :style="{ backgroundColor: c.actionInk }"></view>
+					</view>
+					<view v-else class="send" :style="{ backgroundColor: draft.trim() == '' ? c.lineStrong : c.action }" @click="send" @longpress="sendMenu">
+						<text class="send-arrow" :style="{ color: c.actionInk }">↑</text>
+					</view>
+				</view>
+			</view>
+		</view>
+
+		<!-- 左侧对话管理：从屏幕左边缘向右滑打开，向左滑或点遮罩关闭 -->
+		<view v-if="drawerX > -drawerWidth" class="mask" :style="{ backgroundColor: c.mask, opacity: (drawerX + drawerWidth) / drawerWidth }" @click="closeDrawer"></view>
+		<view class="drawer" :style="{ width: px(drawerWidth), backgroundColor: c.sunk, paddingTop: px(statusBar), transform: 'translateX(' + px(drawerX) + ')', transitionDuration: dragging ? '0ms' : '220ms' }">
+			<view class="drawer-head">
+				<image class="drawer-logo" src="/static/logo.png" mode="aspectFit"></image>
+				<text class="drawer-brand" :style="{ color: c.ink }">FlyknitBuddy</text>
+			</view>
+			<view class="new-btn" :style="{ backgroundColor: c.indigoWash }" @click="newChat">
+				<text class="new-text" :style="{ color: c.indigo }">＋ 新对话</text>
+			</view>
+			<scroll-view direction="vertical" class="conv-list" :show-scrollbar="false">
+				<view v-for="g in groups" :key="g.label" class="group">
+					<text class="group-label" :style="{ color: c.inkFaint }">{{ g.label }}</text>
+					<view v-for="cv in g.items" :key="cv.id" class="conv" :style="cv.id == currentId ? { backgroundColor: c.chip } : {}" @click="openConv(cv.id)" @longpress="convMenu(cv.id)">
+						<text class="conv-mode" :style="{ color: c.indigo, backgroundColor: c.indigoWash }">{{ modeShort(cv.mode) }}</text>
+						<text class="conv-title" :style="{ color: c.ink }" :lines="1">{{ convTitle(cv) }}</text>
+					</view>
+				</view>
+				<text v-if="conversations.length == 0" class="conv-empty" :style="{ color: c.inkFaint }">还没有对话</text>
+			</scroll-view>
+			<view class="me" :style="{ borderTopColor: c.line, paddingBottom: px(bottomInset + 12) }" @click="openSettings">
+				<view class="me-avatar" :style="{ backgroundColor: c.indigo }">
+					<text class="me-initial">{{ initial }}</text>
+				</view>
+				<view class="me-text">
+					<text class="me-name" :style="{ color: c.ink }" :lines="1">{{ userName }}</text>
+					<text class="me-pc" :style="{ color: c.inkFaint }" :lines="1">{{ machineName }} · {{ computerOnline ? '电脑在线' : '电脑离线' }}</text>
+				</view>
+				<text class="me-gear" :style="{ color: c.inkSoft }">设置</text>
+			</view>
+		</view>
+
+		<!-- 电脑上执行到需要确认的操作 -->
+		<view v-if="approval != null" class="sheet-mask" :style="{ backgroundColor: c.mask }">
+			<view class="sheet" :style="{ backgroundColor: c.cloth, paddingBottom: px(bottomInset + 16) }">
+				<text class="sheet-kicker" :style="{ color: c.amber }">需要你确认</text>
+				<text class="sheet-title" :style="{ color: c.ink }">电脑上要执行这一步</text>
+				<view class="sheet-box" :style="{ backgroundColor: c.amberWash }">
+					<text class="sheet-summary" :style="{ color: c.ink }" :selectable="true">{{ approvalSummary }}</text>
+					<text v-if="approvalDetail != ''" class="sheet-detail" :style="{ color: c.inkSoft }">{{ approvalDetail }}</text>
+				</view>
+				<text class="sheet-note" :style="{ color: c.inkFaint }">只放行这一次。不确定就拒绝，回到电脑上看清楚再做。</text>
+				<view class="sheet-actions">
+					<view class="sheet-btn" :style="{ backgroundColor: c.chip }" @click="answer(false)">
+						<text class="sheet-btn-text" :style="{ color: c.ink }">拒绝</text>
+					</view>
+					<view class="sheet-btn" :style="{ backgroundColor: c.action }" @click="answer(true)">
+						<text class="sheet-btn-text" :style="{ color: c.actionInk }">批准</text>
+					</view>
+				</view>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { computed, nextTick, ref, watch } from 'vue'
+	import { theme } from '../../common/theme.uts'
+	import { Approval, Conv, Msg, createConv, currentConv, newId, newMsg, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
+	import { request } from '../../common/api.uts'
+	import { answerApproval, connect, sendChat, stopChat } from '../../common/socket.uts'
+
+	type ModeItem = { id : string, label : string }
+	type Group = { label : string, items : Array<Conv> }
+
+	const MODES = [
+		{ id: 'chat', label: '对话' } as ModeItem,
+		{ id: 'translate', label: '翻译' } as ModeItem,
+		{ id: 'agent', label: '办事' } as ModeItem
+	]
+	const LANGS = [
+		{ id: 'zh', label: '中文' } as ModeItem,
+		{ id: 'vi', label: 'Tiếng Việt' } as ModeItem,
+		{ id: 'en', label: 'English' } as ModeItem,
+		{ id: 'km', label: 'ខ្មែរ' } as ModeItem
+	]
+
+	const c = computed(() => theme.c)
+	const win = uni.getWindowInfo()
+	const statusBar = win.statusBarHeight
+	const bottomInset = win.safeAreaInsets.bottom
+	const drawerWidth = Math.min(win.windowWidth * 0.82, 320)
+
+	function px(n : number) : string {
+		return n.toString() + 'px'
+	}
+
+	const mode = ref('chat')
+	const target = ref('vi')
+	const draft = ref('')
+	const listRef = ref<UniScrollViewElement | null>(null)
+
+	// ---------- 状态 ----------
+
+	const conversations = computed(() : Array<Conv> => state.conversations)
+	const currentId = computed(() : string => state.currentId)
+	const conv = computed(() : Conv | null => {
+		const id = state.currentId
+		const i = state.conversations.findIndex((x : Conv) : boolean => x.id == id)
+		return i >= 0 ? state.conversations[i] : null
+	})
+	const messages = computed(() : Array<Msg> => conv.value?.messages ?? ([] as Array<Msg>))
+	const machineName = computed(() : string => state.machineName)
+	const userName = computed(() : string => state.userName != '' ? state.userName : state.phoneName)
+	const computerOnline = computed(() : boolean => state.computerOnline)
+	const initial = computed(() : string => userName.value.length > 0 ? userName.value.substring(0, 1).toUpperCase() : 'F')
+	const approval = computed(() : Approval | null => state.approvals.length > 0 ? state.approvals[0] : null)
+	const approvalSummary = computed(() : string => approval.value?.summary ?? '')
+	const approvalDetail = computed(() : string => approval.value?.detail ?? '')
+	/** 正在生成的那条回答（显示「停止」） */
+	const streaming = computed(() : Msg | null => {
+		const list = messages.value
+		for (let i = list.length - 1; i >= 0; i--) {
+			const m = list[i]
+			if (m.role == 'assistant' && m.taskId == 0 && (m.status == 'thinking' || m.status == 'streaming')) {
+				return m
+			}
+		}
+		return null
+	})
+	/** 对话一旦开始，模式就固定了（和电脑端一样） */
+	const canSwitchMode = computed(() : boolean => messages.value.length == 0)
+
+	const topTitle = computed(() : string => {
+		const cv = conv.value
+		if (cv != null && cv.title != '') {
+			return cv.title
+		}
+		return 'FlyknitBuddy'
+	})
+	const statusText = computed(() : string => {
+		if (state.socket == 'connecting') return '正在连接…'
+		if (state.socket != 'open') return '未连接服务器，正在重试'
+		return state.machineName + (state.computerOnline ? ' · 在线' : ' · 电脑离线（办事会排队）')
+	})
+	const statusColor = computed(() : string => {
+		if (state.socket != 'open') return c.value.amber
+		return state.computerOnline ? c.value.thread : c.value.inkFaint
+	})
+	const greeting = computed(() : string => {
+		const h = new Date().getHours()
+		const part = h < 11 ? '早上好' : (h < 14 ? '中午好' : (h < 18 ? '下午好' : '晚上好'))
+		const name = state.userName
+		return name != '' ? part + '，' + name : part
+	})
+	const modeHint = computed(() : string => {
+		if (mode.value == 'translate') return '输入或粘贴要翻译的内容，选好目标语言'
+		if (mode.value == 'agent') return '交给你电脑上的 FlyknitBuddy 去办：找文件、整理表格、看邮件……进度和结果会实时回到这里'
+		return '有什么问题尽管问'
+	})
+	const suggestions = computed(() : Array<string> => {
+		if (mode.value == 'agent') {
+			return ['把今天的未读邮件整理成要点', '找一下 D 盘最新的质检周报，告诉我结论', '把桌面上的表格按车间汇总一下']
+		}
+		if (mode.value == 'chat') {
+			return ['帮我写一段请假说明', '解释一下什么是 OEE', '把这句话改得更礼貌：明天之前必须给我']
+		}
+		return [] as Array<string>
+	})
+	const placeholder = computed(() : string => {
+		if (mode.value == 'translate') return '输入要翻译的内容'
+		if (mode.value == 'agent') return '让电脑帮你做什么？'
+		return '有问题尽管问'
+	})
+	const waitingText = computed(() : string => state.computerOnline ? '已交给电脑，马上开始' : '电脑现在不在线，开机并打开 FlyknitBuddy 后 30 分钟内会接着办')
+
+	const groups = computed(() : Array<Group> => {
+		const now = new Date()
+		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+		const yesterday = today - 86400000
+		const week = today - 6 * 86400000
+		const g = [
+			{ label: '今天', items: [] as Array<Conv> } as Group,
+			{ label: '昨天', items: [] as Array<Conv> } as Group,
+			{ label: '最近 7 天', items: [] as Array<Conv> } as Group,
+			{ label: '更早', items: [] as Array<Conv> } as Group
+		]
+		state.conversations.forEach((cv : Conv) => {
+			if (cv.messages.length == 0) {
+				return
+			}
+			const t = cv.updatedAt
+			const idx = t >= today ? 0 : (t >= yesterday ? 1 : (t >= week ? 2 : 3))
+			g[idx].items.push(cv)
+		})
+		return g.filter((x : Group) : boolean => x.items.length > 0)
+	})
+
+	// 切到某个已有对话时，模式和语言跟着它走
+	watch(conv, (cv : Conv | null) => {
+		if (cv != null) {
+			mode.value = cv.mode
+			target.value = cv.target
+		}
+		scrollToEnd()
+	})
+	// 新消息、流式输出时滚到底
+	watch(() : string => {
+		const list = messages.value
+		if (list.length == 0) return ''
+		const last = list[list.length - 1]
+		return list.length.toString() + ':' + last.content.length.toString() + ':' + last.steps.length.toString() + ':' + last.taskStatus
+	}, (_ : string) => {
+		scrollToEnd()
+	})
+
+	function scrollToEnd() {
+		nextTick(() => {
+			const el = listRef.value
+			if (el != null) {
+				el.scrollTop = el.scrollHeight
+			}
+		})
+	}
+
+	// ---------- 对话 ----------
+
+	function setMode(m : string) {
+		mode.value = m
+		const cv = conv.value
+		if (cv != null && cv.messages.length == 0) {
+			cv.mode = m
+		}
+	}
+
+	function setTarget(t : string) {
+		target.value = t
+		const cv = conv.value
+		if (cv != null) {
+			cv.target = t
+			saveConversations()
+		}
+	}
+
+	function newChat() {
+		// 已经有一个空的新对话就直接用
+		const cv = conv.value
+		if (cv == null || cv.messages.length > 0) {
+			state.currentId = ''
+		}
+		draft.value = ''
+		closeDrawer()
+	}
+
+	function openConv(id : string) {
+		state.currentId = id
+		closeDrawer()
+	}
+
+	function convTitle(cv : Conv) : string {
+		if (cv.title != '') return cv.title
+		const first = cv.messages.find((m : Msg) : boolean => m.role == 'user')
+		return first != null ? first.content : '新对话'
+	}
+
+	function modeShort(m : string) : string {
+		if (m == 'translate') return '译'
+		if (m == 'agent') return '办'
+		return '聊'
+	}
+
+	function convMenu(id : string) {
+		uni.showActionSheet({
+			itemList: ['重命名', '删除'],
+			success: (res) => {
+				if (res.tapIndex == 0) {
+					uni.showModal({
+						title: '重命名',
+						editable: true,
+						placeholderText: '对话名称',
+						success: (r) => {
+							if (r.confirm && (r.content ?? '').trim() != '') {
+								renameConv(id, (r.content ?? '').trim())
+							}
+						}
+					})
+				} else if (res.tapIndex == 1) {
+					uni.showModal({
+						title: '删除对话',
+						content: '只删除手机上的记录。办事在电脑上留下的对话不受影响。',
+						success: (r) => {
+							if (r.confirm) {
+								removeConv(id)
+							}
+						}
+					})
+				}
+			}
+		})
+	}
+
+	function onDraft(e : UniInputEvent) {
+		draft.value = e.detail.value
+	}
+
+	function useSuggestion(s : string) {
+		draft.value = s
+		send()
+	}
+
+	function copyText(text : string) {
+		uni.setClipboardData({ data: text })
+	}
+
+	// ---------- 运行中又说的话 ----------
+
+	type Queued = { id : string, convId : string, text : string }
+	/** 对话、翻译：回答还没完又发的话，回答完按顺序发（只在本机排着） */
+	const queued = ref([] as Array<Queued>)
+	const queuedHere = computed(() : Array<Queued> => queued.value.filter((q : Queued) : boolean => q.convId == state.currentId))
+
+	/** 办事：这个对话里电脑还在办（或者还没开始办）的那件事 */
+	const runningTask = computed(() : Msg | null => {
+		const list = messages.value
+		for (let i = list.length - 1; i >= 0; i--) {
+			const m = list[i]
+			if (m.taskId > 0) {
+				return m.taskStatus == 'pending' || m.taskStatus == 'running' ? m : null
+			}
+		}
+		return null
+	})
+	const busyHint = computed(() : string => {
+		if (draft.value.trim() == '') return ''
+		if (runningTask.value != null) return '电脑正在办：发送 = 插话（不打断），长按发送可以打断或排到后面'
+		if (streaming.value != null) return '正在回答：发送会排在这个回答之后，长按发送可以打断'
+		return ''
+	})
+
+	/** 长按发送：运行中才有选项 */
+	function sendMenu() {
+		const text = draft.value.trim()
+		if (text == '') {
+			return
+		}
+		const task = runningTask.value
+		if (task != null) {
+			uni.showActionSheet({
+				itemList: ['插话（不打断，AI 下一步就看到）', '打断并优先处理这句', '排到这件事之后'],
+				success: (r) => {
+					const how = r.tapIndex == 0 ? 'steer' : (r.tapIndex == 1 ? 'interrupt' : 'queue')
+					void sendInput(task, text, how)
+				}
+			})
+			return
+		}
+		if (streaming.value != null) {
+			uni.showActionSheet({
+				itemList: ['排到这个回答之后', '打断并发送'],
+				success: (r) => {
+					if (r.tapIndex == 0) {
+						queueLocal(text)
+					} else {
+						stop()
+						draft.value = ''
+						void sendText(text, '打断')
+					}
+				}
+			})
+			return
+		}
+		send()
+	}
+
+	function queueLocal(text : string) {
+		queued.value.push({ id: newId(), convId: state.currentId, text: text } as Queued)
+		draft.value = ''
+	}
+
+	function dropQueued(id : string) {
+		queued.value = queued.value.filter((q : Queued) : boolean => q.id != id)
+	}
+
+	function editQueued(id : string) {
+		const i = queued.value.findIndex((q : Queued) : boolean => q.id == id)
+		if (i < 0) {
+			return
+		}
+		const text = queued.value[i].text
+		queued.value.splice(i, 1)
+		draft.value = draft.value.trim() == '' ? text : draft.value + '\n' + text
+	}
+
+	// 回答完了：排着的话按顺序接着发
+	watch(streaming, (m : Msg | null) => {
+		if (m != null) {
+			return
+		}
+		const i = queued.value.findIndex((q : Queued) : boolean => q.convId == state.currentId)
+		if (i < 0) {
+			return
+		}
+		const next = queued.value[i]
+		queued.value.splice(i, 1)
+		void sendText(next.text, '排队')
+	})
+
+	/** 办事：电脑正在办的时候又说了一句（插话 / 打断 / 排队），交给服务端转给电脑 */
+	async function sendInput(task : Msg, text : string, how : string) {
+		const cv = conv.value
+		if (cv == null) {
+			return
+		}
+		draft.value = ''
+		const tag = how == 'steer' ? '插话' : (how == 'interrupt' ? '打断' : '排队')
+		const user = newMsg('user', text, 'done')
+		user.tag = tag
+		cv.messages.push(user)
+		touch(cv)
+		const res = await request('POST', '/api/v1/mobile/tasks/' + task.taskId.toString() + '/input', { text: text, mode: how } as UTSJSONObject)
+		if (!res.ok || res.data == null) {
+			const err = newMsg('assistant', '没交给电脑：' + res.error, 'error')
+			cv.messages.push(err)
+			saveConversations()
+			return
+		}
+		const body = res.data as UTSJSONObject
+		const delivered = body.getString('delivered') ?? ''
+		const t = body.getJSON('task')
+		if (delivered == 'task' && t != null) {
+			// 作为新的一件事排上了：给它一张自己的任务卡片
+			const card = newMsg('assistant', '', 'task')
+			card.taskId = t.getNumber('id') ?? 0
+			card.taskStatus = t.getString('status') ?? 'pending'
+			cv.messages.push(card)
+		} else if (delivered == 'steer') {
+			task.steps.push('补充：' + (text.length > 30 ? text.substring(0, 30) + '…' : text))
+		} else if (delivered == 'merged') {
+			task.steps.push('补充已并入这件事')
+		}
+		saveConversations()
+	}
+
+	async function send() {
+		const text = draft.value.trim()
+		if (text == '') {
+			return
+		}
+		// 电脑在办事：默认插话；AI 在回答：排到回答之后
+		const task = runningTask.value
+		if (task != null && mode.value == 'agent') {
+			await sendInput(task, text, 'steer')
+			return
+		}
+		if (streaming.value != null) {
+			queueLocal(text)
+			return
+		}
+		draft.value = ''
+		await sendText(text, '')
+	}
+
+	async function sendText(text : string, tag : string) {
+		if (state.socket != 'open' && mode.value != 'agent') {
+			connect()
+			uni.showToast({ title: '正在连接服务器，请稍候再发', icon: 'none' })
+			return
+		}
+		let cv = conv.value
+		if (cv == null) {
+			cv = createConv(mode.value, target.value)
+		}
+		const theConv = cv!
+		if (theConv.title == '') {
+			theConv.title = text.length > 18 ? text.substring(0, 18) + '…' : text
+		}
+		const user = newMsg('user', text, 'done')
+		if (tag != '') {
+			user.tag = tag
+		}
+		theConv.messages.push(user)
+		touch(theConv)
+
+		if (theConv.mode == 'agent') {
+			await submitTask(theConv, text)
+			return
+		}
+		const answer = newMsg('assistant', '', 'thinking')
+		theConv.messages.push(answer)
+		// 拿数组里的那份（响应式），流式输出写进它界面才会跟着变
+		const live = theConv.messages[theConv.messages.length - 1]
+		if (!sendChat(theConv, live)) {
+			live.status = 'error'
+			live.content = '没连上服务器，请稍后再试'
+		}
+		saveConversations()
+	}
+
+	async function submitTask(cv : Conv, text : string) {
+		const answer = newMsg('assistant', '', 'task')
+		answer.taskStatus = 'sending'
+		cv.messages.push(answer)
+		const live = cv.messages[cv.messages.length - 1]
+		const res = await request('POST', '/api/v1/mobile/tasks', { text: text, new_conversation: !cv.agentStarted } as UTSJSONObject)
+		if (!res.ok || res.data == null) {
+			live.taskId = 0
+			live.status = 'error'
+			live.content = '没交给电脑：' + res.error
+			saveConversations()
+			return
+		}
+		const t = res.data as UTSJSONObject
+		live.taskId = t.getNumber('id') ?? 0
+		live.taskStatus = t.getString('status') ?? 'pending'
+		cv.agentStarted = true
+		saveConversations()
+	}
+
+	function stop() {
+		const m = streaming.value
+		if (m != null) {
+			stopChat(m)
+		}
+	}
+
+	// ---------- 办事卡片 ----------
+
+	function taskLabel(s : string) : string {
+		if (s == 'sending') return '提交中'
+		if (s == 'pending') return '等电脑'
+		if (s == 'running') return '处理中'
+		if (s == 'succeeded') return '完成'
+		if (s == 'failed') return '没办成'
+		if (s == 'expired') return '已取消'
+		return s
+	}
+
+	function taskChipBg(s : string) : string {
+		if (s == 'succeeded') return c.value.threadWash
+		if (s == 'failed' || s == 'expired') return c.value.redWash
+		if (s == 'running') return c.value.indigoWash
+		return c.value.chip
+	}
+
+	function taskChipInk(s : string) : string {
+		if (s == 'succeeded') return c.value.thread
+		if (s == 'failed' || s == 'expired') return c.value.red
+		if (s == 'running') return c.value.indigo
+		return c.value.inkSoft
+	}
+
+	function lastSteps(steps : Array<string>) : Array<string> {
+		return steps.length <= 6 ? steps : steps.slice(steps.length - 6)
+	}
+
+	/** 展开了过程的任务卡片（消息 ID） */
+	const openSteps = ref([] as Array<string>)
+
+	/** 办完了（成功、失败、超时）且有过程：收成一行 */
+	function taskFolded(m : Msg) : boolean {
+		return m.steps.length > 0 && m.taskStatus != 'pending' && m.taskStatus != 'running' && m.taskStatus != 'sending'
+	}
+
+	function visibleSteps(m : Msg) : Array<string> {
+		if (!taskFolded(m)) {
+			return lastSteps(m.steps)
+		}
+		return openSteps.value.includes(m.id) ? m.steps : ([] as Array<string>)
+	}
+
+	function toggleSteps(id : string) {
+		const i = openSteps.value.indexOf(id)
+		if (i >= 0) {
+			openSteps.value.splice(i, 1)
+		} else {
+			openSteps.value.push(id)
+		}
+	}
+
+	function stepsSummary(m : Msg) : string {
+		const bad = m.steps.filter((x : string) : boolean => x.startsWith('已拒绝：')).length
+		let text = '电脑上执行了 ' + m.steps.length.toString() + ' 步'
+		if (bad > 0) {
+			text += '（' + bad.toString() + ' 步被拒绝）'
+		}
+		return text
+	}
+
+	// ---------- 审批 ----------
+
+	async function answer(approve : boolean) {
+		const a = approval.value
+		if (a == null) {
+			return
+		}
+		const err = await answerApproval(a, approve)
+		if (err != '') {
+			uni.showToast({ title: err, icon: 'none' })
+		}
+	}
+
+	// ---------- 抽屉：边缘右滑打开，左滑关闭 ----------
+
+	const drawerX = ref(-drawerWidth)
+	const dragging = ref(false)
+	let startX = 0
+	let startY = 0
+	let startDrawer = 0
+	/** none / maybe / drag：先看手指往哪个方向走，横着走才拖抽屉，竖着走留给列表滚动 */
+	let gesture = 'none'
+
+	function openDrawer() {
+		uni.hideKeyboard()
+		dragging.value = false
+		drawerX.value = 0
+	}
+
+	function closeDrawer() {
+		dragging.value = false
+		drawerX.value = -drawerWidth
+	}
+
+	function onTouchStart(e : UniTouchEvent) {
+		if (approval.value != null || e.touches.length == 0) {
+			return
+		}
+		const t = e.touches[0]
+		startX = t.clientX
+		startY = t.clientY
+		startDrawer = drawerX.value
+		const open = drawerX.value > -drawerWidth
+		// 关着时只认从左边缘开始的滑动；开着时哪里都能往左滑关掉
+		gesture = (open || startX < 28) ? 'maybe' : 'none'
+	}
+
+	function onTouchMove(e : UniTouchEvent) {
+		if (gesture == 'none' || e.touches.length == 0) {
+			return
+		}
+		const t = e.touches[0]
+		const dx = t.clientX - startX
+		const dy = t.clientY - startY
+		if (gesture == 'maybe') {
+			if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+				return
+			}
+			if (Math.abs(dy) > Math.abs(dx)) {
+				gesture = 'none'
+				return
+			}
+			gesture = 'drag'
+			dragging.value = true
+			uni.hideKeyboard()
+		}
+		drawerX.value = Math.max(-drawerWidth, Math.min(0, startDrawer + dx))
+	}
+
+	function onTouchEnd(_ : UniTouchEvent) {
+		if (gesture == 'drag') {
+			if (drawerX.value > -drawerWidth / 2) {
+				openDrawer()
+			} else {
+				closeDrawer()
+			}
+		}
+		gesture = 'none'
+	}
+
+	function openSettings() {
+		closeDrawer()
+		uni.navigateTo({ url: '/pages/settings/settings' })
+	}
+
+	// 没绑定就去绑定页
+	onLoad((_ : OnLoadOptions) => {
+		if (state.token == '') {
+			uni.reLaunch({ url: '/pages/pair/pair' })
+			return
+		}
+		const cv = currentConv()
+		if (cv != null) {
+			mode.value = cv.mode
+			target.value = cv.target
+		}
+	})
+</script>
+
+<style>
+	.page {
+		flex: 1;
+	}
+	.main {
+		flex: 1;
+	}
+	.topbar {
+		height: 52px;
+		flex-direction: row;
+		align-items: center;
+		padding: 0 8px;
+	}
+	.icon-btn {
+		width: 44px;
+		height: 44px;
+		align-items: center;
+		justify-content: center;
+	}
+	.bar {
+		width: 20px;
+		height: 2px;
+		border-radius: 1px;
+	}
+	.mid {
+		margin: 4px 0;
+		width: 14px;
+		margin-right: 6px;
+	}
+	.plus-h {
+		position: absolute;
+		width: 18px;
+		height: 2px;
+		border-radius: 1px;
+	}
+	.plus-v {
+		position: absolute;
+		width: 2px;
+		height: 18px;
+		border-radius: 1px;
+	}
+	.top-title {
+		flex: 1;
+		align-items: center;
+	}
+	.top-name {
+		font-size: 16px;
+		font-weight: bold;
+	}
+	.top-status {
+		flex-direction: row;
+		align-items: center;
+		margin-top: 2px;
+	}
+	.dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 3px;
+		margin-right: 5px;
+	}
+	.top-sub {
+		font-size: 11px;
+	}
+	.seg {
+		flex-direction: row;
+		margin: 4px 16px 6px 16px;
+		padding: 3px;
+		border-radius: 12px;
+	}
+	.seg-item {
+		flex: 1;
+		height: 34px;
+		border-radius: 9px;
+		align-items: center;
+		justify-content: center;
+	}
+	.seg-text {
+		font-size: 14px;
+	}
+	.langs {
+		flex-direction: row;
+		height: 40px;
+	}
+	.langs-row {
+		flex-direction: row;
+		align-items: center;
+		padding: 0 16px;
+	}
+	.langs-label {
+		font-size: 12px;
+		margin-right: 8px;
+	}
+	.lang {
+		height: 30px;
+		padding: 0 12px;
+		border-radius: 15px;
+		align-items: center;
+		justify-content: center;
+		margin-right: 8px;
+	}
+	.lang-text {
+		font-size: 13px;
+	}
+	.list {
+		flex: 1;
+		padding: 0 16px;
+	}
+	.list-end {
+		height: 12px;
+	}
+	.empty {
+		align-items: center;
+		padding-top: 48px;
+	}
+	.empty-logo {
+		width: 64px;
+		height: 64px;
+		margin-bottom: 14px;
+	}
+	.empty-title {
+		font-size: 22px;
+		font-weight: bold;
+		margin-bottom: 8px;
+	}
+	.empty-sub {
+		font-size: 14px;
+		line-height: 21px;
+		text-align: center;
+		margin-bottom: 20px;
+		padding: 0 12px;
+	}
+	.suggest {
+		align-self: stretch;
+		border-radius: 14px;
+		padding: 12px 14px;
+		margin-bottom: 8px;
+	}
+	.suggest-text {
+		font-size: 14px;
+	}
+	.msg {
+		margin-top: 14px;
+	}
+	.row-user {
+		flex-direction: column;
+		align-items: flex-end;
+	}
+	.bubble {
+		max-width: 82%;
+		border-radius: 18px;
+		padding: 9px 14px;
+	}
+	.bubble-text {
+		font-size: 15px;
+		line-height: 23px;
+	}
+	.row-ai {
+		flex-direction: column;
+	}
+	.thinking {
+		flex-direction: row;
+		align-items: center;
+		height: 28px;
+	}
+	.pulse {
+		width: 8px;
+		height: 8px;
+		border-radius: 4px;
+		margin-right: 8px;
+	}
+	.thinking-text {
+		font-size: 14px;
+	}
+	.actions {
+		flex-direction: row;
+	}
+	.action {
+		font-size: 12px;
+		padding: 4px 8px 4px 0;
+	}
+	.err {
+		font-size: 14px;
+		line-height: 21px;
+	}
+	.task {
+		border-radius: 16px;
+		border-width: 1px;
+		border-style: solid;
+		padding: 12px 14px;
+	}
+	.task-head {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 6px;
+	}
+	.task-title {
+		font-size: 13px;
+	}
+	.chip {
+		font-size: 12px;
+		padding: 2px 8px;
+		border-radius: 10px;
+	}
+	.fold {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		padding: 6px 0 2px 0;
+	}
+	.fold-text {
+		flex: 1;
+		font-size: 13px;
+	}
+	.fold-chev {
+		font-size: 13px;
+		margin-left: 12px;
+	}
+	.step {
+		flex-direction: row;
+		align-items: flex-start;
+		margin-top: 4px;
+	}
+	.step-dot {
+		width: 5px;
+		height: 5px;
+		border-radius: 3px;
+		margin-top: 8px;
+		margin-right: 8px;
+	}
+	.step-text {
+		flex: 1;
+		font-size: 13px;
+		line-height: 20px;
+	}
+	.task-wait {
+		font-size: 13px;
+		line-height: 20px;
+		margin-top: 6px;
+	}
+	.task-answer {
+		margin-top: 10px;
+		padding-top: 10px;
+		border-top-width: 1px;
+		border-top-style: solid;
+	}
+	.composer {
+		padding: 6px 12px 0 12px;
+	}
+	.box {
+		flex-direction: row;
+		align-items: flex-end;
+		border-width: 1px;
+		border-style: solid;
+		border-radius: 24px;
+		padding: 6px 6px 6px 16px;
+	}
+	.input {
+		flex: 1;
+		font-size: 15px;
+		line-height: 22px;
+		min-height: 36px;
+		max-height: 140px;
+		padding: 7px 0;
+	}
+	.queued {
+		flex-direction: row;
+		align-items: center;
+		border-width: 1px;
+		border-style: dashed;
+		border-radius: 12px;
+		padding: 6px 10px;
+		margin-bottom: 6px;
+	}
+	.queued-tag {
+		font-size: 12px;
+		margin-right: 8px;
+	}
+	.queued-text {
+		flex: 1;
+		font-size: 14px;
+	}
+	.queued-btn {
+		font-size: 13px;
+		padding: 2px 0 2px 12px;
+	}
+	.busy-hint {
+		font-size: 12px;
+		margin: 0 8px 6px 8px;
+	}
+	.user-tag {
+		font-size: 11px;
+		margin-bottom: 3px;
+		margin-right: 4px;
+	}
+	.send {
+		width: 36px;
+		height: 36px;
+		border-radius: 18px;
+		align-items: center;
+		justify-content: center;
+		margin-left: 8px;
+	}
+	.send-arrow {
+		font-size: 18px;
+		font-weight: bold;
+	}
+	.stop-square {
+		width: 12px;
+		height: 12px;
+		border-radius: 2px;
+	}
+	.mask {
+		position: absolute;
+		left: 0;
+		top: 0;
+		right: 0;
+		bottom: 0;
+	}
+	.drawer {
+		position: absolute;
+		left: 0;
+		top: 0;
+		bottom: 0;
+		transition-property: transform;
+		transition-timing-function: ease-out;
+	}
+	.drawer-head {
+		flex-direction: row;
+		align-items: center;
+		padding: 14px 16px 10px 16px;
+	}
+	.drawer-logo {
+		width: 28px;
+		height: 28px;
+		margin-right: 8px;
+	}
+	.drawer-brand {
+		font-size: 17px;
+		font-weight: bold;
+	}
+	.new-btn {
+		margin: 4px 12px 8px 12px;
+		height: 42px;
+		border-radius: 12px;
+		align-items: center;
+		justify-content: center;
+	}
+	.new-text {
+		font-size: 15px;
+		font-weight: bold;
+	}
+	.conv-list {
+		flex: 1;
+		padding: 0 8px;
+	}
+	.group {
+		margin-bottom: 8px;
+	}
+	.group-label {
+		font-size: 12px;
+		padding: 8px 8px 4px 8px;
+	}
+	.conv {
+		flex-direction: row;
+		align-items: center;
+		height: 44px;
+		padding: 0 8px;
+		border-radius: 10px;
+	}
+	.conv-mode {
+		font-size: 11px;
+		width: 22px;
+		height: 22px;
+		line-height: 22px;
+		text-align: center;
+		border-radius: 6px;
+		margin-right: 10px;
+	}
+	.conv-title {
+		flex: 1;
+		font-size: 14px;
+	}
+	.conv-empty {
+		font-size: 13px;
+		padding: 16px 8px;
+	}
+	.me {
+		flex-direction: row;
+		align-items: center;
+		padding: 12px 16px;
+		border-top-width: 1px;
+		border-top-style: solid;
+	}
+	.me-avatar {
+		width: 36px;
+		height: 36px;
+		border-radius: 18px;
+		align-items: center;
+		justify-content: center;
+		margin-right: 10px;
+	}
+	.me-initial {
+		color: #ffffff;
+		font-size: 15px;
+		font-weight: bold;
+	}
+	.me-text {
+		flex: 1;
+	}
+	.me-name {
+		font-size: 14px;
+		font-weight: bold;
+	}
+	.me-pc {
+		font-size: 12px;
+		margin-top: 2px;
+	}
+	.me-gear {
+		font-size: 13px;
+		padding-left: 8px;
+	}
+	.sheet-mask {
+		position: absolute;
+		left: 0;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		justify-content: flex-end;
+	}
+	.sheet {
+		border-top-left-radius: 22px;
+		border-top-right-radius: 22px;
+		padding: 20px 20px 0 20px;
+	}
+	.sheet-kicker {
+		font-size: 13px;
+		font-weight: bold;
+		margin-bottom: 4px;
+	}
+	.sheet-title {
+		font-size: 18px;
+		font-weight: bold;
+		margin-bottom: 12px;
+	}
+	.sheet-box {
+		border-radius: 12px;
+		padding: 12px;
+		margin-bottom: 10px;
+	}
+	.sheet-summary {
+		font-size: 15px;
+		line-height: 22px;
+		font-weight: bold;
+	}
+	.sheet-detail {
+		font-size: 13px;
+		line-height: 20px;
+		margin-top: 6px;
+	}
+	.sheet-note {
+		font-size: 12px;
+		line-height: 18px;
+		margin-bottom: 16px;
+	}
+	.sheet-actions {
+		flex-direction: row;
+	}
+	.sheet-btn {
+		flex: 1;
+		height: 46px;
+		border-radius: 23px;
+		align-items: center;
+		justify-content: center;
+		margin: 0 6px;
+	}
+	.sheet-btn-text {
+		font-size: 16px;
+		font-weight: bold;
+	}
+</style>

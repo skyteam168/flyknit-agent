@@ -71,6 +71,11 @@ public interface IAgentObserver : IStreamSink
     {
     }
 
+    /// <summary>运行中用户补充的话（插话）已经交给模型：界面把它放进对话里。</summary>
+    void OnInterjection(ChatMessage message)
+    {
+    }
+
     /// <summary>任务产出了文件（新增或改动）。界面据此给出打开 / 预览的卡片。</summary>
     void OnOutputsProduced(IReadOnlyList<OutputFile> files)
     {

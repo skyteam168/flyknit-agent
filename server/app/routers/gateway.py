@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/v1", tags=["gateway"])
 
 
 #: 员工端标明的发起方。不认识的值忽略，免得随便一个字符串就在统计里多出一个场景
-USAGE_SOURCES = {"schedule", "channel", "instruction"}
+USAGE_SOURCES = {"schedule", "channel", "instruction", "mobile"}
 
 
 def _error(status: int, message: str, kind: str = "flyknit_error") -> JSONResponse:

@@ -28,12 +28,21 @@ public partial class FloatingBall : Window
         ToolTip = NativeStrings.T("ball.tip");
         Loaded += (_, _) => RestorePosition();
 
+        // 进度环（有计划时按完成比例画一段弧）和暂停标记：都画在光环那一层上
+        Root.Children.Insert(1, _arc);
+        Root.Children.Add(_pauseMark);
+
         MouseEnter += (_, _) =>
         {
             AnimateScale(1.08);
             RememberForeground();
+            HoverChanged?.Invoke(true);
         };
-        MouseLeave += (_, _) => AnimateScale(1.0);
+        MouseLeave += (_, _) =>
+        {
+            AnimateScale(1.0);
+            HoverChanged?.Invoke(false);
+        };
         MouseLeftButtonDown += OnDown;
         MouseMove += OnMove;
         MouseLeftButtonUp += OnUp;
@@ -51,6 +60,100 @@ public partial class FloatingBall : Window
                 FilesDropped?.Invoke(files);
             }
         };
+    }
+
+    /// <summary>鼠标移到悬浮球上 / 移开（有任务在跑时用来弹出任务面板）。</summary>
+    public event Action<bool>? HoverChanged;
+
+    private readonly System.Windows.Shapes.Path _arc = new()
+    {
+        Stroke = new SolidColorBrush(Color.FromRgb(0x0E, 0x9A, 0x8E)),
+        StrokeThickness = 3,
+        StrokeStartLineCap = PenLineCap.Round,
+        StrokeEndLineCap = PenLineCap.Round,
+        IsHitTestVisible = false,
+        Visibility = Visibility.Collapsed,
+    };
+
+    private readonly System.Windows.Controls.Border _pauseMark = new()
+    {
+        Width = 18,
+        Height = 18,
+        CornerRadius = new CornerRadius(9),
+        Background = new SolidColorBrush(Color.FromRgb(0x6B, 0x74, 0x80)),
+        BorderBrush = Brushes.White,
+        BorderThickness = new Thickness(2),
+        HorizontalAlignment = HorizontalAlignment.Right,
+        VerticalAlignment = VerticalAlignment.Bottom,
+        Margin = new Thickness(0, 0, 4, 4),
+        IsHitTestVisible = false,
+        Visibility = Visibility.Collapsed,
+        Child = new System.Windows.Controls.TextBlock
+        {
+            Text = "❚❚",
+            FontSize = 6.5,
+            Foreground = Brushes.White,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        },
+    };
+
+    /// <summary>
+    /// 任务进度：只有一个任务且有计划时画出完成比例的弧；全部暂停时停下旋转、显示暂停标记；
+    /// 提示文字是「标题 · 2/5 · 正在做的事」。
+    /// </summary>
+    public void SetProgress(System.Collections.Generic.IReadOnlyList<RunSnapshot> runs, bool waiting)
+    {
+        var allPaused = runs.Count > 0 && runs.All(r => r.Paused);
+        _pauseMark.Visibility = allPaused ? Visibility.Visible : Visibility.Collapsed;
+        if (allPaused)
+        {
+            HaloRotate.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty, null);
+            Halo.Stroke = new SolidColorBrush(Color.FromRgb(0x9A, 0xA1, 0xAC));
+        }
+        var single = runs.Count == 1 ? runs[0] : null;
+        if (single is { Total: > 0 })
+        {
+            _arc.Data = Arc(32, 32, 29, Math.Clamp((double)single.Done / single.Total, 0, 1));
+            _arc.Visibility = single.Done > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        else
+        {
+            _arc.Visibility = Visibility.Collapsed;
+        }
+        if (waiting)
+        {
+            return; // 「有操作等你确认」更要紧，提示文字留给它
+        }
+        ToolTip = runs.Count switch
+        {
+            0 => NativeStrings.T("ball.tip"),
+            1 => string.Join(" · ", new[]
+                {
+                    runs[0].Paused ? NativeStrings.T("ball.panel.paused") : "",
+                    runs[0].Title,
+                    runs[0].Total > 0 ? $"{runs[0].Done}/{runs[0].Total}" : "",
+                    runs[0].Step,
+                }.Where(x => x.Length > 0)),
+            _ => NativeStrings.T("ball.progress.many").Replace("{n}", runs.Count.ToString()),
+        };
+    }
+
+    /// <summary>从 12 点方向顺时针画占 fraction 的一段圆弧。</summary>
+    private static Geometry Arc(double cx, double cy, double r, double fraction)
+    {
+        if (fraction >= 0.999)
+        {
+            return new EllipseGeometry(new Point(cx, cy), r, r);
+        }
+        var angle = fraction * 2 * Math.PI;
+        var start = new Point(cx, cy - r);
+        var end = new Point(cx + r * Math.Sin(angle), cy - r * Math.Cos(angle));
+        var figure = new PathFigure { StartPoint = start, IsClosed = false };
+        figure.Segments.Add(new ArcSegment(end, new Size(r, r), 0, fraction > 0.5, SweepDirection.Clockwise, true));
+        var geometry = new PathGeometry();
+        geometry.Figures.Add(figure);
+        return geometry;
     }
 
     /// <summary>busy：有任务在运行；waiting：有操作等待确认。</summary>

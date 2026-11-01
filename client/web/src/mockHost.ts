@@ -59,6 +59,44 @@ export function createMockHost(): HostTransport {
   const confirmWaiters = new Map<string, (choice: string) => void>()
   const mockCompacted = new Set<string>()
   const stopped = new Set<string>()
+  /** 开发预览的插话：正在回答的对话、各对话待发的话 */
+  const runningConvs = new Set<string>()
+  const dismissedRuns = new Set<string>()
+  const revertedMock = new Set<string>()
+  const MOCK_XLSX = 'D:\\日报\\2026-09\\汇总.xlsx'
+  const MOCK_MD = 'D:\\日报\\说明.md'
+  const MOCK_NEW = 'D:\\日报\\10月计划.md'
+  const MOCK_OLD = 'D:\\日报\\旧模板.xlsx'
+  const changePreviews: Record<string, unknown> = {
+    'mock:before.xlsx': { kind: 'table', sections: [{ title: '汇总', rows: [['车间', '产量', '良率'], ['A 车间', '1200', '96%'], ['B 车间', '980', '94%'], ['C 车间', '1100', '95%']] }] },
+    [MOCK_XLSX]: { kind: 'table', sections: [{ title: '汇总', rows: [['车间', '产量', '良率'], ['A 车间', '1250', '96%'], ['B 车间', '980', '94%'], ['D 车间', '640', '92%'], ['C 车间', '1100', '97%']] }] },
+    'mock:before.md': { kind: 'markdown', text: '# 日报整理说明\n\n每天的日报放在 D:\\日报 下。\n\n文件名格式：日报-YYYYMMDD.xlsx\n\n有问题找张三。' },
+    [MOCK_MD]: { kind: 'markdown', text: '# 日报整理说明\n\n每天的日报按月份放在 D:\\日报\\YYYY-MM 下。\n\n文件名格式：日报-YYYYMMDD.xlsx\n\n汇总表见 2026-09\\汇总.xlsx。\n\n有问题找张三。' },
+    [MOCK_NEW]: { kind: 'markdown', text: '# 10 月计划\n\n- 继续按月整理\n- 每周一出汇总' },
+  }
+  const inbox = new Map<string, { id: string; text: string; mode: 'steer' | 'queue'; at: string }[]>()
+  const emitInbox = (conversationId: string) =>
+    emit({ type: 'chat.pending', conversationId, items: [...(inbox.get(conversationId) ?? [])] })
+
+  /** 回答一轮；结束后有排队、插话没读到的，合成一句接着发（和宿主的 RunInbox.TakeNext 一样） */
+  async function runTurn(c: Conversation, text: string, attachments: AttachmentRef[], messageId?: string) {
+    runningConvs.add(c.id)
+    try {
+      await reply(c, text, attachments, messageId)
+    } finally {
+      runningConvs.delete(c.id)
+    }
+    const list = inbox.get(c.id) ?? []
+    if (list.length === 0) return
+    const steer = list.filter((x) => x.mode === 'steer')
+    const next = steer.length > 0 ? steer : [list.find((x) => x.mode === 'queue')!]
+    inbox.set(c.id, list.filter((x) => !next.includes(x)))
+    emitInbox(c.id)
+    const merged = next.map((x) => x.text).join('\n\n')
+    const user: UiMessage = { id: next[0].id, role: 'user', content: merged, attachments: [], createdAt: now() }
+    emit({ type: 'chat.message', conversationId: c.id, message: user })
+    void runTurn(c, merged, [], next[0].id)
+  }
   // 专家：管理员发布的。?experts=none 看没有专家时的样子
   const minutesAgo = (min: number) => new Date(Date.now() - min * 60000).toISOString()
   const mockExperts = (
@@ -267,6 +305,7 @@ export function createMockHost(): HostTransport {
   ]
 
   const mockChannelBindings: { id: number; channel: string; name: string; createdAt: string; lastUsed: string | null }[] = []
+  const mockPhones: { id: number; name: string; appVersion: string; createdAt: string; lastSeen: string | null; connected: boolean }[] = []
   const mockPreviews: Record<string, unknown> = {
     'D:\\工作区\\日报\\FlyknitBuddy_产品介绍页.html': {
       kind: 'html',
@@ -1077,7 +1116,7 @@ export function createMockHost(): HostTransport {
       case 'files.preview': {
         await sleep(250)
         const base = { path: p.path, name: String(p.path).split('\\').pop(), sections: [], text: null, language: null, dataUrl: null, notice: null, error: null }
-        return { ...base, ...(mockPreviews[p.path] ?? { kind: 'none', error: '这种格式不能在这里预览' }) }
+        return { ...base, ...((changePreviews[p.path] as object | undefined) ?? mockPreviews[p.path] ?? { kind: 'none', error: '这种格式不能在这里预览' }) }
       }
       case 'files.launch':
       case 'files.reveal':
@@ -1620,8 +1659,131 @@ export function createMockHost(): HostTransport {
         if (/产出|交付|文件|ppt|报表/i.test(p.text ?? '')) {
           setTimeout(() => emit({ type: 'files.produced', conversationId: p.conversationId, files: mockOutputs }), 2600)
         }
-        void reply(conversations.get(p.conversationId)!, p.text, p.attachments, p.messageId)
+        if (runningConvs.has(p.conversationId) && !(p.attachments?.length > 0)) {
+          inbox.set(p.conversationId, [...(inbox.get(p.conversationId) ?? []), { id: p.messageId ?? uid(), text: p.text, mode: 'steer', at: now() }])
+          emitInbox(p.conversationId)
+          return { pending: true }
+        }
+        void runTurn(conversations.get(p.conversationId)!, p.text, p.attachments, p.messageId)
         return
+      case 'chat.interject': {
+        if (!runningConvs.has(p.conversationId)) return false
+        const list = inbox.get(p.conversationId) ?? []
+        const item = { id: p.messageId ?? uid(), text: p.text, mode: (p.mode === 'steer' ? 'steer' : 'queue') as 'steer' | 'queue', at: now() }
+        if (p.mode === 'interrupt') {
+          list.unshift(item)
+          stopped.add(p.conversationId)
+        } else list.push(item)
+        inbox.set(p.conversationId, list)
+        emitInbox(p.conversationId)
+        return true
+      }
+      case 'sidechat.ask': {
+        const requestId = p.requestId as string
+        const answer = `按记录来看：${p.question.includes('哪') ? '数据是从 **D:\\日报** 里的 34 个 xlsx 读出来的，按文件名里的日期分到了 8 月和 9 月两个文件夹。' : '这一步是按计划里的第 2 步做的，没有跳过。'}\n\n（这段问答不会写进任务对话）`
+        void (async () => {
+          await sleep(300)
+          for (const piece of answer.match(/.{1,6}/gsu) ?? []) {
+            emit({ type: 'sidechat.delta', requestId, text: piece })
+            await sleep(25)
+          }
+          emit({ type: 'sidechat.done', requestId })
+        })()
+        return
+      }
+      case 'sidechat.stop':
+        return
+      case 'changes.list': {
+        // 开发预览：每个对话最后一轮都假装改了几个文件
+        const list = messages.get(p.conversationId) ?? []
+        const lastUser = [...list].reverse().find((m) => m.role === 'user')
+        if (!lastUser) return []
+        return [{
+          turnId: lastUser.id,
+          at: now(),
+          files: [
+            { path: MOCK_XLSX, name: '汇总.xlsx', kind: 'modified', source: 'write_file', times: 2, backup: 'mock:before.xlsx', restorable: true, exists: true, reverted: revertedMock.has(MOCK_XLSX) },
+            { path: MOCK_MD, name: '说明.md', kind: 'modified', source: 'write_file', times: 1, backup: 'mock:before.md', restorable: true, exists: true, reverted: revertedMock.has(MOCK_MD) },
+            { path: MOCK_NEW, name: '10月计划.md', kind: 'created', source: 'write_file', times: 1, backup: null, restorable: true, exists: true, reverted: revertedMock.has(MOCK_NEW) },
+            { path: MOCK_OLD, name: '旧模板.xlsx', kind: 'modified', source: 'run_shell', times: 1, backup: null, restorable: false, exists: true, reverted: false },
+          ],
+        }]
+      }
+      case 'changes.revert': {
+        const targets: string[] = p.paths?.length ? p.paths : [MOCK_XLSX, MOCK_MD, MOCK_NEW, MOCK_OLD]
+        const reverted = targets.filter((x) => x !== MOCK_OLD)
+        reverted.forEach((x) => revertedMock.add(x))
+        return { reverted, skipped: targets.includes(MOCK_OLD) ? [{ path: MOCK_OLD, reason: '这个文件是命令改的，改之前没有备份，无法自动还原' }] : [] }
+      }
+      case 'conversation.setLongMode': {
+        const c = conversations.get(p.id)
+        if (c) c.longMode = !!p.on
+        return true
+      }
+      case 'runs.list': {
+        const list = [...conversations.values()].filter((c) => !c.deletedAt)
+        const pick = (title: string) => list.find((c) => c.title === title)
+        const interrupted = pick('本周 3 号线停机排行')
+        const done = list.slice(0, 4)
+        return {
+          running: [...runningConvs].map((id) => ({
+            conversationId: id,
+            title: conversations.get(id)?.title || '新任务',
+            step: '按月份新建文件夹',
+            done: 1,
+            total: 3,
+            paused: false,
+            startedAt: new Date(Date.now() - 95000).toISOString(),
+            remote: false,
+          })),
+          interrupted: interrupted && !dismissedRuns.has(interrupted.id)
+            ? [{ conversationId: interrupted.id, title: interrupted.title, startedAt: new Date(Date.now() - 3 * 3600000).toISOString(), origin: 'ui' }]
+            : [],
+          recent: done.map((c, i) => ({
+            conversationId: c.id,
+            title: c.title,
+            stopReason: ['Completed', 'Completed', 'Cancelled', 'MaxSteps'][i] ?? 'Completed',
+            steps: [7, 12, 3, 100][i] ?? 5,
+            toolCalls: [5, 9, 2, 80][i] ?? 4,
+            finishedAt: c.updatedAt,
+          })),
+        }
+      }
+      case 'runs.dismiss':
+        dismissedRuns.add(p.conversationId)
+        return
+      case 'runs.resume': {
+        dismissedRuns.add(p.conversationId)
+        const c = conversations.get(p.conversationId)!
+        const text = '继续上次没做完的任务（程序上次在执行中被关闭了）。'
+        const message: UiMessage = { id: uid(), role: 'user', content: text, attachments: [], createdAt: now() }
+        emit({ type: 'chat.message', conversationId: c.id, message })
+        void runTurn(c, text, [], message.id)
+        return
+      }
+      case 'chat.pause':
+      case 'chat.resume': {
+        if (!runningConvs.has(p.conversationId)) return false
+        emit({ type: 'chat.paused', conversationId: p.conversationId, paused: method === 'chat.pause' })
+        return true
+      }
+      case 'chat.pending':
+        return inbox.get(p.conversationId) ?? []
+      case 'chat.pending.update': {
+        const item = (inbox.get(p.conversationId) ?? []).find((x) => x.id === p.id)
+        if (!item) return false
+        item.text = p.text
+        if (p.mode) item.mode = p.mode
+        emitInbox(p.conversationId)
+        return true
+      }
+      case 'chat.pending.remove': {
+        const list = inbox.get(p.conversationId) ?? []
+        if (!list.some((x) => x.id === p.id)) return false
+        inbox.set(p.conversationId, list.filter((x) => x.id !== p.id))
+        emitInbox(p.conversationId)
+        return true
+      }
       case 'chat.stop':
         stopped.add(p.conversationId)
         return
@@ -1695,6 +1857,19 @@ export function createMockHost(): HostTransport {
       case 'channels.unbind': {
         const i = mockChannelBindings.findIndex((b) => b.id === p.id)
         if (i >= 0) mockChannelBindings.splice(i, 1)
+        return null
+      }
+      // 手机：生成二维码 5 秒后假装手机扫好了
+      case 'mobile.get':
+        return { enabled: true, online: true, phones: mockPhones.map((x) => ({ ...x })), app: { versionName: '0.1.1', url: 'http://10.0.0.5:8000/api/v1/mobile/app/Xk2pQ9demo/FlyknitBuddy-0.1.1.apk' } }
+      case 'mobile.pairCode':
+        setTimeout(() => {
+          if (!mockPhones.length) mockPhones.push({ id: 1, name: 'PDA-03', appVersion: '0.1.0', createdAt: new Date().toISOString(), lastSeen: new Date().toISOString(), connected: true })
+        }, 5000)
+        return { code: 'K7P3M9QX', expiresAt: new Date(Date.now() + 300_000).toISOString(), payload: 'flyknit://pair?c=K7P3M9QX&s=http://10.0.0.5:8000', server: 'http://10.0.0.5:8000' }
+      case 'mobile.unpair': {
+        const i = mockPhones.findIndex((b) => b.id === p.id)
+        if (i >= 0) mockPhones.splice(i, 1)
         return null
       }
       case 'files.saveBlob': {

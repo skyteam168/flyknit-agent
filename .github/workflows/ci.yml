@@ -59,6 +59,10 @@ jobs:
       - name: Build Windows client
         run: dotnet publish client/src/Flyknit.Client -c Release -r win-x64 --self-contained false -o artifacts/FlyknitBuddy
       - uses: actions/upload-artifact@v4
+        # 存储配额满时上传会失败：编译和测试已经过了，不让这一步把整个检查标红
+        continue-on-error: true
         with:
           name: FlyknitBuddy-win-x64
           path: artifacts/FlyknitBuddy
+          # 每次推送都会生成一份一百多 MB 的包，只留 7 天，免得把配额堆满
+          retention-days: 7

@@ -9,6 +9,8 @@
  */
 import type {
   ChannelsInfo,
+  MobileInfo,
+  MobilePairCode,
   NetworkReport,
   UpdateCheckResult,
   AppInfo,
@@ -58,6 +60,11 @@ import type {
   PersonaInfo,
   PersonaUpdate,
   SubtaskDto,
+  InterjectMode,
+  PendingInput,
+  RunsList,
+  ChangeTurn,
+  RevertOutcome,
 } from './types'
 import { createMockHost } from './mockHost'
 import { i18n } from './i18n'
@@ -301,13 +308,41 @@ class Bridge {
 
   // ---------- 对话 ----------
   send = (conversationId: string, text: string, attachments: AttachmentRef[], messageId: string) =>
-    this.call<void>('chat.send', { conversationId, text, attachments, messageId })
+    this.call<{ pending?: boolean } | null>('chat.send', { conversationId, text, attachments, messageId })
   regenerate = (conversationId: string) => this.call<void>('chat.regenerate', { conversationId })
   editMessage = (conversationId: string, messageId: string, text: string, newMessageId: string) =>
     this.call<void>('chat.edit', { conversationId, messageId, text, newMessageId })
   feedback = (conversationId: string, id: string, value: number | null) =>
     this.call<void>('message.feedback', { conversationId, id, value })
   stop = (conversationId: string) => this.call<void>('chat.stop', { conversationId })
+  /** 运行中又发一句。返回 false：已经不在运行了，照常发送 */
+  interject = (conversationId: string, text: string, mode: InterjectMode, messageId: string) =>
+    this.call<boolean>('chat.interject', { conversationId, text, mode, messageId })
+  /** 侧聊：顺便问一句，读任务对话、不写回。答案通过 sidechat.delta / done / error 事件推回来 */
+  askSide = (conversationId: string, requestId: string, question: string, history: { role: string; content: string }[]) =>
+    this.call<void>('sidechat.ask', { conversationId, requestId, question, history })
+  stopSide = (requestId: string) => this.call<void>('sidechat.stop', { requestId })
+  /** 这个对话里每一轮任务改动的文件 */
+  listChanges = (conversationId: string) => this.call<ChangeTurn[]>('changes.list', { conversationId })
+  /** 把某一轮的改动退回到那一轮之前；paths 为空表示全部 */
+  revertChanges = (conversationId: string, turnId: string, paths?: string[]) =>
+    this.call<RevertOutcome>('changes.revert', { conversationId, turnId, paths }, undefined, 60_000)
+  /** 长任务模式开关。IT 关掉了这个功能时打不开（返回 false） */
+  setLongMode = (id: string, on: boolean) => this.call<boolean>('conversation.setLongMode', { id, on })
+  /** 任务中心：正在跑的、上次没跑完的、最近跑完的 */
+  listRuns = () => this.call<RunsList>('runs.list')
+  /** 接着做上次没做完的任务 */
+  resumeRun = (conversationId: string) => this.call<void>('runs.resume', { conversationId })
+  /** 上次没做完的任务：不用了，不再提示 */
+  dismissRun = (conversationId: string) => this.call<void>('runs.dismiss', { conversationId })
+  /** 暂停：正在做的这一步做完后停住；继续后接着往下走 */
+  pause = (conversationId: string) => this.call<boolean>('chat.pause', { conversationId })
+  resume = (conversationId: string) => this.call<boolean>('chat.resume', { conversationId })
+  pendingInputs = (conversationId: string) => this.call<PendingInput[]>('chat.pending', { conversationId })
+  /** AI 读到之前改一句；已经被读走返回 false */
+  updatePending = (conversationId: string, id: string, text: string, mode?: 'steer' | 'queue') =>
+    this.call<boolean>('chat.pending.update', { conversationId, id, text, mode })
+  removePending = (conversationId: string, id: string) => this.call<boolean>('chat.pending.remove', { conversationId, id })
   confirm = (requestId: string, choice: ConfirmChoice) => this.call<void>('tool.confirm', { requestId, choice })
   /** 会话信息面板：最近一次回答时的上下文用量（没回答过返回 null） */
   contextUsage = (conversationId: string) => this.call<ContextUsage | null>('context.usage', { conversationId })
@@ -350,6 +385,9 @@ class Bridge {
   channels = () => this.call<ChannelsInfo>('channels.get')
   channelBindCode = () => this.call<{ code: string; expiresAt: string }>('channels.bindCode')
   channelUnbind = (id: number) => this.call<void>('channels.unbind', { id })
+  mobile = () => this.call<MobileInfo>('mobile.get')
+  mobilePairCode = () => this.call<MobilePairCode>('mobile.pairCode')
+  mobileUnpair = (id: number) => this.call<void>('mobile.unpair', { id })
   libraryReveal = (id: string) => this.call<{ ok: boolean; message: string }>('library.reveal', { id })
   libraryPreview = (id: string) => this.call<PreviewDoc>('library.preview', { id }, undefined, 40_000)
   libraryAttachments = (ids: string[]) => this.call<AttachmentRef[]>('library.attachments', { ids })

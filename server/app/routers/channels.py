@@ -18,6 +18,7 @@ from .. import crypto
 from ..db import get_session
 from ..deps import require_admin, require_device, require_owner
 from ..models import AdminUser, ChannelBinding, ChannelMessage, Device
+from ..services import mobile_hub
 from ..services.channel_hub import (
     get_config,
     get_wecom_config,
@@ -50,6 +51,8 @@ class ClientChannelsOut(BaseModel):
     dingtalk: bool
     #: 后台开了企业微信通道
     wecom: bool = False
+    #: 后台开了手机端（手机绑定也在 bindings 里，channel = mobile）
+    mobile: bool = False
     bindings: list[BindingOut]
 
 
@@ -91,7 +94,8 @@ async def my_channels(device: Device = Depends(require_device), session: AsyncSe
     cfg = await get_config(session)
     wc = await get_wecom_config(session)
     rows = (await session.scalars(select(ChannelBinding).where(ChannelBinding.device_id == device.id))).all()
-    return ClientChannelsOut(dingtalk=ready(cfg), wecom=wecom_ready(wc), bindings=[_binding_out(b) for b in rows])
+    mobile = bool((await mobile_hub.get_config(session))["enabled"])
+    return ClientChannelsOut(dingtalk=ready(cfg), wecom=wecom_ready(wc), mobile=mobile, bindings=[_binding_out(b) for b in rows])
 
 
 @client_router.post("/bind-code", response_model=BindCodeOut)
@@ -127,6 +131,8 @@ async def poll_messages(
         rows = await hub.take_pending(session, device.id)
     out = []
     for r in rows:
+        if r.channel == mobile_hub.CHANNEL:
+            await mobile_hub.hub.task_changed(r)  # 手机上显示「电脑已开始处理」
         binding = await session.get(ChannelBinding, r.binding_id) if r.binding_id else None
         out.append(ChannelTaskOut(id=r.id, channel=r.channel, text=r.text, sender=r.external_name,
                                   conversation_id=binding.conversation_id if binding else ""))
@@ -147,6 +153,80 @@ async def finish_message(
         return {"ok": False}  # 已经超时作废或者回过了
     await hub.finish(session, row, data.status == "succeeded", data.answer, data.error, data.conversation_id)
     return {"ok": True}
+
+
+class TaskEventIn(BaseModel):
+    #: step（正在做哪一步）/ tool（调用了什么工具）/ text（阶段性的文字）
+    kind: str = Field(default="step", max_length=20)
+    text: str = Field(default="", max_length=2000)
+
+
+async def _running(session: AsyncSession, message_id: int, device: Device) -> ChannelMessage:
+    row = await session.get(ChannelMessage, message_id)
+    if row is None or row.device_id != device.id:
+        raise HTTPException(404, "没有这条消息")
+    return row
+
+
+@client_router.post("/messages/{message_id}/events")
+async def task_event(message_id: int, data: TaskEventIn, device: Device = Depends(require_device),
+                     session: AsyncSession = Depends(get_session)):
+    """执行进度：手机 App 实时显示；钉钉、企业微信不显示过程，直接忽略。"""
+    row = await _running(session, message_id, device)
+    if row.status == "running" and row.channel == mobile_hub.CHANNEL:
+        await mobile_hub.hub.task_event(row, data.kind, data.text)
+    return {"ok": True}
+
+
+@client_router.get("/messages/{message_id}/inputs")
+async def task_inputs(message_id: int, wait: int = Query(default=25, ge=0, le=30), device: Device = Depends(require_device),
+                      session: AsyncSession = Depends(get_session)):
+    """
+    电脑执行手机发来的事时，顺便长轮询手机上补充的话（插话）和打断请求。
+    done=true 表示这件事已经结束，不用再来取了。
+    """
+    row = await _running(session, message_id, device)
+    if row.channel != mobile_hub.CHANNEL or row.status != "running":
+        return {"inputs": [], "stop": False, "done": True}
+    texts, stop = await mobile_hub.hub.take_inputs(row.id, float(wait))
+    for t in texts:
+        await mobile_hub.hub.task_event(row, "input", "已交给电脑：" + (t if len(t) <= 40 else t[:40] + "…"))
+    return {"inputs": texts, "stop": stop, "done": False}
+
+
+class ApprovalIn(BaseModel):
+    summary: str = Field(max_length=500)
+    detail: str = Field(default="", max_length=2000)
+    risk: str = Field(default="confirm", max_length=20)
+
+
+@client_router.post("/messages/{message_id}/approvals")
+async def request_approval(message_id: int, data: ApprovalIn, device: Device = Depends(require_device),
+                           session: AsyncSession = Depends(get_session)):
+    """
+    远程执行到了需要确认的操作。手机发起的、后台允许手机批准的，交给那部手机决定；
+    其余（钉钉、企业微信，或者后台没开）返回 enabled=false，员工端照旧拒绝并在结果里列出来。
+    """
+    row = await _running(session, message_id, device)
+    cfg = await mobile_hub.get_config(session)
+    if row.channel != mobile_hub.CHANNEL or row.status != "running" or not (cfg["enabled"] and cfg["allow_approval"]):
+        return {"enabled": False}
+    a = mobile_hub.hub.request_approval(row, data.summary, data.detail, data.risk, int(cfg["approval_timeout_min"]))
+    if a is None:
+        return {"enabled": False}
+    await mobile_hub.hub.send(a.mobile_id, {"type": "approval.request", "approval": a.out()})
+    return {"enabled": True, "id": a.id, "timeout_sec": int(cfg["approval_timeout_min"]) * 60}
+
+
+@client_router.get("/approvals/{approval_id}")
+async def approval_status(approval_id: str, wait: int = Query(default=0, ge=0, le=MAX_WAIT),
+                          device: Device = Depends(require_device)):
+    """等手机上的回答：最多挂 wait 秒。超时没答当拒绝（expired）。"""
+    a = mobile_hub.hub.get_approval(approval_id)
+    if a is None or a.device_id != device.id:
+        raise HTTPException(404, "没有这个审批")
+    st = await mobile_hub.hub.wait_approval(a, wait) if wait else a.status
+    return {"status": st}
 
 
 # =====================================================================

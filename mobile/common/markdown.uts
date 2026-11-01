@@ -1,0 +1,232 @@
+// 把 AI 的回答（markdown）切成段落块，页面用原生 <text> 渲染：标题、段落、列表、引用、代码、表格。
+// 电脑端那种图表、流程图、界面卡片代码块，手机上换成一张「请在电脑上查看」的卡片。
+// 只做手机上看得清楚需要的那部分语法，不追求和电脑端一模一样。
+
+export type MdSpan = {
+	text : string
+	bold : boolean
+	italic : boolean
+	code : boolean
+}
+
+export type MdBlock = {
+	/** heading / para / bullet / ordered / quote / code / table / rule / visual */
+	kind : string
+	level : number
+	/** 有序列表的序号、代码块的语言、visual 的类型 */
+	label : string
+	text : string
+	spans : Array<MdSpan>
+	rows : Array<Array<string>>
+}
+
+const VISUAL_LANGS = ['chart', 'flyknit-chart', 'mermaid', 'mmd', 'dot', 'graphviz', 'gv', 'ui', 'flyknit-ui']
+
+function block(kind : string) : MdBlock {
+	return {
+		kind: kind,
+		level: 0,
+		label: '',
+		text: '',
+		spans: [] as Array<MdSpan>,
+		rows: [] as Array<Array<string>>
+	} as MdBlock
+}
+
+function span(text : string, bold : boolean, italic : boolean, code : boolean) : MdSpan {
+	return { text: text, bold: bold, italic: italic, code: code } as MdSpan
+}
+
+function isWord(ch : string) : boolean {
+	return /[A-Za-z0-9]/.test(ch)
+}
+
+/** 行内：**粗体**、*斜体*、`代码`、[文字](链接)（只留文字） */
+export function parseInline(src : string) : Array<MdSpan> {
+	const out = [] as Array<MdSpan>
+	// 链接只保留文字
+	let s = src.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+	let buf = ''
+	let bold = false
+	let italic = false
+	let i = 0
+	const flush = () => {
+		if (buf != '') {
+			out.push(span(buf, bold, italic, false))
+			buf = ''
+		}
+	}
+	while (i < s.length) {
+		const ch = s.charAt(i)
+		if (ch == '`') {
+			const end = s.indexOf('`', i + 1)
+			if (end > i) {
+				flush()
+				out.push(span(s.substring(i + 1, end), false, false, true))
+				i = end + 1
+				continue
+			}
+		}
+		if (ch == '*' && i + 1 < s.length && s.charAt(i + 1) == '*') {
+			flush()
+			bold = !bold
+			i += 2
+			continue
+		}
+		if (ch == '*' || ch == '_') {
+			// 单个 * 或 _：紧贴着字母数字的不算（2*3、file_name），中文前后照样能用
+			const prev = i > 0 ? s.charAt(i - 1) : ' '
+			const next = i + 1 < s.length ? s.charAt(i + 1) : ' '
+			const opens = !italic && next != ' ' && !isWord(prev)
+			const closes = italic && prev != ' ' && !isWord(next)
+			if (opens || closes) {
+				flush()
+				italic = !italic
+				i += 1
+				continue
+			}
+		}
+		buf += ch
+		i += 1
+	}
+	flush()
+	return out
+}
+
+function isTableRow(line : string) : boolean {
+	const t = line.trim()
+	return t.startsWith('|') && t.endsWith('|') && t.length > 1
+}
+
+function cells(line : string) : Array<string> {
+	const t = line.trim()
+	return t.substring(1, t.length - 1).split('|').map((c : string) : string => c.trim())
+}
+
+function isDivider(line : string) : boolean {
+	return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line)
+}
+
+export function parseMarkdown(src : string) : Array<MdBlock> {
+	const lines = src.replace(/\r\n/g, '\n').split('\n')
+	const out = [] as Array<MdBlock>
+	let para = [] as Array<string>
+	const flushPara = () => {
+		if (para.length > 0) {
+			const b = block('para')
+			b.text = para.join('\n')
+			b.spans = parseInline(b.text)
+			out.push(b)
+			para = [] as Array<string>
+		}
+	}
+	let i = 0
+	while (i < lines.length) {
+		const line = lines[i]
+		const trimmed = line.trim()
+
+		// 代码块
+		if (trimmed.startsWith('```')) {
+			flushPara()
+			const lang = trimmed.substring(3).trim().split(' ')[0].toLowerCase()
+			const body = [] as Array<string>
+			i += 1
+			while (i < lines.length && !lines[i].trim().startsWith('```')) {
+				body.push(lines[i])
+				i += 1
+			}
+			i += 1 // 跳过结尾的 ```
+			if (VISUAL_LANGS.indexOf(lang) >= 0) {
+				const b = block('visual')
+				b.label = lang
+				out.push(b)
+			} else {
+				const b = block('code')
+				b.label = lang
+				b.text = body.join('\n')
+				out.push(b)
+			}
+			continue
+		}
+		if (trimmed == '') {
+			flushPara()
+			i += 1
+			continue
+		}
+		// 标题
+		const h = /^(#{1,6})\s+(.*)$/.exec(trimmed)
+		if (h != null) {
+			flushPara()
+			const b = block('heading')
+			b.level = (h[1] ?? '').length
+			b.text = h[2] ?? ''
+			b.spans = parseInline(b.text)
+			out.push(b)
+			i += 1
+			continue
+		}
+		// 分隔线
+		if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+			flushPara()
+			out.push(block('rule'))
+			i += 1
+			continue
+		}
+		// 表格：表头 + 分隔行 + 若干行
+		if (isTableRow(line) && i + 1 < lines.length && isDivider(lines[i + 1])) {
+			flushPara()
+			const b = block('table')
+			b.rows.push(cells(line))
+			i += 2
+			while (i < lines.length && isTableRow(lines[i])) {
+				b.rows.push(cells(lines[i]))
+				i += 1
+			}
+			out.push(b)
+			continue
+		}
+		// 列表
+		const ul = /^(\s*)[-*+]\s+(.*)$/.exec(line)
+		if (ul != null) {
+			flushPara()
+			const b = block('bullet')
+			b.level = Math.floor((ul[1] ?? '').length / 2)
+			b.text = (ul[2] ?? '').replace(/^\[( |x|X)\]\s*/, '')
+			b.label = /^\[(x|X)\]/.test(ul[2] ?? '') ? 'done' : (/^\[ \]/.test(ul[2] ?? '') ? 'todo' : '')
+			b.spans = parseInline(b.text)
+			out.push(b)
+			i += 1
+			continue
+		}
+		const ol = /^(\s*)(\d+)[.)]\s+(.*)$/.exec(line)
+		if (ol != null) {
+			flushPara()
+			const b = block('ordered')
+			b.level = Math.floor((ol[1] ?? '').length / 2)
+			b.label = ol[2] ?? ''
+			b.text = ol[3] ?? ''
+			b.spans = parseInline(b.text)
+			out.push(b)
+			i += 1
+			continue
+		}
+		// 引用
+		if (trimmed.startsWith('>')) {
+			flushPara()
+			const body = [] as Array<string>
+			while (i < lines.length && lines[i].trim().startsWith('>')) {
+				body.push(lines[i].trim().substring(1).trim())
+				i += 1
+			}
+			const b = block('quote')
+			b.text = body.join('\n')
+			b.spans = parseInline(b.text)
+			out.push(b)
+			continue
+		}
+		para.push(line)
+		i += 1
+	}
+	flushPara()
+	return out
+}

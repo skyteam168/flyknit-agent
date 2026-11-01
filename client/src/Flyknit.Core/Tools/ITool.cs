@@ -177,6 +177,23 @@ public sealed class ToolContext
     /// <summary>覆盖写之前留一份原文件。为空表示不备份（单测里就是这样）。</summary>
     public FileBackup? Backup { get; init; }
 
+    /// <summary>
+    /// 记下这一轮对文件做的改动（新建、修改、删除），任务结束后员工能看到改了哪些、一键还原。为空表示不记（单测、专家子任务）。
+    /// </summary>
+    public Action<FileChange>? RecordChange { get; init; }
+
+    /// <summary>记一条改动；记录失败不影响工具本身。</summary>
+    public void NoteChange(FileChange change)
+    {
+        try
+        {
+            RecordChange?.Invoke(change);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
     /// <summary>安全中心的设置。为空时按策略里的默认值走。</summary>
     public Flyknit.Core.Security.SecuritySettings? Security { get; init; }
 

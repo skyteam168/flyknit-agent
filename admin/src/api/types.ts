@@ -712,3 +712,45 @@ export interface ChannelMessageRow {
   created_at: string
   finished_at: string | null
 }
+
+/** 手机端（安卓 App）的开关和策略 */
+export interface MobileConfig {
+  enabled: boolean
+  /** 电脑上执行到需要确认的操作时，允许在手机上批准 */
+  allow_approval: boolean
+  /** 手机多久没回答就当拒绝 */
+  approval_timeout_min: number
+  phones: number
+  connected: number
+}
+
+/** 绑定到员工电脑的一部手机 */
+export interface MobilePhone {
+  id: number
+  name: string
+  platform: string
+  app_version: string
+  created_at: string
+  last_seen: string | null
+  connected: boolean
+  device_id: number
+  machine_name: string
+  user_name: string
+}
+
+/** 手机 App 的一个版本（APK） */
+export interface MobileRelease {
+  id: number
+  version_name: string
+  version_code: number
+  notes: string
+  filename: string
+  size: number
+  sha256: string
+  published: boolean
+  uploaded_by: string
+  created_at: string
+  /** 相对服务器地址的下载路径（不需要登录，靠链接里的随机串） */
+  download_path: string
+  file_missing: boolean
+}

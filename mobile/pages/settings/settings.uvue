@@ -1,0 +1,217 @@
+<template>
+	<view class="page" :style="{ backgroundColor: c.sunk, paddingTop: topInset }">
+		<view class="topbar">
+			<view class="back" @click="back">
+				<text class="back-text" :style="{ color: c.ink }">‹ 返回</text>
+			</view>
+			<text class="title" :style="{ color: c.ink }">设置</text>
+			<view class="back"></view>
+		</view>
+		<scroll-view direction="vertical" class="body">
+			<text class="section" :style="{ color: c.inkFaint }">绑定的电脑</text>
+			<view class="card" :style="{ backgroundColor: c.cloth }">
+				<view class="row">
+					<text class="key" :style="{ color: c.inkSoft }">电脑</text>
+					<text class="val" :style="{ color: c.ink }">{{ machineName }}</text>
+				</view>
+				<view class="row" :style="{ borderTopColor: c.line }">
+					<text class="key" :style="{ color: c.inkSoft }">员工</text>
+					<text class="val" :style="{ color: c.ink }">{{ userName }}</text>
+				</view>
+				<view class="row" :style="{ borderTopColor: c.line }">
+					<text class="key" :style="{ color: c.inkSoft }">状态</text>
+					<text class="val" :style="{ color: online ? c.thread : c.inkFaint }">{{ online ? '在线' : '离线' }}</text>
+				</view>
+				<view class="row" :style="{ borderTopColor: c.line }">
+					<text class="key" :style="{ color: c.inkSoft }">服务器</text>
+					<text class="val" :style="{ color: c.ink }" :lines="1">{{ server }}</text>
+				</view>
+				<view class="row" :style="{ borderTopColor: c.line }">
+					<text class="key" :style="{ color: c.inkSoft }">手机上确认操作</text>
+					<text class="val" :style="{ color: c.ink }">{{ approvals ? '管理员已允许' : '不允许（回到电脑上处理）' }}</text>
+				</view>
+			</view>
+
+			<text class="section" :style="{ color: c.inkFaint }">外观</text>
+			<view class="card" :style="{ backgroundColor: c.cloth }">
+				<view class="seg" :style="{ backgroundColor: c.chip }">
+					<view v-for="m in THEMES" :key="m.id" class="seg-item" :style="m.id == themeMode ? { backgroundColor: c.cloth } : {}" @click="pickTheme(m.id)">
+						<text class="seg-text" :style="{ color: m.id == themeMode ? c.ink : c.inkSoft }">{{ m.label }}</text>
+					</view>
+				</view>
+			</view>
+
+			<text class="section" :style="{ color: c.inkFaint }">通知</text>
+			<view class="card" :style="{ backgroundColor: c.cloth }">
+				<view class="row-btn" @click="testNotify">
+					<text class="key" :style="{ color: c.ink }">发一条测试通知</text>
+					<text class="val" :style="{ color: c.inkFaint }">没收到请在系统设置里允许通知</text>
+				</view>
+			</view>
+
+			<text class="section" :style="{ color: c.inkFaint }">版本</text>
+			<view class="card" :style="{ backgroundColor: c.cloth }">
+				<view class="row-btn" @click="manualUpdate">
+					<text class="key" :style="{ color: c.ink }">检查更新</text>
+					<text class="val" :style="{ color: c.inkFaint }">当前 {{ version }}</text>
+				</view>
+			</view>
+
+			<view class="card danger" :style="{ backgroundColor: c.cloth }" @click="unpair">
+				<text class="danger-text" :style="{ color: c.red }">解除绑定</text>
+			</view>
+			<text class="foot" :style="{ color: c.inkFaint }">FlyknitBuddy {{ version }}</text>
+		</scroll-view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { computed } from 'vue'
+	import { setThemeMode, theme } from '../../common/theme.uts'
+	import { clearAuth, state } from '../../common/store.uts'
+	import { request } from '../../common/api.uts'
+	import { disconnect, notifyLocal } from '../../common/socket.uts'
+	import { checkUpdate } from '../../common/update.uts'
+
+	type ThemeItem = { id : string, label : string }
+	const THEMES = [
+		{ id: 'system', label: '跟随系统' } as ThemeItem,
+		{ id: 'light', label: '浅色' } as ThemeItem,
+		{ id: 'dark', label: '深色' } as ThemeItem
+	]
+
+	const c = computed(() => theme.c)
+	const topInset = uni.getWindowInfo().statusBarHeight.toString() + 'px'
+	const machineName = computed(() : string => state.machineName)
+	const userName = computed(() : string => state.userName)
+	const online = computed(() : boolean => state.computerOnline)
+	const server = computed(() : string => state.server)
+	const approvals = computed(() : boolean => state.approvalsAllowed)
+	const themeMode = computed(() : string => theme.mode)
+	const version = uni.getAppBaseInfo().appVersion ?? ''
+
+	function back() {
+		uni.navigateBack({})
+	}
+
+	function pickTheme(id : string) {
+		setThemeMode(id)
+	}
+
+	function manualUpdate() {
+		void checkUpdate(true)
+	}
+
+	function testNotify() {
+		notifyLocal('FlyknitBuddy', '通知正常：电脑上办完事、需要你确认时会这样提醒你')
+	}
+
+	function unpair() {
+		uni.showModal({
+			title: '解除绑定',
+			content: '解除后这部手机不能再让电脑办事，需要重新扫码绑定。手机上的聊天记录会保留。',
+			success: (r) => {
+				if (!r.confirm) {
+					return
+				}
+				// 先告诉服务器作废令牌；连不上也照样在本机清掉（电脑上还能再解绑一次）
+				request('DELETE', '/api/v1/mobile/me', null).then((_) => {
+					disconnect()
+					clearAuth()
+					uni.reLaunch({ url: '/pages/pair/pair' })
+				})
+			}
+		})
+	}
+</script>
+
+<style>
+	.page {
+		flex: 1;
+	}
+	.topbar {
+		height: 52px;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0 8px;
+	}
+	.back {
+		width: 80px;
+		height: 44px;
+		justify-content: center;
+		padding-left: 8px;
+	}
+	.back-text {
+		font-size: 16px;
+	}
+	.title {
+		font-size: 17px;
+		font-weight: bold;
+	}
+	.body {
+		flex: 1;
+		padding: 0 16px;
+	}
+	.section {
+		font-size: 12px;
+		margin: 16px 4px 6px 4px;
+	}
+	.card {
+		border-radius: 14px;
+		padding: 0 14px;
+	}
+	.row {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		min-height: 48px;
+		border-top-width: 1px;
+		border-top-style: solid;
+		border-top-color: transparent;
+	}
+	.row-btn {
+		min-height: 52px;
+		justify-content: center;
+		padding: 8px 0;
+	}
+	.key {
+		font-size: 15px;
+	}
+	.val {
+		font-size: 14px;
+		margin-left: 12px;
+		flex-shrink: 1;
+	}
+	.seg {
+		flex-direction: row;
+		margin: 12px 0;
+		padding: 3px;
+		border-radius: 12px;
+	}
+	.seg-item {
+		flex: 1;
+		height: 34px;
+		border-radius: 9px;
+		align-items: center;
+		justify-content: center;
+	}
+	.seg-text {
+		font-size: 14px;
+	}
+	.danger {
+		margin-top: 24px;
+		height: 50px;
+		align-items: center;
+		justify-content: center;
+	}
+	.danger-text {
+		font-size: 16px;
+		font-weight: bold;
+	}
+	.foot {
+		font-size: 12px;
+		text-align: center;
+		margin: 20px 0 40px 0;
+	}
+</style>

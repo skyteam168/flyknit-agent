@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .. import crypto
 from ..models import ChannelBindCode, ChannelBinding, ChannelMessage, Device
-from . import settings_store
+from . import mobile_hub, settings_store
 from .dingtalk import BotMessage, DingTalkApi, StreamStatus, for_dingtalk, run_stream
 from .wecom import WeComBot
 
@@ -38,7 +38,7 @@ CONFIG_KEY = "channel_dingtalk"
 DEFAULT_CONFIG = {"enabled": False, "client_id": "", "client_secret": "", "robot_code": ""}
 WECOM_KEY = "channel_wecom"
 WECOM_DEFAULT = {"enabled": False, "bot_id": "", "secret": ""}
-CHANNEL_NAMES = {"dingtalk": "钉钉", "wecom": "企业微信"}
+CHANNEL_NAMES = {"dingtalk": "钉钉", "wecom": "企业微信", "mobile": "手机"}
 
 BIND_CODE_TTL = timedelta(minutes=10)
 #: 同一个钉钉账号一小时内最多输错几次绑定码（防止在钉钉里挨个试别人的码）
@@ -325,6 +325,17 @@ class Hub:
         await session.commit()
         return row
 
+    async def enqueue(self, session: AsyncSession, binding: ChannelBinding, text: str, sender: str) -> ChannelMessage:
+        """手机 App 直接提交的任务：已经认过人（手机令牌），排进队列交给绑定的电脑。"""
+        row = ChannelMessage(channel=binding.channel, binding_id=binding.id, device_id=binding.device_id,
+                             external_id=binding.external_id, external_name=sender or binding.external_name,
+                             text=text[:MAX_TEXT])
+        session.add(row)
+        binding.last_used = _now()
+        await session.commit()
+        self.notify(binding.device_id)
+        return row
+
     async def take_pending(self, session: AsyncSession, device_id: int, limit: int = 5) -> list[ChannelMessage]:
         rows = (await session.scalars(
             select(ChannelMessage)
@@ -346,8 +357,12 @@ class Hub:
         if conversation_id and row.binding_id and (binding := await session.get(ChannelBinding, row.binding_id)):
             binding.conversation_id = conversation_id
         await session.commit()
-        text = for_dingtalk(answer) if ok and answer.strip() else f"没办成：{error or '未知原因'}"
-        row.replied = await self.say(row.channel, row.reply_webhook, row.reply_webhook_expires, row.external_id, text)
+        if row.channel == mobile_hub.CHANNEL:
+            # 手机 App 自己渲染 markdown、图表，原样推回去；推不到（App 没开）下次打开时按任务列表补
+            row.replied = await mobile_hub.hub.task_changed(row)
+        else:
+            text = for_dingtalk(answer) if ok and answer.strip() else f"没办成：{error or '未知原因'}"
+            row.replied = await self.say(row.channel, row.reply_webhook, row.reply_webhook_expires, row.external_id, text)
         await session.commit()
 
     async def expire(self, session: AsyncSession) -> int:
@@ -372,9 +387,15 @@ class Hub:
             return r.text if len(r.text) <= 30 else r.text[:30] + "…"
 
         for r in stale:
+            if r.channel == mobile_hub.CHANNEL:
+                await mobile_hub.hub.task_changed(r)
+                continue
             await self.say(r.channel, r.reply_webhook, r.reply_webhook_expires, r.external_id,
                            f"你的电脑一直没有上线，「{short(r)}」已取消。需要的话开机后再发一次。")
         for r in lost:
+            if r.channel == mobile_hub.CHANNEL:
+                r.replied = await mobile_hub.hub.task_changed(r)
+                continue
             r.replied = await self.say(r.channel, r.reply_webhook, r.reply_webhook_expires, r.external_id,
                                        f"「{short(r)}」在电脑上一直没有办完（可能关机或退出了 FlyknitBuddy），请到电脑上看看，或者再发一次。")
         if lost:

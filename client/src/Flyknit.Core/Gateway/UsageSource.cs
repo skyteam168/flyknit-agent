@@ -4,7 +4,7 @@ using System.Threading;
 namespace Flyknit.Core.Gateway;
 
 /// <summary>
-/// 这一轮是谁发起的：定时任务、钉钉/企业微信、IT 指令。发给服务端只用于用量统计
+/// 这一轮是谁发起的：定时任务、钉钉/企业微信、IT 指令、手机 App。发给服务端只用于用量统计
 /// （后台「场景分布」里单独成一块），选模型照旧按 scene。
 ///
 /// 用 AsyncLocal 跟着这次运行走：在发起处 <c>using (UsageSource.Use(UsageSource.Schedule))</c>，
@@ -15,6 +15,8 @@ public static class UsageSource
     public const string Schedule = "schedule";
     public const string Channel = "channel";
     public const string Instruction = "instruction";
+    /// <summary>手机 App 让电脑办的事。</summary>
+    public const string Mobile = "mobile";
 
     private static readonly AsyncLocal<string?> _current = new();
 

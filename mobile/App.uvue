@@ -1,0 +1,37 @@
+<script lang="uts">
+	import { loadAuth, loadConversations, state } from './common/store.uts'
+	import { applySystemTheme } from './common/theme.uts'
+	import { connect, disconnect } from './common/socket.uts'
+
+	export default {
+		onLaunch() {
+			loadAuth()
+			loadConversations()
+			applySystemTheme()
+			if (state.token != '') {
+				connect()
+			}
+		},
+		onShow() {
+			// 回到前台：在后台被系统掐断的连接重新连上，错过的进度按任务列表补齐
+			state.foreground = true
+			if (state.token != '') {
+				connect()
+			}
+		},
+		onHide() {
+			// 退到后台还保持连接：办完事、要确认时发系统通知
+			state.foreground = false
+		},
+		onExit() {
+			disconnect()
+		}
+	}
+</script>
+
+<style>
+	/* uvue 的全局样式只放通用的几样，页面里的配色跟着主题走（见 common/theme.uts） */
+	.flex-row {
+		flex-direction: row;
+	}
+</style>

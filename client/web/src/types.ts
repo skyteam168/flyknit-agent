@@ -27,6 +27,8 @@ export interface Conversation {
   expertId?: string | null
   /** 侧栏手动排序的位置（小的在前）。没拖过为空 */
   sortOrder?: number | null
+  /** 长任务模式：步数上限放宽，走到上限自动接着做 */
+  longMode?: boolean
 }
 
 /** 管理员发布的专家（界面只拿展示用的部分） */
@@ -627,6 +629,44 @@ export interface AppInfo {
   micAvailable: boolean
   /** 工作区隔离是否生效。开着时「完全权限」不可选 */
   sandboxed: boolean
+  /** IT 允不允许开长任务模式 */
+  longTasks?: boolean
+}
+
+/** 任务中心：正在跑的任务 */
+export interface RunningRun {
+  conversationId: string
+  title: string
+  step: string
+  done: number
+  total: number
+  paused: boolean
+  startedAt: string
+  remote: boolean
+}
+
+/** 上次没跑完就被关掉的任务。origin：ui / remote / headless */
+export interface InterruptedRunInfo {
+  conversationId: string
+  title: string
+  startedAt: string
+  origin: string
+}
+
+/** 最近跑完的一轮 */
+export interface RecentRunInfo {
+  conversationId: string
+  title: string
+  stopReason: string
+  steps: number
+  toolCalls: number
+  finishedAt: string
+}
+
+export interface RunsList {
+  running: RunningRun[]
+  interrupted: InterruptedRunInfo[]
+  recent: RecentRunInfo[]
 }
 
 /** 自动更新的状态 */
@@ -868,6 +908,12 @@ export type HostEvent =
   | { type: 'speech.tick'; level: number; elapsedMs: number; maxMs: number }
   | { type: 'speech.autoStop' }
   | { type: 'chat.notice'; conversationId: string; text: string }
+  | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
+  | { type: 'chat.paused'; conversationId: string; paused: boolean }
+  | { type: 'runs.changed' }
+  | { type: 'sidechat.delta'; requestId: string; text: string }
+  | { type: 'sidechat.done'; requestId: string; content?: string; stopped?: boolean }
+  | { type: 'sidechat.error'; requestId: string; message: string }
   | {
       type: 'context.compacting'
       conversationId: string
@@ -996,4 +1042,72 @@ export interface ChannelsInfo {
   /** 连着公司服务器 */
   online: boolean
   bindings: ChannelBindingInfo[]
+}
+
+/** 绑定在这台电脑上的一部手机（FlyknitBuddy 安卓 App） */
+export interface MobilePhone {
+  id: number
+  name: string
+  appVersion: string
+  createdAt: string
+  lastSeen: string | null
+  /** App 现在连着服务器 */
+  connected: boolean
+}
+
+export interface MobileInfo {
+  /** 管理员开了手机端 */
+  enabled: boolean
+  /** 连着公司服务器 */
+  online: boolean
+  phones: MobilePhone[]
+  /** 后台发布过的最新 App：下载地址（扫码直接下载） */
+  app: { versionName: string; url: string } | null
+}
+
+/** 手机扫的二维码：服务器地址 + 一次性配对码 */
+export interface MobilePairCode {
+  code: string
+  expiresAt: string
+  payload: string
+  server: string
+}
+
+/** 运行中又发的话：插话 steer（下一步交给 AI）/ 排队 queue（这一轮结束后再发）。AI 读到之前能改、能撤回 */
+export interface PendingInput {
+  id: string
+  text: string
+  mode: 'steer' | 'queue'
+  at: string
+}
+
+export type InterjectMode = 'steer' | 'queue' | 'interrupt'
+
+/** 一轮任务改动的一个文件。kind：created 新建 / modified 修改 / deleted 删除 */
+export interface FileChangeInfo {
+  path: string
+  name: string
+  kind: 'created' | 'modified' | 'deleted'
+  /** 哪个工具改的：write_file / delete_path / run_shell */
+  source: string
+  /** 这一轮里改了几次 */
+  times: number
+  /** 改之前那一份的备份（对比、还原用） */
+  backup?: string | null
+  emptyBefore?: boolean
+  restorable: boolean
+  exists: boolean
+  reverted: boolean
+}
+
+/** 一轮任务（一句话引起的）改动的文件。turnId 是那条用户消息的 ID */
+export interface ChangeTurn {
+  turnId: string
+  at: string
+  files: FileChangeInfo[]
+}
+
+export interface RevertOutcome {
+  reverted: string[]
+  skipped: { path: string; reason: string }[]
 }

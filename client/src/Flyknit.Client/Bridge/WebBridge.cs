@@ -73,6 +73,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
         _host.AttachUi(this, this);
         _host.Scheduler.Changed += () => Post(new { type = "schedules.changed" });
         _host.Library.Changed += () => Post(new { type = "library.changed" });
+        // 任务开始 / 结束 / 换了一步 / 暂停：任务中心跟着刷新（界面只在任务中心打开时才去取）
+        _host.RunStatusChanged += () => Post(new { type = "runs.changed" });
         _host.Updater.Changed += state => Post(UpdateEvent(state));
         _speech = new SpeechService(_host.Server);
         // 录音时把响度和时长推给界面画动效。回调在音频线程上，Post 内部会切回 UI 线程
@@ -102,7 +104,44 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             keepAwakeAllowed = _host.KeepAwakeAllowed,
             keepScreenAllowed = _host.KeepScreenOnAllowed,
             contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
+            longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
         });
+    }
+
+    /// <summary>任务中心：正在跑的、上次没跑完的、最近跑完的。</summary>
+    private async Task<object> RunsListAsync()
+    {
+        var recent = await Task.Run(() => _host.Store.RecentRuns(30));
+        return new
+        {
+            running = _host.RunSnapshots().Select(r => new
+            {
+                conversationId = r.ConversationId,
+                title = r.Title,
+                step = r.Step,
+                done = r.Done,
+                total = r.Total,
+                paused = r.Paused,
+                startedAt = r.StartedAt.ToString("O"),
+                remote = r.Remote,
+            }).ToList(),
+            interrupted = _host.InterruptedRuns().Select(r => new
+            {
+                conversationId = r.ConversationId,
+                title = r.Title,
+                startedAt = r.StartedAt.ToString("O"),
+                origin = r.Origin,
+            }).ToList(),
+            recent = recent.Select(r => new
+            {
+                conversationId = r.ConversationId,
+                title = r.Title,
+                stopReason = r.StopReason,
+                steps = r.Steps,
+                toolCalls = r.ToolCalls,
+                finishedAt = r.FinishedAt.ToString("O"),
+            }).ToList(),
+        };
     }
 
     /// <summary>安全中心要显示的全部条目。锁住的也要显示——让用户看见自己被什么规则管着。</summary>
@@ -410,6 +449,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     keepAwakeAllowed = _host.KeepAwakeAllowed,
                     keepScreenAllowed = _host.KeepScreenOnAllowed,
                     contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
+                    longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
                     proxyMode = _settings.ProxyMode,
                     proxyUrl = _settings.ProxyUrl,
                     proxyUser = _settings.ProxyUser,
@@ -1326,7 +1366,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     dingtalk = state.DingTalk,
                     wecom = state.WeCom,
                     online = true,
-                    bindings = state.Bindings.Select(b => new { id = b.Id, channel = b.Channel, name = b.ExternalName, createdAt = b.CreatedAt, lastUsed = b.LastUsed }).ToList(),
+                    // 手机的绑定在「设置 → 手机」里管理
+                    bindings = state.Bindings.Where(b => b.Channel != "mobile")
+                        .Select(b => new { id = b.Id, channel = b.Channel, name = b.ExternalName, createdAt = b.CreatedAt, lastUsed = b.LastUsed }).ToList(),
                 };
             }
 
@@ -1340,6 +1382,42 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "channels.unbind":
                 await _host.Server.RemoveChannelBindingAsync(Int("id") ?? 0, CancellationToken.None);
+                _host.NotifyChannelsChanged();
+                return null;
+
+            // ---------- 手机 App：扫码绑定 ----------
+            case "mobile.get":
+            {
+                if (!_host.Connected || !_host.Server.IsRegistered)
+                {
+                    return new { enabled = false, online = false, phones = Array.Empty<object>(), app = (object?)null };
+                }
+                var state = await _host.Server.GetMobileAsync(CancellationToken.None);
+                return new
+                {
+                    enabled = state.Enabled,
+                    online = true,
+                    // 还没装 App 的手机扫这个下载（不用登录，链接里带随机串）
+                    app = state.App is { } app
+                        ? new { versionName = app.VersionName, url = _host.Server.ServerUrl + app.DownloadPath }
+                        : null,
+                    phones = state.Phones.Select(m => new { id = m.Id, name = m.Name, appVersion = m.AppVersion, createdAt = m.CreatedAt, lastSeen = m.LastSeen, connected = m.Connected }).ToList(),
+                };
+            }
+
+            case "mobile.pairCode":
+            {
+                var code = await _host.Server.NewMobilePairCodeAsync(CancellationToken.None);
+                // 手机扫完马上就能让电脑办事：中继先开始等，不用等 5 分钟一轮的状态检查
+                _host.NotifyChannelsChanged(expectBinding: true);
+                // 二维码内容：配对码 + 服务器地址（放最后、不转义，手机端好解析；地址里不会有 &）。
+                // 手机和电脑连同一个服务器，扫完直接配对
+                var payload = $"flyknit://pair?c={code.Code}&s={_host.Server.ServerUrl}";
+                return new { code = code.Code, expiresAt = code.ExpiresAt, payload, server = _host.Server.ServerUrl };
+            }
+
+            case "mobile.unpair":
+                await _host.Server.RemoveMobilePhoneAsync(Int("id") ?? 0, CancellationToken.None);
                 _host.NotifyChannelsChanged();
                 return null;
 
@@ -1639,6 +1717,11 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 var attachments = p.TryGetProperty("attachments", out var a) && a.ValueKind == JsonValueKind.Array
                     ? a.Deserialize<List<AttachmentDto>>(Json) ?? new()
                     : new();
+                // 界面以为已经结束、其实这一轮还没收尾：没带附件就当插话，不报「正在处理中」
+                if (attachments.Count == 0 && _host.Interject(Str("conversationId"), Str("text"), RunInbox.Steer, OptStr("messageId")))
+                {
+                    return new { pending = true };
+                }
                 _host.Send(
                     Str("conversationId"),
                     Str("text"),
@@ -1653,6 +1736,113 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "chat.stop":
                 _host.Stop(Str("conversationId"));
                 return null;
+
+            // ---------- 侧聊：顺便问一句，读任务对话、不写回 ----------
+            case "sidechat.ask":
+            {
+                var history = new List<Flyknit.Core.Chat.ChatMessage>();
+                if (p.TryGetProperty("history", out var h) && h.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in h.EnumerateArray())
+                    {
+                        var role = item.TryGetProperty("role", out var r) ? r.GetString() : "";
+                        var content = item.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "";
+                        if (content.Length == 0)
+                        {
+                            continue;
+                        }
+                        history.Add(role == "assistant"
+                            ? Flyknit.Core.Chat.ChatMessage.Assistant(content, Array.Empty<Flyknit.Core.Chat.ToolCall>(), null)
+                            : Flyknit.Core.Chat.ChatMessage.User(content));
+                    }
+                }
+                _host.AskSide(Str("conversationId"), Str("requestId"), Str("question"), history, this);
+                return null;
+            }
+
+            case "sidechat.stop":
+                _host.StopSide(Str("requestId"));
+                return null;
+
+            // ---------- 文件改动：改了哪些、对比、还原 ----------
+            case "changes.list":
+            {
+                var list = await Task.Run(() => _host.FileChanges(Str("conversationId")));
+                return list.GroupBy(c => c.TurnId).Select(g => new
+                {
+                    turnId = g.Key,
+                    at = g.First().At.ToString("O"),
+                    // 同一个文件改了几次只列一行：看第一次（任务之前的样子、能不能还原）和最后的状态
+                    files = g.GroupBy(c => c.Change.Path, StringComparer.OrdinalIgnoreCase).Select(f =>
+                    {
+                        var first = f.First();
+                        var last = f.Last();
+                        return new
+                        {
+                            path = first.Change.Path,
+                            name = Path.GetFileName(first.Change.Path),
+                            kind = first.Change.Kind == Flyknit.Core.Tools.FileChange.Created ? "created"
+                                : last.Change.Kind == Flyknit.Core.Tools.FileChange.Deleted ? "deleted" : "modified",
+                            source = last.Change.Source,
+                            times = f.Count(),
+                            backup = first.Change.BackupPath,
+                            emptyBefore = first.Change.EmptyBefore,
+                            restorable = first.Change.Restorable && (first.Change.BackupPath is null || File.Exists(first.Change.BackupPath)),
+                            exists = File.Exists(first.Change.Path),
+                            reverted = f.All(x => x.RevertedAt is not null),
+                        };
+                    }).ToList(),
+                }).ToList();
+            }
+
+            case "changes.revert":
+            {
+                var paths = p.TryGetProperty("paths", out var ps) && ps.ValueKind == JsonValueKind.Array
+                    ? ps.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
+                    : null;
+                var result = await Task.Run(() => _host.RevertTurn(Str("conversationId"), Str("turnId"), paths));
+                return new
+                {
+                    reverted = result.Reverted,
+                    skipped = result.Skipped.Select(x => new { path = x.Path, reason = x.Reason }).ToList(),
+                };
+            }
+
+            // ---------- 长任务、任务中心 ----------
+            case "conversation.setLongMode":
+                return _host.SetLongMode(Str("id"), p.TryGetProperty("on", out var lm) && lm.ValueKind == JsonValueKind.True);
+
+            case "runs.list":
+                return await RunsListAsync();
+
+            case "runs.resume":
+                _host.ResumeInterrupted(Str("conversationId"), _settings.ResolveUiLanguage(), this, this);
+                return null;
+
+            case "runs.dismiss":
+                _host.DismissInterrupted(Str("conversationId"));
+                return null;
+
+            // 暂停 / 继续：正在做的这一步做完后停住，继续后接着往下走
+            case "chat.pause":
+                return _host.Pause(Str("conversationId"));
+
+            case "chat.resume":
+                return _host.Resume(Str("conversationId"));
+
+            // 运行中又发的话：steer 插话 / queue 排到本轮之后 / interrupt 打断并优先。返回 false 表示已经不在运行，界面照常发送
+            case "chat.interject":
+                return _host.Interject(Str("conversationId"), Str("text"), Str("mode"), OptStr("messageId"));
+
+            case "chat.pending":
+                return AgentHost.PendingDto(_host.Inbox.List(Str("conversationId")));
+
+            // AI 读到之前还能改、能撤回；已经被读走返回 false
+            case "chat.pending.update":
+                return _host.Inbox.Update(Str("conversationId"), Str("id"), Str("text"), OptStr("mode"));
+
+            case "chat.pending.remove":
+                return _host.Inbox.Remove(Str("conversationId"), Str("id"));
 
             case "tool.confirm":
             {

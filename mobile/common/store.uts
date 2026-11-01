@@ -1,0 +1,252 @@
+// App 的全部状态：绑定信息（服务器、令牌、电脑）、对话列表、连接状态、待确认的操作。
+// 对话存在手机本地（uni.setStorageSync）；「办事」的过程和文件都在电脑上，手机只存问题和结果。
+
+import { reactive } from 'vue'
+
+export type Msg = {
+	id : string
+	/** user / assistant */
+	role : string
+	content : string
+	/** done / streaming / thinking / error / task */
+	status : string
+	/** 办事：服务端的任务 ID，0 表示不是办事 */
+	taskId : number
+	/** 办事：pending / running / succeeded / failed / expired */
+	taskStatus : string
+	/** 办事：电脑上执行到的步骤 */
+	steps : Array<string>
+	createdAt : number
+	/** 员工的话：插话 / 排队 / 打断（电脑在办事、AI 在回答时又说的），普通的话为空 */
+	tag ?: string
+}
+
+export type Conv = {
+	id : string
+	title : string
+	/** chat / translate / agent（办事） */
+	mode : string
+	/** 翻译的目标语言：zh / vi / en / km */
+	target : string
+	updatedAt : number
+	messages : Array<Msg>
+	/** 办事已经在电脑上开过对话了（之后的任务接着同一个上下文） */
+	agentStarted : boolean
+}
+
+export type Approval = {
+	id : string
+	task : number
+	summary : string
+	detail : string
+	risk : string
+	expiresIn : number
+}
+
+export type AppState = {
+	server : string
+	token : string
+	phoneName : string
+	machineName : string
+	userName : string
+	computerOnline : boolean
+	approvalsAllowed : boolean
+	/** idle / connecting / open / closed */
+	socket : string
+	foreground : boolean
+	conversations : Array<Conv>
+	currentId : string
+	approvals : Array<Approval>
+}
+
+export const state = reactive({
+	server: '',
+	token: '',
+	phoneName: '',
+	machineName: '',
+	userName: '',
+	computerOnline: false,
+	approvalsAllowed: false,
+	socket: 'idle',
+	foreground: true,
+	conversations: [] as Array<Conv>,
+	currentId: '',
+	approvals: [] as Array<Approval>
+} as AppState)
+
+const AUTH_KEY = 'fk.auth'
+const CONV_KEY = 'fk.conversations'
+const MAX_CONVERSATIONS = 100
+const MAX_MESSAGES = 200
+
+export function newId() : string {
+	return Date.now().toString() + Math.floor(Math.random() * 1000000).toString()
+}
+
+// ---------- 绑定信息 ----------
+
+export function loadAuth() {
+	const raw = uni.getStorageSync(AUTH_KEY)
+	if (raw == null || typeof raw != 'string') {
+		return
+	}
+	const obj = JSON.parse(raw as string)
+	if (obj == null) {
+		return
+	}
+	const o = obj as UTSJSONObject
+	state.server = o.getString('server') ?? ''
+	state.token = o.getString('token') ?? ''
+	state.phoneName = o.getString('phoneName') ?? ''
+	state.machineName = o.getString('machineName') ?? ''
+	state.userName = o.getString('userName') ?? ''
+	state.approvalsAllowed = o.getBoolean('approvalsAllowed') ?? false
+}
+
+export function saveAuth() {
+	const o = {
+		server: state.server,
+		token: state.token,
+		phoneName: state.phoneName,
+		machineName: state.machineName,
+		userName: state.userName,
+		approvalsAllowed: state.approvalsAllowed
+	} as UTSJSONObject
+	uni.setStorageSync(AUTH_KEY, JSON.stringify(o))
+}
+
+/** 服务端回的「我是谁」（配对结果、/me、WebSocket 的 hello 都是这个形状） */
+export function applyMe(me : UTSJSONObject) {
+	state.phoneName = me.getString('name') ?? state.phoneName
+	state.approvalsAllowed = me.getBoolean('approvals') ?? false
+	const computer = me.getJSON('computer')
+	if (computer != null) {
+		state.machineName = computer.getString('machine_name') ?? ''
+		state.userName = computer.getString('user_name') ?? ''
+		state.computerOnline = computer.getBoolean('online') ?? false
+	}
+	saveAuth()
+}
+
+export function clearAuth() {
+	state.server = ''
+	state.token = ''
+	state.machineName = ''
+	state.userName = ''
+	state.computerOnline = false
+	state.approvals = []
+	uni.removeStorageSync(AUTH_KEY)
+}
+
+// ---------- 对话 ----------
+
+export function loadConversations() {
+	const raw = uni.getStorageSync(CONV_KEY)
+	if (raw == null || typeof raw != 'string') {
+		return
+	}
+	const list = JSON.parse<Array<Conv>>(raw as string)
+	if (list != null) {
+		state.conversations = list
+	}
+}
+
+let saveTimer = 0
+
+/** 流式输出时每个字都会改对话：攒一下再写，别每次都写存储 */
+export function saveConversations() {
+	if (saveTimer != 0) {
+		return
+	}
+	saveTimer = setTimeout(() => {
+		saveTimer = 0
+		saveNow()
+	}, 800)
+}
+
+export function saveNow() {
+	const list = state.conversations.slice(0, MAX_CONVERSATIONS)
+	list.forEach((c : Conv) => {
+		if (c.messages.length > MAX_MESSAGES) {
+			c.messages = c.messages.slice(c.messages.length - MAX_MESSAGES)
+		}
+	})
+	uni.setStorageSync(CONV_KEY, JSON.stringify(list))
+}
+
+export function currentConv() : Conv | null {
+	const i = state.conversations.findIndex((c : Conv) : boolean => c.id == state.currentId)
+	return i >= 0 ? state.conversations[i] : null
+}
+
+export function createConv(mode : string, target : string) : Conv {
+	const conv = {
+		id: newId(),
+		title: '',
+		mode: mode,
+		target: target,
+		updatedAt: Date.now(),
+		messages: [] as Array<Msg>,
+		agentStarted: false
+	} as Conv
+	state.conversations.unshift(conv)
+	state.currentId = conv.id
+	saveConversations()
+	return conv
+}
+
+export function touch(conv : Conv) {
+	conv.updatedAt = Date.now()
+	// 最近用过的排到最前
+	const i = state.conversations.findIndex((c : Conv) : boolean => c.id == conv.id)
+	if (i > 0) {
+		state.conversations.splice(i, 1)
+		state.conversations.unshift(conv)
+	}
+	saveConversations()
+}
+
+export function removeConv(id : string) {
+	const i = state.conversations.findIndex((c : Conv) : boolean => c.id == id)
+	if (i >= 0) {
+		state.conversations.splice(i, 1)
+	}
+	if (state.currentId == id) {
+		state.currentId = ''
+	}
+	saveNow()
+}
+
+export function renameConv(id : string, title : string) {
+	const i = state.conversations.findIndex((c : Conv) : boolean => c.id == id)
+	if (i >= 0) {
+		state.conversations[i].title = title
+		saveNow()
+	}
+}
+
+/** 找到某个办事任务对应的那条消息（任务进度、结果都按任务 ID 回来） */
+export function findTaskMsg(taskId : number) : Msg | null {
+	for (let i = 0; i < state.conversations.length; i++) {
+		const msgs = state.conversations[i].messages
+		for (let j = msgs.length - 1; j >= 0; j--) {
+			if (msgs[j].taskId == taskId) {
+				return msgs[j]
+			}
+		}
+	}
+	return null
+}
+
+export function newMsg(role : string, content : string, status : string) : Msg {
+	return {
+		id: newId(),
+		role: role,
+		content: content,
+		status: status,
+		taskId: 0,
+		taskStatus: '',
+		steps: [] as Array<string>,
+		createdAt: Date.now()
+	} as Msg
+}

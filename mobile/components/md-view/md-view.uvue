@@ -1,0 +1,202 @@
+<template>
+	<view class="md">
+		<view v-for="(b, bi) in blocks" :key="bi" class="md-block">
+			<text v-if="b.kind == 'heading'" class="md-heading" :style="{ color: c.ink, fontSize: headingSize(b.level) }" :selectable="true">
+				<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+			</text>
+
+			<text v-else-if="b.kind == 'para'" class="md-para" :style="{ color: c.ink }" :selectable="true">
+				<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+			</text>
+
+			<view v-else-if="b.kind == 'bullet' || b.kind == 'ordered'" class="md-item" :style="{ paddingLeft: (b.level * 16).toString() + 'px' }">
+				<text class="md-mark" :style="{ color: b.label == 'done' ? c.thread : c.inkSoft }">{{ markOf(b) }}</text>
+				<text class="md-item-text" :style="{ color: b.label == 'done' ? c.inkFaint : c.ink }" :selectable="true">
+					<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+				</text>
+			</view>
+
+			<view v-else-if="b.kind == 'quote'" class="md-quote" :style="{ borderLeftColor: c.lineStrong }">
+				<text class="md-para" :style="{ color: c.inkSoft }" :selectable="true">
+					<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+				</text>
+			</view>
+
+			<view v-else-if="b.kind == 'code'" class="md-code" :style="{ backgroundColor: c.codeBg, borderColor: c.line }">
+				<view class="md-code-head">
+					<text class="md-code-lang" :style="{ color: c.inkFaint }">{{ b.label != '' ? b.label : 'code' }}</text>
+					<text class="md-code-copy" :style="{ color: c.indigo }" @click="copy(b.text)">复制</text>
+				</view>
+				<scroll-view direction="horizontal" class="md-code-scroll">
+					<text class="md-code-text" :style="{ color: c.ink }" :selectable="true">{{ b.text }}</text>
+				</scroll-view>
+			</view>
+
+			<scroll-view v-else-if="b.kind == 'table'" direction="horizontal" class="md-table-scroll">
+				<view class="md-table" :style="{ borderColor: c.line }">
+					<view v-for="(row, ri) in b.rows" :key="ri" class="md-tr" :style="{ backgroundColor: ri == 0 ? c.sunk : c.cloth, borderBottomColor: c.line }">
+						<text v-for="(cell, ci) in row" :key="ci" class="md-td" :style="{ color: c.ink, fontWeight: ri == 0 ? 'bold' : 'normal', borderRightColor: c.line }">{{ cell }}</text>
+					</view>
+				</view>
+			</scroll-view>
+
+			<view v-else-if="b.kind == 'rule'" class="md-rule" :style="{ backgroundColor: c.line }"></view>
+
+			<view v-else-if="b.kind == 'visual'" class="md-visual" :style="{ backgroundColor: c.indigoWash }">
+				<text class="md-visual-title" :style="{ color: c.indigo }">{{ visualTitle(b.label) }}</text>
+				<text class="md-visual-hint" :style="{ color: c.inkSoft }">这部分在电脑上的 FlyknitBuddy 里显示效果更好</text>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { computed } from 'vue'
+	import { MdBlock, MdSpan, parseMarkdown } from '../../common/markdown.uts'
+	import { theme } from '../../common/theme.uts'
+
+	const props = defineProps({
+		content: { type: String, default: '' }
+	})
+
+	const c = computed(() => theme.c)
+	const blocks = computed(() : Array<MdBlock> => parseMarkdown(props.content))
+
+	function headingSize(level : number) : string {
+		if (level <= 1) return '20px'
+		if (level == 2) return '18px'
+		return '16px'
+	}
+
+	function spanStyle(s : MdSpan) : UTSJSONObject {
+		const st = {} as UTSJSONObject
+		if (s.bold) {
+			st['fontWeight'] = 'bold'
+		}
+		if (s.italic) {
+			st['fontStyle'] = 'italic'
+		}
+		if (s.code) {
+			st['backgroundColor'] = theme.c.chip
+			st['fontFamily'] = 'monospace'
+		}
+		return st
+	}
+
+	function markOf(b : MdBlock) : string {
+		if (b.kind == 'ordered') return b.label + '.'
+		if (b.label == 'done') return '☑'
+		if (b.label == 'todo') return '☐'
+		return '•'
+	}
+
+	function visualTitle(lang : string) : string {
+		if (lang == 'mermaid' || lang == 'mmd' || lang == 'dot' || lang == 'graphviz' || lang == 'gv') return '流程图'
+		if (lang == 'ui' || lang == 'flyknit-ui') return '卡片'
+		return '图表'
+	}
+
+	function copy(text : string) {
+		uni.setClipboardData({ data: text })
+	}
+</script>
+
+<style>
+	.md {
+		flex-direction: column;
+	}
+	.md-block {
+		margin-bottom: 8px;
+	}
+	.md-heading {
+		font-weight: bold;
+		line-height: 28px;
+		margin-top: 4px;
+	}
+	.md-para {
+		font-size: 15px;
+		line-height: 24px;
+	}
+	.md-item {
+		flex-direction: row;
+		align-items: flex-start;
+	}
+	.md-mark {
+		width: 22px;
+		font-size: 15px;
+		line-height: 24px;
+	}
+	.md-item-text {
+		flex: 1;
+		font-size: 15px;
+		line-height: 24px;
+	}
+	.md-quote {
+		border-left-width: 3px;
+		border-left-style: solid;
+		padding-left: 10px;
+	}
+	.md-code {
+		border-width: 1px;
+		border-style: solid;
+		border-radius: 10px;
+		padding: 8px 10px;
+	}
+	.md-code-head {
+		flex-direction: row;
+		justify-content: space-between;
+		margin-bottom: 4px;
+	}
+	.md-code-lang {
+		font-size: 12px;
+	}
+	.md-code-copy {
+		font-size: 12px;
+	}
+	.md-code-scroll {
+		flex-direction: row;
+	}
+	.md-code-text {
+		font-family: monospace;
+		font-size: 13px;
+		line-height: 20px;
+	}
+	.md-table-scroll {
+		flex-direction: row;
+	}
+	.md-table {
+		border-width: 1px;
+		border-style: solid;
+		border-radius: 8px;
+		overflow: hidden;
+	}
+	.md-tr {
+		flex-direction: row;
+		border-bottom-width: 1px;
+		border-bottom-style: solid;
+	}
+	.md-td {
+		width: 120px;
+		padding: 6px 8px;
+		font-size: 13px;
+		line-height: 19px;
+		border-right-width: 1px;
+		border-right-style: solid;
+	}
+	.md-rule {
+		height: 1px;
+		margin: 6px 0;
+	}
+	.md-visual {
+		border-radius: 10px;
+		padding: 10px 12px;
+	}
+	.md-visual-title {
+		font-size: 14px;
+		font-weight: bold;
+	}
+	.md-visual-hint {
+		font-size: 12px;
+		margin-top: 2px;
+	}
+</style>

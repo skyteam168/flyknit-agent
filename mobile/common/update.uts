@@ -1,0 +1,88 @@
+// App 升级：问服务器有没有比当前 versionCode 更大的已发布版本，有就提示，员工同意后下载并调系统安装。
+// 安装包在后台「手机端 → App 版本」上传、发布。
+
+import { request } from './api.uts'
+import { state } from './store.uts'
+
+const LAST_CHECK_KEY = 'fk.updateCheckedAt'
+const AUTO_INTERVAL = 6 * 3600 * 1000
+
+let checking = false
+
+function currentCode() : number {
+	const code = uni.getAppBaseInfo().appVersionCode ?? '0'
+	const n = parseInt(code)
+	return isNaN(n) ? 0 : n
+}
+
+/** 打开 App、重新连上时：6 小时内问过就不再问；有新版本弹窗提示 */
+export function autoCheckUpdate() {
+	const last = uni.getStorageSync(LAST_CHECK_KEY)
+	if (last != null && typeof last == 'number' && Date.now() - (last as number) < AUTO_INTERVAL) {
+		return
+	}
+	void checkUpdate(false)
+}
+
+/** manual：设置里点「检查更新」，没有新版本也告诉员工一声 */
+export async function checkUpdate(manual : boolean) : Promise<void> {
+	if (checking || state.token == '') {
+		return
+	}
+	checking = true
+	const res = await request('GET', '/api/v1/mobile/update?version_code=' + currentCode().toString(), null)
+	checking = false
+	uni.setStorageSync(LAST_CHECK_KEY, Date.now())
+	if (!res.ok || res.data == null) {
+		if (manual) {
+			uni.showToast({ title: '检查更新失败：' + res.error, icon: 'none' })
+		}
+		return
+	}
+	const u = res.data as UTSJSONObject
+	if (!(u.getBoolean('available') ?? false)) {
+		if (manual) {
+			uni.showToast({ title: '已是最新版本', icon: 'none' })
+		}
+		return
+	}
+	const name = u.getString('version_name') ?? ''
+	const notes = u.getString('notes') ?? ''
+	const path = u.getString('download_path') ?? ''
+	uni.showModal({
+		title: '发现新版本 ' + name,
+		content: notes != '' ? notes : '建议现在升级',
+		confirmText: '下载安装',
+		cancelText: '以后再说',
+		success: (r) => {
+			if (r.confirm) {
+				download(state.server + path)
+			}
+		}
+	})
+}
+
+function download(url : string) {
+	uni.showLoading({ title: '正在下载…' })
+	uni.downloadFile({
+		url: url,
+		success: (res) => {
+			uni.hideLoading()
+			if (res.statusCode != 200) {
+				uni.showToast({ title: '下载失败（' + res.statusCode.toString() + '）', icon: 'none' })
+				return
+			}
+			// 调系统安装界面；第一次会让员工允许「安装未知应用」
+			uni.installApk({
+				filePath: res.tempFilePath,
+				fail: (err) => {
+					uni.showToast({ title: '没能打开安装：' + err.errMsg, icon: 'none' })
+				}
+			})
+		},
+		fail: (err) => {
+			uni.hideLoading()
+			uni.showToast({ title: '下载失败：' + err.errMsg, icon: 'none' })
+		}
+	})
+}

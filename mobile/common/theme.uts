@@ -1,0 +1,119 @@
+// 配色和电脑端（client/web/src/styles/base.css）同一套：中性白底 + 靛蓝品牌色 + 青色完成色。
+// uvue 不支持 CSS 变量，页面里用 :style 绑定这里的颜色，切换深浅色时一起变。
+
+import { reactive } from 'vue'
+
+export type Palette = {
+	loom : string      // 主区域底色
+	cloth : string     // 卡片、输入框
+	sunk : string      // 侧栏、次级区域
+	chip : string      // 快捷入口、标签、用户气泡
+	ink : string       // 正文
+	inkSoft : string   // 次要文字
+	inkFaint : string  // 提示文字
+	line : string      // 分隔线
+	lineStrong : string
+	indigo : string    // 品牌色
+	indigoWash : string
+	action : string    // 主操作按钮
+	actionInk : string
+	thread : string    // 完成
+	threadWash : string
+	amber : string     // 需确认
+	amberWash : string
+	red : string       // 错误
+	redWash : string
+	mask : string      // 抽屉、弹层后面的遮罩
+	codeBg : string
+}
+
+export const LIGHT : Palette = {
+	loom: '#ffffff',
+	cloth: '#ffffff',
+	sunk: '#f6f6f7',
+	chip: '#f2f2f4',
+	ink: '#18181b',
+	inkSoft: '#52525b',
+	inkFaint: '#a1a1aa',
+	line: '#e9e9ec',
+	lineStrong: '#d6d6db',
+	indigo: '#3446c9',
+	indigoWash: '#eef0fc',
+	action: '#3446c9',
+	actionInk: '#ffffff',
+	thread: '#0e9a8e',
+	threadWash: '#e2f4f2',
+	amber: '#b86e00',
+	amberWash: '#fff4e0',
+	red: '#c4362d',
+	redWash: '#fdeceb',
+	mask: 'rgba(24,24,27,0.36)',
+	codeBg: '#f6f6f7'
+}
+
+export const DARK : Palette = {
+	loom: '#141418',
+	cloth: '#1c1c21',
+	sunk: '#18181c',
+	chip: '#26262c',
+	ink: '#ececef',
+	inkSoft: '#a9a9b2',
+	inkFaint: '#6d6d77',
+	line: '#2a2a31',
+	lineStrong: '#3a3a43',
+	indigo: '#8d9af5',
+	indigoWash: '#23264a',
+	action: '#ececef',
+	actionInk: '#141418',
+	thread: '#3cc4b6',
+	threadWash: '#173430',
+	amber: '#f0a43a',
+	amberWash: '#3a2a12',
+	red: '#f0766d',
+	redWash: '#3d1c1a',
+	mask: 'rgba(0,0,0,0.55)',
+	codeBg: '#18181c'
+}
+
+export type ThemeState = {
+	/** system / light / dark */
+	mode : string
+	dark : boolean
+	c : Palette
+}
+
+export const theme = reactive({
+	mode: 'system',
+	dark: false,
+	c: LIGHT
+} as ThemeState)
+
+const THEME_KEY = 'fk.theme'
+
+function systemIsDark() : boolean {
+	return uni.getSystemInfoSync().osTheme == 'dark'
+}
+
+function apply() {
+	const dark = theme.mode == 'dark' || (theme.mode == 'system' && systemIsDark())
+	theme.dark = dark
+	theme.c = dark ? DARK : LIGHT
+}
+
+/** 启动时：读出用户选的模式，跟随系统的话顺便监听系统切换 */
+export function applySystemTheme() {
+	const saved = uni.getStorageSync(THEME_KEY)
+	if (saved != null && typeof saved == 'string' && (saved as string) != '') {
+		theme.mode = saved as string
+	}
+	apply()
+	uni.onOsThemeChange((_ : OsThemeChangeResult) => {
+		apply()
+	})
+}
+
+export function setThemeMode(mode : string) {
+	theme.mode = mode
+	uni.setStorageSync(THEME_KEY, mode)
+	apply()
+}

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
+import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, FilePen, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
-import { current, currentState, editAndResend, openAttachment, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
-import type { UiMessage } from '../types'
+import { changesForAnswer, current, currentState, editAndResend, mcpToolLabel, openChanges, openAttachment, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
+import type { OutputFile, UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 import ExpertTaskCard from './ExpertTaskCard.vue'
 import { AskExpertTool } from '../subtasks'
@@ -13,7 +13,7 @@ import OutputFiles from './OutputFiles.vue'
 import { snippet } from '../pasted'
 import { formatSize } from '../library'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const scroller = ref<HTMLElement>()
 const copiedId = ref<string | null>(null)
 const stick = ref(true)
@@ -90,6 +90,88 @@ function turnUsage(m: UiMessage) {
 
 function usageTitle(u: { prompt: number; completion: number }) {
   return t('ui.usage.detail', { prompt: fmt.format(u.prompt), completion: fmt.format(u.completion) })
+}
+
+// ---------- 过程折叠 ----------
+/**
+ * 一轮做完后，最终回答之前的过程（中间说明、工具卡片、专家卡片）收成一行摘要，点开再看。
+ * 还在跑的那一轮、没有最终回答（停了、出错）的、有步骤在等确认的，照常全部显示。
+ */
+interface Fold {
+  key: string
+  ids: Set<string>
+  steps: number
+  problems: number
+  labels: string[]
+  seconds: string | null
+  outputs: OutputFile[]
+}
+
+const expanded = ref(new Set<string>())
+
+function toolLabel(name: string) {
+  return mcpToolLabel(name) ?? (te(`tool.names.${name}`) ? t(`tool.names.${name}`) : name)
+}
+
+const folds = computed(() => {
+  const st = s.value
+  const byId = new Map<string, Fold>()
+  if (!st || isTranslate.value) return byId
+  const list = visible.value
+  let start = 0
+  while (start < list.length) {
+    let end = start
+    if (list[start].role === 'user') end++
+    const from = end
+    while (end < list.length && list[end].role !== 'user') end++
+    // [from, end) 是这一轮的助手消息
+    const turn = list.slice(from, end)
+    start = end
+    const lastTurn = end >= list.length
+    if (turn.length < 2 || (lastTurn && st.busy)) continue
+    const answer = turn[turn.length - 1]
+    if (!isAnswer(answer)) continue
+    const process = turn.slice(0, -1)
+    const calls = process.flatMap((m) => m.toolCalls ?? [])
+    if (calls.length === 0) continue
+    const tools = calls.map((c) => st.tools[c.id])
+    if (tools.some((x) => x && (x.state === 'waiting' || x.state === 'running'))) continue
+    const labels: string[] = []
+    for (const c of calls) {
+      if (c.name === 'update_plan' || c.name === 'memory_write') continue
+      const l = c.name === AskExpertTool ? t('ui.fold.expert') : toolLabel(c.name)
+      if (!labels.includes(l)) labels.push(l)
+    }
+    const fold: Fold = {
+      key: process[0].id,
+      ids: new Set(process.map((m) => m.id)),
+      steps: calls.length,
+      problems: tools.filter((x) => x && ['failed', 'blocked', 'rejected'].includes(x.state)).length,
+      labels,
+      seconds: answer.trace ? traceSeconds(answer.trace) : null,
+      outputs: process.flatMap((m) => m.outputs ?? []),
+    }
+    for (const m of process) byId.set(m.id, fold)
+  }
+  return byId
+})
+
+/** 这条消息被折叠起来了（不画）；摘要行画在每段过程的第一条消息的位置 */
+function folded(m: UiMessage) {
+  const f = folds.value.get(m.id)
+  return !!f && !expanded.value.has(f.key)
+}
+
+function toggleFold(key: string) {
+  const next = new Set(expanded.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expanded.value = next
+}
+
+function foldText(f: Fold) {
+  const names = f.labels.slice(0, 3).join(t('ui.fold.sep')) + (f.labels.length > 3 ? t('ui.fold.more') : '')
+  return t('ui.fold.summary', { n: f.steps, names })
 }
 
 /** 较早对话已压缩时，在摘要覆盖的最后一条消息后显示分隔线 */
@@ -283,8 +365,28 @@ const isImage = (mime: string) => mime.startsWith('image/')
           </template>
         </div>
 
+        <!-- 一轮做完后的过程：一行摘要，点开看每一步 -->
+        <template v-else-if="folds.get(m.id)">
+          <template v-for="f in [folds.get(m.id)!]" :key="'fold' + f.key">
+            <button
+              v-if="f.key === m.id"
+              type="button"
+              class="fold"
+              :class="{ open: expanded.has(f.key) }"
+              :aria-expanded="expanded.has(f.key)"
+              @click="toggleFold(f.key)"
+            >
+              <ListChecks :size="14" />
+              <span class="fold-text">{{ foldText(f) }}</span>
+              <span v-if="f.problems" class="fold-bad">{{ t('ui.fold.problems', { n: f.problems }) }}</span>
+              <span v-if="f.seconds" class="fold-time">{{ t('ui.fold.seconds', { s: f.seconds }) }}</span>
+              <ChevronRight :size="14" class="chev" />
+            </button>
+            <OutputFiles v-if="f.key === m.id && !expanded.has(f.key) && f.outputs.length" :files="f.outputs" />
+          </template>
+        </template>
         <!-- 助手消息 -->
-        <div v-else class="assistant" :class="{ cont: isContinuation(i), translation: isTranslate }">
+        <div v-if="m.role !== 'user' && !folded(m)" class="assistant" :class="{ cont: isContinuation(i), translation: isTranslate, 'in-fold': folds.has(m.id) }">
           <details v-if="m.reasoning" class="reasoning">
             <summary><Brain :size="14" /> {{ t('message.thinking') }} <ChevronRight :size="14" class="chev" /></summary>
             <p>{{ m.reasoning }}</p>
@@ -339,6 +441,20 @@ const isImage = (mime: string) => mime.startsWith('image/')
             >
               <RefreshCw :size="15" />
             </button>
+            <!-- 这一轮改动的文件：看改了什么、对比前后、一键还原 -->
+            <template v-for="ch in [current ? changesForAnswer(current.id, m.id) : null]" :key="'ch' + m.id">
+              <button
+                v-if="ch && ch.files.length"
+                type="button"
+                class="usage trace-chip changes-chip"
+                :title="t('ui.changes.chipTitle')"
+                @click.stop="openChanges(current!.id, ch.turnId)"
+              >
+                <FilePen :size="13" />
+                <span>{{ t('ui.changes.chip', { n: ch.files.length }) }}</span>
+                <span v-if="ch.files.every((f) => f.reverted)" class="dot">· {{ t('ui.changes.reverted') }}</span>
+              </button>
+            </template>
             <button
               v-if="m.trace"
               type="button"
@@ -650,6 +766,47 @@ const isImage = (mime: string) => mime.startsWith('image/')
   background: var(--cloth);
   font-size: var(--t-lg);
   line-height: 1.65;
+}
+.fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0 0 8px;
+  padding: 4px 8px 4px 6px;
+  border-radius: var(--r-sm);
+  color: var(--ink-faint);
+  font-size: var(--t-sm);
+  text-align: left;
+}
+.fold:hover {
+  background: var(--cloth-sunk);
+  color: var(--ink-soft);
+}
+.fold-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.fold-bad {
+  flex: none;
+  color: var(--amber);
+}
+.fold-time {
+  flex: none;
+}
+.fold .chev {
+  flex: none;
+  transition: transform 150ms;
+}
+.fold.open .chev {
+  transform: rotate(90deg);
+}
+/* 展开后的过程：左边一条细线，和最终回答区分开 */
+.assistant.in-fold {
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
 }
 .reasoning {
   margin: 0 0 8px;

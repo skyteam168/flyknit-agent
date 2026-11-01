@@ -190,7 +190,64 @@ public sealed class ChannelState
     [JsonPropertyName("dingtalk")] public bool DingTalk { get; set; }
     /// <summary>后台开了企业微信通道。</summary>
     [JsonPropertyName("wecom")] public bool WeCom { get; set; }
+    /// <summary>后台开了手机端（手机绑定也在 Bindings 里，channel = mobile）。</summary>
+    [JsonPropertyName("mobile")] public bool Mobile { get; set; }
     [JsonPropertyName("bindings")] public List<ChannelBindingInfo> Bindings { get; set; } = new();
+}
+
+/// <summary>远程执行到需要确认的操作时，服务端能不能交给发起的手机去批准。</summary>
+public sealed class ChannelApprovalTicket
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; }
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("timeout_sec")] public int TimeoutSec { get; set; }
+}
+
+internal sealed class ChannelApprovalStatus
+{
+    [JsonPropertyName("status")] public string Status { get; set; } = "";
+}
+
+/// <summary>手机发来的事正在执行：手机上补充的话（插话）、要不要停下。</summary>
+public sealed class ChannelInputs
+{
+    [JsonPropertyName("inputs")] public List<string> Inputs { get; set; } = new();
+    [JsonPropertyName("stop")] public bool Stop { get; set; }
+    /// <summary>这件事在服务端已经结束了，不用再来取。</summary>
+    [JsonPropertyName("done")] public bool Done { get; set; }
+}
+
+/// <summary>绑定在这台电脑上的一部手机。</summary>
+public sealed class MobilePhoneInfo
+{
+    [JsonPropertyName("id")] public int Id { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("platform")] public string Platform { get; set; } = "";
+    [JsonPropertyName("app_version")] public string AppVersion { get; set; } = "";
+    [JsonPropertyName("created_at")] public DateTimeOffset CreatedAt { get; set; }
+    [JsonPropertyName("last_seen")] public DateTimeOffset? LastSeen { get; set; }
+    [JsonPropertyName("connected")] public bool Connected { get; set; }
+}
+
+public sealed class MobileState
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; }
+    [JsonPropertyName("phones")] public List<MobilePhoneInfo> Phones { get; set; } = new();
+    /// <summary>后台发布过的最新 App；没有为 null。</summary>
+    [JsonPropertyName("app")] public MobileAppDownload? App { get; set; }
+}
+
+public sealed class MobileAppDownload
+{
+    [JsonPropertyName("version_name")] public string VersionName { get; set; } = "";
+    /// <summary>相对服务器地址的下载路径。</summary>
+    [JsonPropertyName("download_path")] public string DownloadPath { get; set; } = "";
+}
+
+public sealed class MobilePairCode
+{
+    [JsonPropertyName("code")] public string Code { get; set; } = "";
+    [JsonPropertyName("expires_at")] public DateTimeOffset ExpiresAt { get; set; }
 }
 
 public sealed class ChannelBindCode
@@ -454,6 +511,71 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
             error = error.Length > 2000 ? error[..2000] : error,
             conversation_id = conversationId,
         });
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
+    /// <summary>执行进度（手机 App 实时显示；钉钉、企业微信服务端直接忽略）。</summary>
+    public async Task ReportChannelEventAsync(int id, string kind, string text, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/channels/messages/{id}/events");
+        req.Content = JsonContent.Create(new { kind, text = text.Length > 2000 ? text[..2000] : text });
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
+    /// <summary>远程执行到需要确认的操作：问服务端能不能交给发起的手机批准。</summary>
+    public async Task<ChannelApprovalTicket> RequestChannelApprovalAsync(int id, string summary, string detail, string risk, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/channels/messages/{id}/approvals");
+        req.Content = JsonContent.Create(new
+        {
+            summary = summary.Length > 500 ? summary[..500] : summary,
+            detail = detail.Length > 2000 ? detail[..2000] : detail,
+            risk,
+        });
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<ChannelApprovalTicket>(cancellationToken: ct) ?? new();
+    }
+
+    /// <summary>等手机上的回答，最多挂 wait 秒。返回 pending / approved / rejected / expired。</summary>
+    public async Task<string> WaitChannelApprovalAsync(string approvalId, int wait, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/channels/approvals/{Uri.EscapeDataString(approvalId)}?wait={wait}");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return (await resp.Content.ReadFromJsonAsync<ChannelApprovalStatus>(cancellationToken: ct))?.Status ?? "";
+    }
+
+    /// <summary>长轮询手机上补充的话和打断请求（最多等 wait 秒）。</summary>
+    public async Task<ChannelInputs> PollChannelInputsAsync(int id, int wait, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/channels/messages/{id}/inputs?wait={wait}");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<ChannelInputs>(cancellationToken: ct) ?? new() { Done = true };
+    }
+
+    public async Task<MobileState> GetMobileAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/mobile");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<MobileState>(cancellationToken: ct) ?? new();
+    }
+
+    public async Task<MobilePairCode> NewMobilePairCodeAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/mobile/pair-code");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<MobilePairCode>(cancellationToken: ct) ?? new();
+    }
+
+    public async Task RemoveMobilePhoneAsync(int id, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Delete, $"api/v1/client/mobile/phones/{id}");
         using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
     }

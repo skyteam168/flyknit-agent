@@ -104,6 +104,11 @@ public sealed class RunShellTool : ITool
         if (stdout.Length > 0) output.AppendLine(stdout.ToString().TrimEnd());
         if (stderr.Length > 0) output.AppendLine("[错误输出]").AppendLine(stderr.ToString().TrimEnd());
         var produced = tracker?.Changed() ?? Array.Empty<OutputFile>();
+        // 命令改了哪些文件：新建的能还原（移到回收站）；改动的事先没备份，只能列出来
+        foreach (var f in produced)
+        {
+            ctx.NoteChange(new FileChange(f.Path, tracker!.Existed(f.Path) ? FileChange.Modified : FileChange.Created, null, Name));
+        }
         return new ToolResult(process.ExitCode == 0, output.ToString().TrimEnd())
         {
             Outputs = produced.Select(f => f.Path).ToList(),

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Copy, Languages, Menu, MessageSquare, Minus, PanelLeft, PanelRight, Pin, Plus, Puzzle, Square, Wrench, X } from '@lucide/vue'
+import { Copy, Languages, Menu, MessageCircleQuestion, MessageSquare, Minus, PanelLeft, PanelRight, Pin, Plus, Puzzle, Square, Wrench, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import ConversationFiles from './ConversationFiles.vue'
-import { current, fail, newConversation, renameConversation, state, toggleMaximize, toggleSessionPanel, usedSkills } from '../store'
+import { current, fail, newConversation, renameConversation, state, toggleMaximize, toggleSessionPanel, toggleSideChat, usedSkills } from '../store'
 import type { Mode } from '../types'
 
 defineProps<{ narrow: boolean; sidebarHidden: boolean }>()
@@ -77,6 +77,17 @@ function startNew() {
     </div>
 
     <ConversationFiles />
+    <button
+      v-if="current && state.view === 'chat' && current.mode !== 'translate'"
+      type="button"
+      class="icon-btn"
+      :class="{ active: state.sideChat.open }"
+      :title="t('ui.side.open')"
+      :aria-pressed="state.sideChat.open"
+      @click="toggleSideChat()"
+    >
+      <MessageCircleQuestion :size="16" />
+    </button>
     <button
       v-if="current && state.view === 'chat'"
       type="button"

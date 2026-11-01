@@ -7,6 +7,10 @@ import type {
   AttachmentRef,
   AskAnswerInput,
   ContextUsage,
+  InterjectMode,
+  PendingInput,
+  RunsList,
+  ChangeTurn,
   ConfirmChoice,
   Expert,
   McpVendor,
@@ -51,6 +55,10 @@ interface ConversationState {
   subtasks: Record<string, SubtaskView>
   /** 子任务 ID → callId（确认卡片只带子任务 ID） */
   subtaskCalls: Record<string, string>
+  /** 运行中又发的话：AI 还没读到的插话、排到本轮之后的话 */
+  inputs: PendingInput[]
+  /** 用户暂停了这一轮（悬浮球或输入框上的暂停） */
+  paused?: boolean
 }
 
 export const state = reactive({
@@ -66,7 +74,15 @@ export const state = reactive({
   update: null as UpdateInfo | null,
   toast: '' as string,
   /** 主区域显示什么：对话（含新任务首页）、资料库，或者专家列表 */
-  view: 'chat' as 'chat' | 'library' | 'experts',
+  view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks',
+  /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
+  runs: { running: [], interrupted: [], recent: [] } as RunsList,
+  /** 每个对话里每一轮改动的文件（打开对话、一轮结束时取） */
+  changes: {} as Record<string, ChangeTurn[]>,
+  /** 侧聊（顺便问一句）：每个对话自己的问答，只在界面上，不写进任务对话 */
+  sideChat: { open: false, byConv: {} as Record<string, SideItem[]> },
+  /** 打开着的「改动的文件」对话框 */
+  changesView: null as { conversationId: string; turnId: string } | null,
   /** 管理员发布的专家 */
   experts: [] as Expert[],
   /** 第一次加载完没有：没加载完显示骨架屏，加载完是空的才显示「没有」 */
@@ -341,7 +357,7 @@ export const currentState = computed(() => (state.currentId ? convState(state.cu
 
 function convState(id: string): ConversationState {
   if (!state.byId[id]) {
-    state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null, notices: [], subtasks: {}, subtaskCalls: {} }
+    state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null, notices: [], subtasks: {}, subtaskCalls: {}, inputs: [] }
   }
   return state.byId[id]
 }
@@ -406,6 +422,11 @@ export async function init() {
   // 启动时也拉一次连接器：对话里的 MCP 工具卡片要靠它显示成「腾讯文档 · 新建表格」
   void loadMcp(false, true)
   void refreshUsage()
+  // 上次没做完的任务：启动时取一次，侧栏「任务中心」和对话里的「继续」提示要用；有的话提醒一句
+  void loadRuns().then(() => {
+    const n = state.runs.interrupted.length
+    if (n > 0) toast(i18n.global.t('ui.tasks.startupToast', { n }))
+  })
 }
 
 export async function loadModels(refresh = false) {
@@ -458,6 +479,146 @@ export async function loadExperts() {
     if (state.experts.length === 0) state.expertsError = errorText(e)
   } finally {
     state.loaded.experts = true
+  }
+}
+
+// ---------- 侧聊 ----------
+
+export interface SideItem {
+  role: 'user' | 'assistant'
+  content: string
+  requestId?: string
+  status?: 'streaming' | 'done' | 'error'
+}
+
+export function toggleSideChat(open?: boolean) {
+  state.sideChat.open = open ?? !state.sideChat.open
+}
+
+/** 顺便问一句：带上这个对话之前的侧聊问答，答案逐字推回来 */
+export async function askSide(question: string) {
+  const id = state.currentId
+  const q = question.trim()
+  if (!id || !q) return
+  state.sideChat.open = true
+  const list = (state.sideChat.byConv[id] ??= [])
+  if (list.some((x) => x.status === 'streaming')) return
+  const history = list.filter((x) => x.status !== 'error' && x.content).map((x) => ({ role: x.role, content: x.content }))
+  const requestId = newMessageId()
+  list.push({ role: 'user', content: q })
+  list.push({ role: 'assistant', content: '', requestId, status: 'streaming' })
+  try {
+    await bridge.askSide(id, requestId, q, history)
+  } catch (e) {
+    const item = list.find((x) => x.requestId === requestId)
+    if (item) {
+      item.status = 'error'
+      item.content = errorText(e)
+    }
+  }
+}
+
+export function stopSide() {
+  const id = state.currentId
+  const item = id ? state.sideChat.byConv[id]?.find((x) => x.status === 'streaming') : undefined
+  if (item?.requestId) void bridge.stopSide(item.requestId)
+}
+
+function sideItem(requestId: string) {
+  for (const list of Object.values(state.sideChat.byConv)) {
+    const item = list.find((x) => x.requestId === requestId)
+    if (item) return item
+  }
+  return undefined
+}
+
+// ---------- 改动的文件 ----------
+
+export async function loadChanges(conversationId: string) {
+  try {
+    state.changes[conversationId] = await bridge.listChanges(conversationId)
+  } catch (e) {
+    console.warn('读取改动的文件失败', e)
+  }
+}
+
+/** 某条回答所在那一轮改动的文件（那一轮 = 回答前面最近的一条用户消息） */
+export function changesForAnswer(conversationId: string, answerId: string) {
+  const turns = state.changes[conversationId]
+  if (!turns?.length) return null
+  const list = convState(conversationId).messages
+  const at = list.findIndex((m) => m.id === answerId)
+  for (let i = at; i >= 0; i--) if (list[i].role === 'user') return turns.find((t) => t.turnId === list[i].id) ?? null
+  return null
+}
+
+export function openChanges(conversationId: string, turnId: string) {
+  state.changesView = { conversationId, turnId }
+}
+
+// ---------- 任务中心、长任务 ----------
+
+let runsTimer: ReturnType<typeof setTimeout> | undefined
+
+export async function loadRuns() {
+  try {
+    state.runs = await bridge.listRuns()
+  } catch (e) {
+    console.warn('读取任务列表失败', e)
+  }
+}
+
+/** 任务开始 / 结束 / 换了一步：攒半秒再取（工具一步接一步时不要每步都取） */
+function refreshRunsSoon() {
+  clearTimeout(runsTimer)
+  runsTimer = setTimeout(() => void loadRuns(), 500)
+}
+
+export function openTasks() {
+  state.view = 'tasks'
+  void loadRuns()
+}
+
+/** 上次没做完的任务（按对话 ID） */
+export function interruptedRun(id: string | null) {
+  return id ? state.runs.interrupted.find((r) => r.conversationId === id) ?? null : null
+}
+
+/** 接着做上次没做完的任务：打开那个对话，发一句「继续」 */
+export async function resumeInterrupted(id: string) {
+  try {
+    if (state.currentId !== id || state.view !== 'chat') await openConversation(id)
+    const s = convState(id)
+    beginRun(s)
+    await bridge.resumeRun(id)
+    state.runs.interrupted = state.runs.interrupted.filter((r) => r.conversationId !== id)
+  } catch (e) {
+    convState(id).busy = false
+    fail(e)
+  }
+}
+
+export async function dismissInterrupted(id: string) {
+  try {
+    await bridge.dismissRun(id)
+    state.runs.interrupted = state.runs.interrupted.filter((r) => r.conversationId !== id)
+  } catch (e) {
+    fail(e)
+  }
+}
+
+/** 当前对话（或还没建的新对话）的长任务模式 */
+export async function setLongMode(on: boolean) {
+  const c = current.value
+  if (!c) {
+    draftMode.longMode = on
+    return
+  }
+  try {
+    if (await bridge.setLongMode(c.id, on)) c.longMode = on
+    else toast(i18n.global.t('ui.longTask.blocked'))
+  } catch (e) {
+    fail(e)
   }
 }
 
@@ -577,6 +738,7 @@ export async function openConversation(id: string) {
       s.loaded = true
       // 任务计划跟着对话保存，重新打开时还能看到做到哪一步
       if (!s.plan.length) s.plan = await bridge.loadPlan(id).catch(() => [])
+      void loadChanges(id)
     } catch (e) {
       s.loadError = errorText(e)
     }
@@ -605,6 +767,8 @@ export const draftMode = reactive({
   permission: 'workspace' as Permission,
   /** 新对话要呼叫的专家 */
   expertId: null as string | null,
+  /** 新对话开长任务模式 */
+  longMode: false,
 })
 
 // ---------- 工作区与权限 ----------
@@ -852,6 +1016,7 @@ export async function send(text: string): Promise<boolean> {
         c.translateFrom = draftMode.translateFrom
         c.translateTo = draftMode.translateTo
       }
+      if (draftMode.longMode && c.mode === 'agent' && (await bridge.setLongMode(c.id, true).catch(() => false))) c.longMode = true
       state.conversations.unshift(c)
       id = c.id
       state.currentId = id
@@ -864,7 +1029,12 @@ export async function send(text: string): Promise<boolean> {
     const messageId = newMessageId()
     s.messages.push({ id: messageId, role: 'user', content: body, attachments, createdAt: new Date().toISOString() })
     beginRun(s)
-    await bridge.send(id, body, attachments.map(forHost), messageId)
+    const r = await bridge.send(id, body, attachments.map(forHost), messageId)
+    // 宿主那边这一轮其实还没收尾：这句当插话收下了，AI 读到时会再推回来，先从对话里拿掉
+    if (r?.pending) {
+      const i = s.messages.findIndex((m) => m.id === messageId)
+      if (i >= 0) s.messages.splice(i, 1)
+    }
   } catch (e) {
     if (id) {
       const s = convState(id)
@@ -877,6 +1047,76 @@ export async function send(text: string): Promise<boolean> {
     }
   }
   return true
+}
+
+/**
+ * 运行中又发一句：steer 插话（AI 下一步就看到）/ queue 排到这一轮之后 / interrupt 停掉这一轮、优先处理这句。
+ * 对话没在运行就照常发送。带附件的话不能插话（附件要等这一轮结束再发）。
+ */
+export async function interject(text: string, mode: InterjectMode): Promise<boolean> {
+  const body = text.trim()
+  const id = state.currentId
+  if (!body || !id) return false
+  const s = convState(id)
+  if (!s.busy) return send(body)
+  if (state.pending.length > 0) {
+    toast(i18n.global.t('ui.interject.noFiles'))
+    return false
+  }
+  try {
+    if (await bridge.interject(id, body, mode, newMessageId())) return true
+    // 宿主说已经结束了、界面还没收到结束事件：等它一下再照常发
+    for (let i = 0; i < 30 && s.busy; i++) await new Promise((r) => setTimeout(r, 100))
+    return send(body)
+  } catch (e) {
+    fail(e)
+    return false
+  }
+}
+
+/** 暂停 / 继续当前对话的这一轮 */
+export async function togglePause() {
+  const id = state.currentId
+  if (!id) return
+  const s = convState(id)
+  try {
+    const was = !!s.paused
+    // 宿主也会推 chat.paused；这里按结果直接定下来，不用取反（事件可能先到）
+    if (await (was ? bridge.resume(id) : bridge.pause(id))) s.paused = !was
+  } catch (e) {
+    fail(e)
+  }
+}
+
+/** 待发的话改一下（AI 读到之前）；已经被读走了就提示一下 */
+export async function editPending(id: string, text: string) {
+  const conv = state.currentId
+  if (!conv) return false
+  try {
+    const ok = await bridge.updatePending(conv, id, text)
+    if (!ok) toast(i18n.global.t('ui.interject.taken'))
+    return ok
+  } catch (e) {
+    fail(e)
+    return false
+  }
+}
+
+/** 撤回待发的话；返回撤回的文字（放回输入框改），已经被读走返回 null */
+export async function withdrawPending(item: PendingInput): Promise<string | null> {
+  const conv = state.currentId
+  if (!conv) return null
+  try {
+    if (await bridge.removePending(conv, item.id)) {
+      const s = convState(conv)
+      s.inputs = s.inputs.filter((x) => x.id !== item.id)
+      return item.text
+    }
+    toast(i18n.global.t('ui.interject.taken'))
+  } catch (e) {
+    fail(e)
+  }
+  return null
 }
 
 function beginRun(s: ConversationState) {
@@ -1134,6 +1374,8 @@ function markRunning(conversationId: string): ConversationState {
 /** 一轮结束（正常结束或出错）：还在跑、还在等确认的工具卡片都算失败，收起压缩进度，刷新列表和用量 */
 function finishRun(s: ConversationState, conversationId: string) {
   s.busy = false
+  s.paused = false
+  void loadChanges(conversationId)
   s.draft = null
   for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
   // 专家的结束事件没收到（宿主那边出错、事件丢了）：向宿主要一次最终状态，卡片不要一直转圈
@@ -1158,7 +1400,10 @@ function onHostEvent(e: HostEvent) {
       break
     }
     case 'chat.message': {
-      const s = convState(e.conversationId)
+      // 用户的话由宿主推来：插话交给 AI 了，或者排队的话接着发了（这时新的一轮开始）
+      const s = e.message.role === 'user' ? markRunning(e.conversationId) : convState(e.conversationId)
+      if (e.message.role === 'user' && s.messages.some((m) => m.id === e.message.id)) break
+      if (e.message.role === 'user') s.inputs = s.inputs.filter((x) => x.id !== e.message.id)
       s.messages.push(e.message)
       if (e.message.role === 'assistant') s.draft = { content: '', reasoning: '' }
       break
@@ -1308,6 +1553,36 @@ function onHostEvent(e: HostEvent) {
       }
       break
     }
+    case 'sidechat.delta': {
+      const item = sideItem(e.requestId)
+      if (item) item.content += e.text
+      break
+    }
+    case 'sidechat.done': {
+      const item = sideItem(e.requestId)
+      if (item) {
+        if (!item.content && e.content) item.content = e.content
+        item.status = 'done'
+      }
+      break
+    }
+    case 'sidechat.error': {
+      const item = sideItem(e.requestId)
+      if (item) {
+        item.status = 'error'
+        item.content = item.content ? `${item.content}\n\n（${e.message}）` : e.message
+      }
+      break
+    }
+    case 'runs.changed':
+      refreshRunsSoon()
+      break
+    case 'chat.paused':
+      convState(e.conversationId).paused = e.paused
+      break
+    case 'chat.pending':
+      convState(e.conversationId).inputs = e.items
+      break
     case 'chat.notice': {
       const s = convState(e.conversationId)
       if (!s.notices.includes(e.text)) s.notices.push(e.text)
