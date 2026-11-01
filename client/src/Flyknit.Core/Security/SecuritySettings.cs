@@ -75,6 +75,9 @@ public sealed class SecuritySettings
 
     /// <summary>AI 浏览器（看得见的网页窗口里打开、读、点、填）。默认关闭，IT 打开后才有浏览器工具。</summary>
     public const string BrowserTools = "browser_tools";
+
+    /// <summary>后台命令（开发服务器、监听编译这类一直运行的程序）。默认关闭，IT 打开后 run_shell 才能 background=true。</summary>
+    public const string BackgroundCommands = "background_commands";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字

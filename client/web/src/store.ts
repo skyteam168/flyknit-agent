@@ -11,6 +11,7 @@ import type {
   PendingInput,
   RunsList,
   ChangeTurn,
+  TerminalRun,
   ConfirmChoice,
   Expert,
   McpVendor,
@@ -81,12 +82,14 @@ export const state = reactive({
   changes: {} as Record<string, ChangeTurn[]>,
   /** 侧聊（顺便问一句）：每个对话自己的问答，只在界面上，不写进任务对话 */
   sideChat: { open: false, byConv: {} as Record<string, SideItem[]> },
-  /** 右侧面板显示哪个标签：plan / preview / changes / browser / session */
+  /** 右侧面板显示哪个标签：plan / preview / changes / browser / terminal / session */
   rightTab: '' as string,
   /** 员工点了右侧面板的关闭：计划不再自动弹出，直到打开预览、会话信息或换对话 */
   rightClosed: false,
   /** AI 浏览器的状态（宿主推 browser.state） */
   browser: { active: false, url: '', title: '', action: '', shot: '' },
+  /** 终端：每个对话里 AI 执行过的命令和输出（宿主推 terminal.*，打开对话时取一次） */
+  terminal: {} as Record<string, TerminalRun[]>,
   /** 打开着的「改动的文件」对话框 */
   changesView: null as { conversationId: string; turnId: string } | null,
   /** 管理员发布的专家 */
@@ -554,6 +557,54 @@ function sideItem(requestId: string) {
   return undefined
 }
 
+// ---------- 终端 ----------
+
+/** 界面上每条命令最多留这么多字符的输出（只留最后的部分） */
+const TERMINAL_MAX_CHARS = 200_000
+
+export async function loadTerminal(conversationId: string) {
+  try {
+    state.terminal[conversationId] = await bridge.listTerminal(conversationId)
+  } catch (e) {
+    // 老版本宿主没有终端
+    console.warn('读取终端记录失败', e)
+  }
+}
+
+function terminalRun(conversationId: string, runId: string) {
+  return state.terminal[conversationId]?.find((r) => r.id === runId)
+}
+
+/** 宿主推来的开始 / 结束：有就更新（输出留着），没有就加上 */
+function upsertTerminalRun(run: TerminalRun) {
+  const list = (state.terminal[run.conversationId] ??= [])
+  const had = list.find((r) => r.id === run.id)
+  if (had) Object.assign(had, { ...run, output: had.output })
+  else list.push({ ...run, output: run.output ?? '' })
+}
+
+export async function stopTerminalRun(conversationId: string, runId: string) {
+  try {
+    await bridge.stopTerminal(conversationId, runId)
+  } catch (e) {
+    fail(e)
+  }
+}
+
+export async function clearTerminal(conversationId: string) {
+  try {
+    await bridge.clearTerminal(conversationId)
+    state.terminal[conversationId] = (state.terminal[conversationId] ?? []).filter((r) => r.running)
+  } catch (e) {
+    fail(e)
+  }
+}
+
+/** 这个对话有没有还在跑的后台命令（有就自动显示右侧面板，员工能看到、能停） */
+export function hasRunningBackground(conversationId: string | null | undefined) {
+  return !!conversationId && !!state.terminal[conversationId]?.some((r) => r.background && r.running)
+}
+
 // ---------- 改动的文件 ----------
 
 export async function loadChanges(conversationId: string) {
@@ -761,6 +812,7 @@ export async function openConversation(id: string) {
       // 任务计划跟着对话保存，重新打开时还能看到做到哪一步
       if (!s.plan.length) s.plan = await bridge.loadPlan(id).catch(() => [])
       void loadChanges(id)
+      if (!state.terminal[id]) void loadTerminal(id)
     } catch (e) {
       s.loadError = errorText(e)
     }
@@ -1609,6 +1661,22 @@ function onHostEvent(e: HostEvent) {
     case 'browser.state':
       state.browser = { active: e.active, url: e.url, title: e.title, action: e.action ?? '', shot: e.shot ?? state.browser.shot }
       if (e.active && !state.rightClosed) state.rightTab = 'browser'
+      break
+    case 'terminal.started':
+      upsertTerminalRun(e.run)
+      // 后台命令（开发服务器之类）一启动就切到终端，员工看得到、能随时停；普通命令只在终端标签里多一条
+      if (e.run.background && e.run.conversationId === state.currentId && !state.rightClosed) state.rightTab = 'terminal'
+      break
+    case 'terminal.output': {
+      const run = terminalRun(e.conversationId, e.runId)
+      if (run) {
+        const out = (run.output ?? '') + e.text
+        run.output = out.length > TERMINAL_MAX_CHARS ? out.slice(out.length - TERMINAL_MAX_CHARS) : out
+      }
+      break
+    }
+    case 'terminal.ended':
+      upsertTerminalRun(e.run)
       break
     case 'runs.changed':
       refreshRunsSoon()

@@ -912,6 +912,9 @@ export type HostEvent =
   | { type: 'chat.paused'; conversationId: string; paused: boolean }
   | { type: 'runs.changed' }
   | { type: 'browser.state'; active: boolean; url: string; title: string; action?: string; shot?: string }
+  | { type: 'terminal.started'; run: TerminalRun }
+  | { type: 'terminal.output'; conversationId: string; runId: string; text: string }
+  | { type: 'terminal.ended'; run: TerminalRun }
   | { type: 'sidechat.delta'; requestId: string; text: string }
   | { type: 'sidechat.done'; requestId: string; content?: string; stopped?: boolean }
   | { type: 'sidechat.error'; requestId: string; message: string }
@@ -1106,6 +1109,23 @@ export interface ChangeTurn {
   turnId: string
   at: string
   files: FileChangeInfo[]
+}
+
+/** 终端里的一条命令（AI 执行的；后台命令一直跑到被停掉） */
+export interface TerminalRun {
+  id: string
+  conversationId: string
+  command: string
+  shell: string
+  cwd: string
+  background: boolean
+  startedAt: string
+  endedAt?: string | null
+  running: boolean
+  stopped: boolean
+  exitCode?: number | null
+  /** terminal.list 时带着；事件里没有，靠 terminal.output 一段段拼 */
+  output?: string | null
 }
 
 export interface RevertOutcome {
