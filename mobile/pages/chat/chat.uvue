@@ -1,20 +1,52 @@
 <template>
-	<view class="page" :style="{ backgroundColor: c.loom }" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd" @touchcancel="onTouchEnd">
-		<!-- 主区域 -->
-		<view class="main" :style="{ paddingTop: px(statusBar) }">
-			<view class="topbar">
-				<view class="icon-btn" @click="openDrawer">
-					<fk-icon name="menu" :color="c.ink" :size="22"></fk-icon>
-				</view>
-				<view class="top-title" @click="openDrawer">
-					<text class="top-name" :style="{ color: c.ink }" :lines="1">{{ topTitle }}</text>
-					<view class="top-status">
-						<view class="dot" :style="{ backgroundColor: statusColor }"></view>
-						<text class="top-sub" :style="{ color: c.inkFaint }" :lines="1">{{ statusText }}</text>
+	<view class="page" :style="{ backgroundColor: c.sunk }" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd" @touchcancel="onTouchEnd">
+		<!-- 会话列表：在底层，主界面右推时露出来 -->
+		<view class="drawer" :style="{ width: px(drawerWidth), backgroundColor: c.sunk, paddingTop: px(statusBar) }">
+			<view class="drawer-head">
+				<image class="drawer-logo" src="/static/logo.png" mode="aspectFit"></image>
+				<text class="drawer-brand" :style="{ color: c.ink }">FlyknitBuddy</text>
+			</view>
+			<view class="new-btn" :style="{ backgroundColor: c.indigoWash }" @click="newChat">
+				<fk-icon name="jiahao" :color="c.indigo" :size="16"></fk-icon>
+				<text class="new-text" :style="{ color: c.indigo }">{{ t('chat.newChat') }}</text>
+			</view>
+			<scroll-view direction="vertical" class="conv-list" :show-scrollbar="false">
+				<view v-for="g in groups" :key="g.label" class="group">
+					<text class="group-label" :style="{ color: c.inkFaint }">{{ g.label }}</text>
+					<view v-for="cv in g.items" :key="cv.id" class="conv" :style="cv.id == currentId ? { backgroundColor: c.chip } : {}" @click="openConv(cv.id)" @longpress="convMenu(cv.id)">
+						<text class="conv-mode" :style="{ color: c.indigo, backgroundColor: c.indigoWash }">{{ modeShort(cv.mode) }}</text>
+						<text class="conv-title" :style="{ color: c.ink }" :lines="1">{{ convTitle(cv) }}</text>
 					</view>
 				</view>
-				<view class="icon-btn" @click="newChat">
-					<fk-icon name="jiahao" :color="c.ink" :size="22"></fk-icon>
+				<text v-if="conversations.length == 0" class="conv-empty" :style="{ color: c.inkFaint }">{{ t('chat.emptyConvs') }}</text>
+			</scroll-view>
+			<view class="me" :style="{ borderTopColor: c.line, paddingBottom: px(bottomInset + 12) }" @click="openSettings">
+				<view class="me-avatar" :style="{ backgroundColor: c.indigo }">
+					<text class="me-initial">{{ initial }}</text>
+				</view>
+				<view class="me-text">
+					<text class="me-name" :style="{ color: c.ink }" :lines="1">{{ userName }}</text>
+					<text class="me-pc" :style="{ color: c.inkFaint }" :lines="1">{{ machineName }} · {{ computerOnline ? t('chat.pcOnline') : t('chat.pcOffline') }}</text>
+				</view>
+				<text class="me-gear" :style="{ color: c.inkSoft }">{{ t('chat.settings') }}</text>
+			</view>
+		</view>
+
+		<!-- 主区域：打开会话列表时整体右移 -->
+		<view class="main" :style="{ backgroundColor: c.loom, paddingTop: px(statusBar), transform: 'translateX(' + px(openX) + ')', transitionDuration: dragging ? '0ms' : '220ms' }">
+			<view class="topbar">
+				<view class="top-row">
+					<view class="icon-btn" @click="openDrawer">
+						<fk-icon name="menu" :color="c.ink" :size="22"></fk-icon>
+					</view>
+					<text class="top-name" :style="{ color: c.ink }" :lines="1" @click="openDrawer">{{ topTitle }}</text>
+					<view class="icon-btn" @click="newChat">
+						<fk-icon name="shuyucaiji" :color="c.ink" :size="22"></fk-icon>
+					</view>
+				</view>
+				<view class="top-status" @click="openDrawer">
+					<view class="dot" :style="{ backgroundColor: statusColor }"></view>
+					<text class="top-sub" :style="{ color: c.inkFaint }" :lines="1">{{ statusText }}</text>
 				</view>
 			</view>
 
@@ -26,7 +58,7 @@
 			</view>
 			<scroll-view v-if="mode == 'translate'" direction="horizontal" class="langs">
 				<view class="langs-row">
-					<text class="langs-label" :style="{ color: c.inkFaint }">译成</text>
+					<text class="langs-label" :style="{ color: c.inkFaint }">{{ t('chat.translateTo') }}</text>
 					<view v-for="l in LANGS" :key="l.id" class="lang" :style="{ backgroundColor: l.id == target ? c.indigoWash : c.chip }" @click="setTarget(l.id)">
 						<text class="lang-text" :style="{ color: l.id == target ? c.indigo : c.inkSoft }">{{ l.label }}</text>
 					</view>
@@ -56,19 +88,19 @@
 					<!-- 办事：电脑上执行的任务卡片 -->
 					<view v-else-if="m.taskId > 0" class="task" :style="{ backgroundColor: c.sunk, borderColor: c.line }">
 						<view class="task-head">
-							<text class="task-title" :style="{ color: c.inkSoft }">在 {{ machineName }} 上执行</text>
+							<text class="task-title" :style="{ color: c.inkSoft }">{{ tf('chat.onPc', machineName) }}</text>
 							<text class="chip" :style="{ backgroundColor: taskChipBg(m.taskStatus), color: taskChipInk(m.taskStatus) }">{{ taskLabel(m.taskStatus) }}</text>
 						</view>
 						<!-- 办完了：过程收成一行，点开看每一步 -->
 						<view v-if="taskFolded(m)" class="fold" @click="toggleSteps(m.id)">
 							<text class="fold-text" :style="{ color: c.inkFaint }">{{ stepsSummary(m) }}</text>
-							<text class="fold-chev" :style="{ color: c.inkFaint }">{{ openSteps.includes(m.id) ? '收起' : '展开' }}</text>
+							<text class="fold-chev" :style="{ color: c.inkFaint }">{{ openSteps.includes(m.id) ? t('common.collapse') : t('common.expand') }}</text>
 						</view>
 						<view v-for="(st, sti) in visibleSteps(m)" :key="sti" class="step">
 							<view class="step-dot" :style="{ backgroundColor: c.lineStrong }"></view>
 							<text class="step-text" :style="{ color: c.inkSoft }" :lines="2">{{ st }}</text>
 						</view>
-						<text v-if="m.taskStatus == 'pending' || m.taskStatus == 'running'" class="task-wait" :style="{ color: c.inkFaint }">{{ m.taskStatus == 'pending' ? waitingText : '电脑正在处理，办完会推送到这里' }}</text>
+						<text v-if="m.taskStatus == 'pending' || m.taskStatus == 'running'" class="task-wait" :style="{ color: c.inkFaint }">{{ m.taskStatus == 'pending' ? waitingText : t('chat.taskRunning') }}</text>
 						<view v-if="m.taskStatus == 'succeeded' && m.content != ''" class="task-answer" :style="{ borderTopColor: c.line }">
 							<md-view :content="m.content" :font-size="prefs.fontSize"></md-view>
 						</view>
@@ -80,12 +112,12 @@
 						<!-- 联网搜索：胶囊「已搜索到 N 个网页」+ 站点图标，点开看来源 -->
 						<view v-if="m.searching == true" class="search-pill" :style="{ backgroundColor: c.sunk, borderColor: c.line }">
 							<view class="pulse" :style="{ backgroundColor: c.indigo }"></view>
-							<text class="search-pill-text" :style="{ color: c.inkSoft }">正在搜索网页…</text>
+							<text class="search-pill-text" :style="{ color: c.inkSoft }">{{ t('chat.searching') }}</text>
 						</view>
 						<view v-else-if="(m.sources ?? []).length > 0" class="sources">
 							<view class="search-pill" :style="{ backgroundColor: c.sunk, borderColor: c.line }" @click="toggleSources(m.id)">
 								<fk-icon name="hulianwangoff" :color="c.inkSoft" :size="14"></fk-icon>
-								<text class="search-pill-text" :style="{ color: c.inkSoft }">已搜索到 {{ (m.sources ?? []).length }} 个网页</text>
+								<text class="search-pill-text" :style="{ color: c.inkSoft }">{{ tf('chat.searched', (m.sources ?? []).length.toString()) }}</text>
 								<view class="fav-stack">
 									<image
 										v-for="(s, si) in sourcePreview(m)"
@@ -96,7 +128,7 @@
 										mode="aspectFill"
 									></image>
 								</view>
-								<text class="search-pill-chev" :style="{ color: c.inkFaint }">{{ openSources.includes(m.id) ? '▾' : '▸' }}</text>
+								<fk-icon class="search-pill-chev" :name="openSources.includes(m.id) ? 'icchevronmore' : 'xiangyou'" :color="c.inkFaint" :size="12"></fk-icon>
 							</view>
 							<view v-if="openSources.includes(m.id)" class="source-list">
 								<view v-for="(s, si) in m.sources" :key="si" class="source" :style="{ backgroundColor: c.cloth, borderColor: c.line }" @click="openSource(s.url)">
@@ -113,13 +145,13 @@
 							<view class="think-head" @click="toggleReasoning(m.id)">
 								<fk-icon name="aisikao" :color="c.inkFaint" :size="14"></fk-icon>
 								<text class="think-title" :style="{ color: c.inkFaint }">{{ thinkTitle(m) }}</text>
-								<text class="think-chev" :style="{ color: c.inkFaint }">{{ openReasoning.includes(m.id) || m.status == 'thinking' ? '▾' : '▸' }}</text>
+								<fk-icon class="think-chev" :name="openReasoning.includes(m.id) || m.status == 'thinking' ? 'icchevronmore' : 'xiangyou'" :color="c.inkFaint" :size="12"></fk-icon>
 							</view>
 							<text v-if="(openReasoning.includes(m.id) || m.status == 'thinking') && reasoningTail(m) != ''" class="reasoning" :style="{ color: c.inkSoft, borderLeftColor: c.lineStrong }">{{ reasoningTail(m) }}</text>
 						</view>
 						<view v-if="m.content == '' && m.searching != true && (m.status == 'streaming' || (!deepThinking && m.status == 'thinking'))" class="thinking">
 							<view class="pulse" :style="{ backgroundColor: c.indigo }"></view>
-							<text class="thinking-text" :style="{ color: c.inkFaint }">正在回答…</text>
+							<text class="thinking-text" :style="{ color: c.inkFaint }">{{ t('chat.answering') }}</text>
 						</view>
 						<!-- contentRev：强制 md-view 跟着流式正文刷新（仅改 prop 时子组件偶发不更新） -->
 						<md-view v-else-if="m.content != '' && m.status != 'error'" :content="m.content" :content-rev="state.msgRev" :font-size="prefs.fontSize"></md-view>
@@ -147,10 +179,10 @@
 			<view class="composer" :style="{ paddingBottom: px(bottomInset + 8) }">
 				<!-- 回答还没完又发的话：排着，回答完按顺序发；发出去之前能撤回、拿回输入框改 -->
 				<view v-for="q in queuedHere" :key="q.id" class="queued" :style="{ backgroundColor: c.sunk, borderColor: c.lineStrong }">
-					<text class="queued-tag" :style="{ color: c.inkSoft }">排队</text>
+					<text class="queued-tag" :style="{ color: c.inkSoft }">{{ t('chat.queue') }}</text>
 					<text class="queued-text" :style="{ color: c.ink }" :lines="1">{{ q.text }}</text>
-					<text class="queued-btn" :style="{ color: c.indigo }" @click="editQueued(q.id)">改</text>
-					<text class="queued-btn" :style="{ color: c.inkFaint }" @click="dropQueued(q.id)">撤回</text>
+					<text class="queued-btn" :style="{ color: c.indigo }" @click="editQueued(q.id)">{{ t('chat.edit') }}</text>
+					<text class="queued-btn" :style="{ color: c.inkFaint }" @click="dropQueued(q.id)">{{ t('chat.withdraw') }}</text>
 				</view>
 				<text v-if="busyHint != ''" class="busy-hint" :style="{ color: c.inkFaint }">{{ busyHint }}</text>
 				<view v-if="pendingImages.length > 0" class="attach-row">
@@ -161,9 +193,9 @@
 				</view>
 				<!-- 模型单独一行，不挤占上传/语音 -->
 				<view class="model-row" @click="pickModel">
-					<text class="model-label" :style="{ color: c.inkFaint }">模型</text>
+					<text class="model-label" :style="{ color: c.inkFaint }">{{ t('chat.model') }}</text>
 					<text class="model-name" :style="{ color: c.inkSoft }" :lines="1">{{ modelChip }}</text>
-					<text class="model-chev" :style="{ color: c.inkFaint }">▾</text>
+					<fk-icon class="model-chev" :name="modelPickerOpen ? 'icchevronless' : 'icchevronmore'" :color="c.inkFaint" :size="12"></fk-icon>
 				</view>
 				<view class="box" :style="{ backgroundColor: c.cloth, borderColor: c.lineStrong }">
 					<textarea
@@ -182,11 +214,11 @@
 						<view class="tool-row chips">
 							<view class="chip-btn" :style="deepThinking ? { backgroundColor: c.indigoWash } : { backgroundColor: c.chip }" @click="toggleDeep">
 								<fk-icon name="aisikao" :color="deepThinking ? c.indigo : c.inkSoft" :size="15"></fk-icon>
-								<text class="chip-text" :style="{ color: deepThinking ? c.indigo : c.inkSoft }">深度思考</text>
+								<text class="chip-text" :style="{ color: deepThinking ? c.indigo : c.inkSoft }">{{ t('chat.deepThinking') }}</text>
 							</view>
 							<view class="chip-btn" :style="webSearchOn ? { backgroundColor: c.indigoWash } : { backgroundColor: c.chip }" @click="toggleWeb">
 								<fk-icon name="hulianwangoff" :color="webSearchOn ? c.indigo : c.inkSoft" :size="15"></fk-icon>
-								<text class="chip-text" :style="{ color: webSearchOn ? c.indigo : c.inkSoft }">智能搜索</text>
+								<text class="chip-text" :style="{ color: webSearchOn ? c.indigo : c.inkSoft }">{{ t('chat.webSearch') }}</text>
 							</view>
 						</view>
 						<view class="tool-row end">
@@ -213,57 +245,26 @@
 					</view>
 				</view>
 			</view>
-		</view>
-
-		<!-- 左侧对话管理：从屏幕左边缘向右滑打开，向左滑或点遮罩关闭 -->
-		<view v-if="drawerX > -drawerWidth" class="mask" :style="{ backgroundColor: c.mask, opacity: (drawerX + drawerWidth) / drawerWidth }" @click="closeDrawer"></view>
-		<view class="drawer" :style="{ width: px(drawerWidth), backgroundColor: c.sunk, paddingTop: px(statusBar), transform: 'translateX(' + px(drawerX) + ')', transitionDuration: dragging ? '0ms' : '220ms' }">
-			<view class="drawer-head">
-				<image class="drawer-logo" src="/static/logo.png" mode="aspectFit"></image>
-				<text class="drawer-brand" :style="{ color: c.ink }">FlyknitBuddy</text>
-			</view>
-			<view class="new-btn" :style="{ backgroundColor: c.indigoWash }" @click="newChat">
-				<fk-icon name="jiahao" :color="c.indigo" :size="16"></fk-icon>
-				<text class="new-text" :style="{ color: c.indigo }">新对话</text>
-			</view>
-			<scroll-view direction="vertical" class="conv-list" :show-scrollbar="false">
-				<view v-for="g in groups" :key="g.label" class="group">
-					<text class="group-label" :style="{ color: c.inkFaint }">{{ g.label }}</text>
-					<view v-for="cv in g.items" :key="cv.id" class="conv" :style="cv.id == currentId ? { backgroundColor: c.chip } : {}" @click="openConv(cv.id)" @longpress="convMenu(cv.id)">
-						<text class="conv-mode" :style="{ color: c.indigo, backgroundColor: c.indigoWash }">{{ modeShort(cv.mode) }}</text>
-						<text class="conv-title" :style="{ color: c.ink }" :lines="1">{{ convTitle(cv) }}</text>
-					</view>
-				</view>
-				<text v-if="conversations.length == 0" class="conv-empty" :style="{ color: c.inkFaint }">还没有对话</text>
-			</scroll-view>
-			<view class="me" :style="{ borderTopColor: c.line, paddingBottom: px(bottomInset + 12) }" @click="openSettings">
-				<view class="me-avatar" :style="{ backgroundColor: c.indigo }">
-					<text class="me-initial">{{ initial }}</text>
-				</view>
-				<view class="me-text">
-					<text class="me-name" :style="{ color: c.ink }" :lines="1">{{ userName }}</text>
-					<text class="me-pc" :style="{ color: c.inkFaint }" :lines="1">{{ machineName }} · {{ computerOnline ? '电脑在线' : '电脑离线' }}</text>
-				</view>
-				<text class="me-gear" :style="{ color: c.inkSoft }">设置</text>
-			</view>
+			<!-- 半透明遮罩：点按或左滑关闭 -->
+			<view v-if="openX > 0" class="mask" :style="{ backgroundColor: c.mask, opacity: openX / drawerWidth * 0.45 }" @click="closeDrawer"></view>
 		</view>
 
 		<!-- 电脑上执行到需要确认的操作 -->
 		<view v-if="approval != null" class="sheet-mask" :style="{ backgroundColor: c.mask }">
 			<view class="sheet" :style="{ backgroundColor: c.cloth, paddingBottom: px(bottomInset + 16) }">
-				<text class="sheet-kicker" :style="{ color: c.amber }">需要你确认</text>
-				<text class="sheet-title" :style="{ color: c.ink }">电脑上要执行这一步</text>
+				<text class="sheet-kicker" :style="{ color: c.amber }">{{ t('chat.needConfirm') }}</text>
+				<text class="sheet-title" :style="{ color: c.ink }">{{ t('chat.needConfirmTitle') }}</text>
 				<view class="sheet-box" :style="{ backgroundColor: c.amberWash }">
 					<text class="sheet-summary" :style="{ color: c.ink }" :selectable="true">{{ approvalSummary }}</text>
 					<text v-if="approvalDetail != ''" class="sheet-detail" :style="{ color: c.inkSoft }">{{ approvalDetail }}</text>
 				</view>
-				<text class="sheet-note" :style="{ color: c.inkFaint }">只放行这一次。不确定就拒绝，回到电脑上看清楚再做。</text>
+				<text class="sheet-note" :style="{ color: c.inkFaint }">{{ t('chat.needConfirmNote') }}</text>
 				<view class="sheet-actions">
 					<view class="sheet-btn" :style="{ backgroundColor: c.chip }" @click="answer(false)">
-						<text class="sheet-btn-text" :style="{ color: c.ink }">拒绝</text>
+						<text class="sheet-btn-text" :style="{ color: c.ink }">{{ t('chat.reject') }}</text>
 					</view>
 					<view class="sheet-btn" :style="{ backgroundColor: c.action }" @click="answer(true)">
-						<text class="sheet-btn-text" :style="{ color: c.actionInk }">批准</text>
+						<text class="sheet-btn-text" :style="{ color: c.actionInk }">{{ t('chat.approve') }}</text>
 					</view>
 				</view>
 			</view>
@@ -279,16 +280,20 @@
 	import { answerApproval, connect, sendChat, stopChat } from '../../common/socket.uts'
 	import { ModelInfo, bodyFontPx, bodyLinePx, modelLabel, prefs, refreshModels, setDeepThinking, setModelId, setWebSearch } from '../../common/prefs.uts'
 	import { PickedImage, pickFromAlbum, takePhoto, transcribeFile, voiceUnsupported } from '../../common/media.uts'
+	import { i18n, t, tf } from '../../common/i18n.uts'
 	import FkIcon from '../../components/fk-icon/fk-icon.uvue'
 
 	type ModeItem = { id : string, label : string }
 	type Group = { label : string, items : Array<Conv> }
 
-	const MODES = [
-		{ id: 'chat', label: '对话' } as ModeItem,
-		{ id: 'translate', label: '翻译' } as ModeItem,
-		{ id: 'agent', label: '办事' } as ModeItem
-	]
+	const MODES = computed(() : Array<ModeItem> => {
+		const _ = i18n.locale
+		return [
+			{ id: 'chat', label: t('chat.modeChat') } as ModeItem,
+			{ id: 'translate', label: t('chat.modeTranslate') } as ModeItem,
+			{ id: 'agent', label: t('chat.modeAgent') } as ModeItem
+		]
+	})
 	const LANGS = [
 		{ id: 'zh', label: '中文' } as ModeItem,
 		{ id: 'vi', label: 'Tiếng Việt' } as ModeItem,
@@ -313,6 +318,7 @@
 	const pendingImages = ref<Array<PickedImage>>([] as Array<PickedImage>)
 	const openReasoning = ref<Array<string>>([] as Array<string>)
 	const openSources = ref<Array<string>>([] as Array<string>)
+	const modelPickerOpen = ref(false)
 	const recording = ref(false)
 	let recorder : RecorderManager | null = null
 	const deepThinking = computed(() : boolean => prefs.deepThinking)
@@ -377,52 +383,61 @@
 		return t.length > 16 ? t.substring(0, 16) + '…' : t
 	})
 	const statusText = computed(() : string => {
-		if (state.socket == 'connecting') return '正在连接…'
-		if (state.socket != 'open') return '未连接，重试中'
-		const name = state.machineName != '' ? state.machineName : '电脑'
-		return name + (state.computerOnline ? ' · 在线' : ' · 离线')
+		const _ = i18n.locale
+		if (state.socket == 'connecting') return t('chat.connecting')
+		if (state.socket != 'open') return t('chat.reconnect')
+		const name = state.machineName != '' ? state.machineName : t('common.computer')
+		return tf(state.computerOnline ? 'chat.statusOnline' : 'chat.statusOffline', name)
 	})
 	const statusColor = computed(() : string => {
 		if (state.socket != 'open') return c.value.amber
 		return state.computerOnline ? c.value.thread : c.value.inkFaint
 	})
 	const greeting = computed(() : string => {
+		const _ = i18n.locale
 		const h = new Date().getHours()
-		const part = h < 11 ? '早上好' : (h < 14 ? '中午好' : (h < 18 ? '下午好' : '晚上好'))
+		const part = h < 11 ? t('chat.hiMorning') : (h < 14 ? t('chat.hiNoon') : (h < 18 ? t('chat.hiAfternoon') : t('chat.hiEvening')))
 		const name = state.userName
 		return name != '' ? part + '，' + name : part
 	})
 	const modeHint = computed(() : string => {
-		if (mode.value == 'translate') return '输入或粘贴要翻译的内容，选好目标语言'
-		if (mode.value == 'agent') return '交给你电脑上的 FlyknitBuddy 去办：找文件、整理表格、看邮件……进度和结果会实时回到这里'
-		return '有什么问题尽管问'
+		const _ = i18n.locale
+		if (mode.value == 'translate') return t('chat.hintTranslate')
+		if (mode.value == 'agent') return t('chat.hintAgent')
+		return t('chat.hintChat')
 	})
 	const suggestions = computed(() : Array<string> => {
+		const _ = i18n.locale
 		if (mode.value == 'agent') {
-			return ['把今天的未读邮件整理成要点', '找一下 D 盘最新的质检周报，告诉我结论', '把桌面上的表格按车间汇总一下']
+			return [t('chat.suggestAgent1'), t('chat.suggestAgent2'), t('chat.suggestAgent3')]
 		}
 		if (mode.value == 'chat') {
-			return ['帮我写一段请假说明', '解释一下什么是 OEE', '把这句话改得更礼貌：明天之前必须给我']
+			return [t('chat.suggestChat1'), t('chat.suggestChat2'), t('chat.suggestChat3')]
 		}
 		return [] as Array<string>
 	})
 	const placeholder = computed(() : string => {
-		if (mode.value == 'translate') return '输入要翻译的内容'
-		if (mode.value == 'agent') return '让电脑帮你做什么？'
-		return '发消息或按住说话'
+		const _ = i18n.locale
+		if (mode.value == 'translate') return t('chat.phTranslate')
+		if (mode.value == 'agent') return t('chat.phAgent')
+		return t('chat.phChat')
 	})
-	const waitingText = computed(() : string => state.computerOnline ? '已交给电脑，马上开始' : '电脑现在不在线，开机并打开 FlyknitBuddy 后 30 分钟内会接着办')
+	const waitingText = computed(() : string => {
+		const _ = i18n.locale
+		return state.computerOnline ? t('chat.waitingOnline') : t('chat.waitingOffline')
+	})
 
 	const groups = computed(() : Array<Group> => {
+		const _ = i18n.locale
 		const now = new Date()
 		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
 		const yesterday = today - 86400000
 		const week = today - 6 * 86400000
 		const g = [
-			{ label: '今天', items: [] as Array<Conv> } as Group,
-			{ label: '昨天', items: [] as Array<Conv> } as Group,
-			{ label: '最近 7 天', items: [] as Array<Conv> } as Group,
-			{ label: '更早', items: [] as Array<Conv> } as Group
+			{ label: t('chat.groupToday'), items: [] as Array<Conv> } as Group,
+			{ label: t('chat.groupYesterday'), items: [] as Array<Conv> } as Group,
+			{ label: t('chat.groupWeek'), items: [] as Array<Conv> } as Group,
+			{ label: t('chat.groupEarlier'), items: [] as Array<Conv> } as Group
 		]
 		state.conversations.forEach((cv : Conv) => {
 			if (cv.messages.length == 0) {
@@ -499,24 +514,24 @@
 	function convTitle(cv : Conv) : string {
 		if (cv.title != '') return cv.title
 		const first = cv.messages.find((m : Msg) : boolean => m.role == 'user')
-		return first != null ? first.content : '新对话'
+		return first != null ? first.content : t('chat.newChat')
 	}
 
 	function modeShort(m : string) : string {
-		if (m == 'translate') return '译'
-		if (m == 'agent') return '办'
-		return '聊'
+		if (m == 'translate') return t('chat.modeShortTranslate')
+		if (m == 'agent') return t('chat.modeShortAgent')
+		return t('chat.modeShortChat')
 	}
 
 	function convMenu(id : string) {
 		uni.showActionSheet({
-			itemList: ['重命名', '删除'],
+			itemList: [t('chat.rename'), t('common.delete')],
 			success: (res) => {
 				if (res.tapIndex == 0) {
 					uni.showModal({
-						title: '重命名',
+						title: t('chat.renameTitle'),
 						editable: true,
-						placeholderText: '对话名称',
+						placeholderText: t('chat.renamePh'),
 						success: (r) => {
 							if (r.confirm && (r.content ?? '').trim() != '') {
 								renameConv(id, (r.content ?? '').trim())
@@ -525,8 +540,10 @@
 					})
 				} else if (res.tapIndex == 1) {
 					uni.showModal({
-						title: '删除对话',
-						content: '只删除手机上的记录。办事在电脑上留下的对话不受影响。',
+						title: t('chat.deleteConv'),
+						content: t('chat.deleteContent'),
+						confirmText: t('common.delete'),
+						cancelText: t('common.cancel'),
 						success: (r) => {
 							if (r.confirm) {
 								removeConv(id)
@@ -570,9 +587,10 @@
 		return null
 	})
 	const busyHint = computed(() : string => {
+		const _ = i18n.locale
 		if (draft.value.trim() == '') return ''
-		if (runningTask.value != null) return '电脑正在办：发送 = 插话（不打断），长按发送可以打断或排到后面'
-		if (streaming.value != null) return '正在回答：发送会排在这个回答之后，长按发送可以打断'
+		if (runningTask.value != null) return t('chat.busyAgent')
+		if (streaming.value != null) return t('chat.busyStream')
 		return ''
 	})
 
@@ -585,7 +603,7 @@
 		const task = runningTask.value
 		if (task != null) {
 			uni.showActionSheet({
-				itemList: ['插话（不打断，AI 下一步就看到）', '打断并优先处理这句', '排到这件事之后'],
+				itemList: [t('chat.steerOpt'), t('chat.interruptOpt'), t('chat.queueOpt')],
 				success: (r) => {
 					const how = r.tapIndex == 0 ? 'steer' : (r.tapIndex == 1 ? 'interrupt' : 'queue')
 					void sendInput(task, text, how)
@@ -595,14 +613,14 @@
 		}
 		if (streaming.value != null) {
 			uni.showActionSheet({
-				itemList: ['排到这个回答之后', '打断并发送'],
+				itemList: [t('chat.queueAfterAnswer'), t('chat.interruptSend')],
 				success: (r) => {
 					if (r.tapIndex == 0) {
 						queueLocal(text)
 					} else {
 						stop()
 						draft.value = ''
-						void sendText(text, '打断')
+						void sendText(text, t('chat.tagInterrupt'))
 					}
 				}
 			})
@@ -641,7 +659,7 @@
 		}
 		const next = queued.value[i]
 		queued.value.splice(i, 1)
-		void sendText(next.text, '排队')
+		void sendText(next.text, t('chat.tagQueue'))
 	})
 
 	/** 办事：电脑正在办的时候又说了一句（插话 / 打断 / 排队），交给服务端转给电脑 */
@@ -651,31 +669,32 @@
 			return
 		}
 		draft.value = ''
-		const tag = how == 'steer' ? '插话' : (how == 'interrupt' ? '打断' : '排队')
+		const tag = how == 'steer' ? t('chat.tagSteer') : (how == 'interrupt' ? t('chat.tagInterrupt') : t('chat.tagQueue'))
 		const user = newMsg('user', text, 'done')
 		user.tag = tag
 		cv.messages.push(user)
 		touch(cv)
 		const res = await request('POST', '/api/v1/mobile/tasks/' + task.taskId.toString() + '/input', { text: text, mode: how } as UTSJSONObject)
 		if (!res.ok || res.data == null) {
-			const err = newMsg('assistant', '没交给电脑：' + res.error, 'error')
+			const err = newMsg('assistant', tf('chat.notToPc', res.error), 'error')
 			cv.messages.push(err)
 			saveConversations()
 			return
 		}
 		const body = res.data as UTSJSONObject
 		const delivered = body.getString('delivered') ?? ''
-		const t = body.getJSON('task')
-		if (delivered == 'task' && t != null) {
+		const taskJson = body.getJSON('task')
+		if (delivered == 'task' && taskJson != null) {
 			// 作为新的一件事排上了：给它一张自己的任务卡片
 			const card = newMsg('assistant', '', 'task')
-			card.taskId = t.getNumber('id') ?? 0
-			card.taskStatus = t.getString('status') ?? 'pending'
+			card.taskId = taskJson.getNumber('id') ?? 0
+			card.taskStatus = taskJson.getString('status') ?? 'pending'
 			cv.messages.push(card)
 		} else if (delivered == 'steer') {
-			task.steps.push('补充：' + (text.length > 30 ? text.substring(0, 30) + '…' : text))
+			const clip = text.length > 30 ? text.substring(0, 30) + '…' : text
+			task.steps.push(tf('chat.supplement', clip))
 		} else if (delivered == 'merged') {
-			task.steps.push('补充已并入这件事')
+			task.steps.push(t('chat.supplementMerged'))
 		}
 		saveConversations()
 	}
@@ -690,7 +709,7 @@
 		const task = runningTask.value
 		if (task != null && mode.value == 'agent') {
 			if (text == '') {
-				uni.showToast({ title: '办事请先输入文字', icon: 'none' })
+				uni.showToast({ title: t('chat.agentNeedText'), icon: 'none' })
 				return
 			}
 			await sendInput(task, text, 'steer')
@@ -710,7 +729,7 @@
 	async function sendText(text : string, tag : string, images : Array<PickedImage> = []) {
 		if (state.socket != 'open' && mode.value != 'agent') {
 			connect()
-			uni.showToast({ title: '正在连接服务器，请稍候再发', icon: 'none' })
+			uni.showToast({ title: t('chat.connectingSend'), icon: 'none' })
 			return
 		}
 		let cv = conv.value
@@ -719,7 +738,7 @@
 		}
 		const theConv = cv!
 		if (theConv.title == '') {
-			const seed = text != '' ? text : '图片'
+			const seed = text != '' ? text : t('chat.image')
 			theConv.title = seed.length > 18 ? seed.substring(0, 18) + '…' : seed
 		}
 		const user = newMsg('user', text, 'done')
@@ -741,7 +760,7 @@
 		const urls = images.map((x : PickedImage) : string => x.dataUrl)
 		if (!sendChat(theConv, live, urls)) {
 			live.status = 'error'
-			live.content = '没连上服务器，请稍后再试'
+			live.content = t('chat.noServer')
 		}
 		saveConversations()
 	}
@@ -755,13 +774,13 @@
 		if (!res.ok || res.data == null) {
 			live.taskId = 0
 			live.status = 'error'
-			live.content = '没交给电脑：' + res.error
+			live.content = tf('chat.notToPc', res.error)
 			saveConversations()
 			return
 		}
-		const t = res.data as UTSJSONObject
-		live.taskId = t.getNumber('id') ?? 0
-		live.taskStatus = t.getString('status') ?? 'pending'
+		const body = res.data as UTSJSONObject
+		live.taskId = body.getNumber('id') ?? 0
+		live.taskStatus = body.getString('status') ?? 'pending'
 		cv.agentStarted = true
 		saveConversations()
 	}
@@ -786,14 +805,14 @@
 
 	function thinkTitle(m : Msg) : string {
 		if (m.status == 'thinking' && m.content == '') {
-			return '正在思考…'
+			return t('chat.thinking')
 		}
 		const ms = m.reasoningMs ?? 0
 		if (ms > 0) {
 			const sec = Math.max(1, Math.round(ms / 1000))
-			return '已思考（用时 ' + sec.toString() + ' 秒）'
+			return tf('chat.thoughtSec', sec.toString())
 		}
-		return (m.reasoning ?? '') != '' ? '已思考' : '思考过程'
+		return (m.reasoning ?? '') != '' ? t('chat.thought') : t('chat.thoughtProcess')
 	}
 
 	function toggleReasoning(id : string) {
@@ -807,7 +826,7 @@
 
 	function toggleDeep() {
 		if (mode.value == 'translate') {
-			uni.showToast({ title: '翻译不需要深度思考，会直接出译文', icon: 'none' })
+			uni.showToast({ title: t('chat.noDeepTranslate'), icon: 'none' })
 			return
 		}
 		setDeepThinking(!prefs.deepThinking)
@@ -815,15 +834,15 @@
 
 	function toggleWeb() {
 		if (mode.value == 'translate') {
-			uni.showToast({ title: '翻译不需要联网搜索', icon: 'none' })
+			uni.showToast({ title: t('chat.noWebTranslate'), icon: 'none' })
 			return
 		}
 		if (mode.value == 'agent') {
-			uni.showToast({ title: '办事时由电脑执行，请在对话里用联网', icon: 'none' })
+			uni.showToast({ title: t('chat.noWebAgent'), icon: 'none' })
 			return
 		}
 		if (!state.webSearchEnabled) {
-			uni.showToast({ title: '管理员未开启联网搜索', icon: 'none' })
+			uni.showToast({ title: t('chat.webOff'), icon: 'none' })
 			return
 		}
 		setWebSearch(!prefs.webSearch)
@@ -863,20 +882,33 @@
 		if (url == '') {
 			return
 		}
-		try {
-			plus.runtime.openURL(url)
-		} catch (err) {
-			uni.setClipboardData({ data: url })
-			uni.showToast({ title: '链接已复制', icon: 'none' })
-		}
+		// uni-app x 不提供 plus / uni.openUrl；外链用复制 + 提示（等同 uni-link 的 copy-link-modal）
+		uni.setClipboardData({
+			data: url,
+			success: () => {
+				uni.showModal({
+					title: t('chat.openLink'),
+					content: t('chat.openLinkBody'),
+					showCancel: false,
+					confirmText: t('common.ok')
+				})
+			},
+			fail: (_ : any) => {
+				uni.showToast({ title: t('chat.copyFail'), icon: 'none' })
+			}
+		})
 	}
 
 	function pickModel() {
+		if (modelPickerOpen.value) {
+			return
+		}
 		void refreshModels().then(() => {
-			const items = ['自动（优先 Flash）'] as Array<string>
+			const items = [t('common.autoFlash')] as Array<string>
 			prefs.models.forEach((m : ModelInfo) => {
-				items.push(m.name + (m.supportsVision ? ' · 看图' : ''))
+				items.push(m.name + (m.supportsVision ? ' · ' + t('chat.vision') : ''))
 			})
+			modelPickerOpen.value = true
 			uni.showActionSheet({
 				itemList: items,
 				success: (r) => {
@@ -888,6 +920,9 @@
 							setModelId(m.id)
 						}
 					}
+				},
+				complete: () => {
+					modelPickerOpen.value = false
 				}
 			})
 		})
@@ -895,7 +930,7 @@
 
 	function attachMenu() {
 		uni.showActionSheet({
-			itemList: ['拍照', '从相册选择'],
+			itemList: [t('chat.photo'), t('chat.album')],
 			success: (r) => {
 				const job = r.tapIndex == 0 ? takePhoto() : pickFromAlbum()
 				void job.then((img : PickedImage | null) => {
@@ -914,16 +949,16 @@
 		m.feedback = (m.feedback ?? '') == kind ? '' : kind
 		saveConversations()
 		if (m.feedback == 'up') {
-			uni.showToast({ title: '已点赞', icon: 'none' })
+			uni.showToast({ title: t('chat.liked'), icon: 'none' })
 		} else if (m.feedback == 'down') {
-			uni.showToast({ title: '已反馈，我们会改进', icon: 'none' })
+			uni.showToast({ title: t('chat.disliked'), icon: 'none' })
 		}
 	}
 
 	/** 用上一条用户话重问：删掉这条及之后的助手回答，再生成一次 */
 	function regenerate(m : Msg) {
 		if (streaming.value != null) {
-			uni.showToast({ title: '请等当前回答结束', icon: 'none' })
+			uni.showToast({ title: t('chat.waitAnswer'), icon: 'none' })
 			return
 		}
 		const cv = conv.value
@@ -932,7 +967,7 @@
 		}
 		if (state.socket != 'open') {
 			connect()
-			uni.showToast({ title: '正在连接服务器，请稍候再试', icon: 'none' })
+			uni.showToast({ title: t('chat.connectingRetry'), icon: 'none' })
 			return
 		}
 		const idx = cv.messages.findIndex((x : Msg) : boolean => x.id == m.id)
@@ -947,7 +982,7 @@
 			}
 		}
 		if (!hasUser) {
-			uni.showToast({ title: '找不到要重问的内容', icon: 'none' })
+			uni.showToast({ title: t('chat.noRegen'), icon: 'none' })
 			return
 		}
 		cv.messages.splice(idx, cv.messages.length - idx)
@@ -957,7 +992,7 @@
 		const live = cv.messages[cv.messages.length - 1]
 		if (!sendChat(cv, live)) {
 			live.status = 'error'
-			live.content = '没连上服务器，请稍后再试'
+			live.content = t('chat.noServer')
 		}
 		touch(cv)
 		saveConversations()
@@ -986,7 +1021,7 @@
 				})
 				recorder.onError((_) => {
 					recording.value = false
-					uni.showToast({ title: '录音失败', icon: 'none' })
+					uni.showToast({ title: t('chat.recFail'), icon: 'none' })
 				})
 			}
 			recording.value = true
@@ -1005,12 +1040,12 @@
 	}
 
 	function taskLabel(s : string) : string {
-		if (s == 'sending') return '提交中'
-		if (s == 'pending') return '等电脑'
-		if (s == 'running') return '处理中'
-		if (s == 'succeeded') return '完成'
-		if (s == 'failed') return '没办成'
-		if (s == 'expired') return '已取消'
+		if (s == 'sending') return t('chat.taskSending')
+		if (s == 'pending') return t('chat.taskPending')
+		if (s == 'running') return t('chat.taskRunningLabel')
+		if (s == 'succeeded') return t('chat.taskDone')
+		if (s == 'failed') return t('chat.taskFailed')
+		if (s == 'expired') return t('chat.taskExpired')
 		return s
 	}
 
@@ -1056,11 +1091,15 @@
 		}
 	}
 
+	function isRejectedStep(x : string) : boolean {
+		return x.startsWith(t('chat.rejectedPrefix')) || x.startsWith('已拒绝：') || x.startsWith('Từ chối: ') || x.startsWith('Rejected: ')
+	}
+
 	function stepsSummary(m : Msg) : string {
-		const bad = m.steps.filter((x : string) : boolean => x.startsWith('已拒绝：')).length
-		let text = '电脑上执行了 ' + m.steps.length.toString() + ' 步'
+		const bad = m.steps.filter((x : string) : boolean => isRejectedStep(x)).length
+		let text = tf('chat.stepsSummary', m.steps.length.toString())
 		if (bad > 0) {
-			text += '（' + bad.toString() + ' 步被拒绝）'
+			text += tf('chat.stepsRejected', bad.toString())
 		}
 		return text
 	}
@@ -1078,25 +1117,39 @@
 		}
 	}
 
-	// ---------- 抽屉：边缘右滑打开，左滑关闭 ----------
+	// ---------- 抽屉：左缘右滑打开（主界面右推），左滑关闭；打开时短震动 ----------
 
-	const drawerX = ref(-drawerWidth)
+	/** 主界面右移距离：0=关，drawerWidth=开 */
+	const openX = ref(0)
 	const dragging = ref(false)
 	let startX = 0
 	let startY = 0
-	let startDrawer = 0
+	let startOpen = 0
 	/** none / maybe / drag：先看手指往哪个方向走，横着走才拖抽屉，竖着走留给列表滚动 */
 	let gesture = 'none'
+	let didHaptic = false
+
+	function hapticOpen() {
+		uni.vibrateShort({
+			type: 'medium',
+			fail: (_ : any) => {}
+		})
+	}
 
 	function openDrawer() {
 		uni.hideKeyboard()
 		dragging.value = false
-		drawerX.value = 0
+		const wasClosed = openX.value < drawerWidth
+		openX.value = drawerWidth
+		if (wasClosed) {
+			hapticOpen()
+		}
 	}
 
 	function closeDrawer() {
 		dragging.value = false
-		drawerX.value = -drawerWidth
+		openX.value = 0
+		didHaptic = false
 	}
 
 	function onTouchStart(e : UniTouchEvent) {
@@ -1106,10 +1159,11 @@
 		const t = e.touches[0]
 		startX = t.clientX
 		startY = t.clientY
-		startDrawer = drawerX.value
-		const open = drawerX.value > -drawerWidth
-		// 关着时只认从左边缘开始的滑动；开着时哪里都能往左滑关掉
-		gesture = (open || startX < 28) ? 'maybe' : 'none'
+		startOpen = openX.value
+		didHaptic = false
+		const open = openX.value > 0
+		// 关着时从左边缘右滑打开；开着时在主界面上左滑关闭
+		gesture = (open || startX < 48) ? 'maybe' : 'none'
 	}
 
 	function onTouchMove(e : UniTouchEvent) {
@@ -1131,18 +1185,29 @@
 			dragging.value = true
 			uni.hideKeyboard()
 		}
-		drawerX.value = Math.max(-drawerWidth, Math.min(0, startDrawer + dx))
+		const next = Math.max(0, Math.min(drawerWidth, startOpen + dx))
+		openX.value = next
+		// 拖过一半时轻震一下，接近 DeepSeek 打开反馈
+		if (!didHaptic && next > drawerWidth * 0.55) {
+			didHaptic = true
+			hapticOpen()
+		}
 	}
 
 	function onTouchEnd(_ : UniTouchEvent) {
 		if (gesture == 'drag') {
-			if (drawerX.value > -drawerWidth / 2) {
-				openDrawer()
+			if (openX.value > drawerWidth / 2) {
+				dragging.value = false
+				openX.value = drawerWidth
+				if (!didHaptic) {
+					hapticOpen()
+				}
 			} else {
 				closeDrawer()
 			}
 		}
 		gesture = 'none'
+		dragging.value = false
 	}
 
 	function openSettings() {
@@ -1167,16 +1232,25 @@
 <style>
 	.page {
 		flex: 1;
+		overflow: hidden;
+		position: relative;
 	}
 	.main {
 		flex: 1;
+		position: relative;
+		z-index: 2;
+		transition-property: transform;
+		transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
 	}
 	.topbar {
-		height: 52px;
+		flex-direction: column;
+		padding: 0 8px 4px 8px;
+		flex-shrink: 0;
+	}
+	.top-row {
+		height: 44px;
 		flex-direction: row;
 		align-items: center;
-		padding: 0 8px;
-		flex-shrink: 0;
 	}
 	.icon-btn {
 		width: 44px;
@@ -1207,15 +1281,10 @@
 		height: 18px;
 		border-radius: 1px;
 	}
-	.top-title {
+	.top-name {
 		flex: 1;
 		min-width: 0;
-		overflow: hidden;
-		align-items: center;
 		padding: 0 6px;
-	}
-	.top-name {
-		width: 100%;
 		font-size: 16px;
 		font-weight: bold;
 		lines: 1;
@@ -1228,7 +1297,8 @@
 		flex-direction: row;
 		align-items: center;
 		justify-content: center;
-		margin-top: 2px;
+		margin-top: -2px;
+		padding: 0 44px;
 		width: 100%;
 		overflow: hidden;
 	}
@@ -1567,7 +1637,6 @@
 		font-size: 13px;
 	}
 	.model-chev {
-		font-size: 12px;
 		margin-left: 4px;
 	}
 	.box {
@@ -1678,14 +1747,14 @@
 		top: 0;
 		right: 0;
 		bottom: 0;
+		z-index: 20;
 	}
 	.drawer {
 		position: absolute;
 		left: 0;
 		top: 0;
 		bottom: 0;
-		transition-property: transform;
-		transition-timing-function: ease-out;
+		z-index: 1;
 	}
 	.drawer-head {
 		flex-direction: row;

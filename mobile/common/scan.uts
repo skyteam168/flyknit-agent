@@ -2,6 +2,8 @@
 // uni.scanCode 的插件（例如 zs-scanner）并打自定义基座，见 mobile/README.md。
 // PDA 的扫描枪不走这里：它把扫到的内容当键盘输入打进输入框（见 pages/pair/pair.uvue）。
 
+import { tf } from './i18n.uts'
+
 export function scanCode(onResult : (text : string) => void, onError : (msg : string) => void) {
 	uni.scanCode({
 		onlyFromCamera: true,
@@ -12,7 +14,7 @@ export function scanCode(onResult : (text : string) => void, onError : (msg : st
 		fail: (err) => {
 			// 用户取消不算错误
 			if (err.errMsg.indexOf('cancel') < 0) {
-				onError('没有扫到二维码：' + err.errMsg + '。可以改用手动输入。')
+				onError(tf('scan.fail', err.errMsg))
 			}
 		}
 	})

@@ -1,6 +1,7 @@
 // 访问 FlyknitBuddy 服务器：配对、我的电脑、办事任务、审批。聊天走 WebSocket（见 socket.uts）。
 
 import { state } from './store.uts'
+import { t, tf } from './i18n.uts'
 
 export type ApiResult = {
 	ok : boolean
@@ -34,9 +35,9 @@ function detailOf(data : any | null, status : number) : string {
 		}
 	}
 	if (status == 401) {
-		return '手机未绑定或已被解绑，请重新扫码绑定'
+		return t('api.unbound')
 	}
-	return status > 0 ? '服务器返回错误（' + status.toString() + '）' : '连不上服务器，请确认手机连着公司 Wi-Fi'
+	return status > 0 ? tf('api.serverError', status.toString()) : t('api.network')
 }
 
 export function request(method : string, path : string, body : UTSJSONObject | null, server : string = '') : Promise<ApiResult> {
@@ -106,7 +107,7 @@ export function pair(server : string, code : string) : Promise<ApiResult> {
 	const name = ((device.deviceBrand ?? '') + ' ' + (device.deviceModel ?? '')).trim()
 	return request('POST', '/api/v1/mobile/pair', {
 		code: code.trim().toUpperCase(),
-		name: name != '' ? name : '手机',
+		name: name != '' ? name : t('api.phoneName'),
 		platform: 'android',
 		app_version: app.appVersion ?? ''
 	} as UTSJSONObject, server)

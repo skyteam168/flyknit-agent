@@ -25,7 +25,7 @@
 			<view v-else-if="b.kind == 'code'" class="md-code" :style="{ backgroundColor: c.codeBg, borderColor: c.line }">
 				<view class="md-code-head">
 					<text class="md-code-lang" :style="{ color: c.inkFaint }">{{ b.label != '' ? b.label : 'code' }}</text>
-					<text class="md-code-copy" :style="{ color: c.indigo }" @click="copy(b.text)">复制</text>
+					<text class="md-code-copy" :style="{ color: c.indigo }" @click="copy(b.text)">{{ t('chat.copy') }}</text>
 				</view>
 				<scroll-view direction="horizontal" class="md-code-scroll">
 					<text class="md-code-text" :style="{ color: c.ink, fontSize: codeSize, lineHeight: bodyLine }" :selectable="true">{{ b.text }}</text>
@@ -44,7 +44,7 @@
 
 			<view v-else-if="b.kind == 'visual'" class="md-visual" :style="{ backgroundColor: c.indigoWash }">
 				<text class="md-visual-title" :style="{ color: c.indigo }">{{ visualTitle(b.label) }}</text>
-				<text class="md-visual-hint" :style="{ color: c.inkSoft }">这部分在电脑上的 FlyknitBuddy 里显示效果更好</text>
+				<text class="md-visual-hint" :style="{ color: c.inkSoft }">{{ t('chat.mdVisualHint') }}</text>
 			</view>
 		</view>
 	</view>
@@ -55,6 +55,7 @@
 	import { MdBlock, MdSpan, parseMarkdown } from '../../common/markdown.uts'
 	import { bodyFontPx, bodyLinePx, headingFontPx } from '../../common/prefs.uts'
 	import { theme } from '../../common/theme.uts'
+	import { t } from '../../common/i18n.uts'
 
 	const props = defineProps({
 		content: { type: String, default: '' },
@@ -128,9 +129,9 @@
 	}
 
 	function visualTitle(lang : string) : string {
-		if (lang == 'mermaid' || lang == 'mmd' || lang == 'dot' || lang == 'graphviz' || lang == 'gv') return '流程图'
-		if (lang == 'ui' || lang == 'flyknit-ui') return '卡片'
-		return '图表'
+		if (lang == 'mermaid' || lang == 'mmd' || lang == 'dot' || lang == 'graphviz' || lang == 'gv') return t('chat.mdFlow')
+		if (lang == 'ui' || lang == 'flyknit-ui') return t('chat.mdCard')
+		return t('chat.mdChart')
 	}
 
 	function copy(text : string) {

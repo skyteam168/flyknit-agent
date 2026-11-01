@@ -1,6 +1,7 @@
 // 相册选图、拍照、语音转写（有 ASR 走服务器；没有就提示）。
 
 import { state } from './store.uts'
+import { t, tf } from './i18n.uts'
 
 export type PickedImage = {
 	path : string
@@ -47,7 +48,7 @@ function pick(source : string) : Promise<PickedImage | null> {
 				readAsDataUrl(path).then((dataUrl) => {
 					resolve({ path: path, dataUrl: dataUrl } as PickedImage)
 				}).catch((msg) => {
-					uni.showToast({ title: '读图失败：' + msg, icon: 'none' })
+					uni.showToast({ title: tf('media.readImageFail', '' + msg), icon: 'none' })
 					resolve(null)
 				})
 			},
@@ -83,7 +84,7 @@ export async function transcribeFile(filePath : string) : Promise<string> {
 			header: { Authorization: 'Bearer ' + state.token },
 			success: (res) => {
 				if (res.statusCode < 200 || res.statusCode >= 300) {
-					uni.showToast({ title: '语音识别不可用，请打字发送', icon: 'none' })
+					uni.showToast({ title: t('media.asrUnavailable'), icon: 'none' })
 					resolve('')
 					return
 				}
@@ -95,7 +96,7 @@ export async function transcribeFile(filePath : string) : Promise<string> {
 				}
 			},
 			fail: (_) => {
-				uni.showToast({ title: '语音识别失败，请打字发送', icon: 'none' })
+				uni.showToast({ title: t('media.asrFail'), icon: 'none' })
 				resolve('')
 			}
 		})
@@ -104,5 +105,5 @@ export async function transcribeFile(filePath : string) : Promise<string> {
 
 /** 浏览器端没有录音基座时，用这个占位提示 */
 export function voiceUnsupported() {
-	uni.showToast({ title: '浏览器里暂不支持按住说话，请用真机 App 或打字', icon: 'none' })
+	uni.showToast({ title: t('media.voiceWeb'), icon: 'none' })
 }

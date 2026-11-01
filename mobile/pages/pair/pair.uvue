@@ -3,20 +3,20 @@
 		<scroll-view direction="vertical" class="body">
 			<view class="hero">
 				<image class="logo" src="/static/logo.png" mode="aspectFit"></image>
-				<text class="title" :style="{ color: c.ink }">绑定你的电脑</text>
-				<text class="sub" :style="{ color: c.inkSoft }">在电脑上的 FlyknitBuddy 里打开「设置 → 手机」，点「显示二维码」，然后扫一下。</text>
+				<text class="title" :style="{ color: c.ink }">{{ t('pair.title') }}</text>
+				<text class="sub" :style="{ color: c.inkSoft }">{{ t('pair.sub') }}</text>
 			</view>
 
 			<view class="card" :style="{ backgroundColor: c.sunk }">
 				<view class="btn primary" :style="{ backgroundColor: c.action }" @click="scan">
-					<text class="btn-text" :style="{ color: c.actionInk }">扫码绑定</text>
+					<text class="btn-text" :style="{ color: c.actionInk }">{{ t('pair.scan') }}</text>
 				</view>
-				<text class="hint" :style="{ color: c.inkFaint }">PDA 扫描枪：点一下下面的输入框，再按扫描键</text>
+				<text class="hint" :style="{ color: c.inkFaint }">{{ t('pair.scanHint') }}</text>
 				<input
 					class="input"
 					:style="{ backgroundColor: c.cloth, color: c.ink, borderColor: c.line }"
 					:value="scanned"
-					placeholder="扫描内容会出现在这里"
+					:placeholder="t('pair.scanPlaceholder')"
 					:placeholder-style="'color:' + c.inkFaint"
 					confirm-type="done"
 					@input="onScannedInput"
@@ -25,41 +25,41 @@
 			</view>
 
 			<view class="manual-toggle" @click="manual = !manual">
-				<text class="link" :style="{ color: c.indigo }">{{ manual ? '收起手动输入' : '扫不了？手动输入' }}</text>
+				<text class="link" :style="{ color: c.indigo }">{{ manual ? t('pair.manualClose') : t('pair.manualOpen') }}</text>
 			</view>
 
 			<view v-if="manual" class="card" :style="{ backgroundColor: c.sunk }">
-				<text class="label" :style="{ color: c.inkSoft }">服务器地址</text>
+				<text class="label" :style="{ color: c.inkSoft }">{{ t('pair.server') }}</text>
 				<input
 					class="input"
 					:style="{ backgroundColor: c.cloth, color: c.ink, borderColor: c.line }"
 					:value="server"
-					placeholder="例如 http://10.0.0.5:8000"
+					:placeholder="t('pair.serverPh')"
 					:placeholder-style="'color:' + c.inkFaint"
 					@input="onServer"
 				/>
-				<text class="label" :style="{ color: c.inkSoft }">配对码</text>
+				<text class="label" :style="{ color: c.inkSoft }">{{ t('pair.code') }}</text>
 				<input
 					class="input code"
 					:style="{ backgroundColor: c.cloth, color: c.ink, borderColor: c.line }"
 					:value="code"
-					placeholder="电脑上显示的 8 位配对码"
+					:placeholder="t('pair.codePh')"
 					:placeholder-style="'color:' + c.inkFaint"
 					maxlength="16"
 					@input="onCode"
 				/>
 				<view class="btn" :style="{ backgroundColor: c.cloth, borderColor: c.lineStrong }" @click="submitManual">
-					<text class="btn-text" :style="{ color: c.ink }">绑定</text>
+					<text class="btn-text" :style="{ color: c.ink }">{{ t('pair.bind') }}</text>
 				</view>
 			</view>
 
 			<text v-if="error != ''" class="error" :style="{ color: c.red, backgroundColor: c.redWash }">{{ error }}</text>
-			<text class="foot" :style="{ color: c.inkFaint }">只能在公司 Wi-Fi 下使用。绑定后，手机继承这台电脑的身份和额度；手机丢了请在电脑上解绑。</text>
+			<text class="foot" :style="{ color: c.inkFaint }">{{ t('pair.foot') }}</text>
 		</scroll-view>
 
 		<view v-if="busy" class="busy" :style="{ backgroundColor: c.mask }">
 			<view class="busy-card" :style="{ backgroundColor: c.cloth }">
-				<text :style="{ color: c.ink }">正在绑定…</text>
+				<text :style="{ color: c.ink }">{{ t('pair.binding') }}</text>
 			</view>
 		</view>
 	</view>
@@ -73,6 +73,7 @@
 	import { connect } from '../../common/socket.uts'
 	import { scanCode } from '../../common/scan.uts'
 	import { refreshModels } from '../../common/prefs.uts'
+	import { i18n, t, tf } from '../../common/i18n.uts'
 
 	const c = computed(() => theme.c)
 	const topInset = uni.getWindowInfo().statusBarHeight + 24
@@ -82,6 +83,8 @@
 	const code = ref('')
 	const error = ref('')
 	const busy = ref(false)
+	// 依赖语言，切换后重绘
+	const _lang = computed(() : string => i18n.locale)
 
 	async function doPair(srv : string, pairCode : string) {
 		if (busy.value) {
@@ -101,7 +104,7 @@
 		applyMe(body)
 		connect()
 		void refreshModels()
-		uni.showToast({ title: '已绑定 ' + state.machineName, icon: 'none' })
+		uni.showToast({ title: tf('pair.bound', state.machineName), icon: 'none' })
 		uni.reLaunch({ url: '/pages/chat/chat' })
 	}
 
@@ -117,7 +120,7 @@
 	function scan() {
 		scanCode((text : string) => {
 			if (!tryPayload(text)) {
-				error.value = '这不是 FlyknitBuddy 的绑定二维码'
+				error.value = t('pair.badQr')
 			}
 		}, (msg : string) => {
 			error.value = msg
@@ -126,7 +129,6 @@
 
 	function onScannedInput(e : UniInputEvent) {
 		scanned.value = e.detail.value
-		// 扫描枪一次性输入完整内容：认得出来就直接绑定，不用再按确认
 		if (parsePairPayload(scanned.value) != null) {
 			tryPayload(scanned.value)
 		}
@@ -134,7 +136,7 @@
 
 	function onScannedConfirm(e : UniInputConfirmEvent) {
 		if (!tryPayload(e.detail.value)) {
-			error.value = '这不是 FlyknitBuddy 的绑定二维码'
+			error.value = t('pair.badQr')
 		}
 	}
 
@@ -149,7 +151,7 @@
 	function submitManual() {
 		const srv = normalizeServer(server.value)
 		if (srv == '' || code.value.trim().length < 4) {
-			error.value = '请填写服务器地址和配对码'
+			error.value = t('pair.badQr')
 			return
 		}
 		void doPair(srv, code.value.trim())
@@ -162,26 +164,26 @@
 	}
 	.body {
 		flex: 1;
-		padding: 0 24px;
+		padding: 0 20px 40px 20px;
 	}
 	.hero {
 		align-items: center;
-		margin-top: 24px;
-		margin-bottom: 24px;
+		padding: 24px 8px 20px 8px;
 	}
 	.logo {
-		width: 88px;
-		height: 88px;
-		margin-bottom: 16px;
+		width: 72px;
+		height: 72px;
+		margin-bottom: 14px;
 	}
 	.title {
 		font-size: 24px;
 		font-weight: bold;
 		margin-bottom: 8px;
+		text-align: center;
 	}
 	.sub {
 		font-size: 14px;
-		line-height: 22px;
+		line-height: 21px;
 		text-align: center;
 	}
 	.card {
@@ -190,8 +192,8 @@
 		margin-bottom: 12px;
 	}
 	.btn {
-		height: 48px;
-		border-radius: 24px;
+		height: 46px;
+		border-radius: 12px;
 		align-items: center;
 		justify-content: center;
 		border-width: 1px;
@@ -199,51 +201,55 @@
 		border-color: transparent;
 		margin-top: 8px;
 	}
+	.primary {
+		margin-top: 0;
+		border-width: 0;
+	}
 	.btn-text {
 		font-size: 16px;
 		font-weight: bold;
 	}
 	.hint {
 		font-size: 12px;
-		margin-top: 14px;
-		margin-bottom: 6px;
-	}
-	.label {
-		font-size: 13px;
-		margin-top: 6px;
-		margin-bottom: 6px;
+		margin: 12px 0 8px 0;
+		line-height: 18px;
 	}
 	.input {
 		height: 44px;
 		border-radius: 10px;
+		padding: 0 12px;
 		border-width: 1px;
 		border-style: solid;
-		padding: 0 12px;
 		font-size: 15px;
+		margin-bottom: 4px;
 	}
 	.code {
 		letter-spacing: 2px;
 	}
+	.label {
+		font-size: 13px;
+		margin: 10px 0 6px 0;
+	}
 	.manual-toggle {
 		align-items: center;
-		padding: 8px 0 16px 0;
+		padding: 8px;
 	}
 	.link {
 		font-size: 14px;
 	}
 	.error {
-		font-size: 13px;
-		line-height: 20px;
-		padding: 10px 12px;
 		border-radius: 10px;
-		margin-bottom: 12px;
+		padding: 10px 12px;
+		font-size: 13px;
+		line-height: 19px;
+		margin-top: 8px;
 	}
 	.foot {
 		font-size: 12px;
 		line-height: 18px;
 		text-align: center;
-		margin-top: 8px;
-		margin-bottom: 32px;
+		margin-top: 20px;
+		padding: 0 8px;
 	}
 	.busy {
 		position: absolute;
@@ -255,7 +261,7 @@
 		justify-content: center;
 	}
 	.busy-card {
-		padding: 16px 24px;
 		border-radius: 12px;
+		padding: 16px 24px;
 	}
 </style>

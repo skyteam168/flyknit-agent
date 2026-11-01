@@ -8,6 +8,7 @@ import { Approval, Conv, Msg, SearchSource, applyMe, clearAuth, findTaskMsg, not
 import { request } from './api.uts'
 import { prefs } from './prefs.uts'
 import { autoCheckUpdate } from './update.uts'
+import { t, tf } from './i18n.uts'
 
 let task : SocketTask | null = null
 let retryTimer = 0
@@ -33,32 +34,32 @@ export function connect() {
 		return
 	}
 	state.socket = 'connecting'
-	const t = uni.connectSocket({
+	const sock = uni.connectSocket({
 		url: wsUrl(),
 		fail: (_) => {
 			task = null
 			scheduleRetry()
 		}
 	})
-	task = t
-	t.onOpen((_) => {
+	task = sock
+	sock.onOpen((_) => {
 		state.socket = 'open'
 		backoff = 2000
 		startPing()
 		void syncTasks()
 		autoCheckUpdate()
 	})
-	t.onMessage((res) => {
+	sock.onMessage((res) => {
 		const data = res.data
 		if (typeof data == 'string') {
 			handle(data as string)
 		}
 	})
-	t.onClose((res) => {
+	sock.onClose((res) => {
 		task = null
 		state.socket = 'closed'
 		stopPing()
-		failPending('连接断开了，请重试')
+		failPending(t('chat.socketClosed'))
 		// 4401：令牌失效（被解绑、被吊销）；4403：管理员关了手机端或电脑被停用
 		if (res.code == 4401) {
 			wantOpen = false
@@ -68,7 +69,7 @@ export function connect() {
 		}
 		scheduleRetry()
 	})
-	t.onError((_) => {
+	sock.onError((_) => {
 		// onClose 会接着来，在那里重连
 	})
 }
@@ -340,7 +341,7 @@ function onChat(type : string, ev : UTSJSONObject) {
 		saveConversations()
 	} else if (type == 'chat.error') {
 		m.status = 'error'
-		const reason = ev.getString('message') ?? '出错了'
+		const reason = ev.getString('message') ?? t('chat.genericError')
 		m.content = m.content == '' ? reason : m.content + '\n\n（' + reason + '）'
 		pending.delete(rid)
 		notifyMessages(true)
@@ -350,33 +351,34 @@ function onChat(type : string, ev : UTSJSONObject) {
 
 // ---------- 办事 ----------
 
-const TASK_TITLES = new Map<string, string>([
-	['succeeded', '电脑上办完了'],
-	['failed', '电脑上没办成'],
-	['expired', '电脑一直没有上线，已取消']
-])
+function taskNotifyTitle(status : string) : string {
+	if (status == 'succeeded') return t('chat.taskDoneNotify')
+	if (status == 'failed') return t('chat.taskFailNotify')
+	if (status == 'expired') return t('chat.taskExpiredNotify')
+	return ''
+}
 
 /** 服务端的任务状态写回对应的消息；办完了、App 在后台时发一条系统通知 */
-function applyTask(t : UTSJSONObject, notify : boolean) {
-	const m = findTaskMsg(t.getNumber('id') ?? 0)
+function applyTask(body : UTSJSONObject, notify : boolean) {
+	const m = findTaskMsg(body.getNumber('id') ?? 0)
 	if (m == null) {
 		return
 	}
-	const status = t.getString('status') ?? ''
+	const status = body.getString('status') ?? ''
 	const changed = status != m.taskStatus
 	m.taskStatus = status
 	if (status == 'succeeded') {
-		m.content = t.getString('answer') ?? ''
+		m.content = body.getString('answer') ?? ''
 		m.status = 'done'
 	} else if (status == 'failed' || status == 'expired') {
-		m.content = t.getString('error') ?? ''
+		m.content = body.getString('error') ?? ''
 		m.status = 'error'
 	}
 	notifyMessages(true)
 	saveConversations()
-	const title = TASK_TITLES.get(status)
-	if (notify && changed && title != null && !state.foreground) {
-		const text = t.getString('text') ?? ''
+	const title = taskNotifyTitle(status)
+	if (notify && changed && title != '' && !state.foreground) {
+		const text = body.getString('text') ?? ''
 		notifyLocal(title, text.length > 40 ? text.substring(0, 40) + '…' : text)
 	}
 }
@@ -415,11 +417,11 @@ function addApproval(a : UTSJSONObject, notify : boolean) {
 	state.approvals.push(item)
 	const m = findTaskMsg(item.task)
 	if (m != null) {
-		m.steps.push('等你确认：' + item.summary)
+		m.steps.push(tf('chat.waitConfirm', item.summary))
 		saveConversations()
 	}
 	if (notify && !state.foreground) {
-		notifyLocal('电脑上有操作等你确认', item.summary)
+		notifyLocal(t('chat.approvalNotify'), item.summary)
 	}
 }
 
@@ -435,7 +437,7 @@ export async function answerApproval(a : Approval, approve : boolean) : Promise<
 	removeApproval(a.id)
 	const m = findTaskMsg(a.task)
 	if (m != null) {
-		m.steps.push((approve ? '已批准：' : '已拒绝：') + a.summary)
+		m.steps.push(approve ? tf('chat.approvedStep', a.summary) : tf('chat.rejectedStep', a.summary))
 		saveConversations()
 	}
 	return res.ok ? '' : res.error

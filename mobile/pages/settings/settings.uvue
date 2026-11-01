@@ -2,88 +2,97 @@
 	<view class="page" :style="{ backgroundColor: c.sunk, paddingTop: topInset }">
 		<view class="topbar">
 			<view class="back" @click="back">
-				<text class="back-text" :style="{ color: c.ink }">‹ 返回</text>
+				<text class="back-text" :style="{ color: c.ink }">{{ t('common.back') }}</text>
 			</view>
-			<text class="title" :style="{ color: c.ink }">设置</text>
+			<text class="title" :style="{ color: c.ink }">{{ t('settings.title') }}</text>
 			<view class="back"></view>
 		</view>
 		<scroll-view direction="vertical" class="body">
-			<text class="section" :style="{ color: c.inkFaint }">绑定的电脑</text>
+			<text class="section" :style="{ color: c.inkFaint }">{{ t('settings.sectionDevice') }}</text>
 			<view class="card" :style="{ backgroundColor: c.cloth }">
 				<view class="row">
-					<text class="key" :style="{ color: c.inkSoft }">电脑</text>
+					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.machine') }}</text>
 					<text class="val" :style="{ color: c.ink }">{{ machineName }}</text>
 				</view>
 				<view class="row" :style="{ borderTopColor: c.line }">
-					<text class="key" :style="{ color: c.inkSoft }">员工</text>
+					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.user') }}</text>
 					<text class="val" :style="{ color: c.ink }">{{ userName }}</text>
 				</view>
 				<view class="row" :style="{ borderTopColor: c.line }">
-					<text class="key" :style="{ color: c.inkSoft }">状态</text>
-					<text class="val" :style="{ color: online ? c.thread : c.inkFaint }">{{ online ? '在线' : '离线' }}</text>
+					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.status') }}</text>
+					<text class="val" :style="{ color: online ? c.thread : c.inkFaint }">{{ online ? t('common.online') : t('common.offline') }}</text>
 				</view>
 				<view class="row" :style="{ borderTopColor: c.line }">
-					<text class="key" :style="{ color: c.inkSoft }">服务器</text>
+					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.server') }}</text>
 					<text class="val" :style="{ color: c.ink }" :lines="1">{{ server }}</text>
 				</view>
 				<view class="row" :style="{ borderTopColor: c.line }">
-					<text class="key" :style="{ color: c.inkSoft }">手机上确认操作</text>
-					<text class="val" :style="{ color: c.ink }">{{ approvals ? '管理员已允许' : '不允许（回到电脑上处理）' }}</text>
+					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.approvals') }}</text>
+					<text class="val" :style="{ color: c.ink }">{{ approvals ? t('settings.approvalsOn') : t('settings.approvalsOff') }}</text>
 				</view>
 			</view>
 
-			<text class="section" :style="{ color: c.inkFaint }">模型</text>
+			<text class="section" :style="{ color: c.inkFaint }">{{ t('settings.sectionModel') }}</text>
 			<view class="card" :style="{ backgroundColor: c.cloth }">
 				<view class="row-btn" @click="pickModel">
-					<text class="key" :style="{ color: c.ink }">对话模型</text>
+					<text class="key" :style="{ color: c.ink }">{{ t('settings.chatModel') }}</text>
 					<text class="val" :style="{ color: c.inkFaint }" :lines="1">{{ modelName }}</text>
 				</view>
 				<view class="row" :style="{ borderTopColor: c.line }">
-					<text class="key" :style="{ color: c.inkSoft }">深度思考</text>
-					<switch :checked="deepThinking" @change="onDeep" color="#3446c9" />
+					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.deepThinking') }}</text>
+					<switch class="sw" :checked="deepThinking" @change="onDeep" color="#3446c9" />
 				</view>
 				<view class="row" :style="{ borderTopColor: c.line }">
-					<text class="key" :style="{ color: c.inkSoft }">联网搜索</text>
-					<switch :checked="webSearch" :disabled="!webSearchAvailable" @change="onWeb" color="#3446c9" />
+					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.webSearch') }}</text>
+					<switch class="sw" :checked="webSearch" :disabled="!webSearchAvailable" @change="onWeb" color="#3446c9" />
 				</view>
-				<text class="hint" :style="{ color: c.inkFaint }">默认关思考、优先 Flash。需要实时资讯时打开联网（管理员需先配置搜索）；翻译不受影响。</text>
+				<text class="hint" :style="{ color: c.inkFaint }">{{ t('settings.modelHint') }}</text>
 			</view>
 
-			<text class="section" :style="{ color: c.inkFaint }">外观</text>
+			<text class="section" :style="{ color: c.inkFaint }">{{ t('settings.sectionLang') }}</text>
 			<view class="card" :style="{ backgroundColor: c.cloth }">
-				<text class="sub-label" :style="{ color: c.inkFaint }">主题</text>
 				<view class="seg" :style="{ backgroundColor: c.chip }">
-					<view v-for="m in THEMES" :key="m.id" class="seg-item" :style="m.id == themeMode ? { backgroundColor: c.cloth } : {}" @click="pickTheme(m.id)">
+					<view v-for="lang in LANG_OPTIONS" :key="lang.id" class="seg-item" :style="lang.id == locale ? { backgroundColor: c.cloth } : {}" @click="pickLang(lang.id)">
+						<text class="seg-text" :style="{ color: lang.id == locale ? c.ink : c.inkSoft }">{{ lang.label }}</text>
+					</view>
+				</view>
+			</view>
+
+			<text class="section" :style="{ color: c.inkFaint }">{{ t('settings.sectionAppearance') }}</text>
+			<view class="card" :style="{ backgroundColor: c.cloth }">
+				<text class="sub-label" :style="{ color: c.inkFaint }">{{ t('settings.theme') }}</text>
+				<view class="seg" :style="{ backgroundColor: c.chip }">
+					<view v-for="m in themes" :key="m.id" class="seg-item" :style="m.id == themeMode ? { backgroundColor: c.cloth } : {}" @click="pickTheme(m.id)">
 						<text class="seg-text" :style="{ color: m.id == themeMode ? c.ink : c.inkSoft }">{{ m.label }}</text>
 					</view>
 				</view>
-				<text class="sub-label" :style="{ color: c.inkFaint }">聊天字体</text>
+				<text class="sub-label" :style="{ color: c.inkFaint }">{{ t('settings.font') }}</text>
 				<view class="seg" :style="{ backgroundColor: c.chip }">
-					<view v-for="f in FONTS" :key="f.id" class="seg-item" :style="f.id == fontSize ? { backgroundColor: c.cloth } : {}" @click="pickFont(f.id)">
+					<view v-for="f in fonts" :key="f.id" class="seg-item" :style="f.id == fontSize ? { backgroundColor: c.cloth } : {}" @click="pickFont(f.id)">
 						<text class="seg-text" :style="{ color: f.id == fontSize ? c.ink : c.inkSoft }">{{ f.label }}</text>
 					</view>
 				</view>
-				<text class="preview" :style="{ color: c.ink, fontSize: previewFont, lineHeight: previewLine }">预览：有什么问题尽管问</text>
+				<text class="preview" :style="{ color: c.ink, fontSize: previewFont, lineHeight: previewLine }">{{ t('settings.fontPreview') }}</text>
 			</view>
 
-			<text class="section" :style="{ color: c.inkFaint }">通知</text>
+			<text class="section" :style="{ color: c.inkFaint }">{{ t('settings.sectionNotify') }}</text>
 			<view class="card" :style="{ backgroundColor: c.cloth }">
 				<view class="row-btn" @click="testNotify">
-					<text class="key" :style="{ color: c.ink }">发一条测试通知</text>
-					<text class="val" :style="{ color: c.inkFaint }">没收到请在系统设置里允许通知</text>
+					<text class="key" :style="{ color: c.ink }">{{ t('settings.testNotify') }}</text>
+					<text class="val" :style="{ color: c.inkFaint }">{{ t('settings.testNotifyHint') }}</text>
 				</view>
 			</view>
 
-			<text class="section" :style="{ color: c.inkFaint }">版本</text>
+			<text class="section" :style="{ color: c.inkFaint }">{{ t('settings.sectionVersion') }}</text>
 			<view class="card" :style="{ backgroundColor: c.cloth }">
 				<view class="row-btn" @click="manualUpdate">
-					<text class="key" :style="{ color: c.ink }">检查更新</text>
-					<text class="val" :style="{ color: c.inkFaint }">当前 {{ version }}</text>
+					<text class="key" :style="{ color: c.ink }">{{ t('settings.checkUpdate') }}</text>
+					<text class="val" :style="{ color: c.inkFaint }">{{ currentVer }}</text>
 				</view>
 			</view>
 
 			<view class="card danger" :style="{ backgroundColor: c.cloth }" @click="unpair">
-				<text class="danger-text" :style="{ color: c.red }">解除绑定</text>
+				<text class="danger-text" :style="{ color: c.red }">{{ t('settings.unpair') }}</text>
 			</view>
 			<text class="foot" :style="{ color: c.inkFaint }">FlyknitBuddy {{ version }}</text>
 		</scroll-view>
@@ -97,19 +106,10 @@
 	import { request } from '../../common/api.uts'
 	import { disconnect, notifyLocal } from '../../common/socket.uts'
 	import { checkUpdate } from '../../common/update.uts'
-	import { ModelInfo, bodyFontPx, bodyLinePx, modelLabel, prefs, refreshModels, setDeepThinking, setFontSize, setModelId, setWebSearch } from '../../common/prefs.uts'
+	import { ModelInfo, bodyFontPx, bodyLinePx, modelLabel, prefs, refreshModels, setAppLocale, setDeepThinking, setFontSize, setModelId, setWebSearch } from '../../common/prefs.uts'
+	import { LANG_OPTIONS, i18n, t, tf } from '../../common/i18n.uts'
 
 	type ThemeItem = { id : string, label : string }
-	const THEMES = [
-		{ id: 'system', label: '跟随系统' } as ThemeItem,
-		{ id: 'light', label: '浅色' } as ThemeItem,
-		{ id: 'dark', label: '深色' } as ThemeItem
-	]
-	const FONTS = [
-		{ id: 'small', label: '小' } as ThemeItem,
-		{ id: 'medium', label: '标准' } as ThemeItem,
-		{ id: 'large', label: '大' } as ThemeItem
-	]
 
 	const c = computed(() => theme.c)
 	const topInset = uni.getWindowInfo().statusBarHeight.toString() + 'px'
@@ -120,13 +120,40 @@
 	const approvals = computed(() : boolean => state.approvalsAllowed)
 	const themeMode = computed(() : string => theme.mode)
 	const fontSize = computed(() : string => prefs.fontSize)
+	const locale = computed(() : string => {
+		const _ = i18n.locale
+		return prefs.locale
+	})
 	const previewFont = computed(() : string => bodyFontPx().toString() + 'px')
 	const previewLine = computed(() : string => bodyLinePx().toString() + 'px')
-	const modelName = computed(() : string => modelLabel())
+	const modelName = computed(() : string => {
+		const _ = i18n.locale
+		return modelLabel()
+	})
 	const deepThinking = computed(() : boolean => prefs.deepThinking)
 	const webSearch = computed(() : boolean => prefs.webSearch)
 	const webSearchAvailable = computed(() : boolean => state.webSearchEnabled)
 	const version = uni.getAppBaseInfo().appVersion ?? ''
+	const currentVer = computed(() : string => {
+		const _ = i18n.locale
+		return tf('settings.currentVer', version)
+	})
+	const themes = computed(() : Array<ThemeItem> => {
+		const _ = i18n.locale
+		return [
+			{ id: 'system', label: t('settings.themeSystem') } as ThemeItem,
+			{ id: 'light', label: t('settings.themeLight') } as ThemeItem,
+			{ id: 'dark', label: t('settings.themeDark') } as ThemeItem
+		]
+	})
+	const fonts = computed(() : Array<ThemeItem> => {
+		const _ = i18n.locale
+		return [
+			{ id: 'small', label: t('settings.fontSmall') } as ThemeItem,
+			{ id: 'medium', label: t('settings.fontMedium') } as ThemeItem,
+			{ id: 'large', label: t('settings.fontLarge') } as ThemeItem
+		]
+	})
 
 	function back() {
 		uni.navigateBack({})
@@ -140,13 +167,17 @@
 		setFontSize(id)
 	}
 
+	function pickLang(id : string) {
+		setAppLocale(id)
+	}
+
 	function onDeep(e : UniSwitchChangeEvent) {
 		setDeepThinking(e.detail.value)
 	}
 
 	function onWeb(e : UniSwitchChangeEvent) {
 		if (!state.webSearchEnabled) {
-			uni.showToast({ title: '管理员未开启联网搜索', icon: 'none' })
+			uni.showToast({ title: t('settings.webSearchOff'), icon: 'none' })
 			return
 		}
 		setWebSearch(e.detail.value)
@@ -154,7 +185,7 @@
 
 	function pickModel() {
 		void refreshModels().then(() => {
-			const items = ['自动（优先 Flash）'] as Array<string>
+			const items = [t('common.autoFlash')] as Array<string>
 			prefs.models.forEach((m : ModelInfo) => {
 				items.push(m.name)
 			})
@@ -179,18 +210,19 @@
 	}
 
 	function testNotify() {
-		notifyLocal('FlyknitBuddy', '通知正常：电脑上办完事、需要你确认时会这样提醒你')
+		notifyLocal(t('settings.notifyTitle'), t('settings.notifyBody'))
 	}
 
 	function unpair() {
 		uni.showModal({
-			title: '解除绑定',
-			content: '解除后这部手机不能再让电脑办事，需要重新扫码绑定。手机上的聊天记录会保留。',
+			title: t('settings.unpairTitle'),
+			content: t('settings.unpairContent'),
+			confirmText: t('settings.unpairConfirm'),
+			cancelText: t('common.cancel'),
 			success: (r) => {
 				if (!r.confirm) {
 					return
 				}
-				// 先告诉服务器作废令牌；连不上也照样在本机清掉（电脑上还能再解绑一次）
 				request('DELETE', '/api/v1/mobile/me', null).then((_) => {
 					disconnect()
 					clearAuth()
@@ -241,10 +273,14 @@
 		flex-direction: row;
 		align-items: center;
 		justify-content: space-between;
-		min-height: 48px;
+		min-height: 44px;
 		border-top-width: 1px;
 		border-top-style: solid;
 		border-top-color: transparent;
+	}
+	.sw {
+		transform: scale(0.72);
+		transform-origin: center right;
 	}
 	.row-btn {
 		min-height: 52px;
@@ -285,21 +321,20 @@
 		justify-content: center;
 	}
 	.seg-text {
-		font-size: 14px;
+		font-size: 13px;
 	}
 	.danger {
 		margin-top: 24px;
-		height: 50px;
 		align-items: center;
 		justify-content: center;
+		min-height: 48px;
 	}
 	.danger-text {
-		font-size: 16px;
-		font-weight: bold;
+		font-size: 15px;
 	}
 	.foot {
-		font-size: 12px;
 		text-align: center;
-		margin: 20px 0 40px 0;
+		font-size: 12px;
+		margin: 16px 0 32px 0;
 	}
 </style>

@@ -1,7 +1,8 @@
-// 手机端偏好：选中的模型、是否开深度思考。存在本地，跟账号无关。
+// 手机端偏好：选中的模型、是否开深度思考、界面语言。存在本地，跟账号无关。
 
 import { reactive } from 'vue'
 import { request } from './api.uts'
+import { setLocale, t } from './i18n.uts'
 
 export type ModelInfo = {
 	id : number
@@ -21,6 +22,8 @@ export type Prefs = {
 	webSearch : boolean
 	/** 聊天正文字号：small / medium / large */
 	fontSize : string
+	/** 界面语言：zh / vi / en */
+	locale : string
 	models : Array<ModelInfo>
 	modelsLoaded : boolean
 }
@@ -30,6 +33,7 @@ export const prefs = reactive({
 	deepThinking: false,
 	webSearch: false,
 	fontSize: 'medium',
+	locale: 'zh',
 	models: [] as Array<ModelInfo>,
 	modelsLoaded: false
 } as Prefs)
@@ -48,6 +52,9 @@ export function loadPrefs() {
 		prefs.webSearch = o.getBoolean('webSearch') ?? false
 		const fs = o.getString('fontSize') ?? 'medium'
 		prefs.fontSize = (fs == 'small' || fs == 'large') ? fs : 'medium'
+		const loc = o.getString('locale') ?? 'zh'
+		prefs.locale = (loc == 'vi' || loc == 'en') ? loc : 'zh'
+		setLocale(prefs.locale)
 	} catch (err) {
 		console.error(err)
 	}
@@ -58,7 +65,8 @@ function savePrefs() {
 		modelId: prefs.modelId,
 		deepThinking: prefs.deepThinking,
 		webSearch: prefs.webSearch,
-		fontSize: prefs.fontSize
+		fontSize: prefs.fontSize,
+		locale: prefs.locale
 	} as UTSJSONObject))
 }
 
@@ -77,10 +85,17 @@ export function setFontSize(size : string) {
 	savePrefs()
 }
 
+export function setAppLocale(locale : string) {
+	prefs.locale = (locale == 'vi' || locale == 'en') ? locale : 'zh'
+	setLocale(prefs.locale)
+	savePrefs()
+}
+
 export function setModelId(id : number) {
 	prefs.modelId = id
 	savePrefs()
 }
+
 
 /** 对话正文基准字号（px） */
 export function bodyFontPx() : number {
@@ -103,9 +118,9 @@ export function headingFontPx(level : number) : number {
 }
 
 export function fontSizeLabel() : string {
-	if (prefs.fontSize == 'small') return '小'
-	if (prefs.fontSize == 'large') return '大'
-	return '标准'
+	if (prefs.fontSize == 'small') return t('settings.fontSmall')
+	if (prefs.fontSize == 'large') return t('settings.fontLarge')
+	return t('settings.fontMedium')
 }
 
 export function currentModel() : ModelInfo | null {
@@ -118,7 +133,7 @@ export function currentModel() : ModelInfo | null {
 
 export function modelLabel() : string {
 	const m = currentModel()
-	return m != null ? m.name : '自动（优先 Flash）'
+	return m != null ? m.name : t('common.autoFlash')
 }
 
 /** 从服务器拉可选模型；失败不打断使用 */
