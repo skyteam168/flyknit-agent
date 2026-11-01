@@ -689,6 +689,12 @@ public sealed partial class AgentHost : IDisposable
             var promptBuilder = new PromptBuilder(Memory, Skills, Episodes);
             var persona = PersonaForPrompt();
             var semantic = conv.Mode == ConversationMode.Translate ? null : await SemanticScoresAsync(text, cts.Token);
+            // AI 浏览器：IT 打开了「浏览器操作」时这一轮才有（提示词和工具要一致）
+            var browser = BrowserFor(conv);
+            if (conv.Mode == ConversationMode.Agent)
+            {
+                Log.Info($"对话 {id}：AI 浏览器{(browser is null ? "未开启（安全中心「浏览器操作」关着，或界面未就绪）" : "已开启")}");
+            }
             var prompt = promptBuilder.Build(new PromptContext
             {
                 Tone = persona.Tone,
@@ -705,6 +711,7 @@ public sealed partial class AgentHost : IDisposable
                 SemanticScores = semantic,
                 McpServers = mcpServers,
                 Expert = expert,
+                BrowserAvailable = browser is not null && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, Flyknit.Core.Browser.BrowserToolSet.All[0])),
             });
             // 派遣专家：开关开着、这一轮有候选专家时，主助手才看得到名单和 ask_expert
             var delegation = DelegationFor(conv, expert, DelegationQuery(stored, text), semantic);
@@ -773,8 +780,6 @@ public sealed partial class AgentHost : IDisposable
                 history.AddRange(window);
             }
 
-            // AI 浏览器：IT 打开了「浏览器操作」时这一轮才有
-            var browser = BrowserFor(conv);
             var ctx = new ToolContext
             {
                 Policy = _policy,

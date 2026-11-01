@@ -148,3 +148,21 @@ public class BrowserToolTests
         Assert.Contains("\"a\\u0022b\\u0027);alert(1);//\"", script);
     }
 }
+
+/// <summary>有 AI 浏览器时提示词要说清楚：网页用浏览器工具做，不要下载成文件代替。</summary>
+public class BrowserPromptTests
+{
+    [Fact]
+    public void TheBrowserGuideIsOnlyInAgentModeWhenTheBrowserIsOn()
+    {
+        string Build(bool browser, Flyknit.Core.Agent.ConversationMode mode = Flyknit.Core.Agent.ConversationMode.Agent) =>
+            new Flyknit.Core.Agent.PromptBuilder(null, null).Build(new Flyknit.Core.Agent.PromptContext { Mode = mode, BrowserAvailable = browser });
+
+        var on = Build(true);
+        Assert.Contains("<AI 浏览器>", on);
+        Assert.Contains("browser_open", on);
+        Assert.Contains("不要用命令行下载网页", on);
+        Assert.DoesNotContain("<AI 浏览器>", Build(false));
+        Assert.DoesNotContain("<AI 浏览器>", Build(true, Flyknit.Core.Agent.ConversationMode.Chat));
+    }
+}
