@@ -54,6 +54,9 @@ public sealed class OutputTracker
         return map is null ? null : new OutputTracker(directory, map);
     }
 
+    /// <summary>命令执行前有没有这个文件（区分新建和修改）。</summary>
+    public bool Existed(string path) => _before.ContainsKey(path);
+
     /// <summary>命令执行后比对，返回新增或被改动的文件（按修改时间倒序，最多 MaxReported 个）。</summary>
     public IReadOnlyList<OutputFile> Changed()
     {

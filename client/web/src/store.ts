@@ -10,6 +10,7 @@ import type {
   InterjectMode,
   PendingInput,
   RunsList,
+  ChangeTurn,
   ConfirmChoice,
   Expert,
   McpVendor,
@@ -76,6 +77,12 @@ export const state = reactive({
   view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks',
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
+  /** 每个对话里每一轮改动的文件（打开对话、一轮结束时取） */
+  changes: {} as Record<string, ChangeTurn[]>,
+  /** 侧聊（顺便问一句）：每个对话自己的问答，只在界面上，不写进任务对话 */
+  sideChat: { open: false, byConv: {} as Record<string, SideItem[]> },
+  /** 打开着的「改动的文件」对话框 */
+  changesView: null as { conversationId: string; turnId: string } | null,
   /** 管理员发布的专家 */
   experts: [] as Expert[],
   /** 第一次加载完没有：没加载完显示骨架屏，加载完是空的才显示「没有」 */
@@ -475,6 +482,80 @@ export async function loadExperts() {
   }
 }
 
+// ---------- 侧聊 ----------
+
+export interface SideItem {
+  role: 'user' | 'assistant'
+  content: string
+  requestId?: string
+  status?: 'streaming' | 'done' | 'error'
+}
+
+export function toggleSideChat(open?: boolean) {
+  state.sideChat.open = open ?? !state.sideChat.open
+}
+
+/** 顺便问一句：带上这个对话之前的侧聊问答，答案逐字推回来 */
+export async function askSide(question: string) {
+  const id = state.currentId
+  const q = question.trim()
+  if (!id || !q) return
+  state.sideChat.open = true
+  const list = (state.sideChat.byConv[id] ??= [])
+  if (list.some((x) => x.status === 'streaming')) return
+  const history = list.filter((x) => x.status !== 'error' && x.content).map((x) => ({ role: x.role, content: x.content }))
+  const requestId = newMessageId()
+  list.push({ role: 'user', content: q })
+  list.push({ role: 'assistant', content: '', requestId, status: 'streaming' })
+  try {
+    await bridge.askSide(id, requestId, q, history)
+  } catch (e) {
+    const item = list.find((x) => x.requestId === requestId)
+    if (item) {
+      item.status = 'error'
+      item.content = errorText(e)
+    }
+  }
+}
+
+export function stopSide() {
+  const id = state.currentId
+  const item = id ? state.sideChat.byConv[id]?.find((x) => x.status === 'streaming') : undefined
+  if (item?.requestId) void bridge.stopSide(item.requestId)
+}
+
+function sideItem(requestId: string) {
+  for (const list of Object.values(state.sideChat.byConv)) {
+    const item = list.find((x) => x.requestId === requestId)
+    if (item) return item
+  }
+  return undefined
+}
+
+// ---------- 改动的文件 ----------
+
+export async function loadChanges(conversationId: string) {
+  try {
+    state.changes[conversationId] = await bridge.listChanges(conversationId)
+  } catch (e) {
+    console.warn('读取改动的文件失败', e)
+  }
+}
+
+/** 某条回答所在那一轮改动的文件（那一轮 = 回答前面最近的一条用户消息） */
+export function changesForAnswer(conversationId: string, answerId: string) {
+  const turns = state.changes[conversationId]
+  if (!turns?.length) return null
+  const list = convState(conversationId).messages
+  const at = list.findIndex((m) => m.id === answerId)
+  for (let i = at; i >= 0; i--) if (list[i].role === 'user') return turns.find((t) => t.turnId === list[i].id) ?? null
+  return null
+}
+
+export function openChanges(conversationId: string, turnId: string) {
+  state.changesView = { conversationId, turnId }
+}
+
 // ---------- 任务中心、长任务 ----------
 
 let runsTimer: ReturnType<typeof setTimeout> | undefined
@@ -657,6 +738,7 @@ export async function openConversation(id: string) {
       s.loaded = true
       // 任务计划跟着对话保存，重新打开时还能看到做到哪一步
       if (!s.plan.length) s.plan = await bridge.loadPlan(id).catch(() => [])
+      void loadChanges(id)
     } catch (e) {
       s.loadError = errorText(e)
     }
@@ -1293,6 +1375,7 @@ function markRunning(conversationId: string): ConversationState {
 function finishRun(s: ConversationState, conversationId: string) {
   s.busy = false
   s.paused = false
+  void loadChanges(conversationId)
   s.draft = null
   for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
   // 专家的结束事件没收到（宿主那边出错、事件丢了）：向宿主要一次最终状态，卡片不要一直转圈
@@ -1467,6 +1550,27 @@ function onHostEvent(e: HostEvent) {
       if (t) {
         t.confirm = undefined
         t.state = e.choice === 'reject' ? 'rejected' : 'running'
+      }
+      break
+    }
+    case 'sidechat.delta': {
+      const item = sideItem(e.requestId)
+      if (item) item.content += e.text
+      break
+    }
+    case 'sidechat.done': {
+      const item = sideItem(e.requestId)
+      if (item) {
+        if (!item.content && e.content) item.content = e.content
+        item.status = 'done'
+      }
+      break
+    }
+    case 'sidechat.error': {
+      const item = sideItem(e.requestId)
+      if (item) {
+        item.status = 'error'
+        item.content = item.content ? `${item.content}\n\n（${e.message}）` : e.message
       }
       break
     }

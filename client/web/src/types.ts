@@ -911,6 +911,9 @@ export type HostEvent =
   | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
   | { type: 'chat.paused'; conversationId: string; paused: boolean }
   | { type: 'runs.changed' }
+  | { type: 'sidechat.delta'; requestId: string; text: string }
+  | { type: 'sidechat.done'; requestId: string; content?: string; stopped?: boolean }
+  | { type: 'sidechat.error'; requestId: string; message: string }
   | {
       type: 'context.compacting'
       conversationId: string
@@ -1079,3 +1082,32 @@ export interface PendingInput {
 }
 
 export type InterjectMode = 'steer' | 'queue' | 'interrupt'
+
+/** 一轮任务改动的一个文件。kind：created 新建 / modified 修改 / deleted 删除 */
+export interface FileChangeInfo {
+  path: string
+  name: string
+  kind: 'created' | 'modified' | 'deleted'
+  /** 哪个工具改的：write_file / delete_path / run_shell */
+  source: string
+  /** 这一轮里改了几次 */
+  times: number
+  /** 改之前那一份的备份（对比、还原用） */
+  backup?: string | null
+  emptyBefore?: boolean
+  restorable: boolean
+  exists: boolean
+  reverted: boolean
+}
+
+/** 一轮任务（一句话引起的）改动的文件。turnId 是那条用户消息的 ID */
+export interface ChangeTurn {
+  turnId: string
+  at: string
+  files: FileChangeInfo[]
+}
+
+export interface RevertOutcome {
+  reverted: string[]
+  skipped: { path: string; reason: string }[]
+}

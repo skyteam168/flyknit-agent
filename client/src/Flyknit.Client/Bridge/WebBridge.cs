@@ -1737,6 +1737,77 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _host.Stop(Str("conversationId"));
                 return null;
 
+            // ---------- 侧聊：顺便问一句，读任务对话、不写回 ----------
+            case "sidechat.ask":
+            {
+                var history = new List<Flyknit.Core.Chat.ChatMessage>();
+                if (p.TryGetProperty("history", out var h) && h.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in h.EnumerateArray())
+                    {
+                        var role = item.TryGetProperty("role", out var r) ? r.GetString() : "";
+                        var content = item.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "";
+                        if (content.Length == 0)
+                        {
+                            continue;
+                        }
+                        history.Add(role == "assistant"
+                            ? Flyknit.Core.Chat.ChatMessage.Assistant(content, Array.Empty<Flyknit.Core.Chat.ToolCall>(), null)
+                            : Flyknit.Core.Chat.ChatMessage.User(content));
+                    }
+                }
+                _host.AskSide(Str("conversationId"), Str("requestId"), Str("question"), history, this);
+                return null;
+            }
+
+            case "sidechat.stop":
+                _host.StopSide(Str("requestId"));
+                return null;
+
+            // ---------- 文件改动：改了哪些、对比、还原 ----------
+            case "changes.list":
+            {
+                var list = await Task.Run(() => _host.FileChanges(Str("conversationId")));
+                return list.GroupBy(c => c.TurnId).Select(g => new
+                {
+                    turnId = g.Key,
+                    at = g.First().At.ToString("O"),
+                    // 同一个文件改了几次只列一行：看第一次（任务之前的样子、能不能还原）和最后的状态
+                    files = g.GroupBy(c => c.Change.Path, StringComparer.OrdinalIgnoreCase).Select(f =>
+                    {
+                        var first = f.First();
+                        var last = f.Last();
+                        return new
+                        {
+                            path = first.Change.Path,
+                            name = Path.GetFileName(first.Change.Path),
+                            kind = first.Change.Kind == Flyknit.Core.Tools.FileChange.Created ? "created"
+                                : last.Change.Kind == Flyknit.Core.Tools.FileChange.Deleted ? "deleted" : "modified",
+                            source = last.Change.Source,
+                            times = f.Count(),
+                            backup = first.Change.BackupPath,
+                            emptyBefore = first.Change.EmptyBefore,
+                            restorable = first.Change.Restorable && (first.Change.BackupPath is null || File.Exists(first.Change.BackupPath)),
+                            exists = File.Exists(first.Change.Path),
+                            reverted = f.All(x => x.RevertedAt is not null),
+                        };
+                    }).ToList(),
+                }).ToList();
+            }
+
+            case "changes.revert":
+            {
+                var paths = p.TryGetProperty("paths", out var ps) && ps.ValueKind == JsonValueKind.Array
+                    ? ps.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
+                    : null;
+                var result = await Task.Run(() => _host.RevertTurn(Str("conversationId"), Str("turnId"), paths));
+                return new
+                {
+                    reverted = result.Reverted,
+                    skipped = result.Skipped.Select(x => new { path = x.Path, reason = x.Reason }).ToList(),
+                };
+            }
+
             // ---------- 长任务、任务中心 ----------
             case "conversation.setLongMode":
                 return _host.SetLongMode(Str("id"), p.TryGetProperty("on", out var lm) && lm.ValueKind == JsonValueKind.True);

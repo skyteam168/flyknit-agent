@@ -50,6 +50,7 @@ import {
   draftMode,
   finishSpeech,
   interject,
+  askSide,
   dismissInterrupted,
   interruptedRun,
   resumeInterrupted,
@@ -123,6 +124,12 @@ async function submit(how?: InterjectMode) {
   text.value = ''
   await nextTick()
   resize()
+  // /btw 开头：顺便问一句，答案在侧聊里，不写进任务对话
+  const btw = /^\/btw\s+([\s\S]+)/i.exec(value.trim())
+  if (btw && current.value) {
+    void askSide(btw[1])
+    return
+  }
   // 正在运行：回车 / 点发送是插话；长按或右键发送可以选「打断并优先」「排到本轮之后」
   const sent = busy.value ? await interject(value, how ?? 'steer') : await send(value)
   // 没发出去（例如新对话没建成）就把文字放回输入框；附件在发送成功前不会从待发列表里拿走

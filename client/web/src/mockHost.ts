@@ -62,6 +62,18 @@ export function createMockHost(): HostTransport {
   /** 开发预览的插话：正在回答的对话、各对话待发的话 */
   const runningConvs = new Set<string>()
   const dismissedRuns = new Set<string>()
+  const revertedMock = new Set<string>()
+  const MOCK_XLSX = 'D:\\日报\\2026-09\\汇总.xlsx'
+  const MOCK_MD = 'D:\\日报\\说明.md'
+  const MOCK_NEW = 'D:\\日报\\10月计划.md'
+  const MOCK_OLD = 'D:\\日报\\旧模板.xlsx'
+  const changePreviews: Record<string, unknown> = {
+    'mock:before.xlsx': { kind: 'table', sections: [{ title: '汇总', rows: [['车间', '产量', '良率'], ['A 车间', '1200', '96%'], ['B 车间', '980', '94%'], ['C 车间', '1100', '95%']] }] },
+    [MOCK_XLSX]: { kind: 'table', sections: [{ title: '汇总', rows: [['车间', '产量', '良率'], ['A 车间', '1250', '96%'], ['B 车间', '980', '94%'], ['D 车间', '640', '92%'], ['C 车间', '1100', '97%']] }] },
+    'mock:before.md': { kind: 'markdown', text: '# 日报整理说明\n\n每天的日报放在 D:\\日报 下。\n\n文件名格式：日报-YYYYMMDD.xlsx\n\n有问题找张三。' },
+    [MOCK_MD]: { kind: 'markdown', text: '# 日报整理说明\n\n每天的日报按月份放在 D:\\日报\\YYYY-MM 下。\n\n文件名格式：日报-YYYYMMDD.xlsx\n\n汇总表见 2026-09\\汇总.xlsx。\n\n有问题找张三。' },
+    [MOCK_NEW]: { kind: 'markdown', text: '# 10 月计划\n\n- 继续按月整理\n- 每周一出汇总' },
+  }
   const inbox = new Map<string, { id: string; text: string; mode: 'steer' | 'queue'; at: string }[]>()
   const emitInbox = (conversationId: string) =>
     emit({ type: 'chat.pending', conversationId, items: [...(inbox.get(conversationId) ?? [])] })
@@ -1104,7 +1116,7 @@ export function createMockHost(): HostTransport {
       case 'files.preview': {
         await sleep(250)
         const base = { path: p.path, name: String(p.path).split('\\').pop(), sections: [], text: null, language: null, dataUrl: null, notice: null, error: null }
-        return { ...base, ...(mockPreviews[p.path] ?? { kind: 'none', error: '这种格式不能在这里预览' }) }
+        return { ...base, ...((changePreviews[p.path] as object | undefined) ?? mockPreviews[p.path] ?? { kind: 'none', error: '这种格式不能在这里预览' }) }
       }
       case 'files.launch':
       case 'files.reveal':
@@ -1665,6 +1677,43 @@ export function createMockHost(): HostTransport {
         inbox.set(p.conversationId, list)
         emitInbox(p.conversationId)
         return true
+      }
+      case 'sidechat.ask': {
+        const requestId = p.requestId as string
+        const answer = `按记录来看：${p.question.includes('哪') ? '数据是从 **D:\\日报** 里的 34 个 xlsx 读出来的，按文件名里的日期分到了 8 月和 9 月两个文件夹。' : '这一步是按计划里的第 2 步做的，没有跳过。'}\n\n（这段问答不会写进任务对话）`
+        void (async () => {
+          await sleep(300)
+          for (const piece of answer.match(/.{1,6}/gsu) ?? []) {
+            emit({ type: 'sidechat.delta', requestId, text: piece })
+            await sleep(25)
+          }
+          emit({ type: 'sidechat.done', requestId })
+        })()
+        return
+      }
+      case 'sidechat.stop':
+        return
+      case 'changes.list': {
+        // 开发预览：每个对话最后一轮都假装改了几个文件
+        const list = messages.get(p.conversationId) ?? []
+        const lastUser = [...list].reverse().find((m) => m.role === 'user')
+        if (!lastUser) return []
+        return [{
+          turnId: lastUser.id,
+          at: now(),
+          files: [
+            { path: MOCK_XLSX, name: '汇总.xlsx', kind: 'modified', source: 'write_file', times: 2, backup: 'mock:before.xlsx', restorable: true, exists: true, reverted: revertedMock.has(MOCK_XLSX) },
+            { path: MOCK_MD, name: '说明.md', kind: 'modified', source: 'write_file', times: 1, backup: 'mock:before.md', restorable: true, exists: true, reverted: revertedMock.has(MOCK_MD) },
+            { path: MOCK_NEW, name: '10月计划.md', kind: 'created', source: 'write_file', times: 1, backup: null, restorable: true, exists: true, reverted: revertedMock.has(MOCK_NEW) },
+            { path: MOCK_OLD, name: '旧模板.xlsx', kind: 'modified', source: 'run_shell', times: 1, backup: null, restorable: false, exists: true, reverted: false },
+          ],
+        }]
+      }
+      case 'changes.revert': {
+        const targets: string[] = p.paths?.length ? p.paths : [MOCK_XLSX, MOCK_MD, MOCK_NEW, MOCK_OLD]
+        const reverted = targets.filter((x) => x !== MOCK_OLD)
+        reverted.forEach((x) => revertedMock.add(x))
+        return { reverted, skipped: targets.includes(MOCK_OLD) ? [{ path: MOCK_OLD, reason: '这个文件是命令改的，改之前没有备份，无法自动还原' }] : [] }
       }
       case 'conversation.setLongMode': {
         const c = conversations.get(p.id)

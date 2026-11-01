@@ -24,6 +24,8 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
 import TasksPage from './components/TasksPage.vue'
+import ChangesDialog from './components/ChangesDialog.vue'
+import SideChatPanel from './components/SideChatPanel.vue'
 import ExpertAvatar from './components/ExpertAvatar.vue'
 import ExpertDetail from './components/ExpertDetail.vue'
 import BrandLoader from './components/BrandLoader.vue'
@@ -46,6 +48,7 @@ import {
   state,
   stepFontScale,
   toggleMaximize,
+  toggleSideChat,
   stop,
   toast,
 } from './store'
@@ -198,6 +201,11 @@ function onKey(e: KeyboardEvent) {
     newConversation()
     window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
   }
+  // Ctrl+; 打开 / 收起侧聊（顺便问一句）
+  if ((e.ctrlKey || e.metaKey) && e.key === ';' && current.value && state.view === 'chat') {
+    e.preventDefault()
+    toggleSideChat()
+  }
   if (e.key === 'Escape' && drawer.value) drawer.value = false
 }
 
@@ -296,6 +304,7 @@ onBeforeUnmount(() => {
             <span v-else>{{ t('ui.experts.withdrawn') }}</span>
           </div>
           <MessageList />
+          <SideChatPanel v-if="state.sideChat.open && current && current.mode !== 'translate'" />
           <Composer ref="composer" />
         </div>
         <Home v-else ref="home" />
@@ -312,6 +321,7 @@ onBeforeUnmount(() => {
     <!-- 专家任务详情在链路弹窗下面：从详情里点「查看执行记录」时链路盖在上面 -->
     <ExpertTaskDialog v-if="state.subtaskDetail" />
     <TextViewDialog v-if="state.textView" :key="state.textView.localPath" />
+    <ChangesDialog v-if="state.changesView" />
     <TraceDialog v-if="state.trace" />
     <SettingsDialog v-if="state.settingsOpen" />
     <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />

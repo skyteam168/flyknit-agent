@@ -51,6 +51,9 @@ public sealed class Conversation
     public int MessageCount { get; set; }
 }
 
+/// <summary>一轮任务对文件的一次改动。TurnId 是引起这一轮的那条用户消息的 ID。</summary>
+public sealed record StoredFileChange(long Id, string TurnId, Tools.FileChange Change, DateTimeOffset At, DateTimeOffset? RevertedAt);
+
 /// <summary>最近跑完的一轮办事任务（任务中心「最近完成」用）。</summary>
 public sealed record RecentRun(string ConversationId, string Title, string StopReason, int Steps, int ToolCalls, DateTimeOffset FinishedAt);
 
@@ -177,6 +180,27 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "outputs", "TEXT NULL");
         AddColumn(c, "messages", "trace", "TEXT NULL");
+        // v0.9：每一轮任务对文件的改动（改了哪些、能不能还原）
+        using (var fc = c.CreateCommand())
+        {
+            fc.CommandText = """
+                CREATE TABLE IF NOT EXISTS file_changes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    backup TEXT NULL,
+                    empty_before INTEGER NOT NULL DEFAULT 0,
+                    source TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    reverted_at TEXT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_file_changes_conv ON file_changes(conversation_id, id);
+                """;
+            fc.ExecuteNonQuery();
+        }
+
         // v0.8：长任务——运行状态（中断后能接着做）、长任务模式
         AddColumn(c, "conversations", "run_started_at", "TEXT NULL");
         AddColumn(c, "conversations", "run_origin", "TEXT NULL");
@@ -602,6 +626,71 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         cmd.CommandText = "UPDATE conversations SET run_started_at = NULL, run_origin = NULL WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         cmd.ExecuteNonQuery();
+    }
+
+    public void AddFileChange(string conversationId, string turnId, Tools.FileChange change)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO file_changes (conversation_id, turn_id, path, kind, backup, empty_before, source, created_at)
+            VALUES ($conv, $turn, $path, $kind, $backup, $empty, $source, $at)
+            """;
+        cmd.Parameters.AddWithValue("$conv", conversationId);
+        cmd.Parameters.AddWithValue("$turn", turnId);
+        cmd.Parameters.AddWithValue("$path", change.Path);
+        cmd.Parameters.AddWithValue("$kind", change.Kind);
+        cmd.Parameters.AddWithValue("$backup", (object?)change.BackupPath ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$empty", change.EmptyBefore ? 1 : 0);
+        cmd.Parameters.AddWithValue("$source", change.Source);
+        cmd.Parameters.AddWithValue("$at", DateTimeOffset.Now.ToString("O"));
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>一个对话里所有的文件改动，按发生顺序。</summary>
+    public IReadOnlyList<StoredFileChange> FileChanges(string conversationId)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, turn_id, path, kind, backup, empty_before, source, created_at, reverted_at
+            FROM file_changes WHERE conversation_id = $conv ORDER BY id
+            """;
+        cmd.Parameters.AddWithValue("$conv", conversationId);
+        using var r = cmd.ExecuteReader();
+        var list = new List<StoredFileChange>();
+        while (r.Read())
+        {
+            list.Add(new StoredFileChange(
+                r.GetInt64(0),
+                r.GetString(1),
+                new Tools.FileChange(r.GetString(2), r.GetString(3), r.IsDBNull(4) ? null : r.GetString(4), r.GetString(6), r.GetInt64(5) != 0),
+                DateTimeOffset.Parse(r.GetString(7)),
+                r.IsDBNull(8) ? null : DateTimeOffset.Parse(r.GetString(8))));
+        }
+        return list;
+    }
+
+    /// <summary>这些改动已经还原了（按路径标，同一轮里同一个文件的几次改动一起标）。</summary>
+    public void MarkChangesReverted(string conversationId, string turnId, IEnumerable<string> paths)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var path in paths)
+        {
+            using var cmd = c.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                UPDATE file_changes SET reverted_at = $at
+                WHERE conversation_id = $conv AND turn_id = $turn AND path = $path COLLATE NOCASE AND reverted_at IS NULL
+                """;
+            cmd.Parameters.AddWithValue("$at", DateTimeOffset.Now.ToString("O"));
+            cmd.Parameters.AddWithValue("$conv", conversationId);
+            cmd.Parameters.AddWithValue("$turn", turnId);
+            cmd.Parameters.AddWithValue("$path", path);
+            cmd.ExecuteNonQuery();
+        }
+        tx.Commit();
     }
 
     /// <summary>最近跑完的办事任务（每轮一条，不含回收站里的对话），最近的在前。</summary>

@@ -184,9 +184,14 @@ public sealed class WriteFileTool : ITool
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
         var append = args.Bool("append", false);
+        var existed = File.Exists(path);
+        var emptyBefore = existed && new FileInfo(path).Length == 0;
         // 覆盖写是唯一不可逆的操作（删除有回收站），先留一份原文件。
-        // 追加不会毁掉已有内容，不用备份。
-        var saved = append ? null : ctx.Backup?.Capture(path);
+        // 追加不会毁掉已有内容，但要能「还原这次任务的改动」，同样留一份（有改动记录时）。
+        var saved = append && ctx.RecordChange is null ? null : ctx.Backup?.Capture(path);
+        ctx.NoteChange(existed
+            ? new FileChange(path, FileChange.Modified, saved, Name, emptyBefore)
+            : new FileChange(path, FileChange.Created, null, Name));
 
         if (append)
         {
@@ -244,7 +249,19 @@ public sealed class DeletePathTool : ITool
         {
             return Task.FromResult(ToolResult.Fail($"路径不存在：{path}"));
         }
-        ctx.Deleter.Delete(path);
+        if (File.Exists(path))
+        {
+            // 回收站之外再留一份：「还原这次任务的改动」时直接拷回来
+            var saved = ctx.RecordChange is null ? null : ctx.Backup?.Capture(path);
+            var emptyBefore = new FileInfo(path).Length == 0;
+            ctx.Deleter.Delete(path);
+            ctx.NoteChange(new FileChange(path, FileChange.Deleted, saved, Name, emptyBefore));
+        }
+        else
+        {
+            ctx.Deleter.Delete(path);
+            ctx.NoteChange(new FileChange(path, FileChange.Deleted, null, Name));
+        }
         return Task.FromResult(ToolResult.Success($"已删除 {path}"));
     }
 }

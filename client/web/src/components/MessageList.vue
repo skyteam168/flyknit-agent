@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
+import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, FilePen, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
-import { current, currentState, editAndResend, mcpToolLabel, openAttachment, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
+import { changesForAnswer, current, currentState, editAndResend, mcpToolLabel, openChanges, openAttachment, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
 import type { OutputFile, UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 import ExpertTaskCard from './ExpertTaskCard.vue'
@@ -441,6 +441,20 @@ const isImage = (mime: string) => mime.startsWith('image/')
             >
               <RefreshCw :size="15" />
             </button>
+            <!-- 这一轮改动的文件：看改了什么、对比前后、一键还原 -->
+            <template v-for="ch in [current ? changesForAnswer(current.id, m.id) : null]" :key="'ch' + m.id">
+              <button
+                v-if="ch && ch.files.length"
+                type="button"
+                class="usage trace-chip changes-chip"
+                :title="t('ui.changes.chipTitle')"
+                @click.stop="openChanges(current!.id, ch.turnId)"
+              >
+                <FilePen :size="13" />
+                <span>{{ t('ui.changes.chip', { n: ch.files.length }) }}</span>
+                <span v-if="ch.files.every((f) => f.reverted)" class="dot">· {{ t('ui.changes.reverted') }}</span>
+              </button>
+            </template>
             <button
               v-if="m.trace"
               type="button"

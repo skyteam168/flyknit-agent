@@ -63,6 +63,8 @@ import type {
   InterjectMode,
   PendingInput,
   RunsList,
+  ChangeTurn,
+  RevertOutcome,
 } from './types'
 import { createMockHost } from './mockHost'
 import { i18n } from './i18n'
@@ -316,6 +318,15 @@ class Bridge {
   /** 运行中又发一句。返回 false：已经不在运行了，照常发送 */
   interject = (conversationId: string, text: string, mode: InterjectMode, messageId: string) =>
     this.call<boolean>('chat.interject', { conversationId, text, mode, messageId })
+  /** 侧聊：顺便问一句，读任务对话、不写回。答案通过 sidechat.delta / done / error 事件推回来 */
+  askSide = (conversationId: string, requestId: string, question: string, history: { role: string; content: string }[]) =>
+    this.call<void>('sidechat.ask', { conversationId, requestId, question, history })
+  stopSide = (requestId: string) => this.call<void>('sidechat.stop', { requestId })
+  /** 这个对话里每一轮任务改动的文件 */
+  listChanges = (conversationId: string) => this.call<ChangeTurn[]>('changes.list', { conversationId })
+  /** 把某一轮的改动退回到那一轮之前；paths 为空表示全部 */
+  revertChanges = (conversationId: string, turnId: string, paths?: string[]) =>
+    this.call<RevertOutcome>('changes.revert', { conversationId, turnId, paths }, undefined, 60_000)
   /** 长任务模式开关。IT 关掉了这个功能时打不开（返回 false） */
   setLongMode = (id: string, on: boolean) => this.call<boolean>('conversation.setLongMode', { id, on })
   /** 任务中心：正在跑的、上次没跑完的、最近跑完的 */

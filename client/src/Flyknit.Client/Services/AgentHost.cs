@@ -788,6 +788,7 @@ public sealed partial class AgentHost : IDisposable
                     ? new RecycleBinDeleter()
                     : new PermanentDeleter(),
             Backup = Security.On(Flyknit.Core.Security.SecuritySettings.AutoBackup) ? _backup : null,
+            RecordChange = ChangeRecorder(id, user.Id),
             Security = Security,
             };
 
@@ -1344,6 +1345,7 @@ public sealed partial class AgentHost : IDisposable
                     ? new RecycleBinDeleter()
                     : new PermanentDeleter(),
                 Backup = Security.On(Flyknit.Core.Security.SecuritySettings.AutoBackup) ? _backup : null,
+                RecordChange = ChangeRecorder(conv.Id, user.Id),
                 Security = Security,
             };
 
