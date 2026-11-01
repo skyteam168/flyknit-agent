@@ -104,6 +104,8 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "verify_outputs",
         # 客户端 AgentHost.LongModeOn 读它：关掉后长任务模式打不开、已开的按普通任务跑
         "long_tasks",
+        # 客户端 AgentHost 读它决定这一轮有没有浏览器工具
+        "browser_tools",
         # 客户端读这几项决定能选哪些语气、能不能锁屏运行
         "persona_playful",
         "persona_custom",

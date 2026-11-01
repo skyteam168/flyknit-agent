@@ -107,5 +107,6 @@ public sealed class ToolRegistry
         .Add(new MemoryWriteTool())
         .Add(new MemorySearchTool())
         .Add(new LoadSkillTool())
-        .Add(new SearchSkillsTool());
+        .Add(new SearchSkillsTool())
+        .Add(new SuggestTaskTool());
 }

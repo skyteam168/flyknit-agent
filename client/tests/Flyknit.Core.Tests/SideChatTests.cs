@@ -46,3 +46,27 @@ public class SideChatTests
         Assert.DoesNotContain("第 10 句", record);
     }
 }
+
+/// <summary>建议新任务：只记一张卡片，不做事；一轮最多 3 件。</summary>
+public class SuggestTaskTests
+{
+    private static System.Text.Json.JsonElement Args(object o) =>
+        System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(o)).RootElement.Clone();
+
+    [Fact]
+    public async Task SuggestionsAreLimitedPerTurnAndNeedATitleAndPrompt()
+    {
+        var ctx = new Flyknit.Core.Tools.ToolContext { Policy = Flyknit.Core.Security.CommandPolicy.Default(), ConversationId = "c1" };
+        var tool = new Flyknit.Core.Tools.SuggestTaskTool();
+        Assert.Equal(Flyknit.Core.Security.RiskLevel.Auto, tool.Assess(Args(new { title = "t", prompt = "p", reason = "r" }), ctx).Level);
+
+        Assert.False((await tool.ExecuteAsync(Args(new { title = "", prompt = "p", reason = "r" }), ctx, default)).Ok);
+        for (var i = 0; i < Flyknit.Core.Tools.SuggestTaskTool.MaxPerRun; i++)
+        {
+            var ok = await tool.ExecuteAsync(Args(new { title = $"修正第 {i} 张表", prompt = "把 D:\\\\报表 里的日期格式改成 yyyy-MM-dd", reason = "同样的问题" }), ctx, default);
+            Assert.True(ok.Ok);
+            Assert.Contains("不要自己去做", ok.Output);
+        }
+        Assert.False((await tool.ExecuteAsync(Args(new { title = "再来", prompt = "p", reason = "r" }), ctx, default)).Ok);
+    }
+}

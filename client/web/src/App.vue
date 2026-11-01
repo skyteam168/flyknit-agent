@@ -14,9 +14,7 @@ import SchedulesDialog from './components/SchedulesDialog.vue'
 import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
 import UpdateBar from './components/UpdateBar.vue'
-import PlanPanel from './components/PlanPanel.vue'
-import PreviewPane from './components/PreviewPane.vue'
-import SessionPanel from './components/SessionPanel.vue'
+import RightPanel from './components/RightPanel.vue'
 import TraceDialog from './components/TraceDialog.vue'
 import ExpertTaskDialog from './components/ExpertTaskDialog.vue'
 import TextViewDialog from './components/TextViewDialog.vue'
@@ -93,9 +91,16 @@ function stopSidebarResize() {
 
 /** 窄窗口（迷你模式）：侧栏改为抽屉 */
 const narrow = computed(() => width.value < 760)
-/** 会话信息面板：只在对话里、窗口够宽、没有打开文件预览时显示（它们共用右边这块） */
-const showSession = computed(() => state.sessionPanel && !state.preview && !narrow.value && state.view === 'chat' && !!current.value)
+
 const showPlan = computed(() => width.value >= 1100 && (currentState.value?.plan.length ?? 0) > 0)
+/** 右侧面板：打开了预览或会话信息就显示；有计划、窗口够宽时也自动显示（员工关掉后不再自动弹） */
+const showRight = computed(
+  () =>
+    state.view === 'chat' &&
+    !!current.value &&
+    !narrow.value &&
+    (!!state.preview || state.sessionPanel || state.browser.active || (showPlan.value && !state.rightClosed)),
+)
 /** 有当前对话时显示对话视图，否则显示新任务首页 */
 const inConversation = computed(() => current.value !== null)
 
@@ -308,9 +313,8 @@ onBeforeUnmount(() => {
           <Composer ref="composer" />
         </div>
         <Home v-else ref="home" />
-        <PlanPanel v-if="showPlan && !state.preview && !showSession && state.view === 'chat'" :plan="currentState!.plan" />
-        <SessionPanel v-if="showSession" />
-        <PreviewPane v-if="state.preview && !narrow && state.view === 'chat'" />
+        <!-- 右侧面板：计划 / 预览 / 改动 / 浏览器 / 会话信息，用标签切换 -->
+        <RightPanel v-if="showRight" />
       </div>
     </main>
 

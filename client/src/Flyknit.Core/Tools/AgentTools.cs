@@ -291,3 +291,48 @@ public sealed class SearchSkillsTool : ITool
         return Task.FromResult(ToolResult.Success(sb.ToString()));
     }
 }
+
+/// <summary>
+/// 建议新任务：做事时发现了这一轮范围之外、但值得做的事（比如顺手发现另一张表也有同样的错），
+/// 不自己去做，而是给员工一张「建议新任务」卡片，员工点了才在新对话里开始。
+/// </summary>
+public sealed class SuggestTaskTool : ITool
+{
+    public const string ToolName = "suggest_task";
+
+    /// <summary>一轮最多建议几件：多了就是在给员工派活，不是提醒。</summary>
+    public const int MaxPerRun = 3;
+
+    public string Name => ToolName;
+
+    public string Description =>
+        "发现这一轮任务范围之外、但值得另外处理的事时（例如顺带发现别的文件也有同样的问题），不要自己去做，" +
+        "用这个工具给员工一张「建议新任务」卡片，员工点了才会在新对话里开始。prompt 要写成能独立执行的完整说明" +
+        "（涉及的文件路径、要做什么、为什么），因为新对话看不到这里的上下文。一轮最多建议 3 件，不要用它拆分当前任务。";
+
+    public JsonObject Parameters => ToolArgs.Schema(
+        ("title", "string", "卡片标题：一句动宾短语，不超过 30 字，例如「修正 10 月报表里同样的日期格式错误」", true),
+        ("prompt", "string", "新任务的完整说明，新对话里直接发给 AI 执行", true),
+        ("reason", "string", "为什么建议：一两句话，员工据此决定要不要做", true));
+
+    public PolicyDecision Assess(JsonElement args, ToolContext ctx) => PolicyDecision.Auto();
+
+    public string Describe(JsonElement args) => $"建议新任务：{args.Str("title")}";
+
+    public Task<ToolResult> ExecuteAsync(JsonElement args, ToolContext ctx, CancellationToken ct)
+    {
+        var title = args.Str("title").Trim();
+        var prompt = args.Str("prompt").Trim();
+        if (title.Length == 0 || prompt.Length == 0)
+        {
+            return Task.FromResult(ToolResult.Fail("title 和 prompt 都不能为空"));
+        }
+        if (ctx.SuggestionsMade >= MaxPerRun)
+        {
+            return Task.FromResult(ToolResult.Fail($"这一轮已经建议了 {MaxPerRun} 件，不要再建议了，把其余的写进最后的回答里"));
+        }
+        ctx.SuggestionsMade++;
+        return Task.FromResult(ToolResult.Success(
+            "已经作为「建议新任务」卡片展示给员工，员工点了才会在新对话里开始。不要自己去做这件事，继续完成当前任务。"));
+    }
+}

@@ -1737,6 +1737,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _host.Stop(Str("conversationId"));
                 return null;
 
+            case "browser.show":
+                _host.ShowBrowser();
+                return null;
+
             // ---------- 侧聊：顺便问一句，读任务对话、不写回 ----------
             case "sidechat.ask":
             {

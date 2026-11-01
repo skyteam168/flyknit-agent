@@ -289,3 +289,24 @@ def test_mobile_chat_search_soft_skip_when_not_configured(tc):
     assert events[1]["type"] == "chat.sources" and events[1]["sources"] == []
     assert "skipped" in events[1]
     assert events[-1]["type"] == "chat.done"
+
+
+def _login(tc, username: str, password: str) -> dict:
+    r = tc.post("/api/v1/admin/login", json={"username": username, "password": password})
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def test_only_owners_can_change_the_search_key(tc):
+    """密钥是公司付费账号的凭据：普通管理员能看（掩码后的）配置，改不了。"""
+    # 第一个账号会自动成为超级管理员：先建一个，第二个才是普通管理员
+    tc.post("/api/v1/admin/users", headers=ADMIN, json={"username": "it.yang", "password": "init-pass-123", "is_owner": True})
+    tc.post("/api/v1/admin/users", headers=ADMIN, json={"username": "clerk", "password": "init-pass-123"})
+    clerk = _login(tc, "clerk", "init-pass-123")
+    tc.post("/api/v1/admin/password", headers=clerk, json={"old_password": "init-pass-123", "new_password": "init-pass-123-ok"})
+    clerk = _login(tc, "clerk", "init-pass-123-ok")
+
+    assert tc.get("/api/v1/admin/mobile/web-search", headers=clerk).status_code == 200
+    r = tc.put("/api/v1/admin/mobile/web-search", headers=clerk,
+               json={"enabled": True, "provider": "serper", "count": 5, "api_key": "sk-stolen"})
+    assert r.status_code == 403
+    assert tc.get("/api/v1/admin/mobile/web-search", headers=ADMIN).json()["api_key_set"] is False

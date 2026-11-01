@@ -81,6 +81,12 @@ export const state = reactive({
   changes: {} as Record<string, ChangeTurn[]>,
   /** 侧聊（顺便问一句）：每个对话自己的问答，只在界面上，不写进任务对话 */
   sideChat: { open: false, byConv: {} as Record<string, SideItem[]> },
+  /** 右侧面板显示哪个标签：plan / preview / changes / browser / session */
+  rightTab: '' as string,
+  /** 员工点了右侧面板的关闭：计划不再自动弹出，直到打开预览、会话信息或换对话 */
+  rightClosed: false,
+  /** AI 浏览器的状态（宿主推 browser.state） */
+  browser: { active: false, url: '', title: '', action: '', shot: '' },
   /** 打开着的「改动的文件」对话框 */
   changesView: null as { conversationId: string; turnId: string } | null,
   /** 管理员发布的专家 */
@@ -290,6 +296,8 @@ export function setPreviewWidth(px: number) {
 /** 在右侧分屏里打开一个文件 */
 export async function openPreview(file: OutputFile) {
   state.preview = { file, doc: null, loading: true, error: '' }
+  state.rightTab = 'preview'
+  state.rightClosed = false
   try {
     const doc = await bridge.previewFile(file.path)
     if (state.preview?.file.path !== file.path) return // 用户已经点了别的文件
@@ -400,6 +408,7 @@ export async function init() {
     (id) => {
       void bridge.setActiveConversation(id).catch(() => {})
       state.preview = null // 换任务时收起分屏，免得看着上一个任务的产出
+      state.rightClosed = false
     },
   )
   const app = await bridge.init()
@@ -480,6 +489,19 @@ export async function loadExperts() {
   } finally {
     state.loaded.experts = true
   }
+}
+
+// ---------- 建议新任务 ----------
+
+/** 点了 AI 的「建议新任务」卡片：在同一个工作区、同样的权限下新开一个办事对话，把说明发出去 */
+export async function startSuggestedTask(sourceId: string, title: string, prompt: string): Promise<string | null> {
+  const src = state.conversations.find((c) => c.id === sourceId)
+  newConversation('agent')
+  if (src?.workspace) draftMode.workspace = src.workspace
+  if (src?.permission) draftMode.permission = src.permission
+  const note = i18n.global.t('ui.suggest.origin', { source: src?.title || i18n.global.t('sidebar.untitled'), title })
+  const ok = await send(`${prompt}\n\n${note}`)
+  return ok ? state.currentId : null
 }
 
 // ---------- 侧聊 ----------
@@ -1261,7 +1283,17 @@ export function toggleSessionPanel(open = !state.sessionPanel) {
   } catch {
     // 存不了就只在这次打开期间记住
   }
-  if (open) state.preview = null // 和文件预览占同一块位置
+  if (open) {
+    state.rightTab = 'session'
+    state.rightClosed = false
+  }
+}
+
+/** 右侧面板的关闭：收起预览、会话信息，计划也先不自动弹 */
+export function closeRightPanel() {
+  state.preview = null
+  toggleSessionPanel(false)
+  state.rightClosed = true
 }
 
 export async function loadContextUsage(conversationId: string) {
@@ -1574,6 +1606,10 @@ function onHostEvent(e: HostEvent) {
       }
       break
     }
+    case 'browser.state':
+      state.browser = { active: e.active, url: e.url, title: e.title, action: e.action ?? '', shot: e.shot ?? state.browser.shot }
+      if (e.active && !state.rightClosed) state.rightTab = 'browser'
+      break
     case 'runs.changed':
       refreshRunsSoon()
       break

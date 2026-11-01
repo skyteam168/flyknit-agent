@@ -699,7 +699,30 @@ export function createMockHost(): HostTransport {
     if (addUser) list.push({ id: messageId ?? uid(), role: 'user', content: text, attachments, createdAt: now() })
 
     let finalText: string
-    if (/卡片|演示|cards/i.test(text)) {
+    if (/网页|浏览器|browser/i.test(text)) {
+      // 开发预览：AI 浏览器在操作内部网页，右侧出现「浏览器」标签
+      emit({ type: 'browser.state', active: true, url: 'http://erp.company.local/report/daily', title: '生产日报 - ERP', action: '打开了网页' })
+      await sleep(400)
+      emit({ type: 'browser.state', active: true, url: 'http://erp.company.local/report/daily', title: '生产日报 - ERP', action: '在 [3] 填写' })
+    }
+    if (/给建议|suggest/i.test(text)) {
+      // 开发预览：AI 做事时顺带发现了范围外的问题，给一张「建议新任务」卡片
+      const callId = uid()
+      const args = JSON.stringify({
+        title: '修正 10 月报表里同样的日期格式错误',
+        reason: '整理 9 月日报时发现 10 月的几张表也用了 2026/10/3 这种格式，汇总时会排错顺序。',
+        prompt: '把 D:\\日报\\2026-10 下所有 xlsx 里「日期」列统一改成 yyyy-MM-dd 格式，改之前先列出要改的文件让我确认。',
+      })
+      const lead = '9 月的日报整理好了。顺带发现 10 月的表有同样的问题，我先不动它，给你一个建议。'
+      await stream(id, lead)
+      list.push({ id: uid(), role: 'assistant', content: lead, toolCalls: [{ id: callId, name: 'suggest_task', arguments: args }], createdAt: now() })
+      emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+      emit({ type: 'tool.started', conversationId: id, callId, name: 'suggest_task', summary: '建议新任务：修正 10 月报表里同样的日期格式错误', args, risk: 'auto' })
+      await sleep(200)
+      emit({ type: 'tool.finished', conversationId: id, callId, ok: true, output: '已经作为「建议新任务」卡片展示给员工', decision: 'auto' })
+      finalText = '9 月的 34 个日报已按月份整理完。10 月那几张表的日期格式问题，可以点上面的卡片另开一个任务处理。'
+      await stream(id, '\n\n' + finalText)
+    } else if (/卡片|演示|cards/i.test(text)) {
       await sleep(300)
       finalText = [
         '这是今天的考勤分析，主要结果如下。',
@@ -766,7 +789,9 @@ export function createMockHost(): HostTransport {
       emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed', modelName: 'Qwen3.5-397B' })
       return
     }
-    if (/图表|chart|趋势|占比/i.test(text)) {
+    if (/给建议|suggest/i.test(text)) {
+      // 上面已经回答过了
+    } else if (/图表|chart|趋势|占比/i.test(text)) {
       await sleep(400)
       finalText = [
         '九月三个车间的产量对比如下：',
@@ -1691,6 +1716,8 @@ export function createMockHost(): HostTransport {
         })()
         return
       }
+      case 'browser.show':
+        return
       case 'sidechat.stop':
         return
       case 'changes.list': {
