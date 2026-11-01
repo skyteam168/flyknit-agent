@@ -7,6 +7,8 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  CornerDownRight,
+  ListPlus,
   FileText,
   ImageIcon,
   Languages,
@@ -21,6 +23,7 @@ import {
   Sparkles,
   Square,
   Wrench,
+  Zap,
   X,
 } from '@lucide/vue'
 import Popover from './Popover.vue'
@@ -43,6 +46,8 @@ import {
   currentState,
   draftMode,
   finishSpeech,
+  interject,
+  withdrawPending,
   onSpeechText,
   pickFiles,
   send,
@@ -53,7 +58,7 @@ import {
   stop,
   toast,
 } from '../store'
-import type { Mode } from '../types'
+import type { InterjectMode, Mode, PendingInput } from '../types'
 import { shouldFold, snippet } from '../pasted'
 
 const props = defineProps<{ home?: boolean }>()
@@ -66,6 +71,7 @@ const mode = computed<Mode>(() => current.value?.mode ?? draftMode.mode)
 const expertMode = computed(() => !!(current.value?.expertId ?? draftMode.expertId))
 const placeholder = computed(() => {
   if (offline.value) return t('input.disconnected')
+  if (busy.value && !props.home) return t('ui.interject.placeholder')
   if (mode.value === 'translate') return t('input.placeholderTranslate')
   if (currentExpert.value) return t('ui.experts.placeholder', { name: currentExpert.value.name })
   return t('input.placeholder')
@@ -74,7 +80,11 @@ const from = computed(() => current.value?.translateFrom ?? draftMode.translateF
 const to = computed(() => current.value?.translateTo ?? draftMode.translateTo)
 const busy = computed(() => currentState.value?.busy ?? false)
 const offline = computed(() => state.app !== null && !state.app.connected)
-const canSend = computed(() => !busy.value && !offline.value && (text.value.trim().length > 0 || state.pending.length > 0))
+const canSend = computed(
+  () => !offline.value && (busy.value ? text.value.trim().length > 0 : text.value.trim().length > 0 || state.pending.length > 0),
+)
+/** AI 还没读到的插话、排到本轮之后的话 */
+const inputs = computed(() => currentState.value?.inputs ?? [])
 
 const langs = ['zh-CN', 'vi', 'en', 'km', 'th', 'id', 'ja', 'ko']
 const modes: { key: Mode; icon: unknown }[] = [
@@ -91,21 +101,81 @@ function resize() {
   el.style.height = `${Math.min(el.scrollHeight, 260)}px`
 }
 
-async function submit() {
+async function submit(how?: InterjectMode) {
+  menuOpen.value = false
   if (!canSend.value) return
   const value = text.value
   text.value = ''
   await nextTick()
   resize()
+  // 正在运行：回车 / 点发送是插话；长按或右键发送可以选「打断并优先」「排到本轮之后」
+  const sent = busy.value ? await interject(value, how ?? 'steer') : await send(value)
   // 没发出去（例如新对话没建成）就把文字放回输入框；附件在发送成功前不会从待发列表里拿走
-  if (!(await send(value)) && !text.value) {
+  if (!sent && !text.value) {
     text.value = value
     await nextTick()
     resize()
   }
 }
 
+// ---------- 运行中发送：长按 / 右键出菜单 ----------
+const menuOpen = ref(false)
+let pressTimer = 0
+let longPressed = false
+
+function onSendDown(e: PointerEvent) {
+  if (!busy.value || e.button !== 0) return
+  longPressed = false
+  pressTimer = window.setTimeout(() => {
+    longPressed = true
+    if (canSend.value) menuOpen.value = true
+  }, 450)
+}
+
+function onSendUp() {
+  window.clearTimeout(pressTimer)
+}
+
+function onSendClick() {
+  // 长按出了菜单：松手时的这次点击不算发送
+  if (longPressed) {
+    longPressed = false
+    return
+  }
+  void submit()
+}
+
+function onSendMenu(e: MouseEvent) {
+  if (!busy.value) return
+  e.preventDefault()
+  if (canSend.value) menuOpen.value = true
+}
+
+function closeMenu(e: PointerEvent) {
+  if (menuOpen.value && !(e.target as HTMLElement).closest('.send-menu, .send-go')) menuOpen.value = false
+}
+
+onMounted(() => document.addEventListener('pointerdown', closeMenu, true))
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', closeMenu, true)
+  window.clearTimeout(pressTimer)
+})
+
+/** 撤回待发的话，放回输入框里改（输入框里已经有字就接在后面） */
+async function editInput(item: PendingInput) {
+  const back = await withdrawPending(item)
+  if (back === null) return
+  text.value = text.value.trim() ? `${text.value}\n${back}` : back
+  await nextTick()
+  resize()
+  box.value?.focus()
+}
+
 function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && menuOpen.value) {
+    menuOpen.value = false
+    return
+  }
   // 录音时键盘先归录音条：回车结束并识别，Esc 放弃
   if (speech.value.phase !== 'idle') {
     if (e.key === 'Escape') {
@@ -322,6 +392,18 @@ onBeforeUnmount(() => {
     <AskBar v-if="!props.home" />
     <UsageWarning />
     <div class="card" :class="{ busy }">
+      <!-- 运行中又发的话：AI 读到之前可以撤回、拿回输入框改 -->
+      <div v-if="inputs.length" class="inputs">
+        <div v-for="item in inputs" :key="item.id" class="input-row">
+          <span class="input-tag" :class="item.mode">
+            <component :is="item.mode === 'queue' ? ListPlus : CornerDownRight" :size="12" />
+            {{ t(item.mode === 'queue' ? 'ui.interject.queued' : 'ui.interject.steered') }}
+          </span>
+          <span class="input-text" :title="item.text">{{ item.text }}</span>
+          <button type="button" class="input-btn" :title="t('ui.interject.edit')" :aria-label="t('ui.interject.edit')" @click="editInput(item)"><Pencil :size="13" /></button>
+          <button type="button" class="input-btn" :title="t('ui.interject.withdraw')" :aria-label="t('ui.interject.withdraw')" @click="withdrawPending(item)"><X :size="13" /></button>
+        </div>
+      </div>
       <div v-if="state.pending.length" class="pending">
         <template v-for="(a, i) in state.pending" :key="a.localPath + i">
         <div v-if="a.pasted" class="paste-card">
@@ -519,10 +601,41 @@ onBeforeUnmount(() => {
         >
           <Mic :size="17" />
         </button>
-        <button v-if="busy" type="button" class="send stop" :title="t('input.stop')" @click="stop">
-          <Square :size="13" fill="currentColor" />
-        </button>
-        <button v-else type="button" class="send" :disabled="!canSend" :title="t('input.send')" @click="submit">
+        <template v-if="busy">
+          <span class="send-wrap">
+            <button
+              type="button"
+              class="send send-go"
+              :disabled="!canSend"
+              :title="t('ui.interject.sendHint')"
+              @pointerdown="onSendDown"
+              @pointerup="onSendUp"
+              @pointerleave="onSendUp"
+              @click="onSendClick"
+              @contextmenu="onSendMenu"
+            >
+              <ArrowUp :size="18" />
+            </button>
+            <div v-if="menuOpen" class="send-menu" role="menu">
+              <button type="button" class="pop-opt" role="menuitem" @click="submit('steer')">
+                <CornerDownRight :size="15" />
+                <span class="opt-body"><b>{{ t('ui.interject.steer') }}</b><small>{{ t('ui.interject.steerHint') }}</small></span>
+              </button>
+              <button type="button" class="pop-opt" role="menuitem" @click="submit('interrupt')">
+                <Zap :size="15" />
+                <span class="opt-body"><b>{{ t('ui.interject.interrupt') }}</b><small>{{ t('ui.interject.interruptHint') }}</small></span>
+              </button>
+              <button type="button" class="pop-opt" role="menuitem" @click="submit('queue')">
+                <ListPlus :size="15" />
+                <span class="opt-body"><b>{{ t('ui.interject.queue') }}</b><small>{{ t('ui.interject.queueHint') }}</small></span>
+              </button>
+            </div>
+          </span>
+          <button type="button" class="send stop" :title="t('input.stop')" @click="stop">
+            <Square :size="13" fill="currentColor" />
+          </button>
+        </template>
+        <button v-else type="button" class="send" :disabled="!canSend" :title="t('input.send')" @click="submit()">
           <ArrowUp :size="18" />
         </button>
       </div>
@@ -896,6 +1009,103 @@ textarea::placeholder {
 }
 .send.stop {
   background: var(--pill);
+}
+.send-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.send-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: 260px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--cloth);
+  box-shadow: var(--shadow-pop, 0 8px 24px rgb(0 0 0 / 0.14));
+}
+.send-menu .pop-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 7px;
+  text-align: left;
+  color: var(--ink);
+}
+.send-menu .pop-opt:hover {
+  background: var(--cloth-sunk);
+}
+.send-menu .pop-opt > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--ink-soft);
+}
+.opt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.opt-body b {
+  font-weight: 600;
+  font-size: var(--t-sm);
+}
+.opt-body small {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+.inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px 0;
+}
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 4px 3px 8px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--cloth-sunk);
+  font-size: var(--t-sm);
+}
+.input-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--t-xs);
+  color: var(--indigo);
+}
+.input-tag.queue {
+  color: var(--ink-soft);
+}
+.input-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+.input-btn {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--ink-faint);
+}
+.input-btn:hover {
+  background: var(--cloth);
+  color: var(--ink);
 }
 .foot {
   display: flex;

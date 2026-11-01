@@ -59,6 +59,31 @@ export function createMockHost(): HostTransport {
   const confirmWaiters = new Map<string, (choice: string) => void>()
   const mockCompacted = new Set<string>()
   const stopped = new Set<string>()
+  /** 开发预览的插话：正在回答的对话、各对话待发的话 */
+  const runningConvs = new Set<string>()
+  const inbox = new Map<string, { id: string; text: string; mode: 'steer' | 'queue'; at: string }[]>()
+  const emitInbox = (conversationId: string) =>
+    emit({ type: 'chat.pending', conversationId, items: [...(inbox.get(conversationId) ?? [])] })
+
+  /** 回答一轮；结束后有排队、插话没读到的，合成一句接着发（和宿主的 RunInbox.TakeNext 一样） */
+  async function runTurn(c: Conversation, text: string, attachments: AttachmentRef[], messageId?: string) {
+    runningConvs.add(c.id)
+    try {
+      await reply(c, text, attachments, messageId)
+    } finally {
+      runningConvs.delete(c.id)
+    }
+    const list = inbox.get(c.id) ?? []
+    if (list.length === 0) return
+    const steer = list.filter((x) => x.mode === 'steer')
+    const next = steer.length > 0 ? steer : [list.find((x) => x.mode === 'queue')!]
+    inbox.set(c.id, list.filter((x) => !next.includes(x)))
+    emitInbox(c.id)
+    const merged = next.map((x) => x.text).join('\n\n')
+    const user: UiMessage = { id: next[0].id, role: 'user', content: merged, attachments: [], createdAt: now() }
+    emit({ type: 'chat.message', conversationId: c.id, message: user })
+    void runTurn(c, merged, [], next[0].id)
+  }
   // 专家：管理员发布的。?experts=none 看没有专家时的样子
   const minutesAgo = (min: number) => new Date(Date.now() - min * 60000).toISOString()
   const mockExperts = (
@@ -1621,8 +1646,42 @@ export function createMockHost(): HostTransport {
         if (/产出|交付|文件|ppt|报表/i.test(p.text ?? '')) {
           setTimeout(() => emit({ type: 'files.produced', conversationId: p.conversationId, files: mockOutputs }), 2600)
         }
-        void reply(conversations.get(p.conversationId)!, p.text, p.attachments, p.messageId)
+        if (runningConvs.has(p.conversationId) && !(p.attachments?.length > 0)) {
+          inbox.set(p.conversationId, [...(inbox.get(p.conversationId) ?? []), { id: p.messageId ?? uid(), text: p.text, mode: 'steer', at: now() }])
+          emitInbox(p.conversationId)
+          return { pending: true }
+        }
+        void runTurn(conversations.get(p.conversationId)!, p.text, p.attachments, p.messageId)
         return
+      case 'chat.interject': {
+        if (!runningConvs.has(p.conversationId)) return false
+        const list = inbox.get(p.conversationId) ?? []
+        const item = { id: p.messageId ?? uid(), text: p.text, mode: (p.mode === 'steer' ? 'steer' : 'queue') as 'steer' | 'queue', at: now() }
+        if (p.mode === 'interrupt') {
+          list.unshift(item)
+          stopped.add(p.conversationId)
+        } else list.push(item)
+        inbox.set(p.conversationId, list)
+        emitInbox(p.conversationId)
+        return true
+      }
+      case 'chat.pending':
+        return inbox.get(p.conversationId) ?? []
+      case 'chat.pending.update': {
+        const item = (inbox.get(p.conversationId) ?? []).find((x) => x.id === p.id)
+        if (!item) return false
+        item.text = p.text
+        if (p.mode) item.mode = p.mode
+        emitInbox(p.conversationId)
+        return true
+      }
+      case 'chat.pending.remove': {
+        const list = inbox.get(p.conversationId) ?? []
+        if (!list.some((x) => x.id === p.id)) return false
+        inbox.set(p.conversationId, list.filter((x) => x.id !== p.id))
+        emitInbox(p.conversationId)
+        return true
+      }
       case 'chat.stop':
         stopped.add(p.conversationId)
         return

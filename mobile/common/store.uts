@@ -17,6 +17,8 @@ export type Msg = {
 	/** 办事：电脑上执行到的步骤 */
 	steps : Array<string>
 	createdAt : number
+	/** 员工的话：插话 / 排队 / 打断（电脑在办事、AI 在回答时又说的），普通的话为空 */
+	tag ?: string
 }
 
 export type Conv = {

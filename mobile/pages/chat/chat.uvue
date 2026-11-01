@@ -50,6 +50,7 @@
 				<view v-for="m in messages" :key="m.id" class="msg">
 					<!-- 员工 -->
 					<view v-if="m.role == 'user'" class="row-user">
+						<text v-if="m.tag != null && m.tag != ''" class="user-tag" :style="{ color: c.indigo }">{{ m.tag }}</text>
 						<view class="bubble" :style="{ backgroundColor: c.chip }" @longpress="copyText(m.content)">
 							<text class="bubble-text" :style="{ color: c.ink }" :selectable="true">{{ m.content }}</text>
 						</view>
@@ -90,6 +91,14 @@
 
 			<!-- 输入框 -->
 			<view class="composer" :style="{ paddingBottom: px(bottomInset + 8) }">
+				<!-- 回答还没完又发的话：排着，回答完按顺序发；发出去之前能撤回、拿回输入框改 -->
+				<view v-for="q in queuedHere" :key="q.id" class="queued" :style="{ backgroundColor: c.sunk, borderColor: c.lineStrong }">
+					<text class="queued-tag" :style="{ color: c.inkSoft }">排队</text>
+					<text class="queued-text" :style="{ color: c.ink }" :lines="1">{{ q.text }}</text>
+					<text class="queued-btn" :style="{ color: c.indigo }" @click="editQueued(q.id)">改</text>
+					<text class="queued-btn" :style="{ color: c.inkFaint }" @click="dropQueued(q.id)">撤回</text>
+				</view>
+				<text v-if="busyHint != ''" class="busy-hint" :style="{ color: c.inkFaint }">{{ busyHint }}</text>
 				<view class="box" :style="{ backgroundColor: c.cloth, borderColor: c.lineStrong }">
 					<textarea
 						class="input"
@@ -103,10 +112,10 @@
 						@input="onDraft"
 						@confirm="send"
 					/>
-					<view v-if="streaming != null" class="send" :style="{ backgroundColor: c.action }" @click="stop">
+					<view v-if="streaming != null && draft.trim() == ''" class="send" :style="{ backgroundColor: c.action }" @click="stop">
 						<view class="stop-square" :style="{ backgroundColor: c.actionInk }"></view>
 					</view>
-					<view v-else class="send" :style="{ backgroundColor: draft.trim() == '' ? c.lineStrong : c.action }" @click="send">
+					<view v-else class="send" :style="{ backgroundColor: draft.trim() == '' ? c.lineStrong : c.action }" @click="send" @longpress="sendMenu">
 						<text class="send-arrow" :style="{ color: c.actionInk }">↑</text>
 					</view>
 				</view>
@@ -171,7 +180,7 @@
 <script setup lang="uts">
 	import { computed, nextTick, ref, watch } from 'vue'
 	import { theme } from '../../common/theme.uts'
-	import { Approval, Conv, Msg, createConv, currentConv, newMsg, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
+	import { Approval, Conv, Msg, createConv, currentConv, newId, newMsg, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
 	import { request } from '../../common/api.uts'
 	import { answerApproval, connect, sendChat, stopChat } from '../../common/socket.uts'
 
@@ -417,11 +426,155 @@
 		uni.setClipboardData({ data: text })
 	}
 
-	async function send() {
+	// ---------- 运行中又说的话 ----------
+
+	type Queued = { id : string, convId : string, text : string }
+	/** 对话、翻译：回答还没完又发的话，回答完按顺序发（只在本机排着） */
+	const queued = ref([] as Array<Queued>)
+	const queuedHere = computed(() : Array<Queued> => queued.value.filter((q : Queued) : boolean => q.convId == state.currentId))
+
+	/** 办事：这个对话里电脑还在办（或者还没开始办）的那件事 */
+	const runningTask = computed(() : Msg | null => {
+		const list = messages.value
+		for (let i = list.length - 1; i >= 0; i--) {
+			const m = list[i]
+			if (m.taskId > 0) {
+				return m.taskStatus == 'pending' || m.taskStatus == 'running' ? m : null
+			}
+		}
+		return null
+	})
+	const busyHint = computed(() : string => {
+		if (draft.value.trim() == '') return ''
+		if (runningTask.value != null) return '电脑正在办：发送 = 插话（不打断），长按发送可以打断或排到后面'
+		if (streaming.value != null) return '正在回答：发送会排在这个回答之后，长按发送可以打断'
+		return ''
+	})
+
+	/** 长按发送：运行中才有选项 */
+	function sendMenu() {
 		const text = draft.value.trim()
-		if (text == '' || streaming.value != null) {
+		if (text == '') {
 			return
 		}
+		const task = runningTask.value
+		if (task != null) {
+			uni.showActionSheet({
+				itemList: ['插话（不打断，AI 下一步就看到）', '打断并优先处理这句', '排到这件事之后'],
+				success: (r) => {
+					const how = r.tapIndex == 0 ? 'steer' : (r.tapIndex == 1 ? 'interrupt' : 'queue')
+					void sendInput(task, text, how)
+				}
+			})
+			return
+		}
+		if (streaming.value != null) {
+			uni.showActionSheet({
+				itemList: ['排到这个回答之后', '打断并发送'],
+				success: (r) => {
+					if (r.tapIndex == 0) {
+						queueLocal(text)
+					} else {
+						stop()
+						draft.value = ''
+						void sendText(text, '打断')
+					}
+				}
+			})
+			return
+		}
+		send()
+	}
+
+	function queueLocal(text : string) {
+		queued.value.push({ id: newId(), convId: state.currentId, text: text } as Queued)
+		draft.value = ''
+	}
+
+	function dropQueued(id : string) {
+		queued.value = queued.value.filter((q : Queued) : boolean => q.id != id)
+	}
+
+	function editQueued(id : string) {
+		const i = queued.value.findIndex((q : Queued) : boolean => q.id == id)
+		if (i < 0) {
+			return
+		}
+		const text = queued.value[i].text
+		queued.value.splice(i, 1)
+		draft.value = draft.value.trim() == '' ? text : draft.value + '\n' + text
+	}
+
+	// 回答完了：排着的话按顺序接着发
+	watch(streaming, (m : Msg | null) => {
+		if (m != null) {
+			return
+		}
+		const i = queued.value.findIndex((q : Queued) : boolean => q.convId == state.currentId)
+		if (i < 0) {
+			return
+		}
+		const next = queued.value[i]
+		queued.value.splice(i, 1)
+		void sendText(next.text, '排队')
+	})
+
+	/** 办事：电脑正在办的时候又说了一句（插话 / 打断 / 排队），交给服务端转给电脑 */
+	async function sendInput(task : Msg, text : string, how : string) {
+		const cv = conv.value
+		if (cv == null) {
+			return
+		}
+		draft.value = ''
+		const tag = how == 'steer' ? '插话' : (how == 'interrupt' ? '打断' : '排队')
+		const user = newMsg('user', text, 'done')
+		user.tag = tag
+		cv.messages.push(user)
+		touch(cv)
+		const res = await request('POST', '/api/v1/mobile/tasks/' + task.taskId.toString() + '/input', { text: text, mode: how } as UTSJSONObject)
+		if (!res.ok || res.data == null) {
+			const err = newMsg('assistant', '没交给电脑：' + res.error, 'error')
+			cv.messages.push(err)
+			saveConversations()
+			return
+		}
+		const body = res.data as UTSJSONObject
+		const delivered = body.getString('delivered') ?? ''
+		const t = body.getJSON('task')
+		if (delivered == 'task' && t != null) {
+			// 作为新的一件事排上了：给它一张自己的任务卡片
+			const card = newMsg('assistant', '', 'task')
+			card.taskId = t.getNumber('id') ?? 0
+			card.taskStatus = t.getString('status') ?? 'pending'
+			cv.messages.push(card)
+		} else if (delivered == 'steer') {
+			task.steps.push('补充：' + (text.length > 30 ? text.substring(0, 30) + '…' : text))
+		} else if (delivered == 'merged') {
+			task.steps.push('补充已并入这件事')
+		}
+		saveConversations()
+	}
+
+	async function send() {
+		const text = draft.value.trim()
+		if (text == '') {
+			return
+		}
+		// 电脑在办事：默认插话；AI 在回答：排到回答之后
+		const task = runningTask.value
+		if (task != null && mode.value == 'agent') {
+			await sendInput(task, text, 'steer')
+			return
+		}
+		if (streaming.value != null) {
+			queueLocal(text)
+			return
+		}
+		draft.value = ''
+		await sendText(text, '')
+	}
+
+	async function sendText(text : string, tag : string) {
 		if (state.socket != 'open' && mode.value != 'agent') {
 			connect()
 			uni.showToast({ title: '正在连接服务器，请稍候再发', icon: 'none' })
@@ -435,8 +588,11 @@
 		if (theConv.title == '') {
 			theConv.title = text.length > 18 ? text.substring(0, 18) + '…' : text
 		}
-		draft.value = ''
-		theConv.messages.push(newMsg('user', text, 'done'))
+		const user = newMsg('user', text, 'done')
+		if (tag != '') {
+			user.tag = tag
+		}
+		theConv.messages.push(user)
 		touch(theConv)
 
 		if (theConv.mode == 'agent') {
@@ -754,8 +910,8 @@
 		margin-top: 14px;
 	}
 	.row-user {
-		flex-direction: row;
-		justify-content: flex-end;
+		flex-direction: column;
+		align-items: flex-end;
 	}
 	.bubble {
 		max-width: 82%;
@@ -860,6 +1016,36 @@
 		min-height: 36px;
 		max-height: 140px;
 		padding: 7px 0;
+	}
+	.queued {
+		flex-direction: row;
+		align-items: center;
+		border-width: 1px;
+		border-style: dashed;
+		border-radius: 12px;
+		padding: 6px 10px;
+		margin-bottom: 6px;
+	}
+	.queued-tag {
+		font-size: 12px;
+		margin-right: 8px;
+	}
+	.queued-text {
+		flex: 1;
+		font-size: 14px;
+	}
+	.queued-btn {
+		font-size: 13px;
+		padding: 2px 0 2px 12px;
+	}
+	.busy-hint {
+		font-size: 12px;
+		margin: 0 8px 6px 8px;
+	}
+	.user-tag {
+		font-size: 11px;
+		margin-bottom: 3px;
+		margin-right: 4px;
 	}
 	.send {
 		width: 36px;

@@ -7,6 +7,8 @@ import type {
   AttachmentRef,
   AskAnswerInput,
   ContextUsage,
+  InterjectMode,
+  PendingInput,
   ConfirmChoice,
   Expert,
   McpVendor,
@@ -51,6 +53,8 @@ interface ConversationState {
   subtasks: Record<string, SubtaskView>
   /** 子任务 ID → callId（确认卡片只带子任务 ID） */
   subtaskCalls: Record<string, string>
+  /** 运行中又发的话：AI 还没读到的插话、排到本轮之后的话 */
+  inputs: PendingInput[]
 }
 
 export const state = reactive({
@@ -341,7 +345,7 @@ export const currentState = computed(() => (state.currentId ? convState(state.cu
 
 function convState(id: string): ConversationState {
   if (!state.byId[id]) {
-    state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null, notices: [], subtasks: {}, subtaskCalls: {} }
+    state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null, notices: [], subtasks: {}, subtaskCalls: {}, inputs: [] }
   }
   return state.byId[id]
 }
@@ -864,7 +868,12 @@ export async function send(text: string): Promise<boolean> {
     const messageId = newMessageId()
     s.messages.push({ id: messageId, role: 'user', content: body, attachments, createdAt: new Date().toISOString() })
     beginRun(s)
-    await bridge.send(id, body, attachments.map(forHost), messageId)
+    const r = await bridge.send(id, body, attachments.map(forHost), messageId)
+    // 宿主那边这一轮其实还没收尾：这句当插话收下了，AI 读到时会再推回来，先从对话里拿掉
+    if (r?.pending) {
+      const i = s.messages.findIndex((m) => m.id === messageId)
+      if (i >= 0) s.messages.splice(i, 1)
+    }
   } catch (e) {
     if (id) {
       const s = convState(id)
@@ -877,6 +886,62 @@ export async function send(text: string): Promise<boolean> {
     }
   }
   return true
+}
+
+/**
+ * 运行中又发一句：steer 插话（AI 下一步就看到）/ queue 排到这一轮之后 / interrupt 停掉这一轮、优先处理这句。
+ * 对话没在运行就照常发送。带附件的话不能插话（附件要等这一轮结束再发）。
+ */
+export async function interject(text: string, mode: InterjectMode): Promise<boolean> {
+  const body = text.trim()
+  const id = state.currentId
+  if (!body || !id) return false
+  const s = convState(id)
+  if (!s.busy) return send(body)
+  if (state.pending.length > 0) {
+    toast(i18n.global.t('ui.interject.noFiles'))
+    return false
+  }
+  try {
+    if (await bridge.interject(id, body, mode, newMessageId())) return true
+    // 宿主说已经结束了、界面还没收到结束事件：等它一下再照常发
+    for (let i = 0; i < 30 && s.busy; i++) await new Promise((r) => setTimeout(r, 100))
+    return send(body)
+  } catch (e) {
+    fail(e)
+    return false
+  }
+}
+
+/** 待发的话改一下（AI 读到之前）；已经被读走了就提示一下 */
+export async function editPending(id: string, text: string) {
+  const conv = state.currentId
+  if (!conv) return false
+  try {
+    const ok = await bridge.updatePending(conv, id, text)
+    if (!ok) toast(i18n.global.t('ui.interject.taken'))
+    return ok
+  } catch (e) {
+    fail(e)
+    return false
+  }
+}
+
+/** 撤回待发的话；返回撤回的文字（放回输入框改），已经被读走返回 null */
+export async function withdrawPending(item: PendingInput): Promise<string | null> {
+  const conv = state.currentId
+  if (!conv) return null
+  try {
+    if (await bridge.removePending(conv, item.id)) {
+      const s = convState(conv)
+      s.inputs = s.inputs.filter((x) => x.id !== item.id)
+      return item.text
+    }
+    toast(i18n.global.t('ui.interject.taken'))
+  } catch (e) {
+    fail(e)
+  }
+  return null
 }
 
 function beginRun(s: ConversationState) {
@@ -1158,7 +1223,10 @@ function onHostEvent(e: HostEvent) {
       break
     }
     case 'chat.message': {
-      const s = convState(e.conversationId)
+      // 用户的话由宿主推来：插话交给 AI 了，或者排队的话接着发了（这时新的一轮开始）
+      const s = e.message.role === 'user' ? markRunning(e.conversationId) : convState(e.conversationId)
+      if (e.message.role === 'user' && s.messages.some((m) => m.id === e.message.id)) break
+      if (e.message.role === 'user') s.inputs = s.inputs.filter((x) => x.id !== e.message.id)
       s.messages.push(e.message)
       if (e.message.role === 'assistant') s.draft = { content: '', reasoning: '' }
       break
@@ -1308,6 +1376,9 @@ function onHostEvent(e: HostEvent) {
       }
       break
     }
+    case 'chat.pending':
+      convState(e.conversationId).inputs = e.items
+      break
     case 'chat.notice': {
       const s = convState(e.conversationId)
       if (!s.notices.includes(e.text)) s.notices.push(e.text)

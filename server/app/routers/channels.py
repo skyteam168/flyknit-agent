@@ -178,6 +178,22 @@ async def task_event(message_id: int, data: TaskEventIn, device: Device = Depend
     return {"ok": True}
 
 
+@client_router.get("/messages/{message_id}/inputs")
+async def task_inputs(message_id: int, wait: int = Query(default=25, ge=0, le=30), device: Device = Depends(require_device),
+                      session: AsyncSession = Depends(get_session)):
+    """
+    电脑执行手机发来的事时，顺便长轮询手机上补充的话（插话）和打断请求。
+    done=true 表示这件事已经结束，不用再来取了。
+    """
+    row = await _running(session, message_id, device)
+    if row.channel != mobile_hub.CHANNEL or row.status != "running":
+        return {"inputs": [], "stop": False, "done": True}
+    texts, stop = await mobile_hub.hub.take_inputs(row.id, float(wait))
+    for t in texts:
+        await mobile_hub.hub.task_event(row, "input", "已交给电脑：" + (t if len(t) <= 40 else t[:40] + "…"))
+    return {"inputs": texts, "stop": stop, "done": False}
+
+
 class ApprovalIn(BaseModel):
     summary: str = Field(max_length=500)
     detail: str = Field(default="", max_length=2000)

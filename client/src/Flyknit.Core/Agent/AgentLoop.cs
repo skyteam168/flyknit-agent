@@ -148,6 +148,12 @@ public sealed class AgentLoop
         【系统提醒】现在的做法不太顺。先回头看看计划：这一步行不通就用 update_plan 改掉它（换个办法、拆小、或者标记需要用户帮忙），再继续执行。
         """;
 
+    /// <summary>
+    /// 运行中用户又说的话（插话）。每次调模型之前、以及模型准备收尾时取一次：有就作为用户消息接进上下文，
+    /// 模型下一步就会读到，不用等这一轮跑完或者停掉重来。宿主按会话提供，取走即清空。
+    /// </summary>
+    public Func<IReadOnlyList<ChatMessage>>? Interjections { get; init; }
+
     public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
@@ -208,6 +214,8 @@ public sealed class AgentLoop
                 {
                     return Result(AgentStopReason.Cancelled);
                 }
+                // 上一步的工具结果都已回填，这里接上用户的插话（不会插在调用和结果之间）
+                TakeInterjections();
 
                 // 全局预算：每次调模型前看一眼。累计 token、连续没进展的轮数、改计划的次数
                 var budgetVerdict = budget.Check(out var budgetNote);
@@ -351,6 +359,11 @@ public sealed class AgentLoop
 
                 if (turn.ToolCalls.Count == 0)
                 {
+                    // 模型准备收尾时用户又补充了要求：不结束，接着按新要求做
+                    if (TakeInterjections() > 0)
+                    {
+                        continue;
+                    }
                     return Result(AgentStopReason.Completed);
                 }
 
@@ -533,6 +546,23 @@ public sealed class AgentLoop
         {
             history.Add(m);
             newMessages.Add(m);
+        }
+
+        int TakeInterjections()
+        {
+            var list = Interjections?.Invoke();
+            if (list is null || list.Count == 0)
+            {
+                return 0;
+            }
+            foreach (var m in list)
+            {
+                Append(m);
+                observer.OnInterjection(m);
+            }
+            var first = list[0].Content.Replace('\n', ' ');
+            using var g = trace.Begin("interject", "用户插话", first.Length > 40 ? first[..40] + "…" : first);
+            return list.Count;
         }
 
         ChatMessage? ToolMessageOf(ToolCall call) =>

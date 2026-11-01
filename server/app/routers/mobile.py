@@ -172,6 +172,48 @@ async def submit_task(data: TaskIn, ctx: tuple[MobileDevice, Device] = Depends(r
     return task_out(row)
 
 
+class InputIn(BaseModel):
+    text: str = Field(min_length=1, max_length=MAX_TASK_TEXT)
+    #: steer 插话（AI 下一步就看到）/ queue 排到这件事之后 / interrupt 停掉这件事、优先办这句
+    mode: str = Field(default="steer", pattern="^(steer|queue|interrupt)$")
+
+
+class InputOut(BaseModel):
+    #: steer：插话已交给正在办的事；merged：那件事电脑还没开始，并进了它的内容；task：作为新的一件事排上了
+    delivered: str
+    task: TaskOut | None = None
+
+
+@router.post("/tasks/{task_id}/input", response_model=InputOut)
+async def task_input(task_id: int, data: InputIn, ctx: tuple[MobileDevice, Device] = Depends(require_mobile),
+                     session: AsyncSession = Depends(get_session)):
+    """
+    电脑正在办事时手机上又说了一句。插话：交给正在办的那件事，AI 下一步就能看到；
+    排队：这件事办完再办；打断：停掉这件事，马上办这句。这件事已经结束了，就照常作为新的一件事。
+    """
+    mobile, _ = ctx
+    row = await session.get(ChannelMessage, task_id)
+    if row is None or row.channel != CHANNEL or row.external_id != external_id(mobile.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "没有这件事")
+    text = data.text.strip()
+    if row.status == "pending" and data.mode == "steer":
+        # 电脑还没开始办：直接并进这件事的内容里
+        row.text = (row.text + "\n\n补充：" + text)[:MAX_TASK_TEXT * 2]
+        await session.commit()
+        return InputOut(delivered="merged", task=TaskOut(**task_out(row)))
+    if row.status == "running" and data.mode == "steer":
+        if not hub.push_input(row.id, text):
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "补充的话太多了，等电脑处理一下再说")
+        return InputOut(delivered="steer")
+    if row.status == "running" and data.mode == "interrupt":
+        hub.request_stop(row.id)
+        log.info("手机 #%s 打断了任务 #%s", mobile.id, row.id)
+    # 排队、打断、或者这件事已经结束：作为新的一件事排上（同一台电脑一次只办一件，按顺序来）
+    binding = await _binding(session, mobile)
+    new = await channels.enqueue(session, binding, text, mobile.name)
+    return InputOut(delivered="task", task=TaskOut(**task_out(new)))
+
+
 @router.get("/tasks", response_model=list[TaskOut])
 async def my_tasks(limit: int = Query(default=30, ge=1, le=100), ctx: tuple[MobileDevice, Device] = Depends(require_mobile),
                    session: AsyncSession = Depends(get_session)):

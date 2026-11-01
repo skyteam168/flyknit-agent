@@ -60,6 +60,8 @@ import type {
   PersonaInfo,
   PersonaUpdate,
   SubtaskDto,
+  InterjectMode,
+  PendingInput,
 } from './types'
 import { createMockHost } from './mockHost'
 import { i18n } from './i18n'
@@ -303,13 +305,21 @@ class Bridge {
 
   // ---------- 对话 ----------
   send = (conversationId: string, text: string, attachments: AttachmentRef[], messageId: string) =>
-    this.call<void>('chat.send', { conversationId, text, attachments, messageId })
+    this.call<{ pending?: boolean } | null>('chat.send', { conversationId, text, attachments, messageId })
   regenerate = (conversationId: string) => this.call<void>('chat.regenerate', { conversationId })
   editMessage = (conversationId: string, messageId: string, text: string, newMessageId: string) =>
     this.call<void>('chat.edit', { conversationId, messageId, text, newMessageId })
   feedback = (conversationId: string, id: string, value: number | null) =>
     this.call<void>('message.feedback', { conversationId, id, value })
   stop = (conversationId: string) => this.call<void>('chat.stop', { conversationId })
+  /** 运行中又发一句。返回 false：已经不在运行了，照常发送 */
+  interject = (conversationId: string, text: string, mode: InterjectMode, messageId: string) =>
+    this.call<boolean>('chat.interject', { conversationId, text, mode, messageId })
+  pendingInputs = (conversationId: string) => this.call<PendingInput[]>('chat.pending', { conversationId })
+  /** AI 读到之前改一句；已经被读走返回 false */
+  updatePending = (conversationId: string, id: string, text: string, mode?: 'steer' | 'queue') =>
+    this.call<boolean>('chat.pending.update', { conversationId, id, text, mode })
+  removePending = (conversationId: string, id: string) => this.call<boolean>('chat.pending.remove', { conversationId, id })
   confirm = (requestId: string, choice: ConfirmChoice) => this.call<void>('tool.confirm', { requestId, choice })
   /** 会话信息面板：最近一次回答时的上下文用量（没回答过返回 null） */
   contextUsage = (conversationId: string) => this.call<ContextUsage | null>('context.usage', { conversationId })

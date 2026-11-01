@@ -1677,6 +1677,11 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 var attachments = p.TryGetProperty("attachments", out var a) && a.ValueKind == JsonValueKind.Array
                     ? a.Deserialize<List<AttachmentDto>>(Json) ?? new()
                     : new();
+                // 界面以为已经结束、其实这一轮还没收尾：没带附件就当插话，不报「正在处理中」
+                if (attachments.Count == 0 && _host.Interject(Str("conversationId"), Str("text"), RunInbox.Steer, OptStr("messageId")))
+                {
+                    return new { pending = true };
+                }
                 _host.Send(
                     Str("conversationId"),
                     Str("text"),
@@ -1691,6 +1696,20 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "chat.stop":
                 _host.Stop(Str("conversationId"));
                 return null;
+
+            // 运行中又发的话：steer 插话 / queue 排到本轮之后 / interrupt 打断并优先。返回 false 表示已经不在运行，界面照常发送
+            case "chat.interject":
+                return _host.Interject(Str("conversationId"), Str("text"), Str("mode"), OptStr("messageId"));
+
+            case "chat.pending":
+                return AgentHost.PendingDto(_host.Inbox.List(Str("conversationId")));
+
+            // AI 读到之前还能改、能撤回；已经被读走返回 false
+            case "chat.pending.update":
+                return _host.Inbox.Update(Str("conversationId"), Str("id"), Str("text"), OptStr("mode"));
+
+            case "chat.pending.remove":
+                return _host.Inbox.Remove(Str("conversationId"), Str("id"));
 
             case "tool.confirm":
             {

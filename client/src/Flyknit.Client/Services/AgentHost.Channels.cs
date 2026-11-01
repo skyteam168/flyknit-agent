@@ -50,13 +50,84 @@ public sealed partial class AgentHost
         var confirm = new RemoteDecline(mobile ? Server : null, messageId);
         var progress = mobile ? new RemoteProgress(Server, messageId) : null;
         _remoteRuns[conv.Id] = 0;
+        // 手机发来的：执行期间顺便收手机上补充的话（插话）和打断
+        using var listen = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var inputs = mobile ? Task.Run(() => RelayPhoneInputsAsync(conv.Id, messageId, listen.Token)) : Task.CompletedTask;
         try
         {
-            return await RunRemoteAsync(conv, text, confirm, ct, progress);
+            var outcome = await RunRemoteAsync(conv, text, confirm, ct, progress);
+            // 结束前一刻才到、AI 没读到的补充：写进结果里，手机上照着再说一遍就行
+            var missed = Inbox.TakeSteer(conv.Id);
+            if (missed.Count > 0)
+            {
+                var list = string.Join("\n", missed.Select(m => $"- {m.Text}"));
+                outcome = outcome with { Answer = outcome.Answer + $"\n\n**这几句补充到的时候这件事已经办完了，没有处理：**\n{list}" };
+            }
+            return outcome;
         }
         finally
         {
+            listen.Cancel();
+            try
+            {
+                await inputs;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            // 员工在电脑上给这个对话排了话（排到本轮之后）：用电脑界面的确认方式接着发，不再走远程的那一套。
+            // 这一轮的 RunAsync 可能还没收尾：那就由它的 finally 接着发（那时这里已经不算远程了）
+            if (Events is { } ui && Confirm is { } uiConfirm)
+            {
+                _runContext[conv.Id] = (UiLanguage, uiConfirm, ui);
+            }
             _remoteRuns.TryRemove(conv.Id, out _);
+            ContinuePending(conv.Id);
+        }
+    }
+
+    /// <summary>
+    /// 长轮询服务端：手机上补充的话放进这个对话的插话箱（AI 下一步就看到；还没开始跑也没关系，开始后第一步就取走），
+    /// 手机要求打断就停掉这一轮（那句优先的话服务端已经作为下一件事排上）。
+    /// </summary>
+    private async Task RelayPhoneInputsAsync(string conversationId, int messageId, CancellationToken ct)
+    {
+        var failures = 0;
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var got = await Server.PollChannelInputsAsync(messageId, 25, ct);
+                failures = 0;
+                foreach (var t in got.Inputs.Where(t => t.Trim().Length > 0))
+                {
+                    Inbox.Add(conversationId, t, RunInbox.Steer);
+                }
+                if (got.Stop)
+                {
+                    Log.Info($"手机要求打断任务 #{messageId}（会话 {conversationId}）");
+                    Stop(conversationId);
+                    return;
+                }
+                if (got.Done)
+                {
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                // 服务端旧版本没有这个接口（404）之类：别刷日志，退避后再试，最多 5 次
+                if (++failures >= 5)
+                {
+                    Log.Warn($"收取手机补充的话失败，不再收取：{ex.Message}");
+                    return;
+                }
+                await Task.Delay(TimeSpan.FromSeconds(3 * failures), ct);
+            }
         }
     }
 

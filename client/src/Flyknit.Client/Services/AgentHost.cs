@@ -205,7 +205,13 @@ public sealed partial class AgentHost : IDisposable
         Events = events;
         Confirm = confirm;
         Questions = confirm as Flyknit.Core.Tools.IQuestionHandler;
+        Inbox.Changed -= PostPending;
+        Inbox.Changed += PostPending;
     }
+
+    /// <summary>待发的插话、排队的话有变化：界面上输入框上方那一排跟着变。</summary>
+    private void PostPending(string conversationId) =>
+        Events?.Post(new { type = "chat.pending", conversationId, items = PendingDto(Inbox.List(conversationId)) });
 
     /// <summary>
     /// 这一轮能不能用选项向员工提问：只有员工看着的办事对话才有（定时任务、派出去的专家走别的路，没人回答）。
@@ -621,6 +627,7 @@ public sealed partial class AgentHost : IDisposable
             throw;
         }
         ActiveRunsChanged?.Invoke(_runs.Count);
+        _runContext[conversationId] = (uiLanguage, confirm, events);
         _ = Task.Run(() => RunAsync(conv, newUser, uiLanguage, confirm, events, cts));
     }
 
@@ -810,7 +817,10 @@ public sealed partial class AgentHost : IDisposable
                 }
                 tools = perRun;
             }
-            var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
+            var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(), Approvals)
+            {
+                Interjections = InterjectionsFor(id),
+            };
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
             var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
@@ -900,6 +910,11 @@ public sealed partial class AgentHost : IDisposable
             _runs.TryRemove(id, out _);
             cts.Dispose();
             ActiveRunsChanged?.Invoke(_runs.Count);
+            // 排队的话接着发。钉钉、企业微信、手机发来的任务由 RunChannelMessageAsync 收尾后再接着发
+            if (!_remoteRuns.ContainsKey(id))
+            {
+                ContinuePending(id);
+            }
         }
     }
 
@@ -1317,7 +1332,10 @@ public sealed partial class AgentHost : IDisposable
                 Security = Security,
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(), Approvals);
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(), Approvals)
+            {
+                Interjections = InterjectionsFor(conv.Id),
+            };
             var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
             Store.AddMessages(conv.Id, result.NewMessages);
             if (result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant) is { } done)
@@ -1545,6 +1563,10 @@ public sealed partial class AgentHost : IDisposable
         public List<string> Outputs { get; } = new();
 
         public void OnNotice(string text) => _events.Post(new { type = "chat.notice", conversationId = _id, text });
+
+        /// <summary>插话交给 AI 了：放进对话里（在它前后的工具卡片之间）。</summary>
+        public void OnInterjection(ChatMessage message) =>
+            _events.Post(new { type = "chat.message", conversationId = _id, message = MessageDto.From(message) });
 
         public void OnOutputsProduced(IReadOnlyList<OutputFile> files)
         {

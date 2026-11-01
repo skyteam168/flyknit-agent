@@ -173,11 +173,27 @@ class Approval:
                 "expires_in": max(0, int(self.expires - time.monotonic()))}
 
 
+# ---------------------------------------------------------------------
+# 插话：电脑上正在办的事，手机上又补充了一句（或者要求停下）
+# ---------------------------------------------------------------------
+
+#: 一件事最多攒多少条没送到电脑的插话（防止刷屏把内存撑大）
+MAX_PENDING_INPUTS = 20
+
+
+@dataclass
+class TaskInbox:
+    texts: list[str] = field(default_factory=list)
+    stop: bool = False
+    wake: asyncio.Event = field(default_factory=asyncio.Event)
+
+
 class MobileHub:
     def __init__(self) -> None:
         self._sockets: dict[int, set] = {}
         self._approvals: dict[str, Approval] = {}
         self._pair_failures: dict[str, list[float]] = {}
+        self._inputs: dict[int, TaskInbox] = {}
 
     # ---- 连接 ----
 
@@ -269,8 +285,45 @@ class MobileHub:
         if (mid := mobile_id_of(row.external_id)) is not None:
             await self.send(mid, {"type": "task.event", "task": row.id, "kind": kind, "text": text})
 
+    def push_input(self, message_id: int, text: str) -> bool:
+        """正在电脑上办的事，手机上补充一句：电脑下一次来取时交给 AI（AI 下一步就能看到）。"""
+        box = self._inputs.setdefault(message_id, TaskInbox())
+        if len(box.texts) >= MAX_PENDING_INPUTS:
+            return False
+        box.texts.append(text)
+        box.wake.set()
+        return True
+
+    def request_stop(self, message_id: int) -> None:
+        """打断：电脑停掉这一件事（手机上那句优先的话已经作为新任务排在最前面）。"""
+        box = self._inputs.setdefault(message_id, TaskInbox())
+        box.stop = True
+        box.wake.set()
+
+    async def take_inputs(self, message_id: int, wait: float) -> tuple[list[str], bool]:
+        """电脑来取插话：有就马上返回，没有就等最多 wait 秒。"""
+        box = self._inputs.setdefault(message_id, TaskInbox())
+        if not box.texts and not box.stop and wait > 0:
+            box.wake.clear()
+            try:
+                await asyncio.wait_for(box.wake.wait(), wait)
+            except asyncio.TimeoutError:
+                pass
+        texts, box.texts = box.texts, []
+        return texts, box.stop
+
+    def drop_inputs(self, message_id: int) -> list[str]:
+        """这件事结束了：清掉它的插话箱，返回没送到电脑的话（调用方告诉手机这几句没赶上）。"""
+        box = self._inputs.pop(message_id, None)
+        if box is None:
+            return []
+        box.wake.set()  # 正在等的电脑马上返回
+        return box.texts
+
     async def task_changed(self, row: ChannelMessage) -> bool:
         """任务状态变了（开始、完成、失败、超时）。通道中枢在 finish / expire 时调用。"""
+        if row.status not in ("pending", "running"):
+            self.drop_inputs(row.id)
         mid = mobile_id_of(row.external_id)
         if mid is None:
             return False

@@ -155,6 +155,68 @@ def test_task_runs_on_the_computer_with_live_progress_and_approval(tc):
     assert [(t["text"], t["status"]) for t in tasks] == [("整理今天的未读邮件", "succeeded")]
 
 
+def test_phone_can_interject_queue_or_interrupt_a_running_task(tc):
+    pc = _pc(tc)
+    _enable(tc)
+    phone, _ = _pair(tc, pc)
+    other_pc = _pc(tc)
+    task = tc.post("/api/v1/mobile/tasks", headers=phone, json={"text": "整理今天的未读邮件"}).json()
+
+    # 电脑还没领走：插话直接并进这件事
+    r = tc.post(f"/api/v1/mobile/tasks/{task['id']}/input", headers=phone, json={"text": "只看客户发来的", "mode": "steer"}).json()
+    assert r["delivered"] == "merged" and r["task"]["text"] == "整理今天的未读邮件\n\n补充：只看客户发来的"
+
+    polled = tc.get("/api/v1/client/channels/messages", headers=pc).json()["messages"]
+    assert polled[0]["text"].endswith("补充：只看客户发来的")
+    tid = task["id"]
+
+    # 正在办：插话交给电脑，电脑取走后手机上看到「已交给电脑」
+    token = phone["Authorization"][7:]
+    with tc.websocket_connect(f"/api/v1/mobile/ws?token={token}") as ws:
+        ws.receive_json()  # hello
+        r = tc.post(f"/api/v1/mobile/tasks/{tid}/input", headers=phone, json={"text": "顺便标记已读", "mode": "steer"}).json()
+        assert r == {"delivered": "steer", "task": None}
+        got = tc.get(f"/api/v1/client/channels/messages/{tid}/inputs?wait=0", headers=pc).json()
+        assert got == {"inputs": ["顺便标记已读"], "stop": False, "done": False}
+        ev = ws.receive_json()
+        assert ev["type"] == "task.event" and ev["kind"] == "input" and "顺便标记已读" in ev["text"]
+    # 取走了就没了；别的电脑取不到
+    assert tc.get(f"/api/v1/client/channels/messages/{tid}/inputs?wait=0", headers=pc).json()["inputs"] == []
+    assert tc.get(f"/api/v1/client/channels/messages/{tid}/inputs?wait=0", headers=other_pc).status_code == 404
+
+    # 排队：作为新的一件事排在后面，不打断
+    r = tc.post(f"/api/v1/mobile/tasks/{tid}/input", headers=phone, json={"text": "然后发我一个总结", "mode": "queue"}).json()
+    assert r["delivered"] == "task" and r["task"]["status"] == "pending" and r["task"]["text"] == "然后发我一个总结"
+    assert tc.get(f"/api/v1/client/channels/messages/{tid}/inputs?wait=0", headers=pc).json()["stop"] is False
+
+    # 打断：电脑收到停止，同时这句也排上
+    r = tc.post(f"/api/v1/mobile/tasks/{tid}/input", headers=phone, json={"text": "先停下，改成只看今天的", "mode": "interrupt"}).json()
+    assert r["delivered"] == "task"
+    assert tc.get(f"/api/v1/client/channels/messages/{tid}/inputs?wait=0", headers=pc).json()["stop"] is True
+
+    # 结束后：电脑不用再来取；再说话就是新的一件事
+    tc.post(f"/api/v1/client/channels/messages/{tid}/finish", headers=pc, json={"status": "failed", "error": "已停止"})
+    assert tc.get(f"/api/v1/client/channels/messages/{tid}/inputs?wait=0", headers=pc).json()["done"] is True
+    r = tc.post(f"/api/v1/mobile/tasks/{tid}/input", headers=phone, json={"text": "再试一次", "mode": "steer"}).json()
+    assert r["delivered"] == "task"
+    assert tc.post(f"/api/v1/mobile/tasks/{tid}/input", headers=phone, json={"text": "x", "mode": "bogus"}).status_code == 422
+
+    # 别人的手机碰不到这件事
+    phone2, _ = _pair(tc, other_pc, name="PDA-02")
+    assert tc.post(f"/api/v1/mobile/tasks/{tid}/input", headers=phone2, json={"text": "x"}).status_code == 404
+
+
+def test_interjections_are_capped(tc):
+    pc = _pc(tc)
+    _enable(tc)
+    phone, _ = _pair(tc, pc)
+    task = tc.post("/api/v1/mobile/tasks", headers=phone, json={"text": "盘点"}).json()
+    tc.get("/api/v1/client/channels/messages", headers=pc)
+    for i in range(mobile_hub.MAX_PENDING_INPUTS):
+        assert tc.post(f"/api/v1/mobile/tasks/{task['id']}/input", headers=phone, json={"text": f"补充 {i}"}).status_code == 200
+    assert tc.post(f"/api/v1/mobile/tasks/{task['id']}/input", headers=phone, json={"text": "再来"}).status_code == 429
+
+
 def test_approvals_can_be_turned_off_and_other_channels_never_get_them(tc):
     pc = _pc(tc)
     _enable(tc, allow_approval=False)

@@ -208,6 +208,15 @@ internal sealed class ChannelApprovalStatus
     [JsonPropertyName("status")] public string Status { get; set; } = "";
 }
 
+/// <summary>手机发来的事正在执行：手机上补充的话（插话）、要不要停下。</summary>
+public sealed class ChannelInputs
+{
+    [JsonPropertyName("inputs")] public List<string> Inputs { get; set; } = new();
+    [JsonPropertyName("stop")] public bool Stop { get; set; }
+    /// <summary>这件事在服务端已经结束了，不用再来取。</summary>
+    [JsonPropertyName("done")] public bool Done { get; set; }
+}
+
 /// <summary>绑定在这台电脑上的一部手机。</summary>
 public sealed class MobilePhoneInfo
 {
@@ -537,6 +546,15 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return (await resp.Content.ReadFromJsonAsync<ChannelApprovalStatus>(cancellationToken: ct))?.Status ?? "";
+    }
+
+    /// <summary>长轮询手机上补充的话和打断请求（最多等 wait 秒）。</summary>
+    public async Task<ChannelInputs> PollChannelInputsAsync(int id, int wait, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/channels/messages/{id}/inputs?wait={wait}");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<ChannelInputs>(cancellationToken: ct) ?? new() { Done = true };
     }
 
     public async Task<MobileState> GetMobileAsync(CancellationToken ct)

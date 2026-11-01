@@ -868,6 +868,7 @@ export type HostEvent =
   | { type: 'speech.tick'; level: number; elapsedMs: number; maxMs: number }
   | { type: 'speech.autoStop' }
   | { type: 'chat.notice'; conversationId: string; text: string }
+  | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
   | {
       type: 'context.compacting'
       conversationId: string
@@ -1026,3 +1027,13 @@ export interface MobilePairCode {
   payload: string
   server: string
 }
+
+/** 运行中又发的话：插话 steer（下一步交给 AI）/ 排队 queue（这一轮结束后再发）。AI 读到之前能改、能撤回 */
+export interface PendingInput {
+  id: string
+  text: string
+  mode: 'steer' | 'queue'
+  at: string
+}
+
+export type InterjectMode = 'steer' | 'queue' | 'interrupt'
