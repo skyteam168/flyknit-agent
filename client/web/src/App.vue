@@ -23,6 +23,7 @@ import TextViewDialog from './components/TextViewDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
+import TasksPage from './components/TasksPage.vue'
 import ExpertAvatar from './components/ExpertAvatar.vue'
 import ExpertDetail from './components/ExpertDetail.vue'
 import BrandLoader from './components/BrandLoader.vue'
@@ -281,6 +282,7 @@ onBeforeUnmount(() => {
       <div class="body">
         <LibraryPage v-if="state.view === 'library'" />
         <ExpertsPage v-else-if="state.view === 'experts'" />
+        <TasksPage v-else-if="state.view === 'tasks'" />
         <div v-else-if="inConversation" class="conversation">
           <!-- 专家对话：顶部标出是哪位专家；专家被下线了说一声 -->
           <div v-if="current?.expertId" class="expert-bar" :class="{ withdrawn: expertWithdrawn }">

@@ -69,6 +69,9 @@ public sealed class SecuritySettings
 
     // 任务质量：规划提醒、产出文件检查。IT 可以先在几台机器上打开，对比效果再全厂推开
     public const string PlanGuidance = "plan_guidance";
+
+    /// <summary>长任务模式：IT 关掉后员工不能开，已经开着的对话按普通任务跑。</summary>
+    public const string LongTasks = "long_tasks";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字

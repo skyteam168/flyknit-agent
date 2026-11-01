@@ -23,6 +23,7 @@ import {
   Puzzle,
   RotateCcw,
   Sparkles,
+  Timer,
   Square,
   Wrench,
   Zap,
@@ -49,6 +50,10 @@ import {
   draftMode,
   finishSpeech,
   interject,
+  dismissInterrupted,
+  interruptedRun,
+  resumeInterrupted,
+  setLongMode,
   togglePause,
   withdrawPending,
   onSpeechText,
@@ -84,6 +89,11 @@ const from = computed(() => current.value?.translateFrom ?? draftMode.translateF
 const to = computed(() => current.value?.translateTo ?? draftMode.translateTo)
 const busy = computed(() => currentState.value?.busy ?? false)
 const paused = computed(() => !!currentState.value?.paused)
+/** 长任务模式：当前对话的，或者还没建的新对话打算开的 */
+const longMode = computed(() => (current.value ? !!current.value.longMode : draftMode.longMode))
+const longAllowed = computed(() => state.app?.longTasks !== false)
+/** 这个对话上次没做完（程序被关了），而且现在没在跑 */
+const interrupted = computed(() => (!busy.value && current.value ? interruptedRun(current.value.id) : null))
 const offline = computed(() => state.app !== null && !state.app.connected)
 const canSend = computed(
   () => !offline.value && (busy.value ? text.value.trim().length > 0 : text.value.trim().length > 0 || state.pending.length > 0),
@@ -397,6 +407,12 @@ onBeforeUnmount(() => {
     <AskBar v-if="!props.home" />
     <UsageWarning />
     <div class="card" :class="{ busy }">
+      <!-- 上次没做完：已经做过的步骤都存着，可以接着做 -->
+      <div v-if="interrupted && !props.home" class="paused-bar interrupted-bar">
+        <span>{{ t('ui.longTask.interruptedBar') }}</span>
+        <button type="button" class="paused-go ghost" @click="dismissInterrupted(interrupted.conversationId)">{{ t('ui.tasks.dismiss') }}</button>
+        <button type="button" class="paused-go" @click="resumeInterrupted(interrupted.conversationId)"><Play :size="13" /> {{ t('ui.tasks.resume') }}</button>
+      </div>
       <!-- 暂停中：做完手上这一步后停住，点继续接着往下走 -->
       <div v-if="paused" class="paused-bar">
         <Pause :size="14" />
@@ -658,6 +674,17 @@ onBeforeUnmount(() => {
       <template v-if="mode === 'agent'">
         <WorkspacePicker />
         <PermissionPicker v-if="!currentExpert?.readOnly" />
+        <button
+          v-if="longAllowed"
+          type="button"
+          class="long-btn"
+          :class="{ on: longMode }"
+          :aria-pressed="longMode"
+          :title="longMode ? t('ui.longTask.on', { steps: 300, n: 5 }) : t('ui.longTask.off')"
+          @click="setLongMode(!longMode)"
+        >
+          <Timer :size="13" /> {{ t('ui.longTask.label') }}
+        </button>
       </template>
       <span class="spacer" />
       <span class="ai-note">{{ t('ui.safety.other') }}</span>
@@ -1047,6 +1074,30 @@ textarea::placeholder {
   background: var(--cloth);
   color: var(--ink);
   font-size: var(--t-sm);
+}
+.interrupted-bar {
+  background: var(--indigo-wash);
+}
+.paused-go.ghost {
+  background: transparent;
+  color: var(--ink-soft);
+}
+.long-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.long-btn:hover {
+  background: var(--chip);
+  color: var(--ink-soft);
+}
+.long-btn.on {
+  background: var(--indigo-wash);
+  color: var(--indigo);
 }
 .paused-go:hover {
   background: var(--chip);

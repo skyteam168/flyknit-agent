@@ -61,6 +61,7 @@ export function createMockHost(): HostTransport {
   const stopped = new Set<string>()
   /** 开发预览的插话：正在回答的对话、各对话待发的话 */
   const runningConvs = new Set<string>()
+  const dismissedRuns = new Set<string>()
   const inbox = new Map<string, { id: string; text: string; mode: 'steer' | 'queue'; at: string }[]>()
   const emitInbox = (conversationId: string) =>
     emit({ type: 'chat.pending', conversationId, items: [...(inbox.get(conversationId) ?? [])] })
@@ -1664,6 +1665,52 @@ export function createMockHost(): HostTransport {
         inbox.set(p.conversationId, list)
         emitInbox(p.conversationId)
         return true
+      }
+      case 'conversation.setLongMode': {
+        const c = conversations.get(p.id)
+        if (c) c.longMode = !!p.on
+        return true
+      }
+      case 'runs.list': {
+        const list = [...conversations.values()].filter((c) => !c.deletedAt)
+        const pick = (title: string) => list.find((c) => c.title === title)
+        const interrupted = pick('本周 3 号线停机排行')
+        const done = list.slice(0, 4)
+        return {
+          running: [...runningConvs].map((id) => ({
+            conversationId: id,
+            title: conversations.get(id)?.title || '新任务',
+            step: '按月份新建文件夹',
+            done: 1,
+            total: 3,
+            paused: false,
+            startedAt: new Date(Date.now() - 95000).toISOString(),
+            remote: false,
+          })),
+          interrupted: interrupted && !dismissedRuns.has(interrupted.id)
+            ? [{ conversationId: interrupted.id, title: interrupted.title, startedAt: new Date(Date.now() - 3 * 3600000).toISOString(), origin: 'ui' }]
+            : [],
+          recent: done.map((c, i) => ({
+            conversationId: c.id,
+            title: c.title,
+            stopReason: ['Completed', 'Completed', 'Cancelled', 'MaxSteps'][i] ?? 'Completed',
+            steps: [7, 12, 3, 100][i] ?? 5,
+            toolCalls: [5, 9, 2, 80][i] ?? 4,
+            finishedAt: c.updatedAt,
+          })),
+        }
+      }
+      case 'runs.dismiss':
+        dismissedRuns.add(p.conversationId)
+        return
+      case 'runs.resume': {
+        dismissedRuns.add(p.conversationId)
+        const c = conversations.get(p.conversationId)!
+        const text = '继续上次没做完的任务（程序上次在执行中被关闭了）。'
+        const message: UiMessage = { id: uid(), role: 'user', content: text, attachments: [], createdAt: now() }
+        emit({ type: 'chat.message', conversationId: c.id, message })
+        void runTurn(c, text, [], message.id)
+        return
       }
       case 'chat.pause':
       case 'chat.resume': {

@@ -73,6 +73,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
         _host.AttachUi(this, this);
         _host.Scheduler.Changed += () => Post(new { type = "schedules.changed" });
         _host.Library.Changed += () => Post(new { type = "library.changed" });
+        // 任务开始 / 结束 / 换了一步 / 暂停：任务中心跟着刷新（界面只在任务中心打开时才去取）
+        _host.RunStatusChanged += () => Post(new { type = "runs.changed" });
         _host.Updater.Changed += state => Post(UpdateEvent(state));
         _speech = new SpeechService(_host.Server);
         // 录音时把响度和时长推给界面画动效。回调在音频线程上，Post 内部会切回 UI 线程
@@ -102,7 +104,44 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             keepAwakeAllowed = _host.KeepAwakeAllowed,
             keepScreenAllowed = _host.KeepScreenOnAllowed,
             contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
+            longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
         });
+    }
+
+    /// <summary>任务中心：正在跑的、上次没跑完的、最近跑完的。</summary>
+    private async Task<object> RunsListAsync()
+    {
+        var recent = await Task.Run(() => _host.Store.RecentRuns(30));
+        return new
+        {
+            running = _host.RunSnapshots().Select(r => new
+            {
+                conversationId = r.ConversationId,
+                title = r.Title,
+                step = r.Step,
+                done = r.Done,
+                total = r.Total,
+                paused = r.Paused,
+                startedAt = r.StartedAt.ToString("O"),
+                remote = r.Remote,
+            }).ToList(),
+            interrupted = _host.InterruptedRuns().Select(r => new
+            {
+                conversationId = r.ConversationId,
+                title = r.Title,
+                startedAt = r.StartedAt.ToString("O"),
+                origin = r.Origin,
+            }).ToList(),
+            recent = recent.Select(r => new
+            {
+                conversationId = r.ConversationId,
+                title = r.Title,
+                stopReason = r.StopReason,
+                steps = r.Steps,
+                toolCalls = r.ToolCalls,
+                finishedAt = r.FinishedAt.ToString("O"),
+            }).ToList(),
+        };
     }
 
     /// <summary>安全中心要显示的全部条目。锁住的也要显示——让用户看见自己被什么规则管着。</summary>
@@ -410,6 +449,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     keepAwakeAllowed = _host.KeepAwakeAllowed,
                     keepScreenAllowed = _host.KeepScreenOnAllowed,
                     contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
+                    longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
                     proxyMode = _settings.ProxyMode,
                     proxyUrl = _settings.ProxyUrl,
                     proxyUser = _settings.ProxyUser,
@@ -1695,6 +1735,21 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "chat.stop":
                 _host.Stop(Str("conversationId"));
+                return null;
+
+            // ---------- 长任务、任务中心 ----------
+            case "conversation.setLongMode":
+                return _host.SetLongMode(Str("id"), p.TryGetProperty("on", out var lm) && lm.ValueKind == JsonValueKind.True);
+
+            case "runs.list":
+                return await RunsListAsync();
+
+            case "runs.resume":
+                _host.ResumeInterrupted(Str("conversationId"), _settings.ResolveUiLanguage(), this, this);
+                return null;
+
+            case "runs.dismiss":
+                _host.DismissInterrupted(Str("conversationId"));
                 return null;
 
             // 暂停 / 继续：正在做的这一步做完后停住，继续后接着往下走

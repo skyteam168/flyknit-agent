@@ -9,6 +9,7 @@ import type {
   ContextUsage,
   InterjectMode,
   PendingInput,
+  RunsList,
   ConfirmChoice,
   Expert,
   McpVendor,
@@ -72,7 +73,9 @@ export const state = reactive({
   update: null as UpdateInfo | null,
   toast: '' as string,
   /** 主区域显示什么：对话（含新任务首页）、资料库，或者专家列表 */
-  view: 'chat' as 'chat' | 'library' | 'experts',
+  view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks',
+  /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
+  runs: { running: [], interrupted: [], recent: [] } as RunsList,
   /** 管理员发布的专家 */
   experts: [] as Expert[],
   /** 第一次加载完没有：没加载完显示骨架屏，加载完是空的才显示「没有」 */
@@ -412,6 +415,11 @@ export async function init() {
   // 启动时也拉一次连接器：对话里的 MCP 工具卡片要靠它显示成「腾讯文档 · 新建表格」
   void loadMcp(false, true)
   void refreshUsage()
+  // 上次没做完的任务：启动时取一次，侧栏「任务中心」和对话里的「继续」提示要用；有的话提醒一句
+  void loadRuns().then(() => {
+    const n = state.runs.interrupted.length
+    if (n > 0) toast(i18n.global.t('ui.tasks.startupToast', { n }))
+  })
 }
 
 export async function loadModels(refresh = false) {
@@ -464,6 +472,72 @@ export async function loadExperts() {
     if (state.experts.length === 0) state.expertsError = errorText(e)
   } finally {
     state.loaded.experts = true
+  }
+}
+
+// ---------- 任务中心、长任务 ----------
+
+let runsTimer: ReturnType<typeof setTimeout> | undefined
+
+export async function loadRuns() {
+  try {
+    state.runs = await bridge.listRuns()
+  } catch (e) {
+    console.warn('读取任务列表失败', e)
+  }
+}
+
+/** 任务开始 / 结束 / 换了一步：攒半秒再取（工具一步接一步时不要每步都取） */
+function refreshRunsSoon() {
+  clearTimeout(runsTimer)
+  runsTimer = setTimeout(() => void loadRuns(), 500)
+}
+
+export function openTasks() {
+  state.view = 'tasks'
+  void loadRuns()
+}
+
+/** 上次没做完的任务（按对话 ID） */
+export function interruptedRun(id: string | null) {
+  return id ? state.runs.interrupted.find((r) => r.conversationId === id) ?? null : null
+}
+
+/** 接着做上次没做完的任务：打开那个对话，发一句「继续」 */
+export async function resumeInterrupted(id: string) {
+  try {
+    if (state.currentId !== id || state.view !== 'chat') await openConversation(id)
+    const s = convState(id)
+    beginRun(s)
+    await bridge.resumeRun(id)
+    state.runs.interrupted = state.runs.interrupted.filter((r) => r.conversationId !== id)
+  } catch (e) {
+    convState(id).busy = false
+    fail(e)
+  }
+}
+
+export async function dismissInterrupted(id: string) {
+  try {
+    await bridge.dismissRun(id)
+    state.runs.interrupted = state.runs.interrupted.filter((r) => r.conversationId !== id)
+  } catch (e) {
+    fail(e)
+  }
+}
+
+/** 当前对话（或还没建的新对话）的长任务模式 */
+export async function setLongMode(on: boolean) {
+  const c = current.value
+  if (!c) {
+    draftMode.longMode = on
+    return
+  }
+  try {
+    if (await bridge.setLongMode(c.id, on)) c.longMode = on
+    else toast(i18n.global.t('ui.longTask.blocked'))
+  } catch (e) {
+    fail(e)
   }
 }
 
@@ -611,6 +685,8 @@ export const draftMode = reactive({
   permission: 'workspace' as Permission,
   /** 新对话要呼叫的专家 */
   expertId: null as string | null,
+  /** 新对话开长任务模式 */
+  longMode: false,
 })
 
 // ---------- 工作区与权限 ----------
@@ -858,6 +934,7 @@ export async function send(text: string): Promise<boolean> {
         c.translateFrom = draftMode.translateFrom
         c.translateTo = draftMode.translateTo
       }
+      if (draftMode.longMode && c.mode === 'agent' && (await bridge.setLongMode(c.id, true).catch(() => false))) c.longMode = true
       state.conversations.unshift(c)
       id = c.id
       state.currentId = id
@@ -1393,6 +1470,9 @@ function onHostEvent(e: HostEvent) {
       }
       break
     }
+    case 'runs.changed':
+      refreshRunsSoon()
+      break
     case 'chat.paused':
       convState(e.conversationId).paused = e.paused
       break

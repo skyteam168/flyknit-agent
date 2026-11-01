@@ -194,6 +194,8 @@ public class SecuritySwitchTests
             SecuritySettings.AskUser,
             // WebBridge 读这一项推给界面：会话信息面板能不能展开详细拆分
             SecuritySettings.ContextDetails,
+            // AgentHost.LongModeOn / SetLongMode 读这一项：IT 关掉后长任务模式打不开；WebBridge 推给界面决定显不显示开关
+            SecuritySettings.LongTasks,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

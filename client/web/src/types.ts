@@ -27,6 +27,8 @@ export interface Conversation {
   expertId?: string | null
   /** 侧栏手动排序的位置（小的在前）。没拖过为空 */
   sortOrder?: number | null
+  /** 长任务模式：步数上限放宽，走到上限自动接着做 */
+  longMode?: boolean
 }
 
 /** 管理员发布的专家（界面只拿展示用的部分） */
@@ -627,6 +629,44 @@ export interface AppInfo {
   micAvailable: boolean
   /** 工作区隔离是否生效。开着时「完全权限」不可选 */
   sandboxed: boolean
+  /** IT 允不允许开长任务模式 */
+  longTasks?: boolean
+}
+
+/** 任务中心：正在跑的任务 */
+export interface RunningRun {
+  conversationId: string
+  title: string
+  step: string
+  done: number
+  total: number
+  paused: boolean
+  startedAt: string
+  remote: boolean
+}
+
+/** 上次没跑完就被关掉的任务。origin：ui / remote / headless */
+export interface InterruptedRunInfo {
+  conversationId: string
+  title: string
+  startedAt: string
+  origin: string
+}
+
+/** 最近跑完的一轮 */
+export interface RecentRunInfo {
+  conversationId: string
+  title: string
+  stopReason: string
+  steps: number
+  toolCalls: number
+  finishedAt: string
+}
+
+export interface RunsList {
+  running: RunningRun[]
+  interrupted: InterruptedRunInfo[]
+  recent: RecentRunInfo[]
 }
 
 /** 自动更新的状态 */
@@ -870,6 +910,7 @@ export type HostEvent =
   | { type: 'chat.notice'; conversationId: string; text: string }
   | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
   | { type: 'chat.paused'; conversationId: string; paused: boolean }
+  | { type: 'runs.changed' }
   | {
       type: 'context.compacting'
       conversationId: string

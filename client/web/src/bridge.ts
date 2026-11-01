@@ -62,6 +62,7 @@ import type {
   SubtaskDto,
   InterjectMode,
   PendingInput,
+  RunsList,
 } from './types'
 import { createMockHost } from './mockHost'
 import { i18n } from './i18n'
@@ -315,6 +316,14 @@ class Bridge {
   /** 运行中又发一句。返回 false：已经不在运行了，照常发送 */
   interject = (conversationId: string, text: string, mode: InterjectMode, messageId: string) =>
     this.call<boolean>('chat.interject', { conversationId, text, mode, messageId })
+  /** 长任务模式开关。IT 关掉了这个功能时打不开（返回 false） */
+  setLongMode = (id: string, on: boolean) => this.call<boolean>('conversation.setLongMode', { id, on })
+  /** 任务中心：正在跑的、上次没跑完的、最近跑完的 */
+  listRuns = () => this.call<RunsList>('runs.list')
+  /** 接着做上次没做完的任务 */
+  resumeRun = (conversationId: string) => this.call<void>('runs.resume', { conversationId })
+  /** 上次没做完的任务：不用了，不再提示 */
+  dismissRun = (conversationId: string) => this.call<void>('runs.dismiss', { conversationId })
   /** 暂停：正在做的这一步做完后停住；继续后接着往下走 */
   pause = (conversationId: string) => this.call<boolean>('chat.pause', { conversationId })
   resume = (conversationId: string) => this.call<boolean>('chat.resume', { conversationId })

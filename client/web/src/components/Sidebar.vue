@@ -34,6 +34,7 @@ import {
   Trash2,
   Wrench,
   X,
+  ListChecks,
 } from '@lucide/vue'
 import KnitMark from './KnitMark.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -49,6 +50,7 @@ import {
   newConversationIn,
   openConversation,
   openExperts,
+  openTasks,
   purgeConversation,
   refreshList,
   removeWorkspace,
@@ -78,6 +80,8 @@ const menuPos = ref({ x: 0, y: 0 })
 const confirm = ref<{ id: string; purge: boolean } | null>(null)
 const editInput = ref<HTMLInputElement[]>([])
 const now = ref(Date.now())
+/** 正在跑的任务数：界面上在跑的，和宿主报来的（含钉钉、手机、定时任务）取大的 */
+const runningCount = computed(() => Math.max(Object.values(state.byId).filter((x) => x.busy).length, state.runs.running.length))
 let clock: number | undefined
 
 const modeIcon: Record<Mode, unknown> = { chat: MessageSquare, translate: Languages, agent: Wrench }
@@ -452,6 +456,12 @@ onBeforeUnmount(() => {
           @click="(openExperts(), emit('navigate'))"
         >
           <UsersRound :size="17" /> {{ t('ui.nav.experts') }}
+        </button>
+        <button type="button" :class="{ on: state.view === 'tasks' }" @click="(openTasks(), emit('navigate'))">
+          <ListChecks :size="17" /> {{ t('ui.nav.taskCenter') }}
+          <span v-if="runningCount || state.runs.interrupted.length" class="nav-badge" :class="{ warn: state.runs.interrupted.length && !runningCount }">
+            {{ runningCount || state.runs.interrupted.length }}
+          </span>
         </button>
         <button type="button" :class="{ on: state.view === 'library' }" @click="(openLibrary(), emit('navigate'))">
           <LibraryBig :size="17" /> {{ t('ui.nav.library') }}
@@ -1274,5 +1284,20 @@ onBeforeUnmount(() => {
   to {
     transform: rotate(360deg);
   }
+}
+.nav-badge {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--indigo-wash);
+  color: var(--indigo);
+  font-size: var(--t-xs);
+  line-height: 18px;
+  text-align: center;
+}
+.nav-badge.warn {
+  background: var(--amber-wash);
+  color: var(--amber);
 }
 </style>

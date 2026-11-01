@@ -102,6 +102,8 @@ def test_a_setting_only_exists_if_something_enforces_it():
         # 客户端读这两项决定 Agent 循环里的规划提醒、产出检查
         "plan_guidance",
         "verify_outputs",
+        # 客户端 AgentHost.LongModeOn 读它：关掉后长任务模式打不开、已开的按普通任务跑
+        "long_tasks",
         # 客户端读这几项决定能选哪些语气、能不能锁屏运行
         "persona_playful",
         "persona_custom",

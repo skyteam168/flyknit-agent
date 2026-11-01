@@ -550,6 +550,7 @@ public sealed partial class AgentHost : IDisposable
     /// <param name="messageId">界面生成的消息 ID，保证界面与数据库中的 ID 一致（编辑、重发时使用）。</param>
     public void Send(string conversationId, string text, IReadOnlyList<Attachment> attachments, string? messageId, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
     {
+        _autoContinues.TryRemove(conversationId, out _); // 员工自己说了话：自动续跑重新计数
         StartRun(conversationId, uiLanguage, confirm, events, id => NewUserMessage(messageId, text, IngestUploads(attachments, id)));
     }
 
@@ -628,6 +629,7 @@ public sealed partial class AgentHost : IDisposable
         }
         ActiveRunsChanged?.Invoke(_runs.Count);
         _runContext[conversationId] = (uiLanguage, confirm, events);
+        MarkRunStarted(conversationId, _remoteRuns.ContainsKey(conversationId) ? "remote" : "ui");
         BeginProgress(conversationId);
         _ = Task.Run(() => RunAsync(conv, newUser, uiLanguage, confirm, events, cts));
     }
@@ -644,6 +646,11 @@ public sealed partial class AgentHost : IDisposable
                 Store.AddMessages(id, new[] { newUser });
             }
             var stored = Store.GetMessages(id);
+            // 上次在某个工具执行的半路被关掉：那一步没有结果，补一句说明，不然模型服务会拒绝整段历史
+            if (HistoryRepair.CloseDanglingToolCalls(stored) is > 0 and var repaired)
+            {
+                Log.Info($"对话 {id} 有 {repaired} 个上次没执行完的工具调用，已补上说明");
+            }
             var user = stored.LastOrDefault(m => m.Role == ChatRole.User) ?? throw new InvalidOperationException("没有可以回答的问题");
             var text = user.Content;
             var attachments = user.Attachments;
@@ -818,10 +825,11 @@ public sealed partial class AgentHost : IDisposable
                 }
                 tools = perRun;
             }
-            var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(), Approvals)
+            var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(conv), Approvals)
             {
                 Interjections = InterjectionsFor(id),
                 Pause = PauseGateFor(id),
+                Persist = PersistFor(id),
             };
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
@@ -845,6 +853,7 @@ public sealed partial class AgentHost : IDisposable
                 });
             }
             Store.AddMessages(id, result.NewMessages);
+            QueueAutoContinue(conv, result.StopReason);
             if (answer is not null)
             {
                 try
@@ -911,6 +920,7 @@ public sealed partial class AgentHost : IDisposable
         {
             _runs.TryRemove(id, out _);
             cts.Dispose();
+            MarkRunEnded(id);
             EndProgress(id);
             ActiveRunsChanged?.Invoke(_runs.Count);
             // 排队的话接着发。钉钉、企业微信、手机发来的任务由 RunChannelMessageAsync 收尾后再接着发
@@ -953,9 +963,9 @@ public sealed partial class AgentHost : IDisposable
     }
 
     /// <summary>Agent 循环的设置：步数上限来自本机设置，规划提醒、产出检查由 IT 在安全中心开关（没下发时默认开）。</summary>
-    private AgentOptions AgentOptionsFor() => new()
+    private AgentOptions AgentOptionsFor(Conversation? conv = null) => new()
     {
-        MaxSteps = _settings.ResolveAgentMaxSteps(),
+        MaxSteps = LongModeOn(conv) ? Math.Max(_settings.ResolveAgentMaxSteps(), LongModeSteps) : _settings.ResolveAgentMaxSteps(),
         PlanGuidance = Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
         VerifyOutputs = Security.On(Flyknit.Core.Security.SecuritySettings.VerifyOutputs),
     };
@@ -1288,6 +1298,7 @@ public sealed partial class AgentHost : IDisposable
             cts.Dispose();
             return new InstructionOutcome(false, "", "会话正忙", conv.Id);
         }
+        MarkRunStarted(conv.Id, "headless");
         BeginProgress(conv.Id);
         ActiveRunsChanged?.Invoke(_runs.Count);
         try
@@ -1336,10 +1347,11 @@ public sealed partial class AgentHost : IDisposable
                 Security = Security,
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(), Approvals)
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(conv), Approvals)
             {
                 Interjections = InterjectionsFor(conv.Id),
                 Pause = PauseGateFor(conv.Id),
+                Persist = PersistFor(conv.Id),
             };
             var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
             Store.AddMessages(conv.Id, result.NewMessages);
@@ -1364,6 +1376,7 @@ public sealed partial class AgentHost : IDisposable
         {
             _runs.TryRemove(conv.Id, out _);
             cts.Dispose();
+            MarkRunEnded(conv.Id);
             EndProgress(conv.Id);
             ActiveRunsChanged?.Invoke(_runs.Count);
         }

@@ -143,6 +143,12 @@ SETTINGS: tuple[Setting, ...] = (
         title="检查产出文件",
         risk="关闭后 AI 生成的文件不再自动检查（是否存在、能否打开、行数页数），文件没保存成功或打不开时可能发现不了。",
     ),
+    Setting(
+        key="long_tasks", kind="bool", default=True, locked=True,
+        title="长任务模式",
+        risk="关闭后员工不能开长任务模式：每次任务最多走设置里的步数，到了就停下等人说「继续」。"
+             "开着时，开了长任务模式的对话步数上限放宽到 300 步，到上限会自动接着做（最多再续 5 次），每一轮仍受单次任务的 token 预算约束。",
+    ),
     # ---- 个性化：员工可以在设置里选回复语气、给 AI 起名字。这两项决定哪些能选 ----
     Setting(
         key="persona_playful", kind="bool", default=True, locked=True,

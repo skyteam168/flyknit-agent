@@ -160,6 +160,12 @@ public sealed class AgentLoop
     /// </summary>
     public Func<CancellationToken, Task>? Pause { get; init; }
 
+    /// <summary>
+    /// 每产生一条新消息（模型的回答、工具结果、插话、系统提醒）就交给宿主保存一次：
+    /// 长任务做到一半程序被关、电脑重启，已经做过的步骤不会丢，可以接着做。保存失败不影响运行。
+    /// </summary>
+    public Action<ChatMessage>? Persist { get; init; }
+
     public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
@@ -556,6 +562,17 @@ public sealed class AgentLoop
         {
             history.Add(m);
             newMessages.Add(m);
+            if (Persist is not null)
+            {
+                try
+                {
+                    Persist(m);
+                }
+                catch (Exception)
+                {
+                    // 存不下来（磁盘满、库被占用）：这一步照样做，整轮结束时还会再存一次
+                }
+            }
         }
 
         int TakeInterjections()

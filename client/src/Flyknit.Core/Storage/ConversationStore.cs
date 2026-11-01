@@ -39,11 +39,24 @@ public sealed class Conversation
     /// <summary>侧栏「手动排序」时的位置（小的在前）。为空表示没拖过，排在拖过的前面、按更新时间。</summary>
     public double? SortOrder { get; set; }
 
+    /// <summary>长任务模式：步数上限放宽，到上限时自动接着做而不是停下来等人说「继续」。</summary>
+    public bool LongMode { get; set; }
+
+    /// <summary>这个对话的任务开始运行的时间；结束时清掉。程序启动时还有值，说明上次没跑完就被关了。</summary>
+    public DateTimeOffset? RunStartedAt { get; set; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? DeletedAt { get; set; }
     public int MessageCount { get; set; }
 }
+
+/// <summary>最近跑完的一轮办事任务（任务中心「最近完成」用）。</summary>
+public sealed record RecentRun(string ConversationId, string Title, string StopReason, int Steps, int ToolCalls, DateTimeOffset FinishedAt);
+
+/// <summary>上次没跑完就被关掉（程序退出、崩溃、电脑重启）的任务。</summary>
+/// <param name="Origin">ui 员工在界面上发起 / remote 钉钉、企业微信、手机 / headless 定时任务、后台指令。</param>
+public sealed record InterruptedRun(string ConversationId, string Title, DateTimeOffset StartedAt, string Origin);
 
 /// <summary>一条安全记录：被阻止的危险命令，或用户放行过的操作。</summary>
 public sealed class SecurityEvent
@@ -164,6 +177,10 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "outputs", "TEXT NULL");
         AddColumn(c, "messages", "trace", "TEXT NULL");
+        // v0.8：长任务——运行状态（中断后能接着做）、长任务模式
+        AddColumn(c, "conversations", "run_started_at", "TEXT NULL");
+        AddColumn(c, "conversations", "run_origin", "TEXT NULL");
+        AddColumn(c, "conversations", "long_mode", "INTEGER NOT NULL DEFAULT 0");
 
         // v0.5：安全记录（危险命令拦截与放行）
         using var sec = c.CreateCommand();
@@ -563,6 +580,70 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
 
     public void SetPlan(string id, string? planJson) => Update(id, "plan = $v", (object?)planJson ?? DBNull.Value);
 
+    public void SetLongMode(string id, bool on) => Update(id, "long_mode = $v", on ? 1 : 0);
+
+    /// <summary>任务开始运行：记下时间和来源。正常结束时 <see cref="MarkRunEnded"/> 清掉。</summary>
+    public void MarkRunStarted(string id, string origin)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE conversations SET run_started_at = $at, run_origin = $o WHERE id = $id";
+        cmd.Parameters.AddWithValue("$at", DateTimeOffset.Now.ToString("O"));
+        cmd.Parameters.AddWithValue("$o", origin);
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>任务结束（做完、停止、出错都算），或者员工对中断的任务选了「继续」「不用了」。</summary>
+    public void MarkRunEnded(string id)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE conversations SET run_started_at = NULL, run_origin = NULL WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>最近跑完的办事任务（每轮一条，不含回收站里的对话），最近的在前。</summary>
+    public IReadOnlyList<RecentRun> RecentRuns(int limit = 30)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT r.conversation_id, c.title, r.stop_reason, r.steps, r.tool_calls, r.created_at
+            FROM run_stats r JOIN conversations c ON c.id = r.conversation_id
+            WHERE c.deleted_at IS NULL
+            ORDER BY r.created_at DESC LIMIT $limit
+            """;
+        cmd.Parameters.AddWithValue("$limit", limit);
+        using var r = cmd.ExecuteReader();
+        var list = new List<RecentRun>();
+        while (r.Read())
+        {
+            list.Add(new RecentRun(r.GetString(0), r.GetString(1), r.GetString(2), (int)r.GetInt64(3), (int)r.GetInt64(4), DateTimeOffset.Parse(r.GetString(5))));
+        }
+        return list;
+    }
+
+    /// <summary>上次没跑完的任务（不含回收站里的），最近开始的在前。</summary>
+    public IReadOnlyList<InterruptedRun> InterruptedRuns()
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, title, run_started_at, COALESCE(run_origin, 'ui') FROM conversations
+            WHERE run_started_at IS NOT NULL AND deleted_at IS NULL
+            ORDER BY run_started_at DESC
+            """;
+        using var r = cmd.ExecuteReader();
+        var list = new List<InterruptedRun>();
+        while (r.Read())
+        {
+            list.Add(new InterruptedRun(r.GetString(0), r.GetString(1), DateTimeOffset.Parse(r.GetString(2)), r.GetString(3)));
+        }
+        return list;
+    }
+
     public void SetPermission(string id, Security.PermissionMode mode) => Update(id, "permission = $v", Security.PermissionModes.ToText(mode));
 
     /// <summary>给回答点赞（1）、踩（-1）或取消（null）。</summary>
@@ -670,6 +751,10 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         return cmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// 保存消息。已经存过的（同一个 ID）就地更新内容、链路、产出，位置不变：
+    /// 运行中每一步先存一次，整轮结束时再存一次最终版本（补上链路、提醒等后来改动的内容）。
+    /// </summary>
     public void AddMessages(string conversationId, IEnumerable<ChatMessage> messages)
     {
         using var c = Open();
@@ -693,6 +778,15 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
             cmd.CommandText = """
                 INSERT INTO messages (id, conversation_id, seq, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, model, prompt_tokens, completion_tokens, outputs, trace)
                 VALUES ($id, $conv, $seq, $role, $content, $reasoning, $calls, $callId, $toolName, $attachments, $created, $model, $pt, $ct, $outputs, $trace)
+                ON CONFLICT(id) DO UPDATE SET
+                    content = excluded.content,
+                    reasoning = excluded.reasoning,
+                    tool_calls = excluded.tool_calls,
+                    model = COALESCE(excluded.model, messages.model),
+                    prompt_tokens = COALESCE(excluded.prompt_tokens, messages.prompt_tokens),
+                    completion_tokens = COALESCE(excluded.completion_tokens, messages.completion_tokens),
+                    outputs = COALESCE(excluded.outputs, messages.outputs),
+                    trace = COALESCE(excluded.trace, messages.trace)
                 """;
             cmd.Parameters.AddWithValue("$id", m.Id);
             cmd.Parameters.AddWithValue("$conv", conversationId);
@@ -920,7 +1014,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
 
     private const string SelectConversation = """
         SELECT c.id, c.title, c.title_source, c.mode, c.pinned, c.translate_from, c.translate_to,
-               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan, c.expert_id, c.sort_order
+               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan, c.expert_id, c.sort_order, c.long_mode, c.run_started_at
         FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id AND m.role IN ('user','assistant')
         """;
 
@@ -945,6 +1039,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         Plan = r.IsDBNull(16) ? null : r.GetString(16),
         ExpertId = r.IsDBNull(17) ? null : r.GetString(17),
         SortOrder = r.IsDBNull(18) ? null : r.GetDouble(18),
+        LongMode = !r.IsDBNull(19) && r.GetInt64(19) != 0,
+        RunStartedAt = r.IsDBNull(20) ? null : DateTimeOffset.Parse(r.GetString(20)),
     };
 
     private void Update(string id, string set, object value)
