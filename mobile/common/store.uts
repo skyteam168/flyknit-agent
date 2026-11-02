@@ -212,9 +212,22 @@ export function clearAuth() {
 // ---------- 对话 ----------
 
 export function loadConversations() {
-	const list = readJson(CONV_KEY)
-	if (list != null) {
-		state.conversations = list as Array<Conv>
+	const raw = uni.getStorageSync(CONV_KEY)
+	if (raw == null) {
+		return
+	}
+	const text = typeof raw == 'string' ? (raw as string).trim() : ''
+	if (text == '') {
+		return
+	}
+	try {
+		// 必须按泛型反序列化，直接 as Array<Conv> 得到的是 UTSJSONObject，运行时访问会类型转换失败
+		const list = JSON.parse<Array<Conv>>(text)
+		if (list != null) {
+			state.conversations = list
+		}
+	} catch (err) {
+		console.error(err)
 	}
 }
 

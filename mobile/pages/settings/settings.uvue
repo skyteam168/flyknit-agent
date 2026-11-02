@@ -101,13 +101,22 @@
 
 <script setup lang="uts">
 	import { computed } from 'vue'
-	import { setThemeMode, Palette, theme } from '../../common/theme.uts'
+	import { setThemeMode, Palette, syncStatusBar, theme } from '../../common/theme.uts'
 	import { clearAuth, state } from '../../common/store.uts'
 	import { request } from '../../common/api.uts'
 	import { disconnect, notifyLocal } from '../../common/socket.uts'
 	import { checkUpdate } from '../../common/update.uts'
 	import { ModelInfo, bodyFontPx, bodyLinePx, modelLabel, prefs, refreshModels, setAppLocale, setDeepThinking, setFontSize, setModelId, setWebSearch } from '../../common/prefs.uts'
-	import { LANG_OPTIONS, i18n, t, tf } from '../../common/i18n.uts'
+	import { LANG_OPTIONS, i18n, t as _t, tf as _tf } from '../../common/i18n.uts'
+
+	// 模板里不能直接调用 import 的函数（UTS→Kotlin 报 invoke），用本地包装
+	function t(key : string) : string {
+		return _t(key)
+	}
+
+	function tf(key : string, a : string) : string {
+		return _tf(key, a)
+	}
 
 	type ThemeItem = { id : string, label : string }
 
@@ -121,13 +130,13 @@
 	const themeMode = computed(() : string => theme.mode)
 	const fontSize = computed(() : string => prefs.fontSize)
 	const locale = computed(() : string => {
-		const _ = i18n.locale
+		const _dep = i18n.locale
 		return prefs.locale
 	})
 	const previewFont = computed(() : string => bodyFontPx().toString() + 'px')
 	const previewLine = computed(() : string => bodyLinePx().toString() + 'px')
 	const modelName = computed(() : string => {
-		const _ = i18n.locale
+		const _dep = i18n.locale
 		return modelLabel()
 	})
 	const deepThinking = computed(() : boolean => prefs.deepThinking)
@@ -135,11 +144,11 @@
 	const webSearchAvailable = computed(() : boolean => state.webSearchEnabled)
 	const version = uni.getAppBaseInfo().appVersion ?? ''
 	const currentVer = computed(() : string => {
-		const _ = i18n.locale
+		const _dep = i18n.locale
 		return tf('settings.currentVer', version)
 	})
 	const themes = computed(() : Array<ThemeItem> => {
-		const _ = i18n.locale
+		const _dep = i18n.locale
 		return [
 			{ id: 'system', label: t('settings.themeSystem') } as ThemeItem,
 			{ id: 'light', label: t('settings.themeLight') } as ThemeItem,
@@ -147,7 +156,7 @@
 		]
 	})
 	const fonts = computed(() : Array<ThemeItem> => {
-		const _ = i18n.locale
+		const _dep = i18n.locale
 		return [
 			{ id: 'small', label: t('settings.fontSmall') } as ThemeItem,
 			{ id: 'medium', label: t('settings.fontMedium') } as ThemeItem,
@@ -161,6 +170,7 @@
 
 	function pickTheme(id : string) {
 		setThemeMode(id)
+		syncStatusBar()
 	}
 
 	function pickFont(id : string) {
@@ -223,7 +233,7 @@
 				if (!r.confirm) {
 					return
 				}
-				request('DELETE', '/api/v1/mobile/me', null).then((_) => {
+				request('DELETE', '/api/v1/mobile/me', null).then((_res) => {
 					disconnect()
 					clearAuth()
 					uni.reLaunch({ url: '/pages/pair/pair' })
@@ -231,6 +241,10 @@
 			}
 		})
 	}
+
+	onShow(() => {
+		syncStatusBar()
+	})
 </script>
 
 <style>

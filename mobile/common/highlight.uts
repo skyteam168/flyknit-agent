@@ -169,7 +169,9 @@ export function highlightLines(code : string, lang : string) : Array<Array<HlTok
 					const row = [] as Array<HlTok>
 					push(row, line.substring(0, end + 2), 'com')
 					const rest = paintLine(line.substring(end + 2), n, kws)
-					rest.forEach((t : HlTok) => row.push(t))
+					rest.forEach((t : HlTok) => {
+						row.push(t)
+					})
 					out.push(row)
 					inBlock = false
 					continue

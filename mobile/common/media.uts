@@ -68,10 +68,10 @@ function androidFileToBase64(path : string) : string {
 		stream!.close()
 		stream = null
 		return Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP) ?? ''
-	} catch (_) {
+	} catch (_e) {
 		try {
 			stream?.close()
-		} catch (_) { }
+		} catch (_e) { }
 		return ''
 	}
 }
@@ -86,7 +86,7 @@ function iosFileToBase64(path : string) : string {
 			return ''
 		}
 		return data.base64EncodedStringWithOptions(0)
-	} catch (_) {
+	} catch (_e) {
 		return ''
 	}
 }
@@ -154,7 +154,7 @@ function readAsDataUrl(path : string) : Promise<string> {
 				done(b64)
 				return
 			}
-		} catch (_) { }
+		} catch (_e) { }
 		// #endif
 
 		// #ifdef APP-IOS
@@ -164,7 +164,7 @@ function readAsDataUrl(path : string) : Promise<string> {
 				done(b64)
 				return
 			}
-		} catch (_) { }
+		} catch (_e) { }
 		// #endif
 
 		// #ifdef WEB
@@ -200,7 +200,7 @@ function pick(source : string) : Promise<PickedImage | null> {
 					resolve(null)
 				})
 			},
-			fail: (_) => {
+			fail: (_err) => {
 				resolve(null)
 			}
 		})
@@ -239,11 +239,11 @@ export async function transcribeFile(filePath : string) : Promise<string> {
 				try {
 					const body = JSON.parse(res.data) as UTSJSONObject
 					resolve(body.getString('text') ?? '')
-				} catch (_) {
+				} catch (_e) {
 					resolve('')
 				}
 			},
-			fail: (_) => {
+			fail: (_err) => {
 				uni.showToast({ title: t('media.asrFail'), icon: 'none' })
 				resolve('')
 			}

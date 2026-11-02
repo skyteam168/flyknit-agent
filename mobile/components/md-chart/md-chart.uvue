@@ -1,14 +1,14 @@
 <template>
 	<view class="chart" :style="{ backgroundColor: c.sunk, borderColor: c.line }">
-		<text v-if="spec != null && spec.title != ''" class="title" :style="{ color: c.ink }">{{ spec.title }}</text>
-		<text v-if="spec == null" class="err" :style="{ color: c.red }" @click="copy">{{ t('chat.mdVisualFail') }}</text>
+		<text v-if="chartTitle != ''" class="title" :style="{ color: c.ink }">{{ chartTitle }}</text>
+		<text v-if="!hasSpec" class="err" :style="{ color: c.red }" @click="copy">{{ failText }}</text>
 
 		<!-- 柱状 / 折线：竖柱 -->
-		<view v-if="spec != null && (spec.type == 'bar' || spec.type == 'line' || spec.type == 'area' || spec.type == 'scatter')" class="bars">
-			<view v-for="(cat, i) in spec.categories" :key="i" class="col">
+		<view v-if="isBarLike" class="bars">
+			<view v-for="(cat, i) in categories" :key="i" class="col">
 				<view class="col-bars">
 					<view
-						v-for="(s, si) in spec.series"
+						v-for="(s, si) in seriesList"
 						:key="si"
 						class="bar"
 						:style="{ height: barH(s.data, i), backgroundColor: colorAt(si), width: barW }"
@@ -20,45 +20,45 @@
 		</view>
 
 		<!-- 条形图 -->
-		<view v-else-if="spec != null && spec.type == 'hbar'" class="hbars">
-			<view v-for="(cat, i) in spec.categories" :key="i" class="hrow">
+		<view v-else-if="isHbar" class="hbars">
+			<view v-for="(cat, i) in categories" :key="i" class="hrow">
 				<text class="hlab" :style="{ color: c.inkSoft }" :lines="1">{{ cat }}</text>
 				<view class="htrack" :style="{ backgroundColor: c.chip }">
-					<view class="hfill" :style="{ width: barPct(spec.series[0].data, i), backgroundColor: colorAt(0) }"></view>
+					<view class="hfill" :style="{ width: barPct(firstData, i), backgroundColor: colorAt(0) }"></view>
 				</view>
-				<text class="hval" :style="{ color: c.inkFaint }">{{ numAt(spec.series[0].data, i) }}</text>
+				<text class="hval" :style="{ color: c.inkFaint }">{{ numAt(firstData, i) }}</text>
 			</view>
 		</view>
 
 		<!-- 饼/环：列表 + 色块比例（原生无 canvas 扇区时的可读方案） -->
-		<view v-else-if="spec != null && (spec.type == 'pie' || spec.type == 'donut')" class="pie">
+		<view v-else-if="isPie" class="pie">
 			<view class="pie-track" :style="{ backgroundColor: c.chip }">
 				<view
-					v-for="(cat, i) in spec.categories"
+					v-for="(cat, i) in categories"
 					:key="i"
 					class="pie-seg"
 					:style="{ width: piePct(i), backgroundColor: colorAt(i) }"
 				></view>
 			</view>
-			<view v-for="(cat, i) in spec.categories" :key="i" class="pie-row">
+			<view v-for="(cat, i) in categories" :key="i" class="pie-row">
 				<view class="dot" :style="{ backgroundColor: colorAt(i) }"></view>
 				<text class="pie-name" :style="{ color: c.ink }" :lines="1">{{ cat }}</text>
-				<text class="pie-val" :style="{ color: c.inkSoft }">{{ numAt(spec.series[0].data, i) }}</text>
+				<text class="pie-val" :style="{ color: c.inkSoft }">{{ numAt(firstData, i) }}</text>
 			</view>
 		</view>
 
-		<view v-else-if="spec != null" class="hbars">
-			<view v-for="(cat, i) in spec.categories" :key="i" class="hrow">
+		<view v-else-if="hasSpec" class="hbars">
+			<view v-for="(cat, i) in categories" :key="i" class="hrow">
 				<text class="hlab" :style="{ color: c.inkSoft }" :lines="1">{{ cat }}</text>
 				<view class="htrack" :style="{ backgroundColor: c.chip }">
-					<view class="hfill" :style="{ width: barPct(spec.series[0].data, i), backgroundColor: colorAt(0) }"></view>
+					<view class="hfill" :style="{ width: barPct(firstData, i), backgroundColor: colorAt(0) }"></view>
 				</view>
-				<text class="hval" :style="{ color: c.inkFaint }">{{ numAt(spec.series[0].data, i) }}</text>
+				<text class="hval" :style="{ color: c.inkFaint }">{{ numAt(firstData, i) }}</text>
 			</view>
 		</view>
 
-		<view v-if="spec != null && spec.series.length > 1" class="legend">
-			<view v-for="(s, si) in spec.series" :key="si" class="leg">
+		<view v-if="showLegend" class="legend">
+			<view v-for="(s, si) in seriesList" :key="si" class="leg">
 				<view class="dot" :style="{ backgroundColor: colorAt(si) }"></view>
 				<text class="leg-t" :style="{ color: c.inkSoft }">{{ s.name != '' ? s.name : ('S' + (si + 1).toString()) }}</text>
 			</view>
@@ -68,7 +68,7 @@
 
 <script setup lang="uts">
 	import { computed } from 'vue'
-	import { CHART_COLORS, ChartSpec, chartMax, parseChart } from '../../common/chart.uts'
+	import { CHART_COLORS, ChartSeries, ChartSpec, chartMax, parseChart } from '../../common/chart.uts'
 	import { Palette, theme } from '../../common/theme.uts'
 	import { t } from '../../common/i18n.uts'
 
@@ -77,15 +77,48 @@
 	})
 
 	const c = computed<Palette>(() : Palette => theme.c)
+	// 模板不直接访问可空 ChartSpec?（Kotlin 不会因 v-if 收窄类型）
 	const spec = computed(() : ChartSpec | null => parseChart(props.code))
+	const hasSpec = computed(() : boolean => spec.value != null)
+	const failText = computed(() : string => t('chat.mdVisualFail'))
+	const chartTitle = computed(() : string => {
+		const s = spec.value
+		if (s == null) return ''
+		return s.title
+	})
+	const chartType = computed(() : string => {
+		const s = spec.value
+		return s == null ? '' : s.type
+	})
+	const categories = computed(() : Array<string> => {
+		const s = spec.value
+		return s == null ? ([] as Array<string>) : s.categories
+	})
+	const seriesList = computed(() : Array<ChartSeries> => {
+		const s = spec.value
+		return s == null ? ([] as Array<ChartSeries>) : s.series
+	})
+	const firstData = computed(() : Array<number> => {
+		const list = seriesList.value
+		if (list.length == 0) return [] as Array<number>
+		return list[0].data
+	})
+	const isBarLike = computed(() : boolean => {
+		const ty = chartType.value
+		return hasSpec.value && (ty == 'bar' || ty == 'line' || ty == 'area' || ty == 'scatter')
+	})
+	const isHbar = computed(() : boolean => hasSpec.value && chartType.value == 'hbar')
+	const isPie = computed(() : boolean => {
+		const ty = chartType.value
+		return hasSpec.value && (ty == 'pie' || ty == 'donut')
+	})
+	const showLegend = computed(() : boolean => seriesList.value.length > 1)
 	const maxV = computed(() : number => {
 		const s = spec.value
 		return s == null ? 1 : chartMax(s)
 	})
 	const barW = computed(() : string => {
-		const s = spec.value
-		if (s == null) return '14px'
-		const n = s.series.length
+		const n = seriesList.value.length
 		if (n <= 1) return '18px'
 		if (n == 2) return '12px'
 		return '8px'
@@ -103,9 +136,7 @@
 	}
 
 	function firstVal(i : number) : string {
-		const s = spec.value
-		if (s == null || s.series.length == 0) return ''
-		return numAt(s.series[0].data, i)
+		return numAt(firstData.value, i)
 	}
 
 	function barH(data : Array<number>, i : number) : string {
@@ -121,12 +152,12 @@
 	}
 
 	function piePct(i : number) : string {
-		const s = spec.value
-		if (s == null || s.series.length == 0) return '0%'
+		const data = firstData.value
+		if (data.length == 0) return '0%'
 		let sum = 0
-		s.series[0].data.forEach((n : number) => { sum += n })
+		data.forEach((n : number) => { sum += n })
 		if (sum <= 0) return '0%'
-		const v = (i >= 0 && i < s.series[0].data.length) ? s.series[0].data[i] : 0
+		const v = (i >= 0 && i < data.length) ? data[i] : 0
 		return Math.max(2, Math.round(v / sum * 100)).toString() + '%'
 	}
 

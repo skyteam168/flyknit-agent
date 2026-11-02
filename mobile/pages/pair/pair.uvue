@@ -67,13 +67,22 @@
 
 <script setup lang="uts">
 	import { computed, ref } from 'vue'
-	import { Palette, theme } from '../../common/theme.uts'
+	import { Palette, syncStatusBar, theme } from '../../common/theme.uts'
 	import { applyMe, state } from '../../common/store.uts'
 	import { normalizeServer, pair, parsePairPayload } from '../../common/api.uts'
 	import { connect } from '../../common/socket.uts'
 	import { scanCode } from '../../common/scan.uts'
 	import { refreshModels } from '../../common/prefs.uts'
-	import { i18n, t, tf } from '../../common/i18n.uts'
+	import { i18n, t as _t, tf as _tf } from '../../common/i18n.uts'
+
+	// 模板里不能直接调用 import 的函数（UTS→Kotlin 报 invoke），用本地包装
+	function t(key : string) : string {
+		return _t(key)
+	}
+
+	function tf(key : string, a : string) : string {
+		return _tf(key, a)
+	}
 
 	const c = computed<Palette>(() : Palette => theme.c)
 	const topInset = uni.getWindowInfo().statusBarHeight + 24
@@ -156,6 +165,10 @@
 		}
 		void doPair(srv, code.value.trim())
 	}
+
+	onShow(() => {
+		syncStatusBar()
+	})
 </script>
 
 <style>

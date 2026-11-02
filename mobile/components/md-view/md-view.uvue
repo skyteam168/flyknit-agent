@@ -2,23 +2,23 @@
 	<view class="md">
 		<view v-for="(b, bi) in blocks" :key="bi" class="md-block">
 			<text v-if="b.kind == 'heading'" class="md-heading" :style="headingStyle(b.level)" :selectable="true">
-				<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+				<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s, c.ink)">{{ s.text }}</text>
 			</text>
 
 			<text v-else-if="b.kind == 'para'" class="md-para" :style="bodyStyle(c.ink)" :selectable="true">
-				<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+				<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s, c.ink)">{{ s.text }}</text>
 			</text>
 
 			<view v-else-if="b.kind == 'bullet' || b.kind == 'ordered'" class="md-item" :style="{ paddingLeft: (b.level * 16).toString() + 'px' }">
 				<text class="md-mark" :style="{ color: b.label == 'done' ? c.thread : c.inkSoft, fontSize: bodySize, lineHeight: bodyLine }">{{ markOf(b) }}</text>
 				<text class="md-item-text" :style="bodyStyle(b.label == 'done' ? c.inkFaint : c.ink)" :selectable="true">
-					<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+					<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s, b.label == 'done' ? c.inkFaint : c.ink)">{{ s.text }}</text>
 				</text>
 			</view>
 
 			<view v-else-if="b.kind == 'quote'" class="md-quote" :style="{ borderLeftColor: c.lineStrong }">
 				<text class="md-para" :style="bodyStyle(c.inkSoft)" :selectable="true">
-					<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+					<text v-for="(s, si) in b.spans" :key="si" :style="spanStyle(s, c.inkSoft)">{{ s.text }}</text>
 				</text>
 			</view>
 
@@ -27,7 +27,7 @@
 				v-else-if="b.kind == 'code' && looksLikeEcharts(b.text)"
 				lang="echarts"
 				:code="stripFence(b.text)"
-				:title="t('chat.mdChart')"
+				:title="chartTitle"
 				:ready="richReady"
 				:height="320"
 			></md-inline-visual>
@@ -35,7 +35,7 @@
 			<view v-else-if="b.kind == 'code'" class="md-code" :style="{ backgroundColor: c.codeBg, borderColor: c.line }">
 				<view class="md-code-head">
 					<text class="md-code-lang" :style="{ color: c.inkFaint }">{{ b.label != '' ? b.label : 'code' }}</text>
-					<text class="md-code-copy" :style="{ color: c.indigo }" @click="copy(b.text)">{{ t('chat.copy') }}</text>
+					<text class="md-code-copy" :style="{ color: c.indigo }" @click="copy(b.text)">{{ copyLabel }}</text>
 				</view>
 				<scroll-view direction="horizontal" class="md-code-scroll">
 					<view class="md-code-body">
@@ -58,7 +58,7 @@
 					<view v-for="(row, ri) in b.rows" :key="ri" class="md-tr" :style="{ backgroundColor: ri == 0 ? c.sunk : c.cloth, borderBottomColor: c.line }">
 						<view v-for="(cell, ci) in row" :key="ci" class="md-td" :style="{ borderRightColor: c.line }">
 							<text class="md-td-text" :style="{ color: c.ink, fontWeight: ri == 0 ? 'bold' : 'normal', fontSize: tableSize }" :selectable="true">
-								<text v-for="(s, si) in cellSpans(cell)" :key="si" :style="spanStyle(s)">{{ s.text }}</text>
+								<text v-for="(s, si) in cellSpans(cell)" :key="si" :style="spanStyle(s, c.ink)">{{ s.text }}</text>
 							</text>
 						</view>
 					</view>
@@ -70,7 +70,7 @@
 			<!-- flyknit-chart：流式中占位，结束后原生绘制 -->
 			<view v-else-if="b.kind == 'visual' && isChart(b.label) && !richReady" class="md-loading" :style="{ backgroundColor: c.sunk, borderColor: c.line }">
 				<view class="md-loading-dot" :style="{ backgroundColor: c.indigo }"></view>
-				<text class="md-loading-t" :style="{ color: c.inkSoft }">{{ t('chat.mdChartLoading') }}</text>
+				<text class="md-loading-t" :style="{ color: c.inkSoft }">{{ chartLoading }}</text>
 			</view>
 			<md-chart v-else-if="b.kind == 'visual' && isChart(b.label)" :code="b.text"></md-chart>
 			<!-- Mermaid / ECharts：流式结束后对话内嵌渲染 -->
@@ -84,7 +84,7 @@
 			></md-inline-visual>
 			<view v-else-if="b.kind == 'visual'" class="md-visual" :style="{ backgroundColor: c.indigoWash }" @click="copy(b.text)">
 				<text class="md-visual-title" :style="{ color: c.indigo }">{{ visualTitle(b.label) }}</text>
-				<text class="md-visual-hint" :style="{ color: c.inkSoft }">{{ t('chat.mdVisualHint') }}</text>
+				<text class="md-visual-hint" :style="{ color: c.inkSoft }">{{ visualHint }}</text>
 			</view>
 		</view>
 	</view>
@@ -110,31 +110,36 @@
 
 	const c = computed<Palette>(() : Palette => theme.c)
 	const richReady = computed(() : boolean => props.richReady)
+	// 组件模板不能直接调用 import 的 t()（UTS→Kotlin 报 invoke）
+	const copyLabel = computed(() : string => t('chat.copy'))
+	const chartTitle = computed(() : string => t('chat.mdChart'))
+	const chartLoading = computed(() : string => t('chat.mdChartLoading'))
+	const visualHint = computed(() : string => t('chat.mdVisualHint'))
 	const blocks = computed(() : Array<MdBlock> => {
-		const _ = props.contentRev
-		const __ = props.fontSize
-		const ___ = props.richReady
+		const _rev = props.contentRev
+		const _font = props.fontSize
+		const _ready = props.richReady
 		return parseMarkdown(props.content)
 	})
 	const bodySize = computed(() : string => {
-		const _ = props.fontSize
+		const _dep = props.fontSize
 		return bodyFontPx().toString() + 'px'
 	})
 	const bodyLine = computed(() : string => {
-		const _ = props.fontSize
+		const _dep = props.fontSize
 		return bodyLinePx().toString() + 'px'
 	})
 	const codeSize = computed(() : string => {
-		const _ = props.fontSize
+		const _dep = props.fontSize
 		return Math.max(12, bodyFontPx() - 2).toString() + 'px'
 	})
 	const tableSize = computed(() : string => {
-		const _ = props.fontSize
+		const _dep = props.fontSize
 		return Math.max(12, bodyFontPx() - 2).toString() + 'px'
 	})
 
 	function headingStyle(level : number) : UTSJSONObject {
-		const _ = props.fontSize
+		const _dep = props.fontSize
 		const px = headingFontPx(level)
 		return {
 			color: theme.c.ink,
@@ -151,8 +156,8 @@
 		} as UTSJSONObject
 	}
 
-	function spanStyle(s : MdSpan) : UTSJSONObject {
-		const st = {} as UTSJSONObject
+	function spanStyle(s : MdSpan, color : string) : UTSJSONObject {
+		const st = { color: color } as UTSJSONObject
 		if (s.bold) {
 			st['fontWeight'] = 'bold'
 		}

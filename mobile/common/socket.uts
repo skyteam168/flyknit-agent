@@ -36,13 +36,13 @@ export function connect() {
 	state.socket = 'connecting'
 	const sock = uni.connectSocket({
 		url: wsUrl(),
-		fail: (_) => {
+		fail: (_err) => {
 			task = null
 			scheduleRetry()
 		}
 	})
 	task = sock
-	sock.onOpen((_) => {
+	sock.onOpen((_ev) => {
 		state.socket = 'open'
 		backoff = 2000
 		startPing()
@@ -61,7 +61,8 @@ export function connect() {
 		stopPing()
 		failPending(t('chat.socketClosed'))
 		// 4401：令牌失效（被解绑、被吊销）；4403：管理员关了手机端或电脑被停用
-		if (res.code == 4401) {
+		const closeCode = (res as UTSJSONObject).getNumber('code') ?? 0
+		if (closeCode == 4401) {
 			wantOpen = false
 			clearAuth()
 			uni.reLaunch({ url: '/pages/pair/pair' })
@@ -69,7 +70,7 @@ export function connect() {
 		}
 		scheduleRetry()
 	})
-	sock.onError((_) => {
+	sock.onError((_ev) => {
 		// onClose 会接着来，在那里重连
 	})
 }
@@ -194,7 +195,7 @@ export function stopChat(answer : Msg) {
 }
 
 function failPending(reason : string) {
-	pending.forEach((m : Msg, _ : string) => {
+	pending.forEach((m : Msg, _id : string) => {
 		m.status = 'error'
 		if (m.content == '') {
 			m.content = reason
@@ -453,7 +454,7 @@ export function notifyLocal(title : string, content : string) {
 	uni.createPushMessage({
 		title: title,
 		content: content,
-		fail: (_) => {
+		fail: (_err) => {
 			// 没开通知权限之类：不影响使用
 		}
 	} as CreatePushMessageOptions)

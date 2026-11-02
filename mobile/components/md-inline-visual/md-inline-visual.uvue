@@ -18,7 +18,7 @@
 			@load="onWebLoad"
 			@error="onWebError"
 		></web-view>
-		<text v-if="ready" class="full" :style="{ color: c.indigo }" @click="openFull">{{ t('chat.mdVisualFull') }}</text>
+		<text v-if="ready" class="full" :style="{ color: c.indigo }" @click="openFull">{{ fullLabel }}</text>
 	</view>
 </template>
 
@@ -45,6 +45,8 @@
 	const vid = 'mdiv_' + (seq++).toString()
 
 	const boxH = computed(() : string => props.height.toString() + 'px')
+	// 组件模板不能直接调用 import 的函数（UTS→Kotlin 会报 invoke）
+	const fullLabel = computed(() : string => t('chat.mdVisualFull'))
 	const loadingText = computed(() : string => {
 		if (props.lang == 'mermaid' || props.lang == 'mmd') return t('chat.mdFlowLoading')
 		return t('chat.mdChartLoading')
@@ -95,13 +97,13 @@
 		// #endif
 	}
 
-	function onWebLoad(_ : UniWebViewLoadEvent) {
+	function onWebLoad(_ev : UniWebViewLoadEvent) {
 		// #ifdef APP-ANDROID || APP-IOS || APP-HARMONY
 		setTimeout(() => { pushByContext() }, 200)
 		// #endif
 	}
 
-	function onWebError(_ : UniWebViewErrorEvent) {
+	function onWebError(_ev : UniWebViewErrorEvent) {
 		failed.value = true
 	}
 

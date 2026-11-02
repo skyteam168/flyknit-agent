@@ -2,7 +2,7 @@
 	<!-- 列表内不再嵌 web-view；统一点进全屏页渲染 -->
 	<view class="card" :style="{ backgroundColor: c.indigoWash }" @click="open">
 		<text class="card-title" :style="{ color: c.indigo }">{{ title }}</text>
-		<text class="card-hint" :style="{ color: c.inkSoft }">{{ t('chat.mdVisualOpen') }}</text>
+		<text class="card-hint" :style="{ color: c.inkSoft }">{{ openHint }}</text>
 	</view>
 </template>
 
@@ -18,6 +18,8 @@
 	})
 
 	const c = computed<Palette>(() : Palette => theme.c)
+	// 组件模板不能直接调用 import 的函数
+	const openHint = computed(() : string => t('chat.mdVisualOpen'))
 
 	function open() {
 		if (props.code == '') return

@@ -23,8 +23,13 @@
 
 <script setup lang="uts">
 	import { computed, getCurrentInstance, ref } from 'vue'
-	import { Palette, theme } from '../../common/theme.uts'
-	import { t } from '../../common/i18n.uts'
+	import { Palette, syncStatusBar, theme } from '../../common/theme.uts'
+	import { t as _t } from '../../common/i18n.uts'
+
+	// 模板里不能直接调用 import 的函数（UTS→Kotlin 报 invoke），用本地包装
+	function t(key : string) : string {
+		return _t(key)
+	}
 
 	const c = computed<Palette>(() : Palette => theme.c)
 	const title = ref(t('chat.mdFlow'))
@@ -99,22 +104,22 @@
 		// #endif
 	}
 
-	function onWebLoad(_ : UniWebViewLoadEvent) {
+	function onWebLoad(_ev : UniWebViewLoadEvent) {
 		status.value = ''
 		// #ifdef APP-ANDROID || APP-IOS || APP-HARMONY
 		setTimeout(() => { pushByContext() }, 200)
 		// #endif
 	}
 
-	function onWebError(_ : UniWebViewErrorEvent) {
+	function onWebError(_ev : UniWebViewErrorEvent) {
 		status.value = t('chat.mdVisualFail')
 	}
 
-	onLoad((_ : OnLoadOptions) => {
+	onLoad((_opts : OnLoadOptions) => {
 		try {
 			const info = uni.getWindowInfo()
 			statusTop.value = info.statusBarHeight ?? 24
-		} catch (_) {}
+		} catch (_e) {}
 		try {
 			const raw = uni.getStorageSync('fk_visual_payload')
 			if (raw != null && ('' + raw) != '') {
@@ -131,6 +136,10 @@
 			status.value = t('chat.mdVisualFail')
 			console.error(e)
 		}
+	})
+
+	onShow(() => {
+		syncStatusBar()
 	})
 </script>
 
