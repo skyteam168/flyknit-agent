@@ -24,7 +24,7 @@
 				</view>
 				<view class="row" :style="{ borderTopColor: c.line }">
 					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.server') }}</text>
-					<text class="val" :style="{ color: c.ink }" :lines="1">{{ server }}</text>
+					<text class="val" :style="{ color: c.ink }">{{ server }}</text>
 				</view>
 				<view class="row" :style="{ borderTopColor: c.line }">
 					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.approvals') }}</text>
@@ -36,7 +36,7 @@
 			<view class="card" :style="{ backgroundColor: c.cloth }">
 				<view class="row-btn" @click="pickModel">
 					<text class="key" :style="{ color: c.ink }">{{ t('settings.chatModel') }}</text>
-					<text class="val" :style="{ color: c.inkFaint }" :lines="1">{{ modelName }}</text>
+					<text class="val" :style="{ color: c.inkFaint }">{{ modelName }}</text>
 				</view>
 				<view class="row" :style="{ borderTopColor: c.line }">
 					<text class="key" :style="{ color: c.inkSoft }">{{ t('settings.deepThinking') }}</text>
@@ -310,6 +310,9 @@
 		font-size: 15px;
 	}
 	.val {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: 14px;
 		margin-left: 12px;
 		flex-shrink: 1;

@@ -2,7 +2,7 @@
 	<view class="page" :style="{ backgroundColor: c.loom }">
 		<view class="nav" :style="{ paddingTop: px(statusTop), backgroundColor: c.cloth, borderBottomColor: c.line }">
 			<text class="back" :style="{ color: c.indigo }" @click="goBack">{{ t('common.back') }}</text>
-			<text class="nav-title" :style="{ color: c.ink }" :lines="1">{{ title }}</text>
+			<text class="nav-title" :style="{ color: c.ink }">{{ title }}</text>
 			<text class="copy" :style="{ color: c.indigo }" @click="copy">{{ t('chat.copy') }}</text>
 		</view>
 		<web-view
@@ -162,6 +162,9 @@
 		width: 52px;
 	}
 	.nav-title {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		flex: 1;
 		text-align: center;
 		font-size: 16px;

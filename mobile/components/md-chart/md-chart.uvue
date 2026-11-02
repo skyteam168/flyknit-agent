@@ -14,15 +14,15 @@
 						:style="{ height: barH(s.data, i), backgroundColor: colorAt(si), width: barW }"
 					></view>
 				</view>
-				<text class="lab" :style="{ color: c.inkFaint }" :lines="1">{{ cat }}</text>
-				<text class="val" :style="{ color: c.inkSoft }" :lines="1">{{ firstVal(i) }}</text>
+				<text class="lab" :style="{ color: c.inkFaint }">{{ cat }}</text>
+				<text class="val" :style="{ color: c.inkSoft }">{{ firstVal(i) }}</text>
 			</view>
 		</view>
 
 		<!-- 条形图 -->
 		<view v-else-if="isHbar" class="hbars">
 			<view v-for="(cat, i) in categories" :key="i" class="hrow">
-				<text class="hlab" :style="{ color: c.inkSoft }" :lines="1">{{ cat }}</text>
+				<text class="hlab" :style="{ color: c.inkSoft }">{{ cat }}</text>
 				<view class="htrack" :style="{ backgroundColor: c.chip }">
 					<view class="hfill" :style="{ width: barPct(firstData, i), backgroundColor: colorAt(0) }"></view>
 				</view>
@@ -42,14 +42,14 @@
 			</view>
 			<view v-for="(cat, i) in categories" :key="i" class="pie-row">
 				<view class="dot" :style="{ backgroundColor: colorAt(i) }"></view>
-				<text class="pie-name" :style="{ color: c.ink }" :lines="1">{{ cat }}</text>
+				<text class="pie-name" :style="{ color: c.ink }">{{ cat }}</text>
 				<text class="pie-val" :style="{ color: c.inkSoft }">{{ numAt(firstData, i) }}</text>
 			</view>
 		</view>
 
 		<view v-else-if="hasSpec" class="hbars">
 			<view v-for="(cat, i) in categories" :key="i" class="hrow">
-				<text class="hlab" :style="{ color: c.inkSoft }" :lines="1">{{ cat }}</text>
+				<text class="hlab" :style="{ color: c.inkSoft }">{{ cat }}</text>
 				<view class="htrack" :style="{ backgroundColor: c.chip }">
 					<view class="hfill" :style="{ width: barPct(firstData, i), backgroundColor: colorAt(0) }"></view>
 				</view>
@@ -207,12 +207,18 @@
 		margin-right: 1px;
 	}
 	.lab {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: 11px;
 		margin-top: 4px;
 		max-width: 56px;
 		text-align: center;
 	}
 	.val {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: 10px;
 	}
 	.hbars {
@@ -224,6 +230,9 @@
 		margin-bottom: 8px;
 	}
 	.hlab {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		width: 52px;
 		font-size: 12px;
 	}
@@ -262,6 +271,9 @@
 		margin-bottom: 6px;
 	}
 	.pie-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		flex: 1;
 		font-size: 13px;
 		margin-left: 8px;
