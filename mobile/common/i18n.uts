@@ -10,9 +10,13 @@ export const LANG_OPTIONS = [
 	{ id: 'en', label: 'English' } as LangItem
 ]
 
+export type I18nState = {
+	locale : string
+}
+
 export const i18n = reactive({
 	locale: 'zh'
-})
+} as I18nState)
 
 type Dict = Map<string, string>
 

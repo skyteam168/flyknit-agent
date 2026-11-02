@@ -42,7 +42,7 @@ function detailOf(data : any | null, status : number) : string {
 
 export function request(method : string, path : string, body : UTSJSONObject | null, server : string = '') : Promise<ApiResult> {
 	const base = server != '' ? server : state.server
-	return new Promise<ApiResult>((resolve, _) => {
+	return new Promise<ApiResult>((resolve, _reject) => {
 		const header = { 'Content-Type': 'application/json' } as UTSJSONObject
 		if (state.token != '') {
 			header['Authorization'] = 'Bearer ' + state.token

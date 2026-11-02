@@ -47,22 +47,21 @@ function openScanPage(onResult : ScanOk, onError : ScanErr) {
 }
 
 function ensureCameraThen(run : () => void) {
-	// #ifdef APP-ANDROID || APP-IOS || APP-HARMONY
-	try {
-		uni.authorize({
-			scope: 'scope.camera',
-			success: () => {
-				run()
-			},
-			fail: () => {
-				// 仍打开扫码页；拒绝权限时由 camera @error 提示
-				run()
-			}
-		})
-		return
-	} catch (_) { }
+	// #ifdef APP-ANDROID
+	uni.requestSystemPermission({
+		permissions: ['android.permission.CAMERA'],
+		success: (_res) => {
+			run()
+		},
+		fail: (_err) => {
+			// 仍打开扫码页；拒绝权限时由 camera @error 提示
+			run()
+		}
+	})
 	// #endif
+	// #ifndef APP-ANDROID
 	run()
+	// #endif
 }
 
 /** 调起摄像头扫二维码（自研 camera 扫码页） */

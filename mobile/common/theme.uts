@@ -107,6 +107,14 @@ function systemIsDark() : boolean {
 	// #endif
 }
 
+/** 同步状态栏文字颜色：暗色用白字，亮色用黑字（custom 导航栏下 frontColor 生效） */
+export function syncStatusBar() {
+	uni.setNavigationBarColor({
+		frontColor: theme.dark ? '#ffffff' : '#000000',
+		backgroundColor: theme.c.loom
+	})
+}
+
 function apply() {
 	const dark = theme.mode == 'dark' || (theme.mode == 'system' && systemIsDark())
 	theme.dark = dark
@@ -122,12 +130,12 @@ export function applySystemTheme() {
 	apply()
 	// onOsThemeChange 只有 App 有；浏览器里监听系统配色变化
 	// #ifdef APP
-	uni.onOsThemeChange((_ : OsThemeChangeResult) => {
+	uni.onOsThemeChange((_res : OsThemeChangeResult) => {
 		apply()
 	})
 	// #endif
 	// #ifdef WEB
-	window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (_ : Event) => {
+	window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (_ev : Event) => {
 		apply()
 	})
 	// #endif
