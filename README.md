@@ -538,6 +538,7 @@ powershell -ExecutionPolicy Bypass -File scripts\publish-client.ps1 -Version 0.2
 - 下载的安装包里带一张「产品页下载」专用安装凭证，在「已下载的安装包」里能看到用它登录了几台；外泄了点「更换凭证」，已登录的电脑不受影响
 - 发布新版本后，产品页自动提供新版；同一版本的安装包只生成一次，之后直接用缓存
 - 关闭「开放下载」后，产品页的下载按钮显示「下载暂未开放，请联系 IT 信息科技部」
+- **手机 App 扫码下载**：产品页「手机 App」一栏显示 APK 下载二维码。条件是「开放下载」开着、后台「手机端」开着、并且「手机端 → App 版本」里发布了 App；缺一个就显示「暂未开放」。二维码里是员工打开产品页时用的服务器地址，手机要连公司 Wi-Fi 才能下载。APK 本身不带任何凭证，装好后还要在自己电脑「设置 → 手机」扫码绑定才能用
 
 **改内容**：直接编辑 `server/app/static/landing/index.html`（中文）和 `assets/landing.js`（越南语、英语），刷新浏览器就生效；Docker 部署时重新 `docker compose up -d --build`。截图在 `assets/img/`，换成新的同名 webp 即可。
 

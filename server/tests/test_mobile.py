@@ -353,3 +353,26 @@ def test_app_uploads_are_checked(tc):
     rel = tc.get("/api/v1/admin/mobile/releases", headers=ADMIN).json()[0]
     assert tc.delete(f"/api/v1/admin/mobile/releases/{rel['id']}", headers=ADMIN).status_code == 204
     assert tc.get("/api/v1/admin/mobile/releases", headers=ADMIN).json() == []
+
+
+def test_product_page_offers_the_app_only_when_both_switches_are_on(tc):
+    """产品页扫码下载 App：产品页下载、手机端都打开并且发布了 App 才给下载地址。"""
+    closed = {"available": False, "version_name": "", "notes": "", "size": 0, "published_at": "", "download_path": ""}
+    assert tc.get("/api/v1/public/mobile-app").json() == closed
+
+    rel = _upload(tc, "0.2.0", 120).json()
+    tc.patch(f"/api/v1/admin/mobile/releases/{rel['id']}", headers=ADMIN, json={"published": True})
+    _enable(tc)
+    # 产品页下载还关着：不给
+    assert tc.get("/api/v1/public/mobile-app").json() == closed
+
+    r = tc.put("/api/v1/admin/landing", headers=ADMIN, json={"enabled": True, "server_url": "http://10.0.0.5:8000"})
+    assert r.status_code == 200, r.text
+    app_info = tc.get("/api/v1/public/mobile-app").json()
+    assert app_info["available"] is True and app_info["version_name"] == "0.2.0"
+    assert app_info["download_path"] == rel["download_path"]
+    assert tc.get(app_info["download_path"]).status_code == 200
+
+    # 手机端关掉：产品页也不再给
+    tc.put("/api/v1/admin/mobile", headers=ADMIN, json={"enabled": False})
+    assert tc.get("/api/v1/public/mobile-app").json() == closed

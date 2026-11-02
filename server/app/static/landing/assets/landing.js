@@ -69,7 +69,7 @@
       'sec.c1t': 'Dữ liệu không ra khỏi nhà máy', 'sec.c1p': 'Máy chủ và cổng mô hình đặt trong mạng nội bộ; hội thoại, tệp, ghi nhớ nằm trên máy chủ công ty và máy nhân viên.',
       'sec.c2t': 'Cách ly không gian làm việc', 'sec.c2p': 'Mặc định chỉ đọc ghi trong thư mục bạn chọn, ra ngoài phải hỏi bạn; truy cập mạng theo danh sách cho phép.',
       'sec.c3t': 'Chặn lệnh nguy hiểm', 'sec.c3p': 'Định dạng ổ, xóa hàng loạt, sửa registry… bị chặn ngay; thao tác quan trọng phải được bạn xác nhận.',
-      'sec.c4t': 'Sửa sai vẫn khôi phục được', 'sec.c4p': 'Tự sao lưu trước khi sửa tệp, tệp xóa vào Thùng rác, khôi phục bất cứ lúc nào.',
+      'sec.c4t': 'Sửa sai vẫn khôi phục được', 'sec.c4p': 'Tự sao lưu trước khi sửa tệp, tệp xóa vào Thùng rác; thay đổi của mỗi lượt đều so sánh được và khôi phục chỉ một chạm.',
       'sec.c5t': 'Ghi lại mọi thao tác', 'sec.c5p': 'Mỗi lần chạy lệnh, ghi tệp, bị chặn đều vào nhật ký kiểm tra; nhân viên tự xem được, IT tra cứu được.',
       'sec.c6t': 'IT quản lý tập trung', 'sec.c6p': 'Mô hình, hạn mức, chuyên gia, kỹ năng, chính sách bảo mật cấu hình một chỗ; phiên bản mới tự cập nhật, không cần cài từng máy.',
       'dl.title': 'Bắt đầu dùng FlyknitBuddy ngay', 'dl.sub': 'Cài xong đăng nhập một chạm bằng tài khoản domain công ty, không cần nhập địa chỉ máy chủ.',
@@ -85,6 +85,40 @@
       'faq.q4': 'Không có quyền quản trị có cài được không?', 'faq.a4': 'Được, tải bản không cần cài (.zip), giải nén rồi chạy FlyknitBuddy.exe. Bộ cài (.exe) cần quyền quản trị và sẽ tự cập nhật sau khi cài.',
       'faq.q5': 'Hỗ trợ những ngôn ngữ nào?', 'faq.a5': 'Giao diện có tiếng Trung, tiếng Việt, tiếng Anh, đổi bất cứ lúc nào trong Cài đặt. Hỏi bằng ngôn ngữ nào thì trả lời bằng ngôn ngữ đó.',
       'faq.q6': 'Gặp sự cố thì hỏi ai?', 'faq.a6': 'Nhấn "Phản hồi" trong chương trình để gửi vấn đề và ảnh chụp cho IT, hoặc liên hệ phòng Công nghệ thông tin.',
+      'nav.new': 'Tính năng mới', 'nav.mobile': 'App điện thoại', 'hero.b4': 'Có App Android đi kèm',
+      'new.kicker': 'Cập nhật mới', 'new.tag': 'Mới', 'new.title': 'Giao việc lớn yên tâm, làm gì cũng rõ ràng',
+      'new.sub': 'Bản này tăng cường chế độ Làm việc: chạy liên tục hàng trăm bước, trong lúc làm có thể nói thêm, tạm dừng, xem thay đổi, làm xong khôi phục chỉ một chạm.',
+      'new.c1t': 'Việc dài & Trung tâm tác vụ', 'new.c1p': 'Việc hàng trăm bước tự làm tiếp; tắt chương trình hay khởi động lại máy, quay lại nhấn "Làm tiếp" là chạy tiếp từ chỗ dừng. Xem tiến độ ngay ở Trung tâm tác vụ.',
+      'new.c2t': 'Nói thêm bất cứ lúc nào', 'new.c2p': 'Không cần chờ làm xong: bổ sung yêu cầu là nó tiếp nhận ngay; cũng có thể ngắt, xếp hàng hoặc tạm dừng.',
+      'new.c3t': 'Xem thay đổi, khôi phục một chạm', 'new.c3p': 'Liệt kê tệp đã sửa trong mỗi lượt, Excel so sánh đến từng ô; nhấn một dòng để ghi ý kiến cho AI sửa, không vừa ý thì khôi phục.',
+      'new.c4t': 'Hỏi nhanh bên lề', 'new.c4p': 'Đang làm việc vẫn hỏi được bên cạnh bằng <kbd>Ctrl</kbd>+<kbd>;</kbd>, không làm gián đoạn việc đang làm.',
+      'new.c5t': 'Trình duyệt AI', 'new.c5p': 'Mở ERP, OA và các trang nội bộ trong cửa sổ trình duyệt bạn nhìn thấy được, tra dữ liệu, điền biểu mẫu; hỏi bạn trước khi gửi, mật khẩu do bạn tự nhập.',
+      'new.c6t': 'Tìm kiếm web & Suy nghĩ sâu', 'new.c6p': 'Khi trò chuyện bật "Tìm web" để tra thông tin mới nhất kèm nguồn; câu khó thì bật "Suy nghĩ sâu".',
+      'new.c7t': 'Terminal', 'new.c7p': 'Mọi lệnh AI chạy và kết quả hiện trực tiếp bên phải; khi gỡ lỗi, máy chủ phát triển chạy nền và bạn có thể dừng bất cứ lúc nào.',
+      'new.c8t': 'Đề xuất việc mới', 'new.c8p': 'Phát hiện vấn đề khác trong lúc làm, nó không tự mở rộng phạm vi mà đưa bạn một thẻ, nhấn để mở việc mới.',
+      'long.kicker': 'Trung tâm tác vụ', 'long.title': 'Giao một việc lớn rồi cứ để nó chạy',
+      'long.sub': 'Sắp xếp hàng trăm tệp, sửa hàng loạt báo cáo — bật "Việc dài" rồi giao cho nó. Mỗi bước được lưu ngay; việc đang chạy, chưa xong lần trước và vừa xong đều ở Trung tâm tác vụ.',
+      'long.t1': 'Kế hoạch bên phải được đánh dấu từng bước, làm đến đâu thấy ngay', 'long.t2': 'Có thể tạm dừng, tiếp tục, dừng hẳn; xem tiến độ cả trên điện thoại', 'long.t3': 'Mất điện, tắt máy đột ngột: nhấn "Làm tiếp" từ chỗ dừng, không làm lại', 'long.win': 'Trung tâm tác vụ',
+      'rev.kicker': 'So sánh thay đổi', 'rev.title': 'Nó sửa gì, bạn quyết định', 'rev.sub': 'Tệp bị sửa trong mỗi lượt đều được ghi lại. Văn bản so sánh từng dòng, Excel chỉ rõ ô nào đổi và giá trị cũ là bao nhiêu.',
+      'rev.t1': 'Nhấn một dòng, một ô để ghi ý kiến, AI sửa tiếp theo ý kiến', 'rev.t2': 'Khôi phục tất cả hoặc chỉ tệp đã chọn, bản trước khi khôi phục cũng được sao lưu', 'rev.t3': 'Các thẻ "Thay đổi", "Terminal", "Kế hoạch" bên phải, quá trình minh bạch', 'rev.win': 'Các tệp đã sửa trong lượt này',
+      'term.kicker': 'Cho đồng nghiệp kỹ thuật', 'term.title': 'Gỡ lỗi chương trình, tra hệ thống web — cũng giao được',
+      'term.sub': 'Lệnh AI chạy và kết quả hiện trực tiếp trong "Terminal" bên phải; khi gỡ lỗi, máy chủ phát triển chạy nền, sửa code xong nó tự xem log và kiểm tra lại. Hệ thống web nội bộ thì giao cho Trình duyệt AI.',
+      'term.t1': 'Lệnh nền và Trình duyệt AI do IT bật trong trang quản trị, mặc định tắt', 'term.t2': 'Lệnh vẫn chịu quyền hạn và quy tắc chặn, có thể nhấn "Dừng" bất cứ lúc nào', 'term.win': 'Làm việc · Terminal',
+      'mob.kicker': 'App điện thoại', 'mob.title': 'Không ngồi trước máy tính, việc vẫn chạy',
+      'mob.sub': 'Cài FlyknitBuddy trên điện thoại Android (kể cả PDA), quét mã QR trên máy tính của bạn là liên kết xong. Ở xưởng hay phòng họp, dùng điện thoại để máy tính văn phòng làm việc.',
+      'mob.f1t': 'Điều khiển máy tính làm việc', 'mob.f1p': 'Nói một câu trên điện thoại, máy tính thực hiện; tiến độ đẩy về điện thoại theo thời gian thực, xong thì báo bạn',
+      'mob.f2t': 'Xác nhận trên điện thoại', 'mob.f2p': 'Thao tác cần bạn đồng ý được gửi đến điện thoại, cho phép hay từ chối, không cần về chỗ ngồi',
+      'mob.f3t': 'Trò chuyện, dịch, tìm web', 'mob.f3p': 'Hỏi nhanh, dịch Trung–Việt–Anh, tra thông tin trên mạng, chụp ảnh hoặc chọn ảnh để hỏi',
+      'mob.f4t': 'Quét mã liên kết, không cần đăng nhập', 'mob.f4p': 'Máy tính vào "Cài đặt → Điện thoại" hiện mã QR, quét bằng camera hoặc súng quét là xong; giao diện Trung, Việt, Anh',
+      'mob.scan': 'Quét mã bằng điện thoại để tải', 'mob.checking': 'Đang kiểm tra phiên bản mới nhất…', 'mob.apk': 'Tải App Android (.apk)',
+      'mob.hint': 'Điện thoại cần kết nối Wi-Fi công ty; lần đầu cài cần cho phép "Cài ứng dụng không rõ nguồn".',
+      'mob.version': 'Phiên bản {v} · {size}', 'mob.closed': 'App điện thoại chưa mở tải. Vui lòng liên hệ phòng IT.',
+      'mob.mode': 'Làm việc', 'mob.ask': 'Tổng hợp nhật ký sản lượng hôm nay của 3 xưởng thành bảng, gửi tôi xem',
+      'mob.running': 'Máy tính đang làm · bước 3/4', 'mob.s1': 'Đọc nhật ký của 3 xưởng', 'mob.s2': 'Tổng hợp sản lượng và tỷ lệ đạt theo xưởng', 'mob.s3': 'Tạo Tổng hợp sản lượng hôm nay.xlsx', 'mob.s4': 'Đánh dấu dây chuyền không đạt',
+      'mob.apt': 'Cần bạn xác nhận', 'mob.apd': 'Ghi đè D:\\报表\\今日产量汇总.xlsx', 'mob.allow': 'Cho phép', 'mob.deny': 'Từ chối', 'mob.input': 'Nói tiếp…',
+      'dl.phone': 'Còn có App Android: quét mã để tải',
+      'faq.q7': 'Cài và dùng App điện thoại thế nào?', 'faq.a7': 'Kết nối Wi-Fi công ty, quét mã QR ở mục "App điện thoại" trên trang này để tải và cài (hiện chỉ có bản Android). Mở App, trên máy tính của bạn vào "Cài đặt → Điện thoại" để hiện mã QR, dùng App quét là liên kết xong, không cần đăng nhập thêm.',
+      'faq.q8': 'Đang làm dở thì tắt máy, phải làm sao?', 'faq.a8': 'Mỗi bước đều được lưu ngay. Mở lại, vào "Trung tâm tác vụ → Chưa xong lần trước" nhấn "Làm tiếp"; nó kiểm tra đã làm đến đâu rồi tiếp tục, phần đã làm không phải làm lại.',
       'foot.tag': 'Trợ lý AI cho máy tính văn phòng nhà máy',
     },
     en: {
@@ -148,7 +182,7 @@
       'sec.c1t': 'Data stays in the factory', 'sec.c1p': 'The server and model gateway run on the company network; chats, files and memories live on company servers and employee PCs.',
       'sec.c2t': 'Workspace isolation', 'sec.c2p': 'By default it only reads and writes inside the folder you choose and asks before going further; network access follows an allowlist.',
       'sec.c3t': 'Dangerous commands blocked', 'sec.c3p': 'Formatting drives, mass deletion, registry edits and the like are stopped outright; important actions need your confirmation.',
-      'sec.c4t': 'Mistakes are reversible', 'sec.c4p': 'Files are backed up before edits and deletions go to the Recycle Bin, so everything can be restored.',
+      'sec.c4t': 'Mistakes are reversible', 'sec.c4p': 'Files are backed up before edits and deletions go to the Recycle Bin; every round of changes can be reviewed and reverted in one click.',
       'sec.c5t': 'Full audit trail', 'sec.c5p': 'Every command, file write and block is logged — visible to the employee and searchable by IT.',
       'sec.c6t': 'Centrally managed by IT', 'sec.c6p': 'Models, quotas, experts, skills and security policy in one admin console; new versions roll out automatically.',
       'dl.title': 'Start using FlyknitBuddy today', 'dl.sub': 'Install it and sign in with your company domain account — no server address to type.',
@@ -164,10 +198,44 @@
       'faq.q4': 'Can I install it without administrator rights?', 'faq.a4': 'Yes — download the portable version (.zip), unzip it and run FlyknitBuddy.exe. The installer (.exe) needs administrator rights and keeps itself up to date.',
       'faq.q5': 'Which languages does it support?', 'faq.a5': 'The interface is available in Chinese, Vietnamese and English, switchable in Settings. It answers in the language you ask in.',
       'faq.q6': 'Who do I contact for help?', 'faq.a6': 'Click "Feedback" in the app to send the problem and a screenshot to IT, or contact the IT department.',
+      'nav.new': 'What\u2019s new', 'nav.mobile': 'Phone app', 'hero.b4': 'Companion Android app',
+      'new.kicker': 'What\u2019s new', 'new.tag': 'New', 'new.title': 'Hand over big jobs with confidence — and see exactly what was done',
+      'new.sub': 'This release strengthens Agent mode: it can run hundreds of steps, you can chip in, pause or review changes while it works, and undo everything with one click.',
+      'new.c1t': 'Long tasks & Task center', 'new.c1p': 'Jobs with hundreds of steps keep going on their own; if the app closes or the PC restarts, click "Resume" to pick up where it stopped. See progress at a glance in the Task center.',
+      'new.c2t': 'Chip in any time', 'new.c2p': 'No need to wait: add a request and it picks it up right away — or interrupt, queue it, or pause.',
+      'new.c3t': 'See every change, undo in one click', 'new.c3p': 'Each round lists the files it changed, with Excel compared cell by cell; click a line to leave a note for the AI, or revert if you don\u2019t like it.',
+      'new.c4t': 'Quick side question', 'new.c4p': 'While a task runs, press <kbd>Ctrl</kbd>+<kbd>;</kbd> to ask something on the side without interrupting it.',
+      'new.c5t': 'AI browser', 'new.c5p': 'Opens internal sites like ERP and OA in a browser window you can see, looks up data and fills in forms; asks before submitting, and you type passwords yourself.',
+      'new.c6t': 'Web search & deep thinking', 'new.c6p': 'Turn on "Web" in Chat for up-to-date answers with sources; turn on "Deep thinking" for harder questions.',
+      'new.c7t': 'Terminal', 'new.c7p': 'Every command the AI runs and its output show up live on the right; when debugging, dev servers run in the background and you can stop them any time.',
+      'new.c8t': 'Suggested tasks', 'new.c8p': 'When it spots a problem outside the job, it doesn\u2019t widen the scope — it gives you a card to start a new task with one click.',
+      'long.kicker': 'Task center', 'long.title': 'Hand over a big job and let it run',
+      'long.sub': 'Sorting hundreds of files or batch-editing reports — turn on "Long task" and hand it over. Every step is saved as it goes; running, unfinished and recently finished tasks are all in the Task center.',
+      'long.t1': 'The plan on the right is ticked off step by step', 'long.t2': 'Pause, resume or stop — and follow progress on your phone', 'long.t3': 'After an unexpected shutdown, "Resume" continues from where it stopped', 'long.win': 'Task center',
+      'rev.kicker': 'Review changes', 'rev.title': 'You decide what it changed', 'rev.sub': 'Every file changed in a round is recorded. Text is compared line by line; Excel shows exactly which cells changed and what they were.',
+      'rev.t1': 'Click a line or a cell to leave a note, and the AI keeps working from it', 'rev.t2': 'Revert everything or just the files you pick — the reverted version is backed up too', 'rev.t3': 'Changes, Terminal and Plan tabs on the right keep the process transparent', 'rev.win': 'Files changed in this round',
+      'term.kicker': 'For technical staff', 'term.title': 'Debug programs and work web systems, too',
+      'term.sub': 'Commands the AI runs and their output appear live in the Terminal on the right; when debugging, the dev server runs in the background and it reads the logs and checks again after each fix. Internal web systems go to the AI browser.',
+      'term.t1': 'Background commands and the AI browser are switched on by IT, off by default', 'term.t2': 'Commands still follow the permission and blocking rules, and you can click Stop any time', 'term.win': 'Agent · Terminal',
+      'mob.kicker': 'Phone app', 'mob.title': 'Away from your desk, work still gets done',
+      'mob.sub': 'Install FlyknitBuddy on an Android phone (PDAs too) and scan the QR code on your PC to link them. From the workshop or a meeting room, have your office PC do the work.',
+      'mob.f1t': 'Run tasks on your PC', 'mob.f1p': 'Say it on your phone and your PC does it; progress is pushed to the phone live, and you\u2019re notified when it\u2019s done',
+      'mob.f2t': 'Approve on your phone', 'mob.f2p': 'Actions that need your OK arrive on the phone — allow or deny without walking back to your desk',
+      'mob.f3t': 'Chat, translate, search the web', 'mob.f3p': 'Ask quick questions, translate between Chinese, Vietnamese and English, look things up online, or ask about a photo',
+      'mob.f4t': 'Scan to link, no sign-in', 'mob.f4p': 'Your PC shows a QR code in Settings → Phone; scan it with the camera or a barcode scanner. Chinese, Vietnamese and English interface',
+      'mob.scan': 'Scan with your phone to download', 'mob.checking': 'Checking the latest version…', 'mob.apk': 'Download Android app (.apk)',
+      'mob.hint': 'Your phone must be on the company Wi-Fi; the first install asks you to allow "Install unknown apps".',
+      'mob.version': 'Version {v} · {size}', 'mob.closed': 'The phone app isn\u2019t available for download yet. Please contact the IT department.',
+      'mob.mode': 'Agent', 'mob.ask': 'Summarize today\u2019s output reports from the three workshops into a table and send it to me',
+      'mob.running': 'Running on your PC · step 3/4', 'mob.s1': 'Read the reports from 3 workshops', 'mob.s2': 'Total output and attainment by workshop', 'mob.s3': 'Create Today\u2019s output summary.xlsx', 'mob.s4': 'Flag lines below target',
+      'mob.apt': 'Needs your OK', 'mob.apd': 'Overwrite D:\\报表\\今日产量汇总.xlsx', 'mob.allow': 'Allow', 'mob.deny': 'Deny', 'mob.input': 'Keep talking…',
+      'dl.phone': 'There\u2019s also an Android app: scan to download',
+      'faq.q7': 'How do I install and use the phone app?', 'faq.a7': 'On the company Wi-Fi, scan the QR code in the "Phone app" section of this page to download and install it (Android only for now). Then on your PC open Settings → Phone to show a QR code and scan it with the app — no separate sign-in needed.',
+      'faq.q8': 'What if the PC shuts down halfway through a task?', 'faq.a8': 'Every step is saved as it goes. Reopen the app, go to Task center → Unfinished and click "Resume"; it checks how far it got and carries on without redoing finished steps.',
       'foot.tag': 'The AI assistant for factory office PCs',
     },
   }
-  DICT.zh = { 'dl.version': '最新版本 {v} · {size} · {date} 发布' }
+  DICT.zh = { 'dl.version': '最新版本 {v} · {size} · {date} 发布', 'mob.version': '版本 {v} · {size}', 'mob.closed': '手机 App 暂未开放下载，请联系 IT 信息科技部。' }
 
   var TYPING = {
     zh: ['把 D:\\日报 里 9 月的日报按车间汇总成一张 Excel 表', '把这份通知翻译成越南语，排版成可以打印的 Word', '每周五下午生成质检周报，保存到 D:\\报表', '给供应商写一封英文邮件，询问 10 月面料交期'],
@@ -217,6 +285,7 @@
     })
     document.querySelectorAll('.lang button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-lang') === lang) })
     renderRelease()
+    renderApp()
     restartTyping()
     storage('flyknit-landing-lang', lang)
   }
@@ -343,6 +412,43 @@
     .then(function (r) { return r.ok ? r.json() : { download_enabled: false } })
     .catch(function () { return { download_enabled: false } })
     .then(function (data) { release = data; renderRelease() })
+
+  // ---------- 手机 App：扫码下载 ----------
+  var appQr = document.getElementById('app-qr')
+  var appMeta = document.getElementById('app-meta')
+  var appLink = document.getElementById('app-link')
+  var app = null
+
+  function renderApp() {
+    if (app === null) return
+    var ok = app && app.available
+    appLink.hidden = !ok
+    appQr.classList.toggle('off', !ok)
+    appMeta.classList.toggle('closed', !ok)
+    appMeta.removeAttribute('data-i18n') // 不让切换语言时被换回「正在查询」
+    appMeta.textContent = ok ? t('mob.version').replace('{v}', app.version_name).replace('{size}', size(app.size)) : t('mob.closed')
+  }
+
+  fetch(API + '/api/v1/public/mobile-app', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : { available: false } })
+    .catch(function () { return { available: false } })
+    .then(function (data) {
+      app = data
+      if (app && app.available) {
+        // 二维码里是完整地址：手机连公司 Wi-Fi 扫码直接下载
+        var url = (API || window.location.origin) + app.download_path
+        appLink.href = url
+        if (typeof qrcode === 'function') {
+          try {
+            var qr = qrcode(0, 'M')
+            qr.addData(url)
+            qr.make()
+            appQr.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true })
+          } catch (e) { /* 地址太长之类：只留按钮 */ }
+        }
+      }
+      renderApp()
+    })
 
   document.getElementById('year').textContent = String(new Date().getFullYear())
 

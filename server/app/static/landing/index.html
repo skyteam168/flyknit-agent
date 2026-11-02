@@ -39,6 +39,14 @@
       <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></symbol>
       <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
       <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M11 18h2"/></symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+      <symbol id="i-diff" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></symbol>
+      <symbol id="i-ask" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+      <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></symbol>
+      <symbol id="i-browser" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20"/><path d="M6 6.5h.01"/><path d="M9 6.5h.01"/></symbol>
+      <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/><path d="M21 14v.01"/><path d="M17 21h4v-4"/></symbol>
       <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
     </defs>
   </svg>
@@ -51,6 +59,8 @@
       </a>
       <nav class="nav-links" aria-label="主导航">
         <a href="#features" data-i18n="nav.features">功能</a>
+        <a href="#new" data-i18n="nav.new">新功能</a>
+        <a href="#mobile" data-i18n="nav.mobile">手机 App</a>
         <a href="#scenes" data-i18n="nav.scenes">场景</a>
         <a href="#experts" data-i18n="nav.experts">专家</a>
         <a href="#security" data-i18n="nav.security">安全</a>
@@ -88,6 +98,7 @@
           <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="hero.b1">Windows 10 / 11</span></li>
           <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="hero.b2">公司内网部署</span></li>
           <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="hero.b3">域账号一键登录</span></li>
+          <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="hero.b4">配套安卓手机 App</span></li>
         </ul>
 
         <!-- 产品画面：真实界面截图 + 浮动的结果卡片 -->
@@ -143,6 +154,140 @@
           <article class="card reveal"><span class="c-ic pink"><svg class="ic"><use href="#i-puzzle" /></svg></span><h3 data-i18n="feat.c6t">技能与连接器</h3><p data-i18n="feat.c6p">公司技能库里的标准流程一键安装；连上 MES、ERP 等系统后，AI 能直接查数据、办业务。</p></article>
           <article class="card reveal"><span class="c-ic green"><svg class="ic"><use href="#i-clock" /></svg></span><h3 data-i18n="feat.c7t">定时任务</h3><p data-i18n="feat.c7p">每天早上汇总昨日产量、每周五出质检周报——设好时间，到点自动执行，完成后通知你。</p></article>
           <article class="card reveal"><span class="c-ic slate"><svg class="ic"><use href="#i-sparkles" /></svg></span><h3 data-i18n="feat.c8t">越用越懂你</h3><p data-i18n="feat.c8p">记住你的习惯和常用信息，同类任务做顺了会总结成技能，下次更快更准。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 最近更新 ============ -->
+    <section class="section alt" id="new">
+      <div class="wrap">
+        <div class="head reveal">
+          <p class="kicker" data-i18n="new.kicker">最近更新</p>
+          <h2 data-i18n="new.title">大任务放心交给它，做了什么一清二楚</h2>
+          <p data-i18n="new.sub">这一版重点加强了「办事」：能连续做几百步的大任务，做的过程中随时能插话、暂停、查看改动，做完一键还原。</p>
+        </div>
+        <div class="cards">
+          <article class="card reveal"><span class="c-ic indigo"><svg class="ic"><use href="#i-history" /></svg></span><span class="badge-new" data-i18n="new.tag">新</span><h3 data-i18n="new.c1t">长任务与任务中心</h3><p data-i18n="new.c1p">几百步的大任务自动接着做；程序关了、电脑重启了，回来点「接着做」从断点继续。任务中心一眼看到进度。</p></article>
+          <article class="card reveal"><span class="c-ic teal"><svg class="ic"><use href="#i-chat" /></svg></span><span class="badge-new" data-i18n="new.tag">新</span><h3 data-i18n="new.c2t">做事时随时插话</h3><p data-i18n="new.c2p">不用等它做完：补一句要求它马上接上，也可以打断、排队，或者先暂停一下。</p></article>
+          <article class="card reveal"><span class="c-ic amber"><svg class="ic"><use href="#i-diff" /></svg></span><span class="badge-new" data-i18n="new.tag">新</span><h3 data-i18n="new.c3t">改动一览、一键还原</h3><p data-i18n="new.c3p">每一轮改了哪些文件都列出来，Excel 精确到格子对比；点一行写意见让 AI 改，不满意一键还原。</p></article>
+          <article class="card reveal"><span class="c-ic violet"><svg class="ic"><use href="#i-ask" /></svg></span><span class="badge-new" data-i18n="new.tag">新</span><h3 data-i18n="new.c4t">顺便问一句</h3><p data-i18n="new.c4p">任务进行中按 <kbd>Ctrl</kbd>+<kbd>;</kbd> 在旁边问问题，不打断、不弄乱正在做的事。</p></article>
+          <article class="card reveal"><span class="c-ic blue"><svg class="ic"><use href="#i-browser" /></svg></span><span class="badge-new" data-i18n="new.tag">新</span><h3 data-i18n="new.c5t">AI 浏览器</h3><p data-i18n="new.c5p">在看得见的浏览器窗口里打开 ERP、OA 等内部网页，查数据、填表单；提交前先问你，密码由你自己输。</p></article>
+          <article class="card reveal"><span class="c-ic green"><svg class="ic"><use href="#i-globe" /></svg></span><span class="badge-new" data-i18n="new.tag">新</span><h3 data-i18n="new.c6t">联网搜索与深度思考</h3><p data-i18n="new.c6p">对话时打开「联网」查最新资料并列出来源；难一点的问题打开「深度思考」，想清楚再回答。</p></article>
+          <article class="card reveal"><span class="c-ic slate"><svg class="ic"><use href="#i-terminal" /></svg></span><span class="badge-new" data-i18n="new.tag">新</span><h3 data-i18n="new.c7t">终端</h3><p data-i18n="new.c7p">AI 执行的每条命令和输出实时显示在右侧；调试程序时开发服务器在后台运行，你随时能停。</p></article>
+          <article class="card reveal"><span class="c-ic pink"><svg class="ic"><use href="#i-bulb" /></svg></span><span class="badge-new" data-i18n="new.tag">新</span><h3 data-i18n="new.c8t">建议新任务</h3><p data-i18n="new.c8p">做事时发现了别的问题，不擅自扩大范围，而是给你一张卡片，点一下新开一个任务去处理。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section split">
+      <div class="wrap split-in">
+        <div class="split-text reveal">
+          <p class="kicker" data-i18n="long.kicker">任务中心</p>
+          <h2 data-i18n="long.title">交代一件大事，放着让它跑</h2>
+          <p data-i18n="long.sub">整理几百份文件、批量改报表这种活，打开「长任务」交给它。每一步都实时保存，正在进行、上次没做完、最近做完的任务都在任务中心。</p>
+          <ul class="ticks">
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="long.t1">右侧计划一步步打勾，做到哪一步一目了然</span></li>
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="long.t2">可以暂停、继续、停止；在手机上也能看进度</span></li>
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="long.t3">意外关机后，从断点「接着做」，做过的不用重来</span></li>
+          </ul>
+        </div>
+        <div class="split-media reveal">
+          <div class="window tilt">
+            <div class="window-bar"><i></i><i></i><i></i><span data-i18n="long.win">任务中心</span></div>
+            <img src="assets/img/tasks.webp" width="1600" height="1000" loading="lazy" alt="" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section split alt">
+      <div class="wrap split-in reverse">
+        <div class="split-text reveal">
+          <p class="kicker" data-i18n="rev.kicker">改动对比</p>
+          <h2 data-i18n="rev.title">它改了什么，你说了算</h2>
+          <p data-i18n="rev.sub">每一轮任务改动的文件都记下来。文本逐行对比，Excel 精确到改了哪个格子、原来是多少。</p>
+          <ul class="ticks">
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="rev.t1">点某一行、某个格子写修改意见，AI 按意见接着改</span></li>
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="rev.t2">全部还原或只还原勾选的文件，还原前的样子也有备份</span></li>
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="rev.t3">右侧「改动」「终端」「计划」标签，过程透明</span></li>
+          </ul>
+        </div>
+        <div class="split-media reveal">
+          <div class="window tilt-r">
+            <div class="window-bar"><i></i><i></i><i></i><span data-i18n="rev.win">这一轮改动的文件</span></div>
+            <img src="assets/img/review.webp" width="1600" height="1000" loading="lazy" alt="" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section split">
+      <div class="wrap split-in">
+        <div class="split-text reveal">
+          <p class="kicker" data-i18n="term.kicker">给技术同事</p>
+          <h2 data-i18n="term.title">调程序、查网页系统，也能交给它</h2>
+          <p data-i18n="term.sub">AI 执行的命令和输出实时显示在右侧「终端」里；调试时开发服务器在后台运行，它改完代码自己看日志、再验证。内部网页系统交给 AI 浏览器操作。</p>
+          <ul class="ticks">
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="term.t1">后台命令、AI 浏览器由 IT 在后台开启，默认关闭</span></li>
+            <li><svg class="ic sm"><use href="#i-check" /></svg><span data-i18n="term.t2">命令同样受权限和拦截规则约束，随时可以点「停止」</span></li>
+          </ul>
+        </div>
+        <div class="split-media reveal">
+          <div class="window tilt">
+            <div class="window-bar"><i></i><i></i><i></i><span data-i18n="term.win">办事 · 终端</span></div>
+            <img src="assets/img/terminal.webp" width="1600" height="1000" loading="lazy" alt="" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 手机 App ============ -->
+    <section class="section mobile" id="mobile">
+      <div class="wrap split-in">
+        <div class="split-text reveal">
+          <p class="kicker" data-i18n="mob.kicker">手机 App</p>
+          <h2 data-i18n="mob.title">人不在电脑前，事照样办</h2>
+          <p data-i18n="mob.sub">安卓手机（包括 PDA）装上 FlyknitBuddy，扫一下自己电脑上的二维码就绑定好。在车间、在会议室，用手机让办公室的电脑去办事。</p>
+          <ul class="mob-feats">
+            <li><span class="c-ic indigo"><svg class="ic"><use href="#i-wrench" /></svg></span><div><strong data-i18n="mob.f1t">遥控电脑办事</strong><span data-i18n="mob.f1p">手机上说一句，电脑去执行；做到哪一步实时推到手机，做完通知你</span></div></li>
+            <li><span class="c-ic amber"><svg class="ic"><use href="#i-shield" /></svg></span><div><strong data-i18n="mob.f2t">在手机上确认</strong><span data-i18n="mob.f2p">需要你点头的操作推到手机，允许或拒绝，不用跑回座位</span></div></li>
+            <li><span class="c-ic teal"><svg class="ic"><use href="#i-chat" /></svg></span><div><strong data-i18n="mob.f3t">对话、翻译、联网</strong><span data-i18n="mob.f3p">随手问问题、翻译中越英，可以联网查资料，拍照或选图片提问</span></div></li>
+            <li><span class="c-ic violet"><svg class="ic"><use href="#i-qr" /></svg></span><div><strong data-i18n="mob.f4t">扫码绑定，免登录</strong><span data-i18n="mob.f4p">电脑「设置 → 手机」显示二维码，摄像头或扫描枪扫一下就好；中文、越南语、英语界面</span></div></li>
+          </ul>
+          <div class="app-dl" id="app-dl">
+            <div class="qr" id="app-qr" aria-label="App 下载二维码"><svg class="ic"><use href="#i-qr" /></svg></div>
+            <div class="app-dl-text">
+              <strong data-i18n="mob.scan">用手机扫码下载</strong>
+              <span id="app-meta" data-i18n="mob.checking">正在查询最新版本…</span>
+              <a class="btn primary sm" id="app-link" href="#" hidden><svg class="ic sm"><use href="#i-download" /></svg><span data-i18n="mob.apk">下载安卓 App（.apk）</span></a>
+              <small data-i18n="mob.hint">手机要连公司 Wi-Fi；第一次安装需要允许「安装未知应用」。</small>
+            </div>
+          </div>
+        </div>
+        <div class="split-media reveal">
+          <div class="phone" aria-hidden="true">
+            <div class="phone-notch"></div>
+            <div class="phone-top"><img src="assets/logo.png" alt="" width="22" height="22" /><strong>FlyknitBuddy</strong><span class="ph-mode" data-i18n="mob.mode">办事</span></div>
+            <div class="phone-body">
+              <div class="ph-me" data-i18n="mob.ask">把今天三个车间的产量日报汇总成表，发我看看</div>
+              <div class="ph-card">
+                <div class="ph-card-h"><span class="ph-dot"></span><span data-i18n="mob.running">电脑上执行中 · 第 3/4 步</span></div>
+                <div class="ph-bar"><span></span></div>
+                <ol>
+                  <li class="done" data-i18n="mob.s1">读取 3 个车间的日报</li>
+                  <li class="done" data-i18n="mob.s2">按车间汇总产量和达成率</li>
+                  <li class="now" data-i18n="mob.s3">生成 今日产量汇总.xlsx</li>
+                  <li data-i18n="mob.s4">标出没达标的产线</li>
+                </ol>
+              </div>
+              <div class="ph-approve">
+                <strong data-i18n="mob.apt">需要你确认</strong>
+                <span data-i18n="mob.apd">覆盖 D:\报表\今日产量汇总.xlsx</span>
+                <div><button type="button" class="ok" data-i18n="mob.allow">允许</button><button type="button" data-i18n="mob.deny">拒绝</button></div>
+              </div>
+            </div>
+            <div class="phone-input"><span data-i18n="mob.input">接着说…</span><i></i></div>
+          </div>
         </div>
       </div>
     </section>
@@ -309,7 +454,7 @@
           <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-server" /></svg></span><h3 data-i18n="sec.c1t">数据不出厂</h3><p data-i18n="sec.c1p">服务端和模型网关部署在公司内网，对话、文件、记忆都在公司自己的服务器和员工电脑上。</p></article>
           <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-lock" /></svg></span><h3 data-i18n="sec.c2t">工作区隔离</h3><p data-i18n="sec.c2p">默认只能在你选的工作区里读写文件，越界访问先问你；网络访问走白名单。</p></article>
           <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-ban" /></svg></span><h3 data-i18n="sec.c3t">危险命令拦截</h3><p data-i18n="sec.c3p">格式化、批量删除、改注册表这类高危操作直接拦下，重要操作执行前请你确认。</p></article>
-          <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-trash" /></svg></span><h3 data-i18n="sec.c4t">改错了能找回</h3><p data-i18n="sec.c4p">修改文件前自动备份，删除的文件进回收站，随时还原。</p></article>
+          <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-trash" /></svg></span><h3 data-i18n="sec.c4t">改错了能找回</h3><p data-i18n="sec.c4p">修改文件前自动备份，删除的文件进回收站；每一轮改动都能对比、一键还原。</p></article>
           <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-list" /></svg></span><h3 data-i18n="sec.c5t">全程留痕</h3><p data-i18n="sec.c5p">每一次执行命令、写文件、被拦截都记入审计日志，员工自己能看，IT 后台能查。</p></article>
           <article class="card reveal"><span class="c-ic"><svg class="ic"><use href="#i-settings" /></svg></span><h3 data-i18n="sec.c6t">IT 统一管理</h3><p data-i18n="sec.c6p">模型、额度、专家、技能、安全策略在管理后台一处配置；新版本自动推送，无需逐台安装。</p></article>
         </div>
@@ -335,6 +480,7 @@
             <div><b>2</b><span data-i18n="dl.s2">用公司域账号一键登录</span></div>
             <div><b>3</b><span data-i18n="dl.s3">点开右下角的悬浮球，说出要做的事</span></div>
           </div>
+          <a class="dl-phone" href="#mobile"><svg class="ic sm"><use href="#i-phone" /></svg><span data-i18n="dl.phone">还有安卓手机 App：扫码下载</span><svg class="ic sm"><use href="#i-arrow" /></svg></a>
           <p class="dl-req" data-i18n="dl.req">系统要求：Windows 10 / 11（64 位）· 需要连接公司内网 · 安装程序需要管理员权限；没有权限时请用免安装版</p>
         </div>
       </div>
@@ -352,6 +498,8 @@
         <details class="reveal"><summary data-i18n="faq.q3">AI 会不会乱删我的文件？</summary><p data-i18n="faq.a3">默认只能在你选的工作区里操作；删除的文件进回收站，修改前自动备份；高危操作会被直接拦截，重要操作执行前会先问你。</p></details>
         <details class="reveal"><summary data-i18n="faq.q4">没有管理员权限能装吗？</summary><p data-i18n="faq.a4">可以下载免安装版（.zip），解压后双击 FlyknitBuddy.exe 即可。安装程序（.exe）需要管理员权限，安装后会自动更新。</p></details>
         <details class="reveal"><summary data-i18n="faq.q5">它支持哪些语言？</summary><p data-i18n="faq.a5">界面支持中文、越南语、英语，随时在设置里切换。对话时用哪种语言提问，它就用哪种语言回答。</p></details>
+        <details class="reveal"><summary data-i18n="faq.q7">手机 App 怎么装、怎么用？</summary><p data-i18n="faq.a7">手机连上公司 Wi-Fi，扫本页「手机 App」里的二维码下载安装（目前只有安卓版）。打开后在自己电脑上点「设置 → 手机」显示二维码，用 App 扫一下就绑定好，不用另外登录。</p></details>
+        <details class="reveal"><summary data-i18n="faq.q8">任务做到一半关机了怎么办？</summary><p data-i18n="faq.a8">每一步都实时保存。重新打开后在「任务中心 → 上次没做完」里点「接着做」，它会先核对做到哪了再继续，已经做过的不用重来。</p></details>
         <details class="reveal"><summary data-i18n="faq.q6">遇到问题找谁？</summary><p data-i18n="faq.a6">在程序里点「反馈」可以直接把问题和截图发给 IT；也可以联系 IT 信息科技部。</p></details>
       </div>
     </section>
@@ -366,6 +514,7 @@
       <nav class="f-links" aria-label="页脚导航">
         <a href="#features" data-i18n="nav.features">功能</a>
         <a href="#scenes" data-i18n="nav.scenes">场景</a>
+        <a href="#mobile" data-i18n="nav.mobile">手机 App</a>
         <a href="#security" data-i18n="nav.security">安全</a>
         <a href="#download" data-i18n="nav.download">下载</a>
         <a href="#faq" data-i18n="nav.faq">常见问题</a>
@@ -376,6 +525,7 @@
     </div>
   </footer>
 
+  <script src="assets/qrcode.js" defer></script>
   <script src="assets/landing.js" defer></script>
 </body>
 </html>
