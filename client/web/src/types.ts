@@ -945,6 +945,10 @@ export type HostEvent =
       type: 'chat.done'
       conversationId: string
       stopReason: string
+      /** 因预算停下时：true 是 token 到了上限，false 是连续没有进展 */
+      budgetByTokens?: boolean
+      budgetTokens?: number
+      budgetLimit?: number
       modelName?: string
       usage?: { promptTokens: number; completionTokens: number } | null
     }

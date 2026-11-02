@@ -200,6 +200,8 @@ public class SecuritySwitchTests
             SecuritySettings.BrowserTools,
             // AgentHost 读这一项决定这一轮有没有 shell_output / shell_stop 和提示词；RunShellTool 执行 background=true 前再看（见 TerminalTests）
             SecuritySettings.BackgroundCommands,
+            // AgentHost.RunTokenLimit 读这一项填 AgentOptions.MaxRunTokens（长任务 ×5）；撞到 token 上限时长任务自动接着做
+            SecuritySettings.RunTokenBudget,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

@@ -49,7 +49,7 @@ interface ConversationState {
   draft: { content: string; reasoning: string; sources?: import('./types').WebSource[] } | null
   tools: Record<string, ToolActivity>
   plan: PlanItem[]
-  notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'stuck' | 'budget' | 'failed'; text?: string } | null
+  notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'stuck' | 'budget' | 'budgetTokens' | 'failed'; text?: string; used?: number; limit?: number } | null
   /** 运行过程中的一次性提示（例如内容被审核拦截后省略重试） */
   notices: string[]
   /** 派给专家的子任务，按主助手那次 ask_expert 的 callId 记 */
@@ -1567,6 +1567,9 @@ function onHostEvent(e: HostEvent) {
       else if (e.stopReason === 'MaxSteps') s.notice = { kind: 'maxSteps' }
       else if (e.stopReason === 'TooManyFailures') s.notice = { kind: 'tooManyFailures' }
       else if (e.stopReason === 'Stuck') s.notice = { kind: 'stuck' }
+      else if (e.stopReason === 'Budget' && e.budgetByTokens)
+        // token 到了上限：说清用了多少、上限多少（单位万），而不是笼统的「用量太大」
+        s.notice = { kind: 'budgetTokens', used: Math.round((e.budgetTokens ?? 0) / 10_000), limit: Math.round((e.budgetLimit ?? 0) / 10_000) }
       else if (e.stopReason === 'Budget') s.notice = { kind: 'budget' }
       if (e.modelName && state.app) state.app.modelName = e.modelName
       finishRun(s, e.conversationId)

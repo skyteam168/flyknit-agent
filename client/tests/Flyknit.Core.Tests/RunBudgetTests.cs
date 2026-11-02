@@ -127,6 +127,9 @@ public class RunBudgetTests : IDisposable
         var guards = result.Trace!.Steps.Where(s => s.Kind == "guard").ToList();
         Assert.Contains(guards, s => s.Status == "warning");
         Assert.Contains(guards, s => s.Status == "stopped");
+        // 界面据此说「到了 token 上限」，长任务据此自动接着做
+        Assert.True(result.BudgetByTokens);
+        Assert.Equal(1000, result.BudgetLimit);
     }
 
     [Fact]
@@ -147,6 +150,8 @@ public class RunBudgetTests : IDisposable
         Assert.Equal(16, gateway.Requests.Count);
         Assert.Contains(result.NewMessages, m => m.Role == ChatRole.Tool && m.Content.Contains("已经连续 4 轮没有新的进展"));
         Assert.Equal(8, result.MaxNoProgressStreak);
+        // 是原地打转停的，不是 token 用完：长任务不会自动续跑
+        Assert.False(result.BudgetByTokens);
     }
 
     [Fact]

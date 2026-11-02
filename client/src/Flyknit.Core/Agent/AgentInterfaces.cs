@@ -192,6 +192,12 @@ public sealed class AgentRunResult
     /// <summary>计入预算的 token（含估算和派遣专家用掉的）。</summary>
     public long BudgetTokens { get; init; }
 
+    /// <summary>因预算停下时：是 token 用到上限（true），还是连续没有进展（false）。</summary>
+    public bool BudgetByTokens { get; init; }
+
+    /// <summary>这次运行的 token 上限（0 表示不限）。</summary>
+    public long BudgetLimit { get; init; }
+
     /// <summary>上游没报用量、按估算计的模型调用次数。</summary>
     public int EstimatedCalls { get; init; }
 }

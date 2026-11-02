@@ -520,7 +520,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
 
       <div v-if="s.notice" class="notice" :class="s.notice.kind">
         <OctagonAlert v-if="s.notice.kind === 'error'" :size="16" />
-        <span>{{ s.notice.kind === 'error' ? `${t('message.error')}: ${s.notice.text}` : t(`message.${s.notice.kind}`) }}</span>
+        <span>{{ s.notice.kind === 'error' ? `${t('message.error')}: ${s.notice.text}` : t(`message.${s.notice.kind}`, { used: s.notice.used ?? 0, limit: s.notice.limit ?? 0 }) }}</span>
       </div>
     </div>
     <!-- 往上翻看历史时：任务在跑显示三个点，鼠标放上去变成向下箭头；点一下回到底部 -->

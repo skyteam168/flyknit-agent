@@ -150,6 +150,13 @@ SETTINGS: tuple[Setting, ...] = (
              "开着时，开了长任务模式的对话步数上限放宽到 300 步，到上限会自动接着做（最多再续 5 次），每一轮仍受单次任务的 token 预算约束。",
     ),
     Setting(
+        key="run_token_budget", kind="int", default=200, locked=True,
+        title="单次任务 token 上限（万）", minimum=0, maximum=100000,
+        risk="一次办事任务（员工说一句话引起的一轮）最多用多少 token，输入 + 输出累计，单位万；用到 70% 提醒 AI 收尾，用完就停下总结、等员工说「继续」。"
+             "每调用一次模型都会把整段上下文算一遍，读大文件、几十步的任务很容易累计到几百万。开了「长任务模式」的对话按 5 倍算，到上限自动接着做。"
+             "填 0 表示不限（只受每日额度约束）。调大会让单个任务花得更多。",
+    ),
+    Setting(
         key="browser_tools", kind="bool", default=False, locked=True,
         title="浏览器操作（AI 浏览器）",
         risk="打开后，办事模式下 AI 能在一个看得见的浏览器窗口里打开网页、读内容、点击、填表（公司内部的网页系统最有用）。"

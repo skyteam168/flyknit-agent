@@ -583,6 +583,8 @@ public sealed class AgentLoop
             MaxNoProgressStreak = budget.MaxNoProgressStreak,
             GuardNudges = guardNudges,
             BudgetTokens = budget.Tokens,
+            BudgetByTokens = reason == AgentStopReason.Budget && budget.StoppedByTokens,
+            BudgetLimit = budget.MaxTokens,
             EstimatedCalls = budget.EstimatedCalls,
         };
 
