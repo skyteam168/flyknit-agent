@@ -23,6 +23,7 @@ from ..crypto import decrypt, encrypt, hash_token, new_token
 from ..db import get_session
 from ..deps import require_admin, require_owner
 from ..models import AdminUser, ClientRelease, EnrollmentTicket
+from ..services.mobile_hub import get_config as mobile_config
 from ..services import settings_store
 from . import releases
 
@@ -46,6 +47,16 @@ class LandingOut(BaseModel):
     ticket_id: int | None = None
     ticket_uses: int = 0
     version: str = ""
+
+
+class PublicMobileApp(BaseModel):
+    available: bool
+    version_name: str = ""
+    notes: str = ""
+    size: int = 0
+    published_at: str = ""
+    #: 相对服务器地址的 APK 下载路径（产品页拿它拼出二维码里的完整地址）
+    download_path: str = ""
 
 
 class PublicRelease(BaseModel):
@@ -213,3 +224,27 @@ async def public_download(
                 f.unlink(missing_ok=True)
     log.info("产品页下载 %s %s（%s）", latest.version, format, request.client.host if request.client else "-")
     return releases._package_response(cached, latest.version, format, delete_after=False)
+
+
+@router.get("/public/mobile-app", response_model=PublicMobileApp)
+async def public_mobile_app(session: AsyncSession = Depends(get_session)):
+    """产品页上的手机 App 下载（扫码）。产品页下载和手机端都打开、并且发布了 App 才给，否则只说「暂未开放」。
+
+    APK 本身不带任何凭证：装好以后还得在自己电脑上「设置 → 手机」扫码绑定才能用。
+    """
+    from . import mobile_releases  # 避免循环引用
+
+    conf = await settings_store.get_value(session, KEY, DEFAULT)
+    if not conf.get("enabled") or not (await mobile_config(session))["enabled"]:
+        return PublicMobileApp(available=False)
+    app = await mobile_releases.latest(session)
+    if app is None:
+        return PublicMobileApp(available=False)
+    return PublicMobileApp(
+        available=True,
+        version_name=app.version_name,
+        notes=app.notes,
+        size=app.size,
+        published_at=app.created_at.isoformat() if app.created_at else "",
+        download_path=mobile_releases.download_path(app),
+    )
