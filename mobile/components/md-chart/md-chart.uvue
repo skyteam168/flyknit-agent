@@ -69,14 +69,14 @@
 <script setup lang="uts">
 	import { computed } from 'vue'
 	import { CHART_COLORS, ChartSpec, chartMax, parseChart } from '../../common/chart.uts'
-	import { theme } from '../../common/theme.uts'
+	import { Palette, theme } from '../../common/theme.uts'
 	import { t } from '../../common/i18n.uts'
 
 	const props = defineProps({
 		code: { type: String, default: '' }
 	})
 
-	const c = computed(() => theme.c)
+	const c = computed<Palette>(() : Palette => theme.c)
 	const spec = computed(() : ChartSpec | null => parseChart(props.code))
 	const maxV = computed(() : number => {
 		const s = spec.value

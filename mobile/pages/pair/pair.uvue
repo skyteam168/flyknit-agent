@@ -67,7 +67,7 @@
 
 <script setup lang="uts">
 	import { computed, ref } from 'vue'
-	import { theme } from '../../common/theme.uts'
+	import { Palette, theme } from '../../common/theme.uts'
 	import { applyMe, state } from '../../common/store.uts'
 	import { normalizeServer, pair, parsePairPayload } from '../../common/api.uts'
 	import { connect } from '../../common/socket.uts'
@@ -75,7 +75,7 @@
 	import { refreshModels } from '../../common/prefs.uts'
 	import { i18n, t, tf } from '../../common/i18n.uts'
 
-	const c = computed(() => theme.c)
+	const c = computed<Palette>(() : Palette => theme.c)
 	const topInset = uni.getWindowInfo().statusBarHeight + 24
 	const scanned = ref('')
 	const manual = ref(false)

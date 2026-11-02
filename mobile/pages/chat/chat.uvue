@@ -284,7 +284,7 @@
 
 <script setup lang="uts">
 	import { computed, nextTick, ref, watch } from 'vue'
-	import { theme } from '../../common/theme.uts'
+	import { Palette, theme } from '../../common/theme.uts'
 	import { Approval, Conv, Msg, SearchSource, createConv, currentConv, newId, newMsg, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
 	import { request } from '../../common/api.uts'
 	import { answerApproval, connect, sendChat, stopChat } from '../../common/socket.uts'
@@ -311,7 +311,7 @@
 		{ id: 'km', label: 'ខ្មែរ' } as ModeItem
 	]
 
-	const c = computed(() => theme.c)
+	const c = computed<Palette>(() : Palette => theme.c)
 	const win = uni.getWindowInfo()
 	const statusBar = win.statusBarHeight
 	const bottomInset = win.safeAreaInsets.bottom

@@ -95,7 +95,7 @@
 	import { MdBlock, MdSpan, parseInline, parseMarkdown } from '../../common/markdown.uts'
 	import { HlTok, highlightLines, tokColor as hlColor } from '../../common/highlight.uts'
 	import { bodyFontPx, bodyLinePx, headingFontPx } from '../../common/prefs.uts'
-	import { theme } from '../../common/theme.uts'
+	import { Palette, theme } from '../../common/theme.uts'
 	import { t } from '../../common/i18n.uts'
 
 	const props = defineProps({
@@ -108,7 +108,7 @@
 		richReady: { type: Boolean, default: true }
 	})
 
-	const c = computed(() => theme.c)
+	const c = computed<Palette>(() : Palette => theme.c)
 	const richReady = computed(() : boolean => props.richReady)
 	const blocks = computed(() : Array<MdBlock> => {
 		const _ = props.contentRev

@@ -23,10 +23,10 @@
 
 <script setup lang="uts">
 	import { computed, getCurrentInstance, ref } from 'vue'
-	import { theme } from '../../common/theme.uts'
+	import { Palette, theme } from '../../common/theme.uts'
 	import { t } from '../../common/i18n.uts'
 
-	const c = computed(() => theme.c)
+	const c = computed<Palette>(() : Palette => theme.c)
 	const title = ref(t('chat.mdFlow'))
 	const code = ref('')
 	const lang = ref('mermaid')

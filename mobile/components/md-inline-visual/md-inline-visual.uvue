@@ -24,7 +24,7 @@
 
 <script setup lang="uts">
 	import { computed, getCurrentInstance, ref, watch } from 'vue'
-	import { theme } from '../../common/theme.uts'
+	import { Palette, theme } from '../../common/theme.uts'
 	import { t } from '../../common/i18n.uts'
 
 	const props = defineProps({
@@ -37,7 +37,7 @@
 		height: { type: Number, default: 280 }
 	})
 
-	const c = computed(() => theme.c)
+	const c = computed<Palette>(() : Palette => theme.c)
 	const instance = getCurrentInstance()
 	const failed = ref(false)
 	const tick = ref(0)
