@@ -54,6 +54,9 @@ public sealed class RunBudget
     /// <summary>为什么停（给收尾提醒和链路用）。</summary>
     public string StopNote { get; private set; } = "";
 
+    /// <summary>停下来是因为 token 用到了上限（不是连续没有进展）。长任务据此自动接着做、界面据此说明原因。</summary>
+    public bool StoppedByTokens { get; private set; }
+
     public void AddModelCall(TokenUsage? usage)
     {
         ModelCalls++;
@@ -139,6 +142,7 @@ public sealed class RunBudget
         if (MaxTokens > 0 && Tokens >= MaxTokens)
         {
             StopNote = $"这一轮已经用了 {Tokens:N0} tokens，到达单次任务的上限（{MaxTokens:N0}）";
+            StoppedByTokens = true;
             return BudgetVerdict.Stop;
         }
         if (NoProgressRounds >= NoProgressStopAt)

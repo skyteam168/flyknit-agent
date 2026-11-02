@@ -703,6 +703,30 @@ public class DelegationTests : IDisposable
     }
 
     [Fact]
+    public async Task ASwitchOffSeenBeforeTheNextToolCancelsEvenIfTheTimerIsLate()
+    {
+        // 定时检查迟迟没轮到（机器忙）：下一个工具动手前发现开关关了，也要把子任务记成取消，不能接着交卷成「完成」
+        var h = new Harness(new DelegationLimits { SwitchPoll = TimeSpan.FromMinutes(10) });
+        var first = new FakeTool("first", async (_, ct) =>
+        {
+            await Task.Delay(300, CancellationToken.None);
+            return ToolResult.Success("ok");
+        });
+        var second = new FakeTool("second", "不该执行");
+        h.Host.AllTools.Add(first).Add(second);
+        h.Gateway.Children(Call("first", new { }), Call("second", new { }), Call(SubmitResultTool.ToolName, Submit()));
+
+        var task = Dispatch(h, Ctx());
+        await Task.Delay(100);
+        h.Enabled = false;
+        await task;
+
+        Assert.Equal("cancelled", h.Only.Status);
+        Assert.Equal("disabled", h.Only.CancelReason);
+        Assert.Equal(0, second.Executed);
+    }
+
+    [Fact]
     public async Task ALateConfirmationAfterCancellationDoesNotRunTheTool()
     {
         var h = new Harness();

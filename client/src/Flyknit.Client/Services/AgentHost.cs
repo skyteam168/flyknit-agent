@@ -915,7 +915,7 @@ public sealed partial class AgentHost : IDisposable
                 });
             }
             Store.AddMessages(id, result.NewMessages);
-            QueueAutoContinue(conv, result.StopReason);
+            QueueAutoContinue(conv, result);
             if (answer is not null)
             {
                 try
@@ -944,6 +944,10 @@ public sealed partial class AgentHost : IDisposable
                 type = "chat.done",
                 conversationId = id,
                 stopReason = result.StopReason.ToString(),
+                // 因预算停下时说清楚是 token 到了上限，还是连续没有进展
+                budgetByTokens = result.BudgetByTokens,
+                budgetTokens = result.BudgetTokens,
+                budgetLimit = result.BudgetLimit,
                 modelName = result.ModelName,
                 usage = result.Usage is { } u ? new { promptTokens = u.PromptTokens, completionTokens = u.CompletionTokens } : null,
             });
@@ -1028,9 +1032,25 @@ public sealed partial class AgentHost : IDisposable
     private AgentOptions AgentOptionsFor(Conversation? conv = null) => new()
     {
         MaxSteps = LongModeOn(conv) ? Math.Max(_settings.ResolveAgentMaxSteps(), LongModeSteps) : _settings.ResolveAgentMaxSteps(),
+        MaxRunTokens = RunTokenLimit(LongModeOn(conv)),
         PlanGuidance = Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
         VerifyOutputs = Security.On(Flyknit.Core.Security.SecuritySettings.VerifyOutputs),
     };
+
+    /// <summary>
+    /// 单次任务的 token 上限：IT 在安全中心设（单位万 tokens，0 = 不限），没下发时按 200 万。
+    /// 每次调用模型都把整段上下文算一遍，大任务很快就累计到几百万，所以长任务模式按 5 倍算。
+    /// </summary>
+    private long RunTokenLimit(bool longMode)
+    {
+        var wan = Security.Number(Flyknit.Core.Security.SecuritySettings.RunTokenBudget, (int)(AgentOptions.DefaultMaxRunTokens / 10_000));
+        if (wan <= 0)
+        {
+            return 0;
+        }
+        var limit = wan * 10_000L;
+        return longMode ? limit * LongModeTokenFactor : limit;
+    }
 
     /// <summary>记一轮任务的效果（只有数字），记忆面板里的“任务效果”据此统计，用来对比规划提醒、产出检查开关前后。</summary>
     private void RecordRunStats(string conversationId, string messageId, AgentRunResult result)
@@ -1345,7 +1365,7 @@ public sealed partial class AgentHost : IDisposable
             AgentStopReason.MaxSteps => "超过最大步数仍未完成",
             AgentStopReason.TooManyFailures => "连续多次失败后停止",
             AgentStopReason.Stuck => "反复执行同一个操作没有进展，已停止",
-            AgentStopReason.Budget => "超出单次任务的预算（token 用量或连续无进展），已暂停",
+            AgentStopReason.Budget => "到了单次任务的 token 上限，或连续多轮没有进展，已暂停",
             _ => answer.Length > 0 ? answer : "执行失败",
         };
         return new InstructionOutcome(ok, answer, error, conversationId);

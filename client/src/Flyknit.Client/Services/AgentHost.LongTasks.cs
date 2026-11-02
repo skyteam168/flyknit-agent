@@ -20,6 +20,9 @@ public sealed partial class AgentHost
     /// <summary>长任务模式下，一轮走到步数上限后最多自动接着做几次（之后停下等员工）。</summary>
     public const int MaxAutoContinues = 5;
 
+    /// <summary>长任务模式下单次任务的 token 上限是普通任务的几倍。</summary>
+    public const int LongModeTokenFactor = 5;
+
     /// <summary>这一串任务已经自动续跑了几次。员工自己发话时清零。</summary>
     private readonly ConcurrentDictionary<string, int> _autoContinues = new();
 
@@ -70,9 +73,12 @@ public sealed partial class AgentHost
     /// 长任务模式：这一轮走到步数上限停下了，自动排一句「继续」，这一轮收尾后接着做（最多 <see cref="MaxAutoContinues"/> 次）。
     /// 被停止、出错、预算用完、原地打转都不续——那些要人来看。钉钉、手机发来的任务不续（结果要先回给对方）。
     /// </summary>
-    private void QueueAutoContinue(Conversation conv, AgentStopReason reason)
+    private void QueueAutoContinue(Conversation conv, AgentRunResult result)
     {
-        if (reason != AgentStopReason.MaxSteps || !LongModeOn(Store.Get(conv.Id)) || _remoteRuns.ContainsKey(conv.Id))
+        // 走到步数上限、或 token 用到上限：长任务模式自动接着做。连续没有进展停下的不续——再跑也是原地打转
+        var resumable = result.StopReason == AgentStopReason.MaxSteps
+            || (result.StopReason == AgentStopReason.Budget && result.BudgetByTokens);
+        if (!resumable || !LongModeOn(Store.Get(conv.Id)) || _remoteRuns.ContainsKey(conv.Id))
         {
             return;
         }
@@ -82,7 +88,7 @@ public sealed partial class AgentHost
             Log.Info($"对话 {conv.Id} 已自动续跑 {MaxAutoContinues} 次，停下等员工");
             return;
         }
-        Log.Info($"对话 {conv.Id} 长任务模式：走到步数上限，自动接着做（第 {n}/{MaxAutoContinues} 次）");
+        Log.Info($"对话 {conv.Id} 长任务模式：{(result.StopReason == AgentStopReason.MaxSteps ? "走到步数上限" : "token 用到上限")}，自动接着做（第 {n}/{MaxAutoContinues} 次）");
         Inbox.Add(conv.Id, $"继续（长任务模式自动接着做，第 {n}/{MaxAutoContinues} 次）。先对照计划看看已经完成了哪些、还差什么，再接着做。", RunInbox.Queue, front: true);
     }
 

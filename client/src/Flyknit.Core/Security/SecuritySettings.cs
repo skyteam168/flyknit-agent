@@ -78,6 +78,9 @@ public sealed class SecuritySettings
 
     /// <summary>后台命令（开发服务器、监听编译这类一直运行的程序）。默认关闭，IT 打开后 run_shell 才能 background=true。</summary>
     public const string BackgroundCommands = "background_commands";
+
+    /// <summary>单次任务 token 上限，单位万 tokens。0 表示不限；长任务模式按 5 倍算。</summary>
+    public const string RunTokenBudget = "run_token_budget";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字
