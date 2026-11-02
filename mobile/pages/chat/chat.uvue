@@ -447,9 +447,38 @@
 	const userName = computed(() : string => state.userName != '' ? state.userName : state.phoneName)
 	const computerOnline = computed(() : boolean => state.computerOnline)
 	const initial = computed(() : string => userName.value.length > 0 ? userName.value.substring(0, 1).toUpperCase() : 'F')
-	const approval = computed(() : Approval | null => state.approvals.length > 0 ? state.approvals[0] : null)
-	const approvalSummary = computed(() : string => approval.value?.summary ?? '')
-	const approvalDetail = computed(() : string => approval.value?.detail ?? '')
+	/**
+	 * 待确认的操作（弹窗）。蒸汽模式：watch approvalRev，每次取一份新对象放进 ref，
+	 * 不直接 computed 全局数组（原地改数组时常常不重算，弹窗出不来）
+	 */
+	const approval = ref<Approval | null>(null)
+	const approvalSummary = ref('')
+	const approvalDetail = ref('')
+	function syncApproval() {
+		const rev = state.approvalRev
+		const list = state.approvals
+		if (list.length == 0 || rev < 0) {
+			approval.value = null
+			approvalSummary.value = ''
+			approvalDetail.value = ''
+			return
+		}
+		const a = list[0]
+		approval.value = {
+			id: a.id,
+			task: a.task,
+			summary: a.summary,
+			detail: a.detail,
+			risk: a.risk,
+			expiresIn: a.expiresIn
+		} as Approval
+		approvalSummary.value = a.summary
+		approvalDetail.value = a.detail
+	}
+	watch(() : number => state.approvalRev, () => {
+		syncApproval()
+	})
+	syncApproval()
 	/** 正在生成的那条回答（显示「停止」）；同样订阅 msgRev，避免蒸汽模式漏刷新 */
 	const streaming = computed(() : Msg | null => {
 		const rev = state.msgRev
