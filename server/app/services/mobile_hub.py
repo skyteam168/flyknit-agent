@@ -431,6 +431,12 @@ class MobileHub:
             await self.send(mobile_id, {"type": "approval.closed", "approval": a.out()})
         return a
 
+    async def cancel(self, a: Approval) -> None:
+        """电脑上已经处理了：还没回答的收起来（cancelled），手机上的卡片跟着关掉。"""
+        if a.status == "pending":
+            self._close(a, "cancelled")
+            await self.send(a.mobile_id, {"type": "approval.closed", "approval": a.out()})
+
     async def wait_approval(self, a: Approval, timeout: float) -> str:
         if a.status == "pending":
             remaining = max(0.0, a.expires - time.monotonic())

@@ -1,7 +1,7 @@
 <script lang="uts">
 	import { loadAuth, loadConversations, state } from './common/store.uts'
 	import { applySystemTheme } from './common/theme.uts'
-	import { connect, disconnect } from './common/socket.uts'
+	import { connect, disconnect, syncApprovals } from './common/socket.uts'
 	import { loadPrefs, refreshModels } from './common/prefs.uts'
 
 	export default {
@@ -20,6 +20,8 @@
 			state.foreground = true
 			if (state.token != '') {
 				connect()
+				// 连接看着还在、其实已经断了时 connect 什么都不做：确认请求直接按接口补齐
+				void syncApprovals()
 			}
 		},
 		onHide() {

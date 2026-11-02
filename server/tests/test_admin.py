@@ -74,6 +74,17 @@ async def test_audit_roundtrip(client, device_headers):
     assert rows[0]["machine_name"] == "PC-001"
 
 
+async def test_audit_accepts_session_approvals_and_null_subtask(client, device_headers):
+    """员工端会传「本次对话都允许」（session），主助手自己的调用 subtask_id 是 null：都要收下，不能整批拒收。"""
+    r = await client.post("/api/v1/audit", headers=device_headers, json={"items": [
+        {"tool_name": "write_file", "arguments": "a.txt", "risk": "confirm", "decision": "session",
+         "status": "ok", "subtask_id": None, "actor": None},
+    ]})
+    assert r.status_code == 204, r.text
+    rows = (await client.get("/api/v1/admin/audit?decision=session", headers=ADMIN)).json()
+    assert [(x["decision"], x["subtask_id"], x["actor"]) for x in rows] == [("session", "", "")]
+
+
 async def test_nul_characters_are_dropped_before_saving(client, device_headers):
     """命令输出里偶尔带 \x00：PostgreSQL 的文本存不了，整批审计会写不进去。写库前去掉，两种库都一样。"""
     r = await client.post("/api/v1/audit", headers=device_headers, json={"items": [
