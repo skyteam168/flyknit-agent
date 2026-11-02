@@ -142,6 +142,14 @@ public sealed class AgentLoop
         """;
 
     /// <summary>有计划但卡住了（连续失败、原地打转）时的提醒。</summary>
+    /// <summary>有计划、做了好几步却一直没更新：提醒勾掉做完的步骤（员工靠右侧计划看进度）。</summary>
+    public static string PlanStaleText(int actions) => $"""
+
+
+        【系统提醒】自上次更新计划以来已经做了 {actions} 步操作，计划还停在原来的状态。
+        如果有步骤已经完成，用 update_plan 把它标成 completed、把下一步标成 in_progress，员工在界面上靠它看进度；如果确实还在同一步，忽略这条提醒继续。
+        """;
+
     public const string ReplanText = """
 
 
@@ -201,6 +209,8 @@ public sealed class AgentLoop
         var steps = 0;
         var toolCalls = 0;
         var actions = 0;               // 除了更新计划以外的操作次数
+        var actionsSincePlan = 0;      // 上次 update_plan 之后的操作次数
+        var staleNudged = false;       // 这段没更新计划的期间已经提醒过
         var planNudged = false;
         var replanNudged = false;
         var replanHintedThisStreak = false;
@@ -398,6 +408,12 @@ public sealed class AgentLoop
                     if (call.Name != UpdatePlanName)
                     {
                         actions++;
+                        actionsSincePlan++;
+                    }
+                    else if (ok)
+                    {
+                        actionsSincePlan = 0;
+                        staleNudged = false;
                     }
                     if (ToolMessageOf(call) is { } result)
                     {
@@ -485,6 +501,16 @@ public sealed class AgentLoop
                         // 做了几步还没有计划：多半是个多步任务，提醒一次先把剩下的步骤列出来
                         lastTool.Content += PlanNudgeText(actions);
                         planNudged = true;
+                    }
+                    else if (!staleNudged && TaskPlan.HasOpenSteps(ctx.Plan) && actionsSincePlan >= _options.PlanStaleAfter)
+                    {
+                        // 计划列了却一直不勾：界面上一直停在第一步，员工以为卡住了
+                        lastTool.Content += PlanStaleText(actionsSincePlan);
+                        staleNudged = true;
+                        if (failures == 0)
+                        {
+                            replanHintedThisStreak = false;
+                        }
                     }
                     else if (failures == 0)
                     {

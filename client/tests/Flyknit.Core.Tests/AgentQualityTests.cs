@@ -205,6 +205,49 @@ public class AgentQualityTests : IDisposable
     }
 
     [Fact]
+    public async Task APlanThatIsNeverTickedGetsOneReminderAfterSeveralSteps()
+    {
+        for (var i = 0; i < 8; i++)
+        {
+            Directory.CreateDirectory(PathOf($"s{i}"));
+        }
+        object Plan(string first) => new
+        {
+            steps = new[] { new { step = "看目录", status = first }, new { step = "汇总", status = "pending" } },
+        };
+        // 列了计划之后做了 7 步都没更新计划
+        Gateway Stale() => new((n, _) => n switch
+        {
+            1 => Tools(("update_plan", Plan("in_progress"))),
+            <= 8 => Tools(("list_dir", new { path = PathOf($"s{n - 2}") })),
+            _ => Answer("看完了"),
+        });
+
+        var (result, _) = await Run(Stale());
+
+        var tools = result.NewMessages.Where(m => m.Role == ChatRole.Tool).Select(m => m.Content).ToList();
+        Assert.Equal(8, tools.Count);
+        Assert.Equal(1, tools.Count(t => t.Contains("计划还停在原来的状态"))); // 只提醒一次
+        Assert.Contains("计划还停在原来的状态", tools[5]);                   // 计划之后第 5 步
+        Assert.Equal(AgentStopReason.Completed, result.StopReason);
+
+        // 一边做一边勾计划的不提醒
+        var ticking = new Gateway((n, _) => n switch
+        {
+            1 => Tools(("update_plan", Plan("in_progress"))),
+            5 => Tools(("update_plan", Plan("completed"))),
+            <= 8 => Tools(("list_dir", new { path = PathOf($"s{n % 8}") })),
+            _ => Answer("看完了"),
+        });
+        var (ok, _) = await Run(ticking);
+        Assert.DoesNotContain(ok.NewMessages, m => m.Content.Contains("计划还停在原来的状态"));
+
+        // 开关关掉不提醒
+        var (off, _) = await Run(Stale(), new AgentOptions { PlanGuidance = false });
+        Assert.DoesNotContain(off.NewMessages, m => m.Content.Contains("计划还停在原来的状态"));
+    }
+
+    [Fact]
     public async Task ANudgeToPlanComesOnceAfterAFewStepsAndNeverBlocks()
     {
         for (var i = 0; i < 5; i++)
