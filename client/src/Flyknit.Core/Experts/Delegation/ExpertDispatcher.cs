@@ -188,7 +188,8 @@ public sealed class ExpertDispatcher
         try
         {
             var setup = _host.Prepare(snapshot, brief, parent);
-            var guard = new ExpertRunGuard(state, snapshot, _enabled, d => _host.Approvals.IsAllowed(d.Rule));
+            var guard = new ExpertRunGuard(state, snapshot, _enabled, d => _host.Approvals.IsAllowed(d.Rule),
+                onDisabled: () => StopDisabled(state, cts));
             var tools = new ToolRegistry();
             foreach (var tool in setup.Tools.All.Where(guard.Allows))
             {
@@ -494,17 +495,26 @@ public sealed class ExpertDispatcher
     private IDisposable WatchSwitch(SubtaskState state, CancellationTokenSource cts) =>
         new Timer(_ =>
         {
-            if (!_enabled() && state.TryStop(SubtaskStatus.Cancelled, "disabled"))
+            if (!_enabled())
             {
-                try
-                {
-                    cts.Cancel();
-                }
-                catch (ObjectDisposedException)
-                {
-                }
+                StopDisabled(state, cts);
             }
         }, null, Limits.SwitchPoll, Limits.SwitchPoll);
+
+    /// <summary>开关被关掉：子任务记成「已取消（disabled）」并停下。定时检查和动手前的检查都走这里，谁先发现都一样。</summary>
+    private static void StopDisabled(SubtaskState state, CancellationTokenSource cts)
+    {
+        if (state.TryStop(SubtaskStatus.Cancelled, "disabled"))
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+    }
 
     private void Save(SubtaskRecord record)
     {

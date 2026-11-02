@@ -86,14 +86,18 @@ public sealed class ExpertRunGuard
 
     private readonly Func<bool> _enabled;
     private readonly Func<PolicyDecision, bool> _remembered;
+    private readonly Action? _onDisabled;
 
     /// <param name="remembered">员工设置过「总是允许」的操作（只读专家只有这种需要确认的操作能做）。</param>
-    public ExpertRunGuard(SubtaskState state, Expert expert, Func<bool> enabled, Func<PolicyDecision, bool>? remembered = null)
+    /// <param name="onDisabled">动手前发现开关已经关了：停掉这个子任务（不等定时检查，免得它接着交卷成「完成」）。</param>
+    public ExpertRunGuard(SubtaskState state, Expert expert, Func<bool> enabled, Func<PolicyDecision, bool>? remembered = null,
+        Action? onDisabled = null)
     {
         State = state;
         Expert = expert;
         _enabled = enabled;
         _remembered = remembered ?? (_ => false);
+        _onDisabled = onDisabled;
     }
 
     public SubtaskState State { get; }
@@ -125,6 +129,7 @@ public sealed class ExpertRunGuard
         }
         if (!_enabled())
         {
+            _onDisabled?.Invoke();
             return "管理员已关闭「派遣专家」，不能再执行操作";
         }
         return null;
