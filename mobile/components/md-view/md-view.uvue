@@ -116,31 +116,33 @@
 	const chartLoading = computed(() : string => t('chat.mdChartLoading'))
 	const visualHint = computed(() : string => t('chat.mdVisualHint'))
 	const blocks = computed(() : Array<MdBlock> => {
-		const _rev = props.contentRev
-		const _font = props.fontSize
-		const _ready = props.richReady
-		return parseMarkdown(props.content)
+		// 蒸汽模式：contentRev 必须进入真实运算，不能只赋值/死分支，否则依赖被 DCE
+		const rev = props.contentRev
+		const raw = props.content
+		// rev^rev===0，不改变正文，但保证 rev 参与运算
+		const pad = (rev ^ rev) == 0 ? '' : ' '
+		return parseMarkdown(raw + pad)
 	})
 	const bodySize = computed(() : string => {
-		const _dep = props.fontSize
-		return bodyFontPx().toString() + 'px'
+		const scale = props.fontSize.length >= 0 ? 1 : 0
+		return (bodyFontPx() * scale).toString() + 'px'
 	})
 	const bodyLine = computed(() : string => {
-		const _dep = props.fontSize
-		return bodyLinePx().toString() + 'px'
+		const scale = props.fontSize.length >= 0 ? 1 : 0
+		return (bodyLinePx() * scale).toString() + 'px'
 	})
 	const codeSize = computed(() : string => {
-		const _dep = props.fontSize
-		return Math.max(12, bodyFontPx() - 2).toString() + 'px'
+		const scale = props.fontSize.length >= 0 ? 1 : 0
+		return (Math.max(12, bodyFontPx() - 2) * scale).toString() + 'px'
 	})
 	const tableSize = computed(() : string => {
-		const _dep = props.fontSize
-		return Math.max(12, bodyFontPx() - 2).toString() + 'px'
+		const scale = props.fontSize.length >= 0 ? 1 : 0
+		return (Math.max(12, bodyFontPx() - 2) * scale).toString() + 'px'
 	})
 
 	function headingStyle(level : number) : UTSJSONObject {
-		const _dep = props.fontSize
-		const px = headingFontPx(level)
+		const scale = props.fontSize.length >= 0 ? 1 : 0
+		const px = headingFontPx(level) * scale
 		return {
 			color: theme.c.ink,
 			fontSize: px.toString() + 'px',

@@ -4,7 +4,12 @@
 	"description": "FlyknitBuddy 手机端：聊天、翻译，让自己电脑上的 FlyknitBuddy 办事",
 	"versionName": "0.1.0",
 	"versionCode": "100",
-	"uni-app-x": {},
+	"uni-app-x": {
+		"styleIsolationVersion": "2",
+		"vapor-default-script-lang": "uts",
+		"vapor": true,
+		"vapor-render-target": "bytecode"
+	},
 	"app": {
 		"distribute": {
 			"icons": {},
@@ -33,6 +38,7 @@
 	},
 	"app-android": {
 		"distribute": {
+			"package": "com.flyknitbuddy.app", // 👈 在这里手动添加这一行
 			"minSdkVersion": 21,
 			"targetSdkVersion": 33,
 			"abiFilters": [
@@ -53,16 +59,16 @@
 				"Camera": {}
 			},
 			"icons": {
-				"hdpi": "F:/flyknit/mobile/static/logo.png",
-				"xhdpi": "F:/flyknit/mobile/static/logo.png",
-				"xxhdpi": "F:/flyknit/mobile/static/logo.png",
-				"xxxhdpi": "F:/flyknit/mobile/static/logo.png"
+				"hdpi": "G:/gitee/flyknitbuddy/mobile/static/logo.png",
+				"xhdpi": "G:/gitee/flyknitbuddy/mobile/static/logo.png",
+				"xxhdpi": "G:/gitee/flyknitbuddy/mobile/static/logo.png",
+				"xxxhdpi": "G:/gitee/flyknitbuddy/mobile/static/logo.png"
 			},
 			"splashScreens": {
 				"default": {
-					"xhdpi": "E:/softdownload/20260729/ScreenShot_2026-11-01_213406_889.png",
-					"xxhdpi": "E:/softdownload/20260729/ScreenShot_2026-11-01_213423_337.png",
-					"xxxhdpi": "E:/softdownload/20260729/ScreenShot_2026-11-01_213440_468.png"
+					"xhdpi": "G:/gitee/flyknitbuddy/mobile/static/images/start/720.png",
+					"xxhdpi": "G:/gitee/flyknitbuddy/mobile/static/images/start/1080.png",
+					"xxxhdpi": "G:/gitee/flyknitbuddy/mobile/static/images/start/2160.png"
 				}
 			}
 		}
@@ -80,6 +86,11 @@
 				"NSCameraUsageDescription": "用于扫描电脑端绑定二维码",
 				"NSPhotoLibraryUsageDescription": "用于发送图片给助手"
 			}
+		}
+	},
+	"web": {
+		"router": {
+			"mode": ""
 		}
 	}
 }

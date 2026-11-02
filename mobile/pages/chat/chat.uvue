@@ -15,7 +15,7 @@
 					<text class="group-label" :style="{ color: c.inkFaint }">{{ g.label }}</text>
 					<view v-for="cv in g.items" :key="cv.id" class="conv" :style="cv.id == currentId ? { backgroundColor: c.chip } : {}" @click="openConv(cv.id)" @longpress="convMenu(cv.id)">
 						<text class="conv-mode" :style="{ color: c.indigo, backgroundColor: c.indigoWash }">{{ modeShort(cv.mode) }}</text>
-						<text class="conv-title" :style="{ color: c.ink }" :lines="1">{{ convTitle(cv) }}</text>
+						<text class="conv-title" :style="{ color: c.ink }">{{ convTitle(cv) }}</text>
 					</view>
 				</view>
 				<text v-if="conversations.length == 0" class="conv-empty" :style="{ color: c.inkFaint }">{{ t('chat.emptyConvs') }}</text>
@@ -25,8 +25,8 @@
 					<text class="me-initial">{{ initial }}</text>
 				</view>
 				<view class="me-text">
-					<text class="me-name" :style="{ color: c.ink }" :lines="1">{{ userName }}</text>
-					<text class="me-pc" :style="{ color: c.inkFaint }" :lines="1">{{ machineName }} · {{ computerOnline ? t('chat.pcOnline') : t('chat.pcOffline') }}</text>
+					<text class="me-name" :style="{ color: c.ink }">{{ userName }}</text>
+					<text class="me-pc" :style="{ color: c.inkFaint }">{{ machineName }} · {{ computerOnline ? t('chat.pcOnline') : t('chat.pcOffline') }}</text>
 				</view>
 				<text class="me-gear" :style="{ color: c.inkSoft }">{{ t('chat.settings') }}</text>
 			</view>
@@ -36,21 +36,22 @@
 		<view class="main" :style="{ backgroundColor: c.loom, paddingTop: px(statusBar), transform: 'translateX(' + px(openX) + ')', transitionDuration: dragging ? '0ms' : '220ms' }">
 			<view class="topbar">
 				<view class="top-row">
-					<view class="icon-btn" @click="openDrawer">
+					<!-- touchend 不要加 .stop，否则 H5 合成 click 会被掐掉 -->
+					<view class="icon-btn" @touchstart.stop="onMenuTouchStart" @touchend="onMenuTouchEnd" @click.stop="onMenuClick">
 						<fk-icon name="menu" :color="c.ink" :size="22"></fk-icon>
 					</view>
-					<text class="top-name" :style="{ color: c.ink }" :lines="1" @click="openDrawer">{{ topTitle }}</text>
-					<view class="icon-btn" @click="newChat">
+					<text class="top-name" :style="{ color: c.ink }" :max-lines="1" @touchstart.stop="onMenuTouchStart" @touchend="onMenuTouchEnd" @click.stop="onMenuClick">{{ topTitle }}</text>
+					<view class="icon-btn" @touchstart.stop="onTopActionTouchStart" @click.stop="newChat">
 						<fk-icon name="shuyucaiji" :color="c.ink" :size="22"></fk-icon>
 					</view>
 				</view>
-				<view class="top-status" @click="openDrawer">
+				<view class="top-status" @touchstart.stop="onMenuTouchStart" @touchend="onMenuTouchEnd" @click.stop="onMenuClick">
 					<view class="dot" :style="{ backgroundColor: statusColor }"></view>
-					<text class="top-sub" :style="{ color: c.inkFaint }" :lines="1">{{ statusText }}</text>
+					<text class="top-sub" :style="{ color: c.inkFaint }" :max-lines="1">{{ statusText }}</text>
 				</view>
 			</view>
 
-			<!-- 模式：和电脑端一样，对话 / 翻译 / 办事 -->
+			<!-- 模式切换：有消息后隐藏但不销毁，避免蒸汽模式首条发送时拆掉顶栏结构导致列表卡死 -->
 			<view v-if="canSwitchMode" class="seg" :style="{ backgroundColor: c.chip }">
 				<view v-for="m in MODES" :key="m.id" class="seg-item" :style="m.id == mode ? { backgroundColor: c.cloth } : {}" @click="setMode(m.id)">
 					<text class="seg-text" :style="{ color: m.id == mode ? c.ink : c.inkSoft, fontWeight: m.id == mode ? 'bold' : 'normal' }">{{ m.label }}</text>
@@ -66,7 +67,7 @@
 			</scroll-view>
 
 			<scroll-view ref="listRef" direction="vertical" class="list" :show-scrollbar="false">
-				<!-- 空状态 -->
+				<!-- 空状态：与消息列表互斥，避免蒸汽模式同屏两套结构抢更新 -->
 				<view v-if="messages.length == 0" class="empty">
 					<image class="empty-logo" src="/static/logo.png" mode="aspectFit"></image>
 					<text class="empty-title" :style="{ color: c.ink }">{{ greeting }}</text>
@@ -76,7 +77,13 @@
 					</view>
 				</view>
 
-				<view v-for="m in messages" :key="m.id" class="msg">
+				<!--
+					蒸汽模式：key 不能只用 m.id。
+					流式时原地改 content/status，若 key 不变，项内 v-if（正在回答 → md-view）不会重算，
+					表现为空会话首次发送一直停在「正在回答」，切会话才出现正文。
+				-->
+				<view v-else :key="'thread-' + listMountKey">
+				<view v-for="m in messages" :key="msgRowKey(m)" class="msg">
 					<!-- 员工 -->
 					<view v-if="m.role == 'user'" class="row-user">
 						<text v-if="m.tag != null && m.tag != ''" class="user-tag" :style="{ color: c.indigo }">{{ m.tag }}</text>
@@ -108,7 +115,7 @@
 						</view>
 						<view v-for="(st, sti) in visibleSteps(m)" :key="sti" class="step">
 							<view class="step-dot" :style="{ backgroundColor: c.lineStrong }"></view>
-							<text class="step-text" :style="{ color: c.inkSoft }" :lines="2">{{ st }}</text>
+							<text class="step-text" :style="{ color: c.inkSoft }">{{ st }}</text>
 						</view>
 						<text v-if="m.taskStatus == 'pending' || m.taskStatus == 'running'" class="task-wait" :style="{ color: c.inkFaint }">{{ m.taskStatus == 'pending' ? waitingText : t('chat.taskRunning') }}</text>
 						<view v-if="m.taskStatus == 'succeeded' && m.content != ''" class="task-answer" :style="{ borderTopColor: c.line }">
@@ -144,8 +151,8 @@
 								<view v-for="(s, si) in m.sources" :key="si" class="source" :style="{ backgroundColor: c.cloth, borderColor: c.line }" @click="openSource(s.url)">
 									<image class="source-fav" :src="faviconUrl(s.url)" mode="aspectFill"></image>
 									<view class="source-body">
-										<text class="source-title" :style="{ color: c.ink }" :lines="1">{{ s.title }}</text>
-										<text class="source-host" :style="{ color: c.inkFaint }" :lines="1">{{ sourceHost(s.url) }}</text>
+										<text class="source-title" :style="{ color: c.ink }">{{ s.title }}</text>
+										<text class="source-host" :style="{ color: c.inkFaint }">{{ sourceHost(s.url) }}</text>
 									</view>
 								</view>
 							</view>
@@ -182,15 +189,16 @@
 						</view>
 					</view>
 				</view>
+				</view>
 				<view class="list-end"></view>
 			</scroll-view>
 
 			<!-- 输入框 -->
-			<view class="composer" :style="{ paddingBottom: px(bottomInset + 8) }">
+			<view class="composer" :style="{ paddingBottom: composerPadBottom }">
 				<!-- 回答还没完又发的话：排着，回答完按顺序发；发出去之前能撤回、拿回输入框改 -->
 				<view v-for="q in queuedHere" :key="q.id" class="queued" :style="{ backgroundColor: c.sunk, borderColor: c.lineStrong }">
 					<text class="queued-tag" :style="{ color: c.inkSoft }">{{ t('chat.queue') }}</text>
-					<text class="queued-text" :style="{ color: c.ink }" :lines="1">{{ q.text }}</text>
+					<text class="queued-text" :style="{ color: c.ink }">{{ q.text }}</text>
 					<text class="queued-btn" :style="{ color: c.indigo }" @click="editQueued(q.id)">{{ t('chat.edit') }}</text>
 					<text class="queued-btn" :style="{ color: c.inkFaint }" @click="dropQueued(q.id)">{{ t('chat.withdraw') }}</text>
 				</view>
@@ -204,7 +212,7 @@
 				<!-- 模型单独一行，不挤占上传/语音 -->
 				<view class="model-row" @click="pickModel">
 					<text class="model-label" :style="{ color: c.inkFaint }">{{ t('chat.model') }}</text>
-					<text class="model-name" :style="{ color: c.inkSoft }" :lines="1">{{ modelChip }}</text>
+					<text class="model-name" :style="{ color: c.inkSoft }">{{ modelChip }}</text>
 					<fk-icon class="model-chev" :name="modelPickerOpen ? 'icchevronless' : 'icchevronmore'" :color="c.inkFaint" :size="12"></fk-icon>
 				</view>
 				<view class="box" :style="{ backgroundColor: c.cloth, borderColor: c.lineStrong }">
@@ -215,10 +223,12 @@
 						:placeholder="placeholder"
 						:placeholder-style="'color:' + c.inkFaint"
 						:auto-height="true"
+						:adjust-position="false"
 						maxlength="4000"
 						confirm-type="send"
 						@input="onDraft"
 						@confirm="send"
+						@keyboardheightchange="onKeyboardHeight"
 					/>
 					<view class="box-tools">
 						<view class="tool-row chips">
@@ -285,7 +295,7 @@
 <script setup lang="uts">
 	import { computed, nextTick, ref, watch } from 'vue'
 	import { Palette, syncStatusBar, theme } from '../../common/theme.uts'
-	import { Approval, Conv, Msg, SearchSource, createConv, currentConv, newId, newMsg, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
+	import { Approval, Conv, Msg, SearchSource, createConv, currentConv, newId, newMsg, notifyMessages, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
 	import { request } from '../../common/api.uts'
 	import { answerApproval, connect, sendChat, stopChat } from '../../common/socket.uts'
 	import { ModelInfo, bodyFontPx, bodyLinePx, modelLabel, prefs, refreshModels, setDeepThinking, setModelId, setWebSearch } from '../../common/prefs.uts'
@@ -325,6 +335,12 @@
 	const statusBar = win.statusBarHeight
 	const bottomInset = win.safeAreaInsets.bottom
 	const drawerWidth = Math.min(win.windowWidth * 0.82, 320)
+	/** App 键盘高度：配合 adjust-position=false，只垫输入区、不整页上推 */
+	const keyboardHeight = ref(0)
+	const composerPadBottom = computed(() : string => {
+		const base = keyboardHeight.value > 0 ? keyboardHeight.value : bottomInset
+		return (base + 8).toString() + 'px'
+	})
 
 	function px(n : number) : string {
 		return n.toString() + 'px'
@@ -362,15 +378,71 @@
 		const i = state.conversations.findIndex((x : Conv) : boolean => x.id == id)
 		return i >= 0 ? state.conversations[i] : null
 	})
-	/** 依赖 msgRev：流式原地改 content/status 时，必须换一份数组引用，列表才会重绘 */
-	const messages = computed(() : Array<Msg> => {
-		const _rev = state.msgRev
-		const cv = conv.value
-		if (cv == null) {
-			return [] as Array<Msg>
+	/**
+	 * 蒸汽模式消息列表：
+	 * 1) watch 订阅 msgRev（流式原地改字段）
+	 * 2) 每次 sync 浅拷贝 Msg，换对象引用，才能驱动项内绑定
+	 * 3) 空会话→首条时 bump listMountKey，强制重建列表树
+	 * @see https://doc.dcloud.net.cn/uni-app-x/app-vapor.html
+	 */
+	const messages = ref<Array<Msg>>([] as Array<Msg>)
+	const listMountKey = ref(0)
+
+	function cloneMsgForView(m : Msg) : Msg {
+		const imgs = m.images
+		const srcs = m.sources
+		return {
+			id: m.id,
+			role: m.role,
+			content: m.content,
+			status: m.status,
+			taskId: m.taskId,
+			taskStatus: m.taskStatus,
+			steps: m.steps.slice(),
+			createdAt: m.createdAt,
+			tag: m.tag,
+			images: imgs != null ? imgs.slice() : imgs,
+			reasoning: m.reasoning,
+			reasoningMs: m.reasoningMs,
+			feedback: m.feedback,
+			searching: m.searching,
+			sources: srcs != null ? srcs.slice() : srcs
+		} as Msg
+	}
+
+	/** 行 key：内容从空→有、或 status 变化时换 key，逼蒸汽模式重算「正在回答 / md-view」分支 */
+	function msgRowKey(m : Msg) : string {
+		const hasBody = m.content.length > 0 ? '1' : '0'
+		const searching = m.searching == true ? '1' : '0'
+		const reason = (m.reasoning ?? '').length > 0 ? '1' : '0'
+		return m.id + ':' + m.status + ':' + hasBody + ':' + searching + ':' + reason + ':' + m.taskStatus
+	}
+
+	function syncMessages() {
+		const rev = state.msgRev
+		const id = state.currentId
+		const i = state.conversations.findIndex((x : Conv) : boolean => x.id == id)
+		const prevLen = messages.value.length
+		if (i < 0) {
+			messages.value = [] as Array<Msg>
+			return
 		}
-		return cv.messages.slice()
+		const src = state.conversations[i].messages
+		const out = [] as Array<Msg>
+		const n = src.length + (rev ^ rev)
+		for (let k = 0; k < n && k < src.length; k++) {
+			out.push(cloneMsgForView(src[k]))
+		}
+		if (prevLen == 0 && out.length > 0) {
+			listMountKey.value = listMountKey.value + 1
+		}
+		messages.value = out
+	}
+
+	watch(() : string => state.currentId + ':' + state.msgRev.toString(), () => {
+		syncMessages()
 	})
+	syncMessages()
 	const machineName = computed(() : string => state.machineName)
 	const userName = computed(() : string => state.userName != '' ? state.userName : state.phoneName)
 	const computerOnline = computed(() : boolean => state.computerOnline)
@@ -378,12 +450,14 @@
 	const approval = computed(() : Approval | null => state.approvals.length > 0 ? state.approvals[0] : null)
 	const approvalSummary = computed(() : string => approval.value?.summary ?? '')
 	const approvalDetail = computed(() : string => approval.value?.detail ?? '')
-	/** 正在生成的那条回答（显示「停止」） */
+	/** 正在生成的那条回答（显示「停止」）；同样订阅 msgRev，避免蒸汽模式漏刷新 */
 	const streaming = computed(() : Msg | null => {
+		const rev = state.msgRev
 		const list = messages.value
+		const mark = rev ^ rev
 		for (let i = list.length - 1; i >= 0; i--) {
 			const m = list[i]
-			if (m.role == 'assistant' && m.taskId == 0 && (m.status == 'thinking' || m.status == 'streaming')) {
+			if (m.role == 'assistant' && m.taskId == 0 && (m.status == 'thinking' || m.status == 'streaming') && mark == 0) {
 				return m
 			}
 		}
@@ -476,6 +550,14 @@
 				el.scrollTop = el.scrollHeight
 			}
 		})
+	}
+
+	function onKeyboardHeight(e : UniInputKeyboardHeightChangeEvent) {
+		const h = e.detail.height
+		keyboardHeight.value = h > 0 ? h : 0
+		if (h > 0) {
+			scrollToEnd()
+		}
 	}
 
 	// 切到某个已有对话时，模式和语言跟着它走
@@ -616,6 +698,7 @@
 		const answer = newMsg('assistant', '', 'task')
 		answer.taskStatus = 'sending'
 		cv.messages.push(answer)
+		notifyMessages(true)
 		const live = cv.messages[cv.messages.length - 1]
 		const res = await request('POST', '/api/v1/mobile/tasks', { text: text, new_conversation: !cv.agentStarted } as UTSJSONObject)
 		if (!res.ok || res.data == null) {
@@ -657,6 +740,7 @@
 		}
 		theConv.messages.push(user)
 		touch(theConv)
+		notifyMessages(true)
 
 		if (theConv.mode == 'agent') {
 			await submitTask(theConv, text)
@@ -665,6 +749,7 @@
 		const waitStatus = prefs.deepThinking && theConv.mode != 'translate' ? 'thinking' : 'streaming'
 		const answer = newMsg('assistant', '', waitStatus)
 		theConv.messages.push(answer)
+		notifyMessages(true)
 		// 拿数组里的那份（响应式），流式输出写进它界面才会跟着变
 		const live = theConv.messages[theConv.messages.length - 1]
 		if (!sendChat(theConv, live, urls)) {
@@ -686,6 +771,7 @@
 		user.tag = tag
 		cv.messages.push(user)
 		touch(cv)
+		notifyMessages(true)
 		const res = await request('POST', '/api/v1/mobile/tasks/' + task.taskId.toString() + '/input', { text: text, mode: how } as UTSJSONObject)
 		if (!res.ok || res.data == null) {
 			const err = newMsg('assistant', tf('chat.notToPc', res.error), 'error')
@@ -1010,6 +1096,7 @@
 		const waitStatus = prefs.deepThinking && cv.mode != 'translate' ? 'thinking' : 'streaming'
 		const answer = newMsg('assistant', '', waitStatus)
 		cv.messages.push(answer)
+		notifyMessages(true)
 		const live = cv.messages[cv.messages.length - 1]
 		if (!sendChat(cv, live)) {
 			live.status = 'error'
@@ -1160,6 +1247,7 @@
 	function openDrawer() {
 		uni.hideKeyboard()
 		dragging.value = false
+		gesture = 'none'
 		const wasClosed = openX.value < drawerWidth
 		openX.value = drawerWidth
 		if (wasClosed) {
@@ -1171,6 +1259,39 @@
 		dragging.value = false
 		openX.value = 0
 		didHaptic = false
+		gesture = 'none'
+	}
+
+	/** 顶栏普通按钮：只拦住冒泡，仍走 click */
+	function onTopActionTouchStart(_ev : UniTouchEvent) {
+		gesture = 'none'
+		dragging.value = false
+	}
+
+	/** 菜单/标题：App 常吞 click→touchend 打开；H5 鼠标无 touch→click 打开 */
+	let menuDownAt = 0
+	let menuOpenedAt = 0
+
+	function onMenuTouchStart(_ev : UniTouchEvent) {
+		gesture = 'none'
+		dragging.value = false
+		menuDownAt = Date.now()
+	}
+
+	function onMenuTouchEnd(_ev : UniTouchEvent) {
+		if (Date.now() - menuDownAt >= 450) {
+			return
+		}
+		menuOpenedAt = Date.now()
+		openDrawer()
+	}
+
+	function onMenuClick() {
+		// 触屏上 touchend 刚打开过则跳过合成 click；桌面 H5 只有 click，会走到这里
+		if (menuOpenedAt > 0 && Date.now() - menuOpenedAt < 400) {
+			return
+		}
+		openDrawer()
 	}
 
 	function newChat() {
@@ -1199,7 +1320,9 @@
 		didHaptic = false
 		const open = openX.value > 0
 		// 关着时从左边缘右滑打开；开着时在主界面上左滑关闭
-		gesture = (open || startX < 48) ? 'maybe' : 'none'
+		// 顶栏高度内不启左缘手势，避免和菜单按钮抢触摸（App）
+		const belowTopBar = startY > (statusBar + 56)
+		gesture = (open || (startX < 48 && belowTopBar)) ? 'maybe' : 'none'
 	}
 
 	function onTouchMove(e : UniTouchEvent) {
@@ -1277,6 +1400,8 @@
 	}
 	.main {
 		flex: 1;
+		flex-direction: column;
+		overflow: hidden;
 		position: relative;
 		z-index: 2;
 		transition-property: transform;
@@ -1327,7 +1452,6 @@
 		padding: 0 6px;
 		font-size: 16px;
 		font-weight: bold;
-		lines: 1;
 		text-align: center;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -1354,7 +1478,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		lines: 1;
 		font-size: 11px;
 	}
 	.seg {
@@ -1399,6 +1522,7 @@
 	}
 	.list {
 		flex: 1;
+		min-height: 0;
 		padding: 0 16px;
 	}
 	.list-end {
@@ -1527,10 +1651,16 @@
 		flex-direction: column;
 	}
 	.source-title {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: 13px;
 		line-height: 19px;
 	}
 	.source-host {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: 11px;
 		margin-top: 2px;
 	}
@@ -1635,6 +1765,9 @@
 		margin-right: 8px;
 	}
 	.step-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		flex: 1;
 		font-size: 13px;
 		line-height: 20px;
@@ -1651,6 +1784,7 @@
 		border-top-style: solid;
 	}
 	.composer {
+		flex-shrink: 0;
 		padding: 6px 12px 0 12px;
 	}
 	.attach-row {
@@ -1689,6 +1823,9 @@
 		margin-right: 6px;
 	}
 	.model-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		flex: 1;
 		font-size: 13px;
 	}
@@ -1763,6 +1900,9 @@
 		margin-right: 8px;
 	}
 	.queued-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		flex: 1;
 		font-size: 14px;
 	}
@@ -1867,6 +2007,9 @@
 		margin-right: 10px;
 	}
 	.conv-title {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		flex: 1;
 		font-size: 14px;
 	}
@@ -1898,10 +2041,16 @@
 		flex: 1;
 	}
 	.me-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: 14px;
 		font-weight: bold;
 	}
 	.me-pc {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: 12px;
 		margin-top: 2px;
 	}

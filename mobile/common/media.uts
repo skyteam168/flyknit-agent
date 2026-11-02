@@ -1,23 +1,9 @@
 // 相册选图、拍照、语音转写（有 ASR 走服务器；没有就提示）。
-// 读图：App 端不用 getFileSystemManager（Android/iOS 常未实现，会 TypeError），改走原生读文件。
+// 读图：走 uni.getFileSystemManager 读成 base64（App/鸿蒙支持）；蒸汽模式下页面不能调原生 API，故不引 java./Foundation。
+// Web 端 getFileSystemManager 不支持，改用 uni.request 取 arraybuffer 再转 base64。
 
 import { state } from './store.uts'
 import { t, tf } from './i18n.uts'
-
-// #ifdef APP-ANDROID
-import File from 'java.io.File'
-import FileInputStream from 'java.io.FileInputStream'
-import ByteArrayOutputStream from 'java.io.ByteArrayOutputStream'
-import InputStream from 'java.io.InputStream'
-import Base64 from 'android.util.Base64'
-import Uri from 'android.net.Uri'
-// UTSAndroid 是 App-Android 内置对象，不要 import DCloudUTSAndroid（打包会 Could not resolve）
-// #endif
-
-// #ifdef APP-IOS
-import NSData from 'Foundation.NSData'
-// UTSiOS 是 App-iOS 内置对象，不要从 DCloudUTSFoundation import
-// #endif
 
 export type PickedImage = {
 	path : string
@@ -32,65 +18,6 @@ function guessMime(path : string) : string {
 	if (lower.endsWith('.gif')) return 'image/gif'
 	return 'image/jpeg'
 }
-
-function stripFileScheme(path : string) : string {
-	if (path.indexOf('file://') == 0) {
-		return path.substring(7)
-	}
-	return path
-}
-
-// #ifdef APP-ANDROID
-/** Android：file 路径或 content:// 都读成 base64（无 data: 前缀） */
-function androidFileToBase64(path : string) : string {
-	let stream : InputStream | null = null
-	try {
-		if (path.indexOf('content://') == 0) {
-			const activity = UTSAndroid.getUniActivity()
-			if (activity == null) {
-				return ''
-			}
-			stream = activity.getContentResolver().openInputStream(Uri.parse(path))
-		} else {
-			const abs = UTSAndroid.convert2AbsFullPath(stripFileScheme(path))
-			stream = new FileInputStream(new File(abs))
-		}
-		if (stream == null) {
-			return ''
-		}
-		const bos = new ByteArrayOutputStream()
-		const buffer = ByteArray(8192)
-		let n = stream!.read(buffer)
-		while (n > 0) {
-			bos.write(buffer, 0, n)
-			n = stream!.read(buffer)
-		}
-		stream!.close()
-		stream = null
-		return Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP) ?? ''
-	} catch (_e) {
-		try {
-			stream?.close()
-		} catch (_e) { }
-		return ''
-	}
-}
-// #endif
-
-// #ifdef APP-IOS
-function iosFileToBase64(path : string) : string {
-	try {
-		const abs = UTSiOS.convert2AbsFullPath(stripFileScheme(path))
-		const data = NSData.dataWithContentsOfFile(abs)
-		if (data == null) {
-			return ''
-		}
-		return data.base64EncodedStringWithOptions(0)
-	} catch (_e) {
-		return ''
-	}
-}
-// #endif
 
 function readViaFsManager(path : string) : Promise<string> {
 	return new Promise<string>((resolve, reject) => {
@@ -147,26 +74,6 @@ function readAsDataUrl(path : string) : Promise<string> {
 			resolve('data:' + mime + ';base64,' + b64)
 		}
 
-		// #ifdef APP-ANDROID
-		try {
-			const b64 = androidFileToBase64(path)
-			if (b64 != '') {
-				done(b64)
-				return
-			}
-		} catch (_e) { }
-		// #endif
-
-		// #ifdef APP-IOS
-		try {
-			const b64 = iosFileToBase64(path)
-			if (b64 != '') {
-				done(b64)
-				return
-			}
-		} catch (_e) { }
-		// #endif
-
 		// #ifdef WEB
 		readViaWeb(path).then(done).catch((msg) => {
 			reject(msg)
@@ -174,7 +81,7 @@ function readAsDataUrl(path : string) : Promise<string> {
 		return
 		// #endif
 
-		// 鸿蒙等仍支持 getFileSystemManager 的平台
+		// App / 鸿蒙：getFileSystemManager 读成 base64
 		readViaFsManager(path).then(done).catch((msg) => {
 			reject(msg)
 		})
