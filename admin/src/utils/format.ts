@@ -66,6 +66,7 @@ export const DECISION_LABELS: Record<string, { label: string; type: 'danger' | '
   blocked: { label: '已拦截', type: 'danger' },
   approved: { label: '用户放行', type: 'success' },
   remembered: { label: '规则放行', type: 'primary' },
+  session: { label: '本次对话放行', type: 'primary' },
   rejected: { label: '用户拒绝', type: 'warning' },
   allowed: { label: '白名单放行', type: 'success' },
   changed: { label: '设置变更', type: 'info' },

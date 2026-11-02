@@ -214,8 +214,23 @@ async def request_approval(message_id: int, data: ApprovalIn, device: Device = D
     a = mobile_hub.hub.request_approval(row, data.summary, data.detail, data.risk, int(cfg["approval_timeout_min"]))
     if a is None:
         return {"enabled": False}
-    await mobile_hub.hub.send(a.mobile_id, {"type": "approval.request", "approval": a.out()})
-    return {"enabled": True, "id": a.id, "timeout_sec": int(cfg["approval_timeout_min"]) * 60}
+    # delivered=false：手机此刻没连着（App 在后台被系统掐断了连接之类）。手机下次打开 App 时照样能看到，
+    # 电脑那边据此提示员工也可以直接在电脑上确认
+    delivered = await mobile_hub.hub.send(a.mobile_id, {"type": "approval.request", "approval": a.out()})
+    return {"enabled": True, "id": a.id, "timeout_sec": int(cfg["approval_timeout_min"]) * 60, "delivered": delivered}
+
+
+@client_router.delete("/approvals/{approval_id}")
+async def cancel_approval(approval_id: str, device: Device = Depends(require_device)):
+    """
+    电脑上已经处理了这一步（员工在电脑上点了确认 / 拒绝，或者任务停了）：手机上的确认卡片收起来。
+    已经回答过的不变。
+    """
+    a = mobile_hub.hub.get_approval(approval_id)
+    if a is None or a.device_id != device.id:
+        raise HTTPException(404, "没有这个审批")
+    await mobile_hub.hub.cancel(a)
+    return {"status": a.status}
 
 
 @client_router.get("/approvals/{approval_id}")

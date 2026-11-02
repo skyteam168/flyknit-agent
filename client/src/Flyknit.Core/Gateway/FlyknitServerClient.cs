@@ -203,6 +203,8 @@ public sealed class ChannelApprovalTicket
     [JsonPropertyName("enabled")] public bool Enabled { get; set; }
     [JsonPropertyName("id")] public string Id { get; set; } = "";
     [JsonPropertyName("timeout_sec")] public int TimeoutSec { get; set; }
+    /// <summary>手机此刻连着、已经推过去了。旧版服务端不返回这一项，按推过去了算。</summary>
+    [JsonPropertyName("delivered")] public bool Delivered { get; set; } = true;
 }
 
 internal sealed class ChannelApprovalStatus
@@ -548,6 +550,15 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return (await resp.Content.ReadFromJsonAsync<ChannelApprovalStatus>(cancellationToken: ct))?.Status ?? "";
+    }
+
+    /// <summary>
+    /// 这一步已经在电脑上处理了：收起手机上的确认卡片。旧版服务端没有这个接口（404），忽略即可。
+    /// </summary>
+    public async Task CancelChannelApprovalAsync(string approvalId, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Delete, $"api/v1/client/channels/approvals/{Uri.EscapeDataString(approvalId)}");
+        using var resp = await SendAsync(req, ct);
     }
 
     /// <summary>长轮询手机上补充的话和打断请求（最多等 wait 秒）。</summary>

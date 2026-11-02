@@ -47,6 +47,7 @@ export function connect() {
 		backoff = 2000
 		startPing()
 		void syncTasks()
+		void syncApprovals()
 		autoCheckUpdate()
 	})
 	sock.onMessage((res) => {
@@ -105,6 +106,7 @@ function startPing() {
 	stopPing()
 	pingTimer = setInterval(() => {
 		send({ type: 'ping' } as UTSJSONObject)
+		void syncApprovals()
 	}, 25000)
 }
 
@@ -405,6 +407,29 @@ async function syncTasks() {
 }
 
 // ---------- 审批 ----------
+
+// 按服务端补齐待确认的操作：App 在后台时连接常被系统掐断，推送的确认请求就丢了；
+// 回到前台、连上、定时心跳时都来对一遍（新的加上并提醒，已经处理掉的收起）
+export async function syncApprovals() {
+	if (state.token == '') {
+		return
+	}
+	const res = await request('GET', '/api/v1/mobile/approvals', null)
+	if (!res.ok || res.data == null) {
+		return
+	}
+	const list = res.data as Array<any>
+	const ids : string[] = []
+	list.forEach((item : any) => {
+		const a = item as UTSJSONObject
+		ids.push(a.getString('id') ?? '')
+		addApproval(a, true)
+	})
+	const gone = state.approvals.filter((x : Approval) : boolean => ids.indexOf(x.id) < 0)
+	gone.forEach((x : Approval) => {
+		removeApproval(x.id)
+	})
+}
 
 function addApproval(a : UTSJSONObject, notify : boolean) {
 	const id = a.getString('id') ?? ''
