@@ -125,6 +125,9 @@ public sealed class AgentOptions
     /// <summary>没列计划时，做了几次操作后提醒一次。简单任务两三步就完了，不会被打扰。</summary>
     public int PlanNudgeAfter { get; init; } = 3;
 
+    /// <summary>有未完成的计划时，连续这么多次操作没更新计划就提醒一次（每次更新计划后重新计）。</summary>
+    public int PlanStaleAfter { get; init; } = 5;
+
     /// <summary>
     /// 检查产出文件（存在、不是空的、能打开，以及行数页数），结果附在工具结果后面给模型看；
     /// 最后回答前再查一遍，有问题在回答末尾注明。由 IT 在安全中心开关（verify_outputs）。

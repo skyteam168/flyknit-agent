@@ -585,13 +585,22 @@ public sealed partial class AgentHost : IDisposable
     /// <summary>深度思考 / 联网：写进请求 ExtraBody，翻译不带思考，联网仅「对话」。</summary>
     private IReadOnlyDictionary<string, JsonNode?>? ChatExtraBody(Conversation conv)
     {
-        var thinking = _settings.DeepThinking && conv.Mode != ConversationMode.Translate;
         var search = _settings.WebSearch && conv.Mode == ConversationMode.Chat && WebSearchEnabled;
-        // 显式传 enable_thinking，避免模型配置里默认开思考
-        var body = new Dictionary<string, JsonNode?>
+        var body = new Dictionary<string, JsonNode?>();
+        if (conv.Mode == ConversationMode.Agent)
         {
-            ["enable_thinking"] = thinking,
-        };
+            // 办事：「深度思考」打开时强制开；关着时不传，按模型配置的默认（多半是开的）。
+            // 强制关掉思考，模型办事明显变差：计划列了不勾、步骤容易漏
+            if (_settings.DeepThinking)
+            {
+                body["enable_thinking"] = true;
+            }
+        }
+        else
+        {
+            // 对话、翻译：显式传 enable_thinking，避免模型配置里默认开思考、空等很久
+            body["enable_thinking"] = _settings.DeepThinking && conv.Mode != ConversationMode.Translate;
+        }
         if (search)
         {
             body["flyknit_web_search"] = true;
