@@ -101,7 +101,7 @@
 
 <script setup lang="uts">
 	import { computed } from 'vue'
-	import { setThemeMode, theme } from '../../common/theme.uts'
+	import { setThemeMode, Palette, theme } from '../../common/theme.uts'
 	import { clearAuth, state } from '../../common/store.uts'
 	import { request } from '../../common/api.uts'
 	import { disconnect, notifyLocal } from '../../common/socket.uts'
@@ -111,7 +111,7 @@
 
 	type ThemeItem = { id : string, label : string }
 
-	const c = computed(() => theme.c)
+	const c = computed<Palette>(() : Palette => theme.c)
 	const topInset = uni.getWindowInfo().statusBarHeight.toString() + 'px'
 	const machineName = computed(() : string => state.machineName)
 	const userName = computed(() : string => state.userName)

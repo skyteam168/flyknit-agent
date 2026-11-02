@@ -8,7 +8,7 @@
 
 <script setup lang="uts">
 	import { computed } from 'vue'
-	import { theme } from '../../common/theme.uts'
+	import { Palette, theme } from '../../common/theme.uts'
 	import { t } from '../../common/i18n.uts'
 
 	const props = defineProps({
@@ -17,7 +17,7 @@
 		title: { type: String, default: '' }
 	})
 
-	const c = computed(() => theme.c)
+	const c = computed<Palette>(() : Palette => theme.c)
 
 	function open() {
 		if (props.code == '') return
