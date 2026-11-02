@@ -44,7 +44,13 @@ function Run([string]$what, [scriptblock]$cmd) {
 if (-not $SkipWeb) {
     Push-Location (Join-Path $root "web")
     try {
-        if (-not (Test-Path "node_modules")) { Run "npm ci" { npm ci } }
+        # 依赖装过但 package-lock.json 后来变了（拉代码加了新依赖）也要重装，不然编译时报「找不到模块」。
+        # npm 每次安装都会写 node_modules\.package-lock.json，比它新就说明依赖变了
+        $installed = "node_modules\.package-lock.json"
+        if (-not (Test-Path $installed) -or
+            (Get-Item "package-lock.json").LastWriteTime -gt (Get-Item $installed).LastWriteTime) {
+            Run "npm ci" { npm ci }
+        }
         Run "npm run build" { npm run build }
     } finally { Pop-Location }
 }
