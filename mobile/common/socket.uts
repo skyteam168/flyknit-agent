@@ -459,7 +459,7 @@ async function syncTasks() {
 }
 
 /** 拉取服务端挂着的审批（WS 丢了、或连上时 hello 漏了） */
-async function syncApprovals() {
+export async function syncApprovals() {
 	const res = await request('GET', '/api/v1/mobile/approvals', null)
 	if (!res.ok || res.data == null) {
 		return

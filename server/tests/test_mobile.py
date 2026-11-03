@@ -398,3 +398,20 @@ def test_product_page_offers_the_app_only_when_both_switches_are_on(tc):
     # 手机端关掉：产品页也不再给
     tc.put("/api/v1/admin/mobile", headers=ADMIN, json={"enabled": False})
     assert tc.get("/api/v1/public/mobile-app").json() == closed
+
+
+def test_an_approval_for_a_phone_that_is_not_connected_waits_for_the_app(tc):
+    """手机 App 在后台、连接被系统掐断：电脑知道没推到，手机重新打开 App 时照样能取到；别的电脑不能收起它。"""
+    pc = _pc(tc)
+    _enable(tc)
+    phone, _ = _pair(tc, pc)
+    task = tc.post("/api/v1/mobile/tasks", headers=phone, json={"text": "清理下载目录"}).json()
+    tc.get("/api/v1/client/channels/messages", headers=pc)
+    r = tc.post(f"/api/v1/client/channels/messages/{task['id']}/approvals", headers=pc, json={"summary": "删除文件"}).json()
+    assert r["enabled"] is True and r["pushed"] is False
+    assert [a["id"] for a in tc.get("/api/v1/mobile/approvals", headers=phone).json()] == [r["id"]]
+    o = tc.post("/api/v1/devices/register",
+                json={"enrollment_key": "test-enroll", "machine_name": "PC-002", "user_name": "tran"}).json()
+    other = {"Authorization": f"Bearer {o['token']}"}
+    assert tc.post(f"/api/v1/client/channels/approvals/{r['id']}/cancel", headers=other).status_code == 404
+    assert tc.get("/api/v1/mobile/approvals", headers=phone).json() != []

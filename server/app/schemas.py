@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import AfterValidator, BeforeValidator, BaseModel, ConfigDict, Field, HttpUrl
 
 Scene = Literal["chat", "agent", "translate", "title", "vision", "asr"]
 # asr 是语音转文字，和对话模型不通用，所以它没有回退场景
@@ -13,6 +13,11 @@ def Clip(n: int):  # noqa: N802  当类型用
     """员工端上报的字符串：超过数据库列宽就截断，不拒收。
     PostgreSQL 对超长值直接报错（SQLite 不管），拒收的话老版本员工端会一直重试同一批。"""
     return Annotated[str, AfterValidator(lambda v: v[:n])]
+
+
+def ClipOrEmpty(n: int):  # noqa: N802  当类型用
+    """同 Clip，另外把 null 当空字符串（员工端有的版本对「没有」传 null，不能因此整批拒收）。"""
+    return Annotated[str, BeforeValidator(lambda v: "" if v is None else v), AfterValidator(lambda v: v[:n])]
 
 
 # ---------- 模型提供方 ----------
@@ -230,13 +235,14 @@ class AuditItem(BaseModel):
     arguments: str = ""
     risk: Literal["blocked", "confirm", "auto"]
     scene: Clip(20) = ""
-    decision: Literal["blocked", "approved", "remembered", "rejected", "auto"]
+    #: session：员工点了「本次对话都允许」
+    decision: Literal["blocked", "approved", "remembered", "session", "rejected", "auto"]
     status: Clip(20) = ""
     summary: str = ""
     #: 专家执行时的子任务 ID；主助手自己的调用为空
-    subtask_id: Clip(40) = ""
+    subtask_id: ClipOrEmpty(40) = ""
     #: main 或 expert:<专家 ID>
-    actor: Clip(60) = ""
+    actor: ClipOrEmpty(60) = ""
     occurred_at: datetime | None = None
 
 
