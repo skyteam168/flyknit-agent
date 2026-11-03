@@ -377,8 +377,8 @@ public sealed class StreamableHttpTransport : McpTransport
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
                 using var req = new HttpRequestMessage(HttpMethod.Delete, _url);
-                await ApplyHeadersAsync(req, cts.Token);
-                using var _ = await _http.SendAsync(req, cts.Token);
+                await ApplyHeadersAsync(req, cts.Token).ConfigureAwait(false);
+                using var _ = await _http.SendAsync(req, cts.Token).ConfigureAwait(false);
             }
             catch (Exception)
             {

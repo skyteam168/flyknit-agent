@@ -70,8 +70,12 @@ withDefaults(defineProps<{ text?: string; sub?: string; size?: 'sm' | 'md' | 'lg
 .text {
   font-size: var(--t-sm, 13px);
 }
+/* 启动卡片始终是白底（与宿主 WPF 加载卡一致），不能跟暗色主题的 --ink（浅色字）走，否则标题发灰看不清 */
+.lg {
+  color: #1f2330;
+}
 .lg .text {
-  color: var(--ink, #1f2330);
+  color: #1f2330;
   font-size: 17px;
   font-weight: 600;
 }
@@ -80,6 +84,7 @@ withDefaults(defineProps<{ text?: string; sub?: string; size?: 'sm' | 'md' | 'lg
   font-size: var(--t-xs, 12px);
 }
 .lg .sub {
+  color: #7a8092;
   font-size: 13px;
 }
 .dots {

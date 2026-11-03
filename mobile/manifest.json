@@ -2,8 +2,8 @@
 	"name": "FlyknitBuddy",
 	"appid": "__UNI__9AFC65D",
 	"description": "FlyknitBuddy 手机端：聊天、翻译，让自己电脑上的 FlyknitBuddy 办事",
-	"versionName": "0.1.0",
-	"versionCode": "100",
+	"versionName": "1.0.2",
+	"versionCode": "102",
 	"uni-app-x": {
 		"styleIsolationVersion": "2",
 		"vapor-default-script-lang": "uts",
