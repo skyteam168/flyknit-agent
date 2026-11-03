@@ -4,7 +4,7 @@
 // - 审批：电脑上执行到需要确认的操作 approval.request，回答后 approval.closed
 // 断了自动重连（2 秒起，最长 30 秒）；每 25 秒 ping 一次，顺便知道电脑在不在线。
 
-import { Approval, Conv, Msg, SearchSource, applyMe, clearAuth, findTaskMsg, notifyMessages, saveConversations, state } from './store.uts'
+import { Approval, Conv, Msg, SearchSource, applyMe, clearAuth, findTaskMsg, notifyMessages, saveConversations, setApprovals, state } from './store.uts'
 import { request } from './api.uts'
 import { prefs } from './prefs.uts'
 import { autoCheckUpdate } from './update.uts'
@@ -220,7 +220,7 @@ function handle(raw : string) {
 	if (type == 'hello') {
 		applyMe(ev)
 		const list = ev.getArray('approvals_pending')
-		state.approvals = []
+		setApprovals([] as Array<Approval>)
 		if (list != null) {
 			list.forEach((a : any | null) => {
 				if (a != null) {
@@ -444,10 +444,13 @@ function addApproval(a : UTSJSONObject, notify : boolean) {
 		risk: a.getString('risk') ?? '',
 		expiresIn: a.getNumber('expires_in') ?? 0
 	} as Approval
-	state.approvals.push(item)
+	const next = state.approvals.slice()
+	next.push(item)
+	setApprovals(next)
 	const m = findTaskMsg(item.task)
 	if (m != null) {
 		m.steps.push(tf('chat.waitConfirm', item.summary))
+		notifyMessages()
 		saveConversations()
 	}
 	if (notify && !state.foreground) {
@@ -456,9 +459,8 @@ function addApproval(a : UTSJSONObject, notify : boolean) {
 }
 
 function removeApproval(id : string) {
-	const i = state.approvals.findIndex((x : Approval) : boolean => x.id == id)
-	if (i >= 0) {
-		state.approvals.splice(i, 1)
+	if (state.approvals.findIndex((x : Approval) : boolean => x.id == id) >= 0) {
+		setApprovals(state.approvals.filter((x : Approval) : boolean => x.id != id))
 	}
 }
 
@@ -468,6 +470,7 @@ export async function answerApproval(a : Approval, approve : boolean) : Promise<
 	const m = findTaskMsg(a.task)
 	if (m != null) {
 		m.steps.push(approve ? tf('chat.approvedStep', a.summary) : tf('chat.rejectedStep', a.summary))
+		notifyMessages()
 		saveConversations()
 	}
 	return res.ok ? '' : res.error

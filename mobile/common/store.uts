@@ -82,6 +82,11 @@ export type AppState = {
 	 * 每次内容/状态有变就 +1，页面用它强制重算 messages。
 	 */
 	msgRev : number
+	/**
+	 * 待确认列表每变一次 +1。蒸汽模式下对 approvals 原地 push/splice，页面上的 computed 常常不重算，
+	 * 确认弹窗就出不来；页面 watch 这个数字自己取一份。
+	 */
+	approvalRev : number
 }
 
 export const state = reactive({
@@ -98,8 +103,15 @@ export const state = reactive({
 	conversations: [] as Array<Conv>,
 	currentId: '',
 	approvals: [] as Array<Approval>,
-	msgRev: 0
+	msgRev: 0,
+	approvalRev: 0
 } as AppState)
+
+/** 换掉整个待确认列表（新数组），并通知页面刷新 */
+export function setApprovals(list : Array<Approval>) {
+	state.approvals = list
+	state.approvalRev = state.approvalRev + 1
+}
 
 let msgRevTimer = 0
 
@@ -205,7 +217,7 @@ export function clearAuth() {
 	state.userName = ''
 	state.computerOnline = false
 	state.webSearchEnabled = false
-	state.approvals = []
+	setApprovals([] as Array<Approval>)
 	uni.removeStorageSync(AUTH_KEY)
 }
 
