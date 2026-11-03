@@ -1491,15 +1491,29 @@ public sealed partial class AgentHost : IDisposable
         {
             cts.Cancel();
         }
-        _configTimer.Dispose();
-        _keepAwakeTimer?.Dispose();
-        _keepAwake.Dispose();
-        Scheduler.Dispose();
-        DisposeTerminal();
-        Skills.Dispose();
-        Mcp.Dispose();
-        Audit.FlushAsync().Wait(TimeSpan.FromSeconds(3));
-        Audit.Dispose();
+        try { _configTimer.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { _keepAwakeTimer?.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { _keepAwake.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { Scheduler.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { DisposeTerminal(); } catch (Exception) { /* 尽力而为 */ }
+        try { Skills.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { Updater.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { Mcp.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        // 退出时别在调用方线程上同步等网络：UI 线程 .Wait 会和 Dispatcher 死锁，卡几十秒
+        try
+        {
+            var flush = Audit.FlushAsync();
+            _ = flush.ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    Log.Warn("退出时审计上报出错", t.Exception?.GetBaseException());
+                }
+            }, TaskContinuationOptions.ExecuteSynchronously);
+            flush.Wait(TimeSpan.FromSeconds(1));
+        }
+        catch (Exception) { /* 尽力而为 */ }
+        try { Audit.Dispose(); } catch (Exception) { /* 尽力而为 */ }
     }
 
     /// <summary>

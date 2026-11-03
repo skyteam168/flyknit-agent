@@ -180,7 +180,7 @@ public sealed class StdioTransport : McpTransport
             // 先关输入让它自己退出，等一会儿不退再整棵进程树杀掉（npx 会再起一个 node）
             process.StandardInput.Close();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            await process.WaitForExitAsync(cts.Token);
+            await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
         }
         catch (Exception)
         {
@@ -197,7 +197,7 @@ public sealed class StdioTransport : McpTransport
         {
             try
             {
-                await _stdoutLoop.WaitAsync(TimeSpan.FromSeconds(2));
+                await _stdoutLoop.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
             }
             catch (Exception)
             {

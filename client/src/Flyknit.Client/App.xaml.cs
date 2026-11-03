@@ -790,8 +790,32 @@ public partial class App : Application
     /// <param name="applyUpdate">用户点「稍后」的更新在退出时装上。点「重启升级」走到这里时更新器已经起了，别再起一个。</param>
     private void ExitApp(bool applyUpdate)
     {
-        Cleanup(applyUpdate);
-        Shutdown();
+        // 先立刻把看得见的东西收掉，再回到消息循环画一帧，然后做清理。
+        // 若在 UI 线程上同步 Dispose（MCP / 审计 / WebView2），会和 Dispatcher 死锁，
+        // 悬浮球一直不消失，看起来像卡了半分钟。
+        try
+        {
+            _main?.Hide();
+            _ball?.Hide();
+            if (_tray is not null)
+            {
+                _tray.Visible = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("退出时隐藏界面出错", ex);
+        }
+
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+        {
+            Cleanup(applyUpdate);
+            try { Shutdown(); }
+            catch (Exception)
+            {
+                Environment.Exit(0);
+            }
+        });
     }
 
     /// <summary>
@@ -805,42 +829,68 @@ public partial class App : Application
             return;
         }
         _cleanedUp = true;
-        // 停后台服务可能要好几秒：先把窗口收起来，别让员工对着一个不动的窗口等
-        _main?.Hide();
-        _ball?.Hide();
+
+        // 兜底必须最先启动：后面任何一步卡住，最多再等 3 秒就强杀进程
+        new Thread(() =>
+        {
+            Thread.Sleep(TimeSpan.FromSeconds(3));
+            try { Log.Warn("退出 3 秒后进程还在，强制结束"); }
+            catch (Exception) { /* 日志也可能已经卸了 */ }
+            Environment.Exit(0);
+        }) { IsBackground = true, Name = "Flyknit exit watchdog" }.Start();
+
+        try { _main?.Hide(); } catch (Exception) { /* 尽力而为 */ }
+        try { _ball?.Hide(); } catch (Exception) { /* 尽力而为 */ }
         _pipeCts.Cancel();
-        UnregisterHotkey();
-        _translatePopup?.Close();
+        try { UnregisterHotkey(); } catch (Exception ex) { Log.Warn("退出时注销热键出错", ex); }
+        try { _translatePopup?.Close(); } catch (Exception) { /* 尽力而为 */ }
         if (_tray is not null)
         {
-            _tray.Visible = false;
-            _tray.Dispose();
+            try
+            {
+                _tray.Visible = false;
+                _tray.Dispose();
+            }
+            catch (Exception) { /* 尽力而为 */ }
+            _tray = null;
         }
-        _settings.Save();
-        _notifications?.ClearAll();
-        _noticeWatcher?.Dispose();
-        _instructionPoller?.Dispose();
-        _channelRelay?.Dispose();
-        // 下好了没装的，就在这会儿装上——用户说「稍后」，指的就是等他关掉程序的时候
-        if (applyUpdate)
+        try { _settings.Save(); } catch (Exception ex) { Log.Warn("退出时保存设置出错", ex); }
+        try { _notifications?.ClearAll(); } catch (Exception) { /* 尽力而为 */ }
+        try { _noticeWatcher?.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { _instructionPoller?.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { _channelRelay?.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+
+        var host = _host;
+        _host = null;
+        if (host is not null)
         {
-            _host?.Updater.ApplyOnExit();
+            // 下好了没装的，就在这会儿装上——用户说「稍后」，指的就是等他关掉程序的时候
+            if (applyUpdate)
+            {
+                try { host.Updater.ApplyOnExit(); }
+                catch (Exception ex) { Log.Warn("退出时启动更新器出错", ex); }
+            }
+            // 放到线程池：里面有 MCP / 审计的异步等待，在 UI 线程 .Wait 会和 Dispatcher 死锁
+            try
+            {
+                if (!Task.Run(() =>
+                    {
+                        try { host.Dispose(); }
+                        catch (Exception ex) { Log.Warn("退出时停止后台服务出错", ex); }
+                    }).Wait(TimeSpan.FromSeconds(1.5)))
+                {
+                    Log.Warn("退出时后台服务未在 1.5 秒内停完，交给看门狗强杀");
+                }
+            }
+            catch (Exception ex) { Log.Warn("退出时停止后台服务出错", ex); }
         }
-        try { _host?.Dispose(); }
-        catch (Exception ex) { Log.Warn("退出时停止后台服务出错", ex); }
-        _main?.ExitForReal();
-        _ball?.Close();
+
+        // 不在这里同步 Close 主窗口：WebView2 关窗经常卡很久。Hide 过了，进程结束时一起收掉即可。
+        try { _ball?.Close(); } catch (Exception) { /* 尽力而为 */ }
         try { _mutex?.ReleaseMutex(); }
         catch (Exception) { /* 已经放掉了 */ }
         _mutex?.Dispose();
         _mutex = null;
-        // 兜底：哪个后台线程卡住不退，5 秒后强制结束，别让进程半死不活地挂着
-        new Thread(() =>
-        {
-            Thread.Sleep(TimeSpan.FromSeconds(5));
-            Log.Warn("退出 5 秒后进程还在，强制结束");
-            Environment.Exit(0);
-        }) { IsBackground = true }.Start();
     }
 
     // ---------- 全局热键：唤起主窗口（Ctrl+Alt+Space）、划词翻译（Ctrl+Alt+T） ----------

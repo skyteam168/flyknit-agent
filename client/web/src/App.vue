@@ -353,13 +353,15 @@ onBeforeUnmount(() => {
   text-align: center;
   color: var(--ink-soft);
 }
-/* 启动卡片：与 index.html 和宿主窗口中的加载卡片保持一致，切换时不闪烁 */
+/* 启动卡片：始终浅色，与 index.html / 宿主 WPF 加载卡一致；不跟 data-theme=dark 变字色 */
 .boot {
   position: fixed;
   inset: 0;
   display: grid;
   place-items: center;
   background: #f4f6f9;
+  color: #1f2330;
+  color-scheme: light;
 }
 .boot-card {
   width: 380px;
@@ -370,6 +372,7 @@ onBeforeUnmount(() => {
   background: #fff;
   box-shadow: 0 12px 32px -10px rgba(27, 36, 64, 0.18);
   text-align: center;
+  color: #1f2330;
 }
 .shell {
   display: flex;

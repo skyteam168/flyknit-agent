@@ -536,7 +536,7 @@ public sealed class McpService : IDisposable
         {
             try
             {
-                await connection.DisposeAsync();
+                await connection.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -623,19 +623,26 @@ public sealed class McpService : IDisposable
     public void Dispose()
     {
         _life.Cancel();
-        foreach (var (id, rt) in _runtime)
+        // 并行关掉所有连接，总等待封顶 1.5 秒。以前在 UI 线程上逐个 .Wait(3s)，
+        // DisposeAsync 续体会抢回 Dispatcher → 死锁到超时，连着几个连接就卡半分钟。
+        var pending = _runtime.Select(p => Task.Run(async () =>
         {
             try
             {
-                DropConnectionAsync(id, rt).Wait(TimeSpan.FromSeconds(3));
+                await DropConnectionAsync(p.Key, p.Value).ConfigureAwait(false);
             }
             catch (Exception)
             {
                 // 退出时尽力而为
             }
+        })).ToArray();
+        if (pending.Length > 0)
+        {
+            try { Task.WhenAll(pending).Wait(TimeSpan.FromMilliseconds(1500)); }
+            catch (Exception) { /* 尽力而为 */ }
         }
-        _http.Dispose();
-        _httpInsecure.Dispose();
+        try { _http.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { _httpInsecure.Dispose(); } catch (Exception) { /* 尽力而为 */ }
     }
 
     // ---------- 运行时状态 ----------
