@@ -269,8 +269,8 @@
 			<view v-if="openX > 0" class="mask" :style="{ backgroundColor: c.mask, opacity: openX / drawerWidth * 0.45 }" @click="closeDrawer"></view>
 		</view>
 
-		<!-- 电脑上执行到需要确认的操作 -->
-		<view v-if="approval != null" class="sheet-mask" :style="{ backgroundColor: c.mask }">
+		<!-- 电脑上执行到需要确认的操作。key 绑 approvalMountKey：蒸汽模式必须整层重建，computed 对象不够 -->
+		<view v-if="approvalVisible" :key="'appr-' + approvalMountKey" class="sheet-mask" :style="{ backgroundColor: c.mask }">
 			<view class="sheet" :style="{ backgroundColor: c.cloth, paddingBottom: px(bottomInset + 16) }">
 				<text class="sheet-kicker" :style="{ color: c.amber }">{{ t('chat.needConfirm') }}</text>
 				<text class="sheet-title" :style="{ color: c.ink }">{{ t('chat.needConfirmTitle') }}</text>
@@ -295,7 +295,7 @@
 <script setup lang="uts">
 	import { computed, nextTick, ref, watch } from 'vue'
 	import { Palette, syncStatusBar, theme } from '../../common/theme.uts'
-	import { Approval, Conv, Msg, SearchSource, createConv, currentConv, newId, newMsg, notifyMessages, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
+	import { Approval, Conv, Msg, SearchSource, createConv, currentConv, newId, newMsg, notifyMessages, onApprovalsChanged, removeConv, renameConv, saveConversations, state, touch } from '../../common/store.uts'
 	import { request } from '../../common/api.uts'
 	import { answerApproval, connect, sendChat, stopChat } from '../../common/socket.uts'
 	import { ModelInfo, bodyFontPx, bodyLinePx, modelLabel, prefs, refreshModels, setDeepThinking, setModelId, setWebSearch } from '../../common/prefs.uts'
@@ -448,17 +448,20 @@
 	const computerOnline = computed(() : boolean => state.computerOnline)
 	const initial = computed(() : string => userName.value.length > 0 ? userName.value.substring(0, 1).toUpperCase() : 'F')
 	/**
-	 * 待确认的操作（弹窗）。蒸汽模式：watch approvalRev，每次取一份新对象放进 ref，
-	 * 不直接 computed 全局数组（原地改数组时常常不重算，弹窗出不来）
+	 * 审批弹层：不用跨模块 watch（蒸汽模式不可靠），改由 store.notifyApprovals 直接回调。
+	 * 另：.sheet-mask 必须 z-index 高于 .main，否则半屏被主界面盖住——步骤里能看到「等你确认」却弹不出卡。
 	 */
 	const approval = ref<Approval | null>(null)
+	const approvalVisible = ref(false)
 	const approvalSummary = ref('')
 	const approvalDetail = ref('')
-	function syncApproval() {
-		const rev = state.approvalRev
+	const approvalMountKey = ref(0)
+
+	function syncApprovalSheet() {
 		const list = state.approvals
-		if (list.length == 0 || rev < 0) {
+		if (list.length == 0) {
 			approval.value = null
+			approvalVisible.value = false
 			approvalSummary.value = ''
 			approvalDetail.value = ''
 			return
@@ -474,11 +477,18 @@
 		} as Approval
 		approvalSummary.value = a.summary
 		approvalDetail.value = a.detail
+		approvalVisible.value = true
+		approvalMountKey.value = approvalMountKey.value + 1
 	}
-	watch(() : number => state.approvalRev, () => {
-		syncApproval()
+
+	const stopApprovalsListen = onApprovalsChanged(() => {
+		syncApprovalSheet()
 	})
-	syncApproval()
+	syncApprovalSheet()
+	// 仍保留 watch 作双保险（与消息列表同一写法）
+	watch(() : string => 'a:' + state.approvalRev.toString(), () => {
+		syncApprovalSheet()
+	})
 	/** 正在生成的那条回答（显示「停止」）；同样订阅 msgRev，避免蒸汽模式漏刷新 */
 	const streaming = computed(() : Msg | null => {
 		const rev = state.msgRev
@@ -734,6 +744,7 @@
 			live.taskId = 0
 			live.status = 'error'
 			live.content = tf('chat.notToPc', res.error)
+			notifyMessages(true)
 			saveConversations()
 			return
 		}
@@ -741,6 +752,7 @@
 		live.taskId = body.getNumber('id') ?? 0
 		live.taskStatus = body.getString('status') ?? 'pending'
 		cv.agentStarted = true
+		notifyMessages(true)
 		saveConversations()
 	}
 
@@ -805,6 +817,7 @@
 		if (!res.ok || res.data == null) {
 			const err = newMsg('assistant', tf('chat.notToPc', res.error), 'error')
 			cv.messages.push(err)
+			notifyMessages(true)
 			saveConversations()
 			return
 		}
@@ -823,6 +836,7 @@
 		} else if (delivered == 'merged') {
 			task.steps.push(t('chat.supplementMerged'))
 		}
+		notifyMessages(true)
 		saveConversations()
 	}
 
@@ -1339,7 +1353,7 @@
 	}
 
 	function onTouchStart(e : UniTouchEvent) {
-		if (approval.value != null || e.touches.length == 0) {
+		if (approvalVisible.value || e.touches.length == 0) {
 			return
 		}
 		const t = e.touches[0]
@@ -1418,6 +1432,12 @@
 
 	onShow(() => {
 		syncStatusBar()
+		// 从设置页回来或短暂切后台时，把已挂着的审批再刷一次弹层
+		syncApprovalSheet()
+	})
+
+	onUnload(() => {
+		stopApprovalsListen()
 	})
 </script>
 
@@ -2087,12 +2107,14 @@
 		font-size: 13px;
 		padding-left: 8px;
 	}
+	/* 必须高于 .main(z-index:2) 和抽屉遮罩(20)，否则审批半屏在步骤「等你确认」下面，看不见也点不到 */
 	.sheet-mask {
 		position: absolute;
 		left: 0;
 		top: 0;
 		right: 0;
 		bottom: 0;
+		z-index: 100;
 		justify-content: flex-end;
 	}
 	.sheet {

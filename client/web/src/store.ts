@@ -366,6 +366,24 @@ export function newMessageId(): string {
 export const current = computed(() => state.conversations.find((c) => c.id === state.currentId) ?? null)
 export const currentState = computed(() => (state.currentId ? convState(state.currentId) : null))
 
+/** 任意对话里待确认的操作（优先当前对话）。手机办事不抢焦点时，确认条仍要能找到。 */
+export function findWaitingConfirm(): { conversationId: string; tool: ToolActivity } | null {
+  const pick = (id: string) => {
+    const hit = Object.values(convState(id).tools).find((x) => x.state === 'waiting' && x.confirm)
+    return hit ? { conversationId: id, tool: hit } : null
+  }
+  if (state.currentId) {
+    const cur = pick(state.currentId)
+    if (cur) return cur
+  }
+  for (const id of Object.keys(state.byId)) {
+    if (id === state.currentId) continue
+    const hit = pick(id)
+    if (hit) return hit
+  }
+  return null
+}
+
 function convState(id: string): ConversationState {
   if (!state.byId[id]) {
     state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null, notices: [], subtasks: {}, subtaskCalls: {}, inputs: [] }
@@ -807,7 +825,13 @@ export async function openConversation(id: string) {
     try {
       const messages = await bridge.loadMessages(id)
       s.messages = messages
-      s.tools = rebuildTools(messages)
+      // 手机办事等远程任务可能已在跑：保留进行中/待确认的工具状态，避免被历史重建冲掉确认条
+      const live = s.tools
+      const rebuilt = rebuildTools(messages)
+      for (const [callId, t] of Object.entries(live)) {
+        if (t.state === 'waiting' || t.state === 'running') rebuilt[callId] = t
+      }
+      s.tools = rebuilt
       s.loaded = true
       // 任务计划跟着对话保存，重新打开时还能看到做到哪一步
       if (!s.plan.length) s.plan = await bridge.loadPlan(id).catch(() => [])
@@ -1512,11 +1536,12 @@ function onHostEvent(e: HostEvent) {
       }
       break
     case 'tool.confirm': {
-      const s = convState(e.conversationId)
+      const s = markRunning(e.conversationId)
       let t = s.tools[e.callId]
-      // 专家执行时的工具调用没有 tool.started：补一条不单独显示的记录，确认条和侧栏「等待确认」靠它
-      if (!t && e.actor?.kind === 'expert') {
-        const step = subtaskOf(s, e.actor.subtaskId)?.step
+      // tool.started 丢失时仍要挂上确认，否则 AgentLoop 卡在 ConfirmAsync、界面只转圈无确认条
+      // （手机远程会话、专家子任务都可能出现）
+      if (!t) {
+        const step = e.actor?.kind === 'expert' ? subtaskOf(s, e.actor.subtaskId)?.step : null
         t = s.tools[e.callId] = {
           callId: e.callId,
           name: step?.name ?? '',
@@ -1526,18 +1551,16 @@ function onHostEvent(e: HostEvent) {
           actor: e.actor,
         }
       }
-      if (t) {
-        t.state = 'waiting'
-        if (e.actor) t.actor = e.actor
-        t.confirm = {
-          requestId: e.requestId,
-          reason: e.reason,
-          rationale: e.rationale,
-          rememberable: e.rememberable ?? false,
-          ruleDisplay: e.ruleDisplay,
-          effect: e.effect ?? 'unknown',
-          actor: e.actor,
-        }
+      t.state = 'waiting'
+      if (e.actor) t.actor = e.actor
+      t.confirm = {
+        requestId: e.requestId,
+        reason: e.reason,
+        rationale: e.rationale,
+        rememberable: e.rememberable ?? false,
+        ruleDisplay: e.ruleDisplay,
+        effect: e.effect ?? 'unknown',
+        actor: e.actor,
       }
       break
     }

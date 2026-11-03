@@ -135,7 +135,7 @@ def test_task_runs_on_the_computer_with_live_progress_and_approval(tc):
         # 需要确认的操作：推到手机，手机批准，电脑拿到结果
         r = tc.post(f"/api/v1/client/channels/messages/{task['id']}/approvals", headers=pc,
                     json={"summary": "运行脚本 check_mail.py", "risk": "confirm"}).json()
-        assert r["enabled"] is True and r["timeout_sec"] == 300 and r["delivered"] is True
+        assert r["enabled"] is True and r["timeout_sec"] == 300 and r["pushed"] is True
         req = ws.receive_json()
         assert req["type"] == "approval.request" and req["approval"]["summary"] == "运行脚本 check_mail.py"
         assert tc.get("/api/v1/mobile/approvals", headers=phone).json()[0]["id"] == r["id"]
@@ -143,18 +143,6 @@ def test_task_runs_on_the_computer_with_live_progress_and_approval(tc):
         assert tc.post(f"/api/v1/mobile/approvals/{r['id']}", headers=phone, json={"approve": True}).status_code == 200
         assert ws.receive_json()["type"] == "approval.closed"
         assert tc.get(f"/api/v1/client/channels/approvals/{r['id']}?wait=1", headers=pc).json() == {"status": "approved"}
-        # 已经回答过的：电脑再来收起也不变
-        assert tc.delete(f"/api/v1/client/channels/approvals/{r['id']}", headers=pc).json() == {"status": "approved"}
-
-        # 员工直接在电脑上确认了：手机上的卡片收起来，不再算待确认
-        r2 = tc.post(f"/api/v1/client/channels/messages/{task['id']}/approvals", headers=pc,
-                     json={"summary": "写入文件 a.txt"}).json()
-        assert ws.receive_json()["type"] == "approval.request"
-        assert tc.delete(f"/api/v1/client/channels/approvals/{r2['id']}", headers=pc).json() == {"status": "cancelled"}
-        closed = ws.receive_json()
-        assert closed["type"] == "approval.closed" and closed["approval"]["id"] == r2["id"]
-        assert tc.get("/api/v1/mobile/approvals", headers=phone).json() == []
-        assert tc.post(f"/api/v1/mobile/approvals/{r2['id']}", headers=phone, json={"approve": True}).json()["status"] == "cancelled"
 
         # 完成：原样推回（手机自己渲染图表，不像钉钉那样换成文字）
         answer = "今天 3 封未读：\n```chart\n{\"type\":\"bar\"}\n```"
@@ -165,6 +153,28 @@ def test_task_runs_on_the_computer_with_live_progress_and_approval(tc):
 
     tasks = tc.get("/api/v1/mobile/tasks", headers=phone).json()
     assert [(t["text"], t["status"]) for t in tasks] == [("整理今天的未读邮件", "succeeded")]
+
+
+def test_pc_can_cancel_phone_approval_when_answered_locally(tc):
+    """本机确认条先答了：服务端关掉手机审批，手机收到 approval.closed。"""
+    pc = _pc(tc)
+    _enable(tc)
+    phone, _ = _pair(tc, pc)
+    token = phone["Authorization"][7:]
+    with tc.websocket_connect(f"/api/v1/mobile/ws?token={token}") as ws:
+        ws.receive_json()  # hello
+        task = tc.post("/api/v1/mobile/tasks", headers=phone, json={"text": "删旧文件"}).json()
+        tc.get("/api/v1/client/channels/messages", headers=pc)
+        assert ws.receive_json()["type"] == "task.updated"  # running
+        r = tc.post(f"/api/v1/client/channels/messages/{task['id']}/approvals", headers=pc,
+                    json={"summary": "删除旧报表"}).json()
+        assert r["enabled"] is True and r.get("pushed") is True
+        assert ws.receive_json()["type"] == "approval.request"
+        assert tc.post(f"/api/v1/client/channels/approvals/{r['id']}/cancel", headers=pc).json()["status"] == "cancelled"
+        closed = ws.receive_json()
+        assert closed["type"] == "approval.closed" and closed["approval"]["status"] == "cancelled"
+        assert tc.get("/api/v1/mobile/approvals", headers=phone).json() == []
+        assert tc.get(f"/api/v1/client/channels/approvals/{r['id']}", headers=pc).json() == {"status": "cancelled"}
 
 
 def test_phone_can_interject_queue_or_interrupt_a_running_task(tc):
@@ -390,19 +400,18 @@ def test_product_page_offers_the_app_only_when_both_switches_are_on(tc):
     assert tc.get("/api/v1/public/mobile-app").json() == closed
 
 
-def test_an_approval_for_a_phone_that_is_not_connected_says_so_and_waits_for_the_app(tc):
-    """手机 App 在后台、连接被系统掐断：电脑知道没送到（好在电脑上也弹确认），手机重新打开 App 时照样能取到。"""
+def test_an_approval_for_a_phone_that_is_not_connected_waits_for_the_app(tc):
+    """手机 App 在后台、连接被系统掐断：电脑知道没推到，手机重新打开 App 时照样能取到；别的电脑不能收起它。"""
     pc = _pc(tc)
     _enable(tc)
     phone, _ = _pair(tc, pc)
     task = tc.post("/api/v1/mobile/tasks", headers=phone, json={"text": "清理下载目录"}).json()
     tc.get("/api/v1/client/channels/messages", headers=pc)
     r = tc.post(f"/api/v1/client/channels/messages/{task['id']}/approvals", headers=pc, json={"summary": "删除文件"}).json()
-    assert r["enabled"] is True and r["delivered"] is False
+    assert r["enabled"] is True and r["pushed"] is False
     assert [a["id"] for a in tc.get("/api/v1/mobile/approvals", headers=phone).json()] == [r["id"]]
-    # 别的电脑不能收起这台电脑的审批
     o = tc.post("/api/v1/devices/register",
                 json={"enrollment_key": "test-enroll", "machine_name": "PC-002", "user_name": "tran"}).json()
     other = {"Authorization": f"Bearer {o['token']}"}
-    assert tc.delete(f"/api/v1/client/channels/approvals/{r['id']}", headers=other).status_code == 404
+    assert tc.post(f"/api/v1/client/channels/approvals/{r['id']}/cancel", headers=other).status_code == 404
     assert tc.get("/api/v1/mobile/approvals", headers=phone).json() != []

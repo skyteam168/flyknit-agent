@@ -46,9 +46,10 @@ public sealed partial class AgentHost
             conv = Store.Create(ConversationMode.Agent, title);
             Store.Rename(conv.Id, title); // 固定标题，不让 AI 自动总结覆盖
         }
-        // 钉钉、企业微信：需要确认的一律拒绝。手机：交给发起的那部手机由本人批准（后台允许时），否则同样拒绝
-        var confirm = new RemoteDecline(mobile ? Server : null, messageId, mobile ? Confirm : null, mobile ? Events : null);
+        // 钉钉、企业微信：需要确认的一律拒绝。
+        // 手机：优先交给发起的手机批准；同时若电脑界面在，也弹出确认（谁先答用谁），避免双方都不弹、一直转圈。
         var progress = mobile ? new RemoteProgress(Server, messageId) : null;
+        var confirm = new RemoteDecline(mobile ? Server : null, messageId, mobile ? Confirm : null, mobile ? Events : null, progress);
         _remoteRuns[conv.Id] = 0;
         // 手机发来的：执行期间顺便收手机上补充的话（插话）和打断
         using var listen = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -184,9 +185,10 @@ public sealed partial class AgentHost
     }
 
     /// <summary>
-    /// 远程执行时的确认。钉钉、企业微信：一律拒绝。手机：问服务端能不能交给发起的手机批准，
-    /// 能就同时在手机和电脑上弹确认，谁先回答算谁的（另一边收起来），都不答等到超时当拒绝；不能就拒绝。
-    /// 远程没执行的都记下来写进回复里。手机批准只放行这一次（不建规则）；被安全策略「阻止」的命令根本不会走到这里。
+    /// 远程执行时的确认。钉钉、企业微信：一律拒绝。
+    /// 手机：后台允许时推到发起的手机；电脑界面若在，同时弹出本地确认（先答先生效）。
+    /// 手机审批未开启或请求失败时，退回电脑确认；两边都没有才拒绝并记入回复。
+    /// 批准只放行这一次（不建规则）；被安全策略「阻止」的命令根本不会走到这里。
     /// </summary>
     private sealed class RemoteDecline : IConfirmationHandler
     {
@@ -194,137 +196,155 @@ public sealed partial class AgentHost
         private readonly object _lock = new();
         private readonly Flyknit.Core.Gateway.FlyknitServerClient? _server;
         private readonly int _messageId;
-        private readonly IConfirmationHandler? _pc;
+        private readonly IConfirmationHandler? _local;
         private readonly IHostEvents? _events;
+        private readonly RemoteProgress? _progress;
 
-        /// <param name="pc">电脑上的确认（界面还没就绪时为空，只问手机）。</param>
-        /// <param name="events">手机先回答时用来收起电脑上的确认卡片。</param>
-        public RemoteDecline(Flyknit.Core.Gateway.FlyknitServerClient? server = null, int messageId = 0,
-            IConfirmationHandler? pc = null, IHostEvents? events = null)
+        public RemoteDecline(
+            Flyknit.Core.Gateway.FlyknitServerClient? server = null,
+            int messageId = 0,
+            IConfirmationHandler? local = null,
+            IHostEvents? events = null,
+            RemoteProgress? progress = null)
         {
             _server = server;
             _messageId = messageId;
-            _pc = pc;
+            _local = local;
             _events = events;
+            _progress = progress;
         }
 
         public List<string> Declined { get; } = new();
 
         public async Task<ConfirmChoice> ConfirmAsync(ConfirmRequest request, CancellationToken ct)
         {
-            if (_server is not null)
+            if (_server is not null && _messageId > 0)
             {
-                var (choice, byPc) = await AskAsync(request, ct);
-                if (choice != ConfirmChoice.Reject || byPc)
+                try
                 {
-                    return choice; // 电脑上的人拒绝了：AI 照常看到被拒绝，不算「远程没执行」
+                    var detail = request.Decision.Reason.Length > 0 ? request.Decision.Reason : request.Rationale;
+                    var ticket = await _server.RequestChannelApprovalAsync(_messageId, request.Summary, detail, "confirm", ct);
+                    if (ticket.Enabled)
+                    {
+                        var tip = request.Summary.Length > 80 ? request.Summary[..80] + "…" : request.Summary;
+                        _progress?.Report("text", "等待手机确认：" + tip);
+                        // 切到这个对话，否则确认条只绑「当前对话」，员工看着别的页/首页时本机永远不弹
+                        _events?.Post(new { type = "app.openConversation", conversationId = request.ConversationId });
+                        _events?.Post(new { type = "chat.notice", conversationId = request.ConversationId, text = "请在手机或本机确认：" + tip });
+
+                        using var phoneCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        var phoneTask = WaitPhoneStatusAsync(ticket, tip, phoneCts.Token);
+                        if (_local is not null)
+                        {
+                            using var localCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                            var localTask = _local.ConfirmAsync(request, localCts.Token);
+                            var done = await Task.WhenAny(phoneTask, localTask);
+                            if (done == phoneTask)
+                            {
+                                var status = await phoneTask;
+                                if (status == "approved")
+                                {
+                                    localCts.Cancel();
+                                    return ConfirmChoice.AllowOnce;
+                                }
+                                if (status == "rejected")
+                                {
+                                    // 手机上明确点了拒绝
+                                    localCts.Cancel();
+                                    return Decline(request.Summary);
+                                }
+                                // expired / 取消：本机确认条继续等，不能静默当拒绝
+                                Log.Info($"手机确认超时或未送达，改等本机确认：{tip}（{status}）");
+                                var localAfter = await localTask;
+                                return localAfter != ConfirmChoice.Reject ? localAfter : Decline(request.Summary);
+                            }
+
+                            var localChoice = await localTask;
+                            phoneCts.Cancel();
+                            // 本机先答：关掉手机上还挂着的审批卡，避免员工随后在手机上点到过期确认
+                            await CancelPhoneApprovalAsync(ticket.Id);
+                            if (localChoice != ConfirmChoice.Reject)
+                            {
+                                return localChoice;
+                            }
+                            return Decline(request.Summary);
+                        }
+
+                        var phoneOnly = await WaitPhoneStatusAsync(ticket, tip, ct);
+                        if (phoneOnly == "approved")
+                        {
+                            return ConfirmChoice.AllowOnce;
+                        }
+                        return Decline(request.Summary);
+                    }
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("请求手机确认失败，改走电脑确认", ex);
                 }
             }
+
+            if (_local is not null)
+            {
+                _events?.Post(new { type = "app.openConversation", conversationId = request.ConversationId });
+                return await _local.ConfirmAsync(request, ct);
+            }
+            return Decline(request.Summary);
+        }
+
+        private ConfirmChoice Decline(string summary)
+        {
             lock (_lock)
             {
-                Declined.Add(request.Summary.Length > 80 ? request.Summary[..80] + "…" : request.Summary);
+                Declined.Add(summary.Length > 80 ? summary[..80] + "…" : summary);
             }
             return ConfirmChoice.Reject;
         }
 
-        private async Task<(ConfirmChoice Choice, bool ByPc)> AskAsync(ConfirmRequest request, CancellationToken ct)
-        {
-            Flyknit.Core.Gateway.ChannelApprovalTicket ticket;
-            try
-            {
-                var detail = request.Decision.Reason.Length > 0 ? request.Decision.Reason : request.Rationale;
-                ticket = await _server!.RequestChannelApprovalAsync(_messageId, request.Summary, detail, "confirm", ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("请求手机确认失败，按拒绝处理", ex);
-                return (ConfirmChoice.Reject, false);
-            }
-            if (!ticket.Enabled)
-            {
-                return (ConfirmChoice.Reject, false);
-            }
-            Log.Info(ticket.Delivered
-                ? $"等手机或电脑确认：{request.Summary}"
-                : $"手机现在没连着（App 可能在后台），确认请求要等手机打开 App 才看得到；电脑上也可以直接确认：{request.Summary}");
-            var timeout = TimeSpan.FromSeconds(Math.Max(60, ticket.TimeoutSec) + 30);
-
-            if (_pc is null)
-            {
-                using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                limit.CancelAfter(timeout);
-                try
-                {
-                    var only = await WaitPhoneAsync(ticket.Id, request, limit.Token);
-                    return (only == true ? ConfirmChoice.AllowOnce : ConfirmChoice.Reject, false);
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    return (ConfirmChoice.Reject, false);
-                }
-            }
-
-            var (choice, by) = await FirstAnswer.RaceAsync(request, _pc, t => WaitPhoneAsync(ticket.Id, request, t), timeout, ct);
-            switch (by)
-            {
-                case FirstAnswer.Source.Pc:
-                    Log.Info($"电脑上{(choice == ConfirmChoice.Reject ? "拒绝" : "确认")}了：{request.Summary}");
-                    CloseOnPhone(ticket.Id);
-                    break;
-                case FirstAnswer.Source.Phone:
-                    _events?.Post(new { type = "tool.confirmResolved", conversationId = request.ConversationId, callId = request.Call.Id, choice = choice == ConfirmChoice.Reject ? "reject" : "allowOnce" });
-                    break;
-                default:
-                    Log.Info($"手机和电脑上都没有回答，按拒绝处理：{request.Summary}");
-                    CloseOnPhone(ticket.Id);
-                    break;
-            }
-            return (choice, by == FirstAnswer.Source.Pc);
-        }
-
-        /// <summary>等手机回答：true 批准、false 拒绝、null 没答（过期、出错）。</summary>
-        private async Task<bool?> WaitPhoneAsync(string id, ConfirmRequest request, CancellationToken ct)
+        /// <returns>approved / rejected / expired / cancelled</returns>
+        private async Task<string> WaitPhoneStatusAsync(Flyknit.Core.Gateway.ChannelApprovalTicket ticket, string tip, CancellationToken ct)
         {
             try
             {
-                while (true)
+                var until = DateTime.UtcNow.AddSeconds(Math.Max(60, ticket.TimeoutSec) + 30);
+                while (DateTime.UtcNow < until)
                 {
-                    var status = await _server!.WaitChannelApprovalAsync(id, Wait, ct);
-                    if (status == "pending")
+                    ct.ThrowIfCancellationRequested();
+                    var status = await _server!.WaitChannelApprovalAsync(ticket.Id, Wait, ct);
+                    if (status != "pending")
                     {
-                        continue;
+                        Log.Info($"手机确认结果：{tip}（{status}）");
+                        return status.Length > 0 ? status : "expired";
                     }
-                    Log.Info($"手机上{(status == "approved" ? "批准" : "没有批准")}了：{request.Summary}（{status}）");
-                    return status switch { "approved" => true, "rejected" => false, _ => null };
                 }
+                return "expired";
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("等手机确认失败", ex);
-                return null;
+                return "cancelled";
             }
         }
 
-        /// <summary>电脑上已经处理了：收起手机上的卡片。发不出去无所谓（过期后服务端自己会收）。</summary>
-        private void CloseOnPhone(string id) => _ = Task.Run(async () =>
+        private async Task CancelPhoneApprovalAsync(string approvalId)
         {
+            if (_server is null || approvalId.Length == 0)
+            {
+                return;
+            }
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                await _server!.CancelChannelApprovalAsync(id, cts.Token);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _server.CancelChannelApprovalAsync(approvalId, cts.Token);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Log.Warn($"取消手机审批失败（{approvalId}）", ex);
             }
-        });
+        }
     }
 
     /// <summary>
