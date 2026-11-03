@@ -224,6 +224,8 @@ class TaskInbox:
 class MobileHub:
     def __init__(self) -> None:
         self._sockets: dict[int, set] = {}
+        #: 每部手机一条发送锁：Starlette WebSocket 不能多协程同时 send，否则审批推送会丢
+        self._send_locks: dict[int, asyncio.Lock] = {}
         self._approvals: dict[str, Approval] = {}
         self._pair_failures: dict[str, list[float]] = {}
         self._inputs: dict[int, TaskInbox] = {}
@@ -235,6 +237,7 @@ class MobileHub:
 
     def attach(self, mobile_id: int, ws) -> None:
         self._sockets.setdefault(mobile_id, set()).add(ws)
+        self._send_locks.setdefault(mobile_id, asyncio.Lock())
 
     async def warm_upstream(self, http: httpx.AsyncClient, sessionmaker) -> None:
         """手机连上后预热上游：TLS + 连接池 + 模型冷启动。
@@ -271,23 +274,45 @@ class MobileHub:
 
     def detach(self, mobile_id: int, ws) -> None:
         self._sockets.get(mobile_id, set()).discard(ws)
+        if not self._sockets.get(mobile_id):
+            self._sockets.pop(mobile_id, None)
+            # 发送锁留给下次 attach 复用，避免某次 send 还握着锁时被摘掉
 
     def connected(self, mobile_id: int) -> bool:
         return bool(self._sockets.get(mobile_id))
 
+    def _lock_for(self, mobile_id: int) -> asyncio.Lock:
+        return self._send_locks.setdefault(mobile_id, asyncio.Lock())
+
     async def send(self, mobile_id: int, event: dict) -> bool:
         """推给这部手机的所有连接。手机没连着返回 False（下次打开 App 时按任务列表补齐）。"""
+        sockets = list(self._sockets.get(mobile_id, ()))
+        if not sockets:
+            return False
         sent = False
-        for ws in list(self._sockets.get(mobile_id, ())):
-            try:
-                await ws.send_json(event)
-                sent = True
-            except Exception:  # noqa: BLE001  断了的连接摘掉
-                self.detach(mobile_id, ws)
+        async with self._lock_for(mobile_id):
+            for ws in sockets:
+                try:
+                    await ws.send_json(event)
+                    sent = True
+                except Exception:  # noqa: BLE001  断了的连接摘掉
+                    self.detach(mobile_id, ws)
         return sent
 
+    async def send_ws(self, mobile_id: int, ws, event: dict) -> bool:
+        """经统一锁向指定连接发送（聊天流式与审批/进度共用，避免交错写坏帧）。"""
+        async with self._lock_for(mobile_id):
+            try:
+                await ws.send_json(event)
+                return True
+            except Exception:  # noqa: BLE001
+                self.detach(mobile_id, ws)
+                return False
+
     async def close_all(self, mobile_id: int) -> None:
-        for ws in list(self._sockets.pop(mobile_id, ())):
+        sockets = list(self._sockets.pop(mobile_id, ()))
+        self._send_locks.pop(mobile_id, None)
+        for ws in sockets:
             try:
                 await ws.close(code=4401)
             except Exception:  # noqa: BLE001
@@ -431,6 +456,17 @@ class MobileHub:
             await self.send(mobile_id, {"type": "approval.closed", "approval": a.out()})
         return a
 
+    async def cancel_by_device(self, approval_id: str, device_id: int) -> Approval | None:
+        """电脑本机先点了允许/拒绝：关掉手机上还挂着的同一张审批卡。"""
+        a = self.get_approval(approval_id)
+        if a is None or a.device_id != device_id:
+            return None
+        if a.status == "pending":
+            self._close(a, "cancelled")
+            log.info("电脑 #%s 本机已确认，取消手机审批 %s（任务 #%s）", device_id, a.id, a.message_id)
+            await self.send(a.mobile_id, {"type": "approval.closed", "approval": a.out()})
+        return a
+
     async def wait_approval(self, a: Approval, timeout: float) -> str:
         if a.status == "pending":
             remaining = max(0.0, a.expires - time.monotonic())
@@ -467,10 +503,8 @@ class MobileHub:
 
         async def emit(event: dict) -> None:
             event["id"] = rid
-            try:
-                await ws.send_json(event)
-            except Exception:  # noqa: BLE001  手机断了：照样把这一轮的用量记完
-                pass
+            # 和审批/进度推送共用发送锁，避免聊天流与 approval.request 交错丢帧
+            await self.send_ws(mobile.id, ws, event)
 
         messages = build_messages(mode, target_lang, req.get("messages"))
         if len(messages) < 2:

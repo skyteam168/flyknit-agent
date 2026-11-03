@@ -550,6 +550,14 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         return (await resp.Content.ReadFromJsonAsync<ChannelApprovalStatus>(cancellationToken: ct))?.Status ?? "";
     }
 
+    /// <summary>本机确认条先答了：通知服务端关掉推给手机的审批卡。</summary>
+    public async Task CancelChannelApprovalAsync(string approvalId, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/channels/approvals/{Uri.EscapeDataString(approvalId)}/cancel");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
     /// <summary>长轮询手机上补充的话和打断请求（最多等 wait 秒）。</summary>
     public async Task<ChannelInputs> PollChannelInputsAsync(int id, int wait, CancellationToken ct)
     {

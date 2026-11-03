@@ -347,15 +347,15 @@ async def socket(ws: WebSocket, token: str = Query(default="")):
     hub.attach(mobile.id, ws)
     chats: dict[str, asyncio.Task] = {}
     try:
-        await ws.send_json({"type": "hello", **_me(mobile, device, cfg, search_ready),
-                            "approvals_pending": [a.out() for a in hub.pending_for(mobile.id)]})
+        await hub.send_ws(mobile.id, ws, {"type": "hello", **_me(mobile, device, cfg, search_ready),
+                                          "approvals_pending": [a.out() for a in hub.pending_for(mobile.id)]})
         # 后台预热上游，别让员工第一句聊天去付 TLS/模型冷启的账
         asyncio.create_task(hub.warm_upstream(ws.app.state.http, sessionmaker))
         while True:
             msg = await ws.receive_json()
             kind = msg.get("type") if isinstance(msg, dict) else None
             if kind == "ping":
-                await ws.send_json({"type": "pong", "online": channels.online(device.id)})
+                await hub.send_ws(mobile.id, ws, {"type": "pong", "online": channels.online(device.id)})
             elif kind == "chat":
                 rid = str(msg.get("id") or "")[:64]
                 if rid in chats and not chats[rid].done():

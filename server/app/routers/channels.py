@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -30,6 +31,8 @@ from ..services.channel_hub import (
     wecom_ready,
     wecom_secret,
 )
+
+log = logging.getLogger("flyknit.channels")
 
 client_router = APIRouter(prefix="/api/v1/client/channels", tags=["channels"])
 admin_router = APIRouter(prefix="/api/v1/admin/channels", tags=["channels"], dependencies=[Depends(require_admin)])
@@ -214,8 +217,11 @@ async def request_approval(message_id: int, data: ApprovalIn, device: Device = D
     a = mobile_hub.hub.request_approval(row, data.summary, data.detail, data.risk, int(cfg["approval_timeout_min"]))
     if a is None:
         return {"enabled": False}
-    await mobile_hub.hub.send(a.mobile_id, {"type": "approval.request", "approval": a.out()})
-    return {"enabled": True, "id": a.id, "timeout_sec": int(cfg["approval_timeout_min"]) * 60}
+    pushed = await mobile_hub.hub.send(a.mobile_id, {"type": "approval.request", "approval": a.out()})
+    if not pushed:
+        # 手机此刻没连着：审批仍挂着，等手机重连 hello / 轮询 /approvals 能拿到
+        log.info("审批 %s 已登记，手机 #%s 当前未在线，等其拉取", a.id, a.mobile_id)
+    return {"enabled": True, "id": a.id, "timeout_sec": int(cfg["approval_timeout_min"]) * 60, "pushed": pushed}
 
 
 @client_router.get("/approvals/{approval_id}")
@@ -227,6 +233,15 @@ async def approval_status(approval_id: str, wait: int = Query(default=0, ge=0, l
         raise HTTPException(404, "没有这个审批")
     st = await mobile_hub.hub.wait_approval(a, wait) if wait else a.status
     return {"status": st}
+
+
+@client_router.post("/approvals/{approval_id}/cancel")
+async def cancel_approval(approval_id: str, device: Device = Depends(require_device)):
+    """本机确认条先答了：关掉推给手机的那张卡，避免手机上还挂着过期确认。"""
+    a = await mobile_hub.hub.cancel_by_device(approval_id, device.id)
+    if a is None:
+        raise HTTPException(404, "没有这个审批")
+    return {"status": a.status}
 
 
 # =====================================================================

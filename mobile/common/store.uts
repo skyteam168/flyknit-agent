@@ -82,6 +82,11 @@ export type AppState = {
 	 * 每次内容/状态有变就 +1，页面用它强制重算 messages。
 	 */
 	msgRev : number
+	/**
+	 * 审批列表增删时 +1。蒸汽模式对 Array.push/splice 不保证触发页面重算，
+	 * 审批弹层依赖它才能出现。
+	 */
+	approvalRev : number
 }
 
 export const state = reactive({
@@ -98,10 +103,32 @@ export const state = reactive({
 	conversations: [] as Array<Conv>,
 	currentId: '',
 	approvals: [] as Array<Approval>,
-	msgRev: 0
+	msgRev: 0,
+	approvalRev: 0
 } as AppState)
 
 let msgRevTimer = 0
+
+/** 审批列表变化时直接回调页面（蒸汽模式里 watch 跨模块 reactive 不可靠） */
+type ApprovalsListener = () => void
+const approvalListeners = [] as Array<ApprovalsListener>
+
+export function onApprovalsChanged(fn : ApprovalsListener) : () => void {
+	approvalListeners.push(fn)
+	return () : void => {
+		const i = approvalListeners.findIndex((x : ApprovalsListener) : boolean => x == fn)
+		if (i >= 0) {
+			approvalListeners.splice(i, 1)
+		}
+	}
+}
+
+export function notifyApprovals() {
+	state.approvalRev = state.approvalRev + 1
+	for (let i = 0; i < approvalListeners.length; i++) {
+		approvalListeners[i]()
+	}
+}
 
 /** 通知界面：对话消息字段变了。流式时约 32ms 合一次，结束时立刻刷。 */
 export function notifyMessages(immediate : boolean = false) {
@@ -205,7 +232,8 @@ export function clearAuth() {
 	state.userName = ''
 	state.computerOnline = false
 	state.webSearchEnabled = false
-	state.approvals = []
+	state.approvals = [] as Array<Approval>
+	notifyApprovals()
 	uni.removeStorageSync(AUTH_KEY)
 }
 

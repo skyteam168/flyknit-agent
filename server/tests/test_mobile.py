@@ -135,7 +135,7 @@ def test_task_runs_on_the_computer_with_live_progress_and_approval(tc):
         # 需要确认的操作：推到手机，手机批准，电脑拿到结果
         r = tc.post(f"/api/v1/client/channels/messages/{task['id']}/approvals", headers=pc,
                     json={"summary": "运行脚本 check_mail.py", "risk": "confirm"}).json()
-        assert r["enabled"] is True and r["timeout_sec"] == 300
+        assert r["enabled"] is True and r["timeout_sec"] == 300 and r["pushed"] is True
         req = ws.receive_json()
         assert req["type"] == "approval.request" and req["approval"]["summary"] == "运行脚本 check_mail.py"
         assert tc.get("/api/v1/mobile/approvals", headers=phone).json()[0]["id"] == r["id"]
@@ -153,6 +153,28 @@ def test_task_runs_on_the_computer_with_live_progress_and_approval(tc):
 
     tasks = tc.get("/api/v1/mobile/tasks", headers=phone).json()
     assert [(t["text"], t["status"]) for t in tasks] == [("整理今天的未读邮件", "succeeded")]
+
+
+def test_pc_can_cancel_phone_approval_when_answered_locally(tc):
+    """本机确认条先答了：服务端关掉手机审批，手机收到 approval.closed。"""
+    pc = _pc(tc)
+    _enable(tc)
+    phone, _ = _pair(tc, pc)
+    token = phone["Authorization"][7:]
+    with tc.websocket_connect(f"/api/v1/mobile/ws?token={token}") as ws:
+        ws.receive_json()  # hello
+        task = tc.post("/api/v1/mobile/tasks", headers=phone, json={"text": "删旧文件"}).json()
+        tc.get("/api/v1/client/channels/messages", headers=pc)
+        assert ws.receive_json()["type"] == "task.updated"  # running
+        r = tc.post(f"/api/v1/client/channels/messages/{task['id']}/approvals", headers=pc,
+                    json={"summary": "删除旧报表"}).json()
+        assert r["enabled"] is True and r.get("pushed") is True
+        assert ws.receive_json()["type"] == "approval.request"
+        assert tc.post(f"/api/v1/client/channels/approvals/{r['id']}/cancel", headers=pc).json()["status"] == "cancelled"
+        closed = ws.receive_json()
+        assert closed["type"] == "approval.closed" and closed["approval"]["status"] == "cancelled"
+        assert tc.get("/api/v1/mobile/approvals", headers=phone).json() == []
+        assert tc.get(f"/api/v1/client/channels/approvals/{r['id']}", headers=pc).json() == {"status": "cancelled"}
 
 
 def test_phone_can_interject_queue_or_interrupt_a_running_task(tc):

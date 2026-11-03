@@ -4,7 +4,7 @@
 // - 审批：电脑上执行到需要确认的操作 approval.request，回答后 approval.closed
 // 断了自动重连（2 秒起，最长 30 秒）；每 25 秒 ping 一次，顺便知道电脑在不在线。
 
-import { Approval, Conv, Msg, SearchSource, applyMe, clearAuth, findTaskMsg, notifyMessages, saveConversations, state } from './store.uts'
+import { Approval, Conv, Msg, SearchSource, applyMe, clearAuth, findTaskMsg, notifyApprovals, notifyMessages, saveConversations, state } from './store.uts'
 import { request } from './api.uts'
 import { prefs } from './prefs.uts'
 import { autoCheckUpdate } from './update.uts'
@@ -13,6 +13,7 @@ import { t, tf } from './i18n.uts'
 let task : SocketTask | null = null
 let retryTimer = 0
 let pingTimer = 0
+let approvalPollTimer = 0
 let backoff = 2000
 let wantOpen = false
 /** 正在生成的回答：请求 ID → 那条助手消息 */
@@ -46,7 +47,9 @@ export function connect() {
 		state.socket = 'open'
 		backoff = 2000
 		startPing()
+		startApprovalPoll()
 		void syncTasks()
+		void syncApprovals()
 		autoCheckUpdate()
 	})
 	sock.onMessage((res) => {
@@ -59,6 +62,7 @@ export function connect() {
 		task = null
 		state.socket = 'closed'
 		stopPing()
+		stopApprovalPoll()
 		failPending(t('chat.socketClosed'))
 		// 4401：令牌失效（被解绑、被吊销）；4403：管理员关了手机端或电脑被停用
 		const closeCode = (res as UTSJSONObject).getNumber('code') ?? 0
@@ -82,6 +86,7 @@ export function disconnect() {
 		retryTimer = 0
 	}
 	stopPing()
+	stopApprovalPoll()
 	const t = task
 	task = null
 	if (t != null) {
@@ -113,6 +118,40 @@ function stopPing() {
 		clearInterval(pingTimer)
 		pingTimer = 0
 	}
+}
+
+/** 办事期间轮询待确认：WS 推送偶发丢失（并发写帧、短暂断线）时，弹层仍能出现 */
+function startApprovalPoll() {
+	stopApprovalPoll()
+	approvalPollTimer = setInterval(() => {
+		if (state.socket != 'open') {
+			return
+		}
+		if (!hasRunningTask() && state.approvals.length == 0) {
+			return
+		}
+		void syncApprovals()
+	}, 3000)
+}
+
+function stopApprovalPoll() {
+	if (approvalPollTimer != 0) {
+		clearInterval(approvalPollTimer)
+		approvalPollTimer = 0
+	}
+}
+
+function hasRunningTask() : boolean {
+	for (let i = 0; i < state.conversations.length; i++) {
+		const msgs = state.conversations[i].messages
+		for (let j = 0; j < msgs.length; j++) {
+			const st = msgs[j].taskStatus
+			if (st == 'pending' || st == 'running' || st == 'sending') {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 function send(obj : UTSJSONObject) : boolean {
@@ -218,7 +257,8 @@ function handle(raw : string) {
 	if (type == 'hello') {
 		applyMe(ev)
 		const list = ev.getArray('approvals_pending')
-		state.approvals = []
+		state.approvals = [] as Array<Approval>
+		notifyApprovals()
 		if (list != null) {
 			list.forEach((a : any | null) => {
 				if (a != null) {
@@ -256,17 +296,31 @@ function handle(raw : string) {
 		return
 	}
 	if (type == 'approval.request') {
-		const a = ev.getJSON('approval')
+		const a = approvalPayload(ev)
 		if (a != null) {
 			addApproval(a, true)
 		}
 		return
 	}
 	if (type == 'approval.closed') {
-		const a = ev.getJSON('approval')
+		const a = approvalPayload(ev)
 		if (a != null) {
 			removeApproval(a.getString('id') ?? '')
 		}
+	}
+}
+
+/** 取出 approval 对象；getJSON 拿不到时再按整段 JSON 解析一次（防不同端解析差异） */
+function approvalPayload(ev : UTSJSONObject) : UTSJSONObject | null {
+	const nested = ev.getJSON('approval')
+	if (nested != null) {
+		return nested
+	}
+	try {
+		const again = JSON.parse(JSON.stringify(ev)) as UTSJSONObject
+		return again.getJSON('approval')
+	} catch (_err) {
+		return null
 	}
 }
 
@@ -404,6 +458,35 @@ async function syncTasks() {
 	})
 }
 
+/** 拉取服务端挂着的审批（WS 丢了、或连上时 hello 漏了） */
+async function syncApprovals() {
+	const res = await request('GET', '/api/v1/mobile/approvals', null)
+	if (!res.ok || res.data == null) {
+		return
+	}
+	const list = res.data as Array<any>
+	const seen = [] as Array<string>
+	list.forEach((item : any) => {
+		const a = item as UTSJSONObject
+		const id = a.getString('id') ?? ''
+		if (id == '') {
+			return
+		}
+		seen.push(id)
+		addApproval(a, false)
+	})
+	// 服务端已没有、本地还挂着的（本机先答了 / 过期）：清掉
+	const stale = [] as Array<string>
+	state.approvals.forEach((x : Approval) => {
+		if (seen.findIndex((id : string) : boolean => id == x.id) < 0) {
+			stale.push(x.id)
+		}
+	})
+	stale.forEach((id : string) => {
+		removeApproval(id)
+	})
+}
+
 // ---------- 审批 ----------
 
 function addApproval(a : UTSJSONObject, notify : boolean) {
@@ -419,13 +502,19 @@ function addApproval(a : UTSJSONObject, notify : boolean) {
 		risk: a.getString('risk') ?? '',
 		expiresIn: a.getNumber('expires_in') ?? 0
 	} as Approval
-	state.approvals.push(item)
+	// 蒸汽模式：整表替换 + 直接回调页面（不只 bump approvalRev）
+	const next = state.approvals.slice()
+	next.push(item)
+	state.approvals = next
+	notifyApprovals()
 	const m = findTaskMsg(item.task)
 	if (m != null) {
 		m.steps.push(tf('chat.waitConfirm', item.summary))
+		notifyMessages(true)
 		saveConversations()
 	}
-	if (notify && !state.foreground) {
+	// 前台也要能看见：系统通知作兜底；弹层另由页面 listener 挂上
+	if (notify) {
 		notifyLocal(t('chat.approvalNotify'), item.summary)
 	}
 }
@@ -433,7 +522,10 @@ function addApproval(a : UTSJSONObject, notify : boolean) {
 function removeApproval(id : string) {
 	const i = state.approvals.findIndex((x : Approval) : boolean => x.id == id)
 	if (i >= 0) {
-		state.approvals.splice(i, 1)
+		const next = state.approvals.slice()
+		next.splice(i, 1)
+		state.approvals = next
+		notifyApprovals()
 	}
 }
 
@@ -443,6 +535,7 @@ export async function answerApproval(a : Approval, approve : boolean) : Promise<
 	const m = findTaskMsg(a.task)
 	if (m != null) {
 		m.steps.push(approve ? tf('chat.approvedStep', a.summary) : tf('chat.rejectedStep', a.summary))
+		notifyMessages(true)
 		saveConversations()
 	}
 	return res.ok ? '' : res.error

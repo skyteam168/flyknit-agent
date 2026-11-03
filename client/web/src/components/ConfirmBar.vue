@@ -2,20 +2,22 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle, Check, Hand, HelpCircle, X } from '@lucide/vue'
-import { answerConfirm, current, currentState, mcpToolLabel, subtaskById } from '../store'
+import { answerConfirm, findWaitingConfirm, mcpToolLabel, subtaskById } from '../store'
 import ExpertAvatar from './ExpertAvatar.vue'
 
 // 停靠在输入框上方的确认条：等待确认的操作始终可见，不会被输入框挡住
 const { t, te } = useI18n()
 
-const waiting = computed(() => Object.values(currentState.value?.tools ?? {}).filter((x) => x.state === 'waiting' && x.confirm))
-const tool = computed(() => waiting.value[0] ?? null)
+/** 不限当前对话：手机办事常在侧栏另一条会话里等确认 */
+const pending = computed(() => findWaitingConfirm())
+const tool = computed(() => pending.value?.tool ?? null)
+const conversationId = computed(() => pending.value?.conversationId ?? '')
 /** 专家在请求确认：员工要知道是哪位专家在问 */
 const actor = computed(() => (tool.value?.confirm?.actor?.kind === 'expert' ? tool.value.confirm.actor : null))
 /** 专家要做的那一步：优先用专家最新一步（waiting_confirmation）里的工具名和说明 */
 const expertStep = computed(() => {
-  if (!actor.value || !current.value) return null
-  const step = subtaskById(current.value.id, actor.value.subtaskId)?.step
+  if (!actor.value || !conversationId.value) return null
+  const step = subtaskById(conversationId.value, actor.value.subtaskId)?.step
   return step?.kind === 'waiting_confirmation' ? step : null
 })
 const toolName = computed(() => expertStep.value?.name || tool.value?.name || '')
@@ -33,7 +35,7 @@ const ruleDisplay = computed(() => tool.value?.confirm?.ruleDisplay ?? '')
 const canSessionApprove = computed(() => effect.value !== 'destructive')
 
 function answer(choice: 'allowOnce' | 'allowForSession' | 'allowAlways' | 'reject') {
-  if (tool.value && current.value) void answerConfirm(current.value.id, tool.value.callId, choice)
+  if (tool.value && conversationId.value) void answerConfirm(conversationId.value, tool.value.callId, choice)
 }
 </script>
 
@@ -45,7 +47,6 @@ function answer(choice: 'allowOnce' | 'allowForSession' | 'allowAlways' | 'rejec
       <Hand v-else :size="16" />
       <strong>{{ danger ? t('tool.confirmDanger') : t('tool.confirmTitle') }}</strong>
       <span v-if="!actor" class="what-name">{{ label }}</span>
-      <span v-if="waiting.length > 1" class="more">+{{ waiting.length - 1 }}</span>
     </div>
     <div v-if="actor" class="actor">
       <ExpertAvatar :avatar="actor.avatar" :name="actor.name" :id="actor.id" :size="20" />
