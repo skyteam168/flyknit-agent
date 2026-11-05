@@ -32,6 +32,7 @@ BUILTIN_TOOLS: dict[str, str] = {
     "list_dir": "查看文件夹",
     "search_files": "搜索文件",
     "write_file": "写文件",
+    "edit_file": "修改文件",
     "delete_path": "删除文件",
     "run_shell": "执行命令",
     "open_app": "打开软件",

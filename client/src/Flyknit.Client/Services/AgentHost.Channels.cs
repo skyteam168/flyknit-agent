@@ -427,6 +427,7 @@ public sealed partial class AgentHost
             "run_shell" => "运行命令",
             "read_file" => "读取文件",
             "write_file" => "写入文件",
+            "edit_file" => "修改文件",
             "list_dir" => "查看文件夹",
             "search_files" => "搜索文件",
             "delete_path" => "删除",

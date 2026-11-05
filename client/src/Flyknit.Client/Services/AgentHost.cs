@@ -1677,15 +1677,26 @@ public sealed partial class AgentHost : IDisposable
             risk = decision.Level switch { RiskLevel.Blocked => "blocked", RiskLevel.Confirm => "confirm", _ => "auto" },
         });
 
-        public void OnToolFinished(ToolCall call, ToolResult result, string decision) => _events.Post(new
+        public void OnToolFinished(ToolCall call, ToolResult result, string decision)
         {
-            type = "tool.finished",
-            conversationId = _id,
-            callId = call.Id,
-            ok = result.Ok,
-            output = result.Output,
-            decision,
-        });
+            _events.Post(new
+            {
+                type = "tool.finished",
+                conversationId = _id,
+                callId = call.Id,
+                ok = result.Ok,
+                output = result.Output,
+                decision,
+            });
+            // AI 写了 / 改了 Markdown 文稿：在右侧文档画布里打开（已经开着就刷新）
+            if (result.Ok && call.Name is "write_file" or "edit_file")
+            {
+                foreach (var path in result.Outputs)
+                {
+                    _host?.NoteDocumentWritten(_id, path, _events);
+                }
+            }
+        }
 
         public void OnContextCompacted(CompactionInfo info)
         {

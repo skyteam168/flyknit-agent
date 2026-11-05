@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Eye, FilePen, Globe, Info, ListChecks, SquareTerminal, X } from '@lucide/vue'
+import { Eye, FilePen, FileText, Globe, Info, ListChecks, SquareTerminal, X } from '@lucide/vue'
 import { closeRightPanel, current, currentState, state } from '../store'
 import PlanPanel from './PlanPanel.vue'
 import PreviewPane from './PreviewPane.vue'
@@ -9,6 +9,7 @@ import SessionPanel from './SessionPanel.vue'
 import ChangesTab from './ChangesTab.vue'
 import BrowserTab from './BrowserTab.vue'
 import TerminalTab from './TerminalTab.vue'
+import DocumentTab from './DocumentTab.vue'
 
 /**
  * 右侧面板：计划、文件预览、改动的文件、AI 浏览器、终端、会话信息放在同一块地方，用标签切换。
@@ -16,14 +17,15 @@ import TerminalTab from './TerminalTab.vue'
  */
 const { t } = useI18n()
 
-type Tab = 'plan' | 'preview' | 'changes' | 'browser' | 'terminal' | 'session'
-const icons = { plan: ListChecks, preview: Eye, changes: FilePen, browser: Globe, terminal: SquareTerminal, session: Info }
+type Tab = 'document' | 'plan' | 'preview' | 'changes' | 'browser' | 'terminal' | 'session'
+const icons = { document: FileText, plan: ListChecks, preview: Eye, changes: FilePen, browser: Globe, terminal: SquareTerminal, session: Info }
 
 const tabs = computed<Tab[]>(() => {
   const list: Tab[] = []
+  const id = current.value?.id
+  if (id && state.docs[id]) list.push('document')
   if (currentState.value?.plan.length) list.push('plan')
   if (state.preview) list.push('preview')
-  const id = current.value?.id
   if (id && state.changes[id]?.some((x) => x.files.length)) list.push('changes')
   if (state.browser.active) list.push('browser')
   if (id && state.terminal[id]?.length) list.push('terminal')
@@ -64,7 +66,8 @@ watch(
         <X :size="14" />
       </button>
     </nav>
-    <PlanPanel v-if="active === 'plan'" :plan="currentState!.plan" class="body" />
+    <DocumentTab v-if="active === 'document'" class="body" />
+    <PlanPanel v-else-if="active === 'plan'" :plan="currentState!.plan" class="body" />
     <PreviewPane v-else-if="active === 'preview'" class="body" />
     <ChangesTab v-else-if="active === 'changes'" class="body" />
     <BrowserTab v-else-if="active === 'browser'" class="body" />

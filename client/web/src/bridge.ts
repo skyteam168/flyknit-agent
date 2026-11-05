@@ -7,7 +7,10 @@
  *
  * 在普通浏览器中运行（npm run dev）时，使用 mockHost 模拟宿主。
  */
+import type { DocModel } from './documents'
 import type {
+  DocumentInfo,
+  DocumentSaveResult,
   ChannelsInfo,
   MobileInfo,
   MobilePairCode,
@@ -331,6 +334,14 @@ class Bridge {
   stopSide = (requestId: string) => this.call<void>('sidechat.stop', { requestId })
   /** 终端：这个对话里 AI 执行过的命令（带输出） */
   listTerminal = (conversationId: string) => this.call<TerminalRun[]>('terminal.list', { conversationId })
+  /** 文档画布：员工从对话的文件里打开一篇 Markdown（只认这个对话改过的、或工作区里的文件） */
+  openDocument = (conversationId: string, path: string) => this.call<{ ok: boolean }>('document.open', { conversationId, path })
+  loadDocument = (conversationId: string, path: string) => this.call<DocumentInfo>('document.load', { conversationId, path })
+  saveDocument = (conversationId: string, path: string, text: string, version: string) =>
+    this.call<DocumentSaveResult>('document.save', { conversationId, path, text, version })
+  /** 导出 Word：宿主弹「另存为」，按块写成 .docx */
+  exportDocx = (path: string, doc: DocModel) =>
+    this.call<{ ok: boolean; cancelled: boolean; path: string; message: string }>('document.exportDocx', { path, doc }, undefined, 120_000)
   /** 停掉终端里还在跑的命令 */
   stopTerminal = (conversationId: string, runId: string) => this.call<boolean>('terminal.stop', { conversationId, runId })
   /** 清掉已经结束的命令记录 */

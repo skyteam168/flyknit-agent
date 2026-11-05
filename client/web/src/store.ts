@@ -90,6 +90,8 @@ export const state = reactive({
   browser: { active: false, url: '', title: '', action: '', shot: '' },
   /** 终端：每个对话里 AI 执行过的命令和输出（宿主推 terminal.*，打开对话时取一次） */
   terminal: {} as Record<string, TerminalRun[]>,
+  /** 文档画布：每个对话当前打开的文稿；rev 每次 AI 改了文件就 +1，画布据此重新读 */
+  docs: {} as Record<string, { path: string; name: string; rev: number }>,
   /** 打开着的「改动的文件」对话框 */
   changesView: null as { conversationId: string; turnId: string } | null,
   /** 管理员发布的专家 */
@@ -1366,6 +1368,31 @@ export function toggleSessionPanel(open = !state.sessionPanel) {
 }
 
 /** 右侧面板的关闭：收起预览、会话信息，计划也先不自动弹 */
+/** 在文档画布里打开（员工从文件预览、对话文件里点的） */
+export async function openDocument(conversationId: string, path: string) {
+  const r = await bridge.openDocument(conversationId, path).catch(() => ({ ok: false }))
+  if (!r.ok) {
+    toast(i18n.global.t('ui.doc.cannotOpen'))
+    return
+  }
+  showDocument(conversationId, path)
+}
+
+function showDocument(conversationId: string, path: string) {
+  const prev = state.docs[conversationId]
+  const name = path.split(/[\\/]/).pop() ?? path
+  state.docs[conversationId] = { path, name, rev: prev && prev.path === path ? prev.rev + 1 : 0 }
+  if (conversationId !== state.currentId) return
+  // 同一个文件的只读预览关掉，免得两处各显示一份
+  if (state.preview?.file.path === path) state.preview = null
+  state.rightTab = 'document'
+  state.rightClosed = false
+}
+
+export function closeDocument(conversationId: string) {
+  delete state.docs[conversationId]
+}
+
 export function closeRightPanel() {
   state.preview = null
   toggleSessionPanel(false)
@@ -1701,6 +1728,9 @@ function onHostEvent(e: HostEvent) {
       state.browser = { active: e.active, url: e.url, title: e.title, action: e.action ?? '', shot: e.shot ?? state.browser.shot }
       if (e.active && !state.rightClosed) state.rightTab = 'browser'
       break
+    case 'document.changed':
+      showDocument(e.conversationId, e.path)
+      break
     case 'terminal.started':
       upsertTerminalRun(e.run)
       // 后台命令（开发服务器之类）一启动就切到终端，员工看得到、能随时停；普通命令只在终端标签里多一条
@@ -1758,7 +1788,8 @@ function onHostEvent(e: HostEvent) {
       const last = [...s.messages].reverse().find((m) => m.role === 'assistant')
       if (last) last.outputs = [...(last.outputs ?? []), ...e.files]
       if (state.autoPreview && e.conversationId === state.currentId && !state.preview) {
-        const first = e.files.find((f) => f.previewable && f.exists)
+        // Markdown 文稿由文档画布打开（document.changed），这里不再另开一份只读预览
+        const first = e.files.find((f) => f.previewable && f.exists && !/\.(md|markdown)$/i.test(f.path))
         if (first) void openPreview(first)
       }
       break

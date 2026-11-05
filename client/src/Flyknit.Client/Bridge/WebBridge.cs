@@ -1782,6 +1782,60 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _host.ClearTerminal(Str("conversationId"));
                 return null;
 
+            // ---------- 文档画布：AI 写的 Markdown 文稿，员工直接改、导出 Word ----------
+            case "document.open":
+                return new { ok = _host.OpenDocument(Str("conversationId"), Str("path")) };
+
+            case "document.load":
+            {
+                var doc = await Task.Run(() => _host.LoadDocument(Str("conversationId"), Str("path")));
+                return doc is null
+                    ? new { ok = false, path = Str("path"), name = Path.GetFileName(Str("path")), text = "", version = "", exists = false, tooLarge = false }
+                    : new { ok = true, path = doc.Path, name = Path.GetFileName(doc.Path), text = doc.Text, version = doc.Version, exists = doc.Exists, tooLarge = doc.TooLarge };
+            }
+
+            case "document.save":
+            {
+                var r = await Task.Run(() => _host.SaveDocument(Str("conversationId"), Str("path"), Str("text"), Str("version")));
+                return new { ok = r.Ok, conflict = r.Conflict, version = r.Version, currentText = r.CurrentText, message = r.Message };
+            }
+
+            case "document.exportDocx":
+            {
+                // 文档内容由界面按 markdown-it 的解析结果拆成块传过来（和画布里看到的一致），这里只负责写成 Word
+                Flyknit.Core.Documents.DocModel? model = null;
+                if (p.TryGetProperty("doc", out var d) && d.ValueKind == JsonValueKind.Object)
+                {
+                    model = d.Deserialize<Flyknit.Core.Documents.DocModel>(Json);
+                }
+                if (model is null)
+                {
+                    return new { ok = false, cancelled = false, path = "", message = "没有内容" };
+                }
+                var baseName = Path.GetFileNameWithoutExtension(Str("path"));
+                var name = (baseName.Length > 0 ? baseName : model.Title.Length > 0 ? model.Title : "文档") + ".docx";
+                foreach (var ch in Path.GetInvalidFileNameChars())
+                {
+                    name = name.Replace(ch, '_');
+                }
+                var target = _window.PickSaveFile(name, "Word 文档 (*.docx)|*.docx");
+                if (target is null)
+                {
+                    return new { ok = false, cancelled = true, path = "", message = "" };
+                }
+                try
+                {
+                    var bytes = await Task.Run(() => Flyknit.Core.Documents.DocxWriter.ToBytes(model));
+                    await File.WriteAllBytesAsync(target, bytes);
+                    return new { ok = true, cancelled = false, path = target, message = "" };
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Word 里正开着同名文件时会写不进去
+                    return new { ok = false, cancelled = false, path = target, message = ex.Message };
+                }
+            }
+
             // ---------- 侧聊：顺便问一句，读任务对话、不写回 ----------
             case "sidechat.ask":
             {

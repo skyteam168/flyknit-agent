@@ -101,6 +101,7 @@ public sealed class ToolRegistry
         .Add(new ListDirTool())
         .Add(new SearchFilesTool())
         .Add(new WriteFileTool())
+        .Add(new EditFileTool())
         .Add(new DeletePathTool())
         .Add(new RunShellTool())
         .Add(new UpdatePlanTool())

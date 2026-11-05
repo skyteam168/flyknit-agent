@@ -101,6 +101,8 @@ const showRight = computed(
     !!current.value &&
     !narrow.value &&
     (!!state.preview ||
+      // 文档画布开着（AI 写了文稿、员工点开了）
+      (!!state.docs[state.currentId ?? ''] && !state.rightClosed) ||
       state.sessionPanel ||
       // AI 浏览器在用、有后台命令在跑时自动显示（员工点了关闭就不再自动弹）
       ((state.browser.active || hasRunningBackground(state.currentId)) && !state.rightClosed) ||
@@ -116,7 +118,7 @@ const inConversation = computed(() => current.value !== null)
 const CHAT_MIN_WIDTH = 400
 const autoCollapseSidebar = computed(() => {
   if (narrow.value) return false // 窄窗口模式下不自动收起（已经是抽屉模式）
-  if (!state.preview) return false // 没有打开预览时不收起
+  if (!state.preview && !state.docs[state.currentId ?? '']) return false // 没有打开预览、文档时不收起
   // 计算聊天区域宽度 = 窗口宽度 - 侧边栏宽度 - 预览区域宽度
   const chatWidth = width.value - sidebarWidth.value - state.previewWidth
   return chatWidth < CHAT_MIN_WIDTH

@@ -430,7 +430,7 @@ skill-name/
 - **草稿与发布**：`experts` 表里存的是草稿，发布时拍成快照写进 `published`，同时在 `expert_versions` 留一份；员工端接口只返回快照。
   配置版本号（`config_events`）只在发布、下线、删除时变，员工端随即重新拉取。
 - **限制只做减法**：`disallowed_tools` 去掉指定工具；`mcp_servers` 非空时只保留这些连接器的工具（`McpTool.ServerId`），
-  提示词里的连接器说明也一起筛；`read_only` 把权限压到「仅可查看」并去掉 `write_file` / `delete_path`。
+  提示词里的连接器说明也一起筛；`read_only` 把权限压到「仅可查看」并去掉 `write_file` / `edit_file` / `delete_path`。
   没写的全部沿用，以后新加的技能、连接器自动可用。`preferred_skills` 只是提示，不限制。
 - **提示词**：在权限说明之后加一段 `<专家身份>`（职责、工作方式、专家知识、优先技能），并写明安全规则和用户确认不受专家身份影响。
 - **对话**：`conversations.expert_id` 在创建时定下。专家对话固定是办事模式、不做自动复盘（点踩也不复盘），
@@ -577,6 +577,23 @@ MCP 地址、介绍页（从页面里找 mcpServers 配置、`claude mcp add`、
 
 产出随本轮的回答存进 `messages.outputs`，重新打开会话时卡片还在。
 新工具要报产出，只需在返回的 `ToolResult` 上带 `Outputs`，不用改界面也不用改 AgentLoop。
+
+## 文档画布（右侧「文档」标签）
+
+AI 写成篇文字时（提示词 `PromptBuilder.DocumentGuide`），用 `write_file` 写 `.md`，之后用 `edit_file` 只替换要改的一段。
+`RunObserver.OnToolFinished` 看到这两个工具成功写了 Markdown（`DocumentCanvas.IsDocument`），就记进这个对话的文档、
+推 `document.changed`，界面在右侧画布打开或刷新。
+
+| 部分 | 位置 | 说明 |
+| --- | --- | --- |
+| `edit_file` | `Core/Tools/FileTools.cs` | old_text → new_text，必须唯一（或 replace_all）；权限、备份、改动记录同 `write_file`；只读专家去掉、LoopGuard 按路径计数 |
+| 读写 | `Core/Documents/DocumentCanvas.cs` | 版本 = 内容 SHA-256 前 16 位；保存带打开时的版本，文件期间被改过就返回冲突不覆盖；先写临时文件再替换 |
+| 宿主 | `AgentHost.Documents.cs` | 只能保存「这个对话打开过的文档」：AI 写过的，或员工从对话文件里打开的（这个对话改过的、或工作区里的）。界面不能借保存去写别处的文件 |
+| Word 导出 | `Core/Documents/DocxWriter.cs` | 界面用 markdown-it 把 Markdown 拆成块（`documents.ts` `markdownToDocModel`），宿主只按 OpenXML 写；不引第三方库 |
+| 界面 | `web/src/components/DocumentTab.vue`、`documents.ts` | contenteditable 编辑，`htmlToMarkdown` 转回存盘；停 1.5 秒或失焦自动保存；粘贴只取纯文字 |
+
+桥接：`document.open` / `document.load` / `document.save` / `document.exportDocx`，事件 `document.changed`。
+员工正在改（还没存）时 AI 又改了文件：界面不直接刷新，取 AI 的版本作为冲突，让员工选「用最新版本」或「保留我的修改」。
 
 ## 文件预览（右侧分屏）
 

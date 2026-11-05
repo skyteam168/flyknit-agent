@@ -6,7 +6,7 @@ export type AuditType = 'command' | 'file' | 'network' | 'config' | 'other'
 
 export const auditTypes: AuditType[] = ['command', 'file', 'network', 'config', 'other']
 
-const fileTools = new Set(['write_file', 'delete_path', 'read_file', 'list_dir', 'search_files'])
+const fileTools = new Set(['write_file', 'edit_file', 'delete_path', 'read_file', 'list_dir', 'search_files'])
 const hasUrl = (s: string) => /\b(https?|ftp):\/\//i.test(s)
 
 export function auditType(e: SecurityEvent): AuditType {

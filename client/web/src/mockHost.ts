@@ -30,6 +30,34 @@ function stopSpeechTimer() {
 const now = () => new Date().toISOString()
 const uid = () => Math.random().toString(36).slice(2, 10)
 
+/** 开发预览里的文档画布：AI「写」出来的文稿放在内存里 */
+const MOCK_DOC = 'D:\\工作区\\CFT 会议发言稿.md'
+const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
+
+## 一、开场
+
+我们这一年做 AI，最大的体会是：**AI 能不能进生产现场，不取决于模型多强**，取决于三件事——数据通不通、知识有没有沉淀、过程管不管得住。
+
+## 二、数据治理怎么做
+
+1. **统一接入**：每个系统先建「接入台账」，写清接口文档、负责人、维护窗口。
+2. **统一权限**：身份、组织、密级由中台自己管，默认拒绝。
+3. **统一审计**：每一次调用都记录是谁、代表哪个员工、用了哪个工具。
+
+> 一句话收尾：不是把数据搬到一起，而是让数据可以被安全地、可追溯地重复使用。
+
+| 项目 | 负责部门 | 上线时间 |
+| --- | --- | --- |
+| 考勤分析 | 人事部 | 11 月 |
+| 质检周报 | 品管部 | 12 月 |
+`
+const mockDocs = new Map<string, string>()
+function docVersion(text: string): string {
+  let h = 0
+  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0
+  return (h >>> 0).toString(16)
+}
+
 export function createMockHost(): HostTransport {
   let handler: (data: unknown) => void = () => {}
   const emit = (event: HostEvent) => handler({ kind: 'event', event })
@@ -308,6 +336,16 @@ export function createMockHost(): HostTransport {
 
   const mockChannelBindings: { id: number; channel: string; name: string; createdAt: string; lastUsed: string | null }[] = []
   const mockPhones: { id: number; name: string; appVersion: string; createdAt: string; lastSeen: string | null; connected: boolean }[] = []
+  // 开发预览：输入里带「文档 / 发言稿 / 报告」就演示 AI 写了一篇文稿，在右侧文档画布里打开；带「改」就演示 AI 改了它
+  function mockDocTrigger(conversationId: string, text: string) {
+    if (!/文档|发言稿|报告|纪要|document/i.test(text)) return
+    setTimeout(() => {
+      const before = mockDocs.get(MOCK_DOC)
+      mockDocs.set(MOCK_DOC, before && /改/.test(text) ? before.replace('## 一、开场', '## 一、开场白') : before ?? MOCK_DOC_TEXT)
+      emit({ type: 'document.changed', conversationId, path: MOCK_DOC, name: 'CFT 会议发言稿.md', by: 'ai' })
+    }, 1800)
+  }
+
   const mockPreviews: Record<string, unknown> = {
     'D:\\工作区\\日报\\FlyknitBuddy_产品介绍页.html': {
       kind: 'html',
@@ -1701,6 +1739,7 @@ export function createMockHost(): HostTransport {
         if (/产出|交付|文件|ppt|报表/i.test(p.text ?? '')) {
           setTimeout(() => emit({ type: 'files.produced', conversationId: p.conversationId, files: mockOutputs }), 2600)
         }
+        mockDocTrigger(p.conversationId, p.text ?? '')
         if (runningConvs.has(p.conversationId) && !(p.attachments?.length > 0)) {
           inbox.set(p.conversationId, [...(inbox.get(p.conversationId) ?? []), { id: p.messageId ?? uid(), text: p.text, mode: 'steer', at: now() }])
           emitInbox(p.conversationId)
@@ -1710,6 +1749,7 @@ export function createMockHost(): HostTransport {
         return
       case 'chat.interject': {
         if (!runningConvs.has(p.conversationId)) return false
+        mockDocTrigger(p.conversationId, p.text ?? '')
         const list = inbox.get(p.conversationId) ?? []
         const item = { id: p.messageId ?? uid(), text: p.text, mode: (p.mode === 'steer' ? 'steer' : 'queue') as 'steer' | 'queue', at: now() }
         if (p.mode === 'interrupt') {
@@ -1735,6 +1775,23 @@ export function createMockHost(): HostTransport {
       }
       case 'browser.show':
         return
+      case 'document.open':
+        if (!mockDocs.has(p.path)) mockDocs.set(p.path, (mockPreviews[p.path] as { text?: string } | undefined)?.text ?? '# ' + String(p.path).split('\\').pop() + '\n')
+        return { ok: true }
+      case 'document.load': {
+        const text = mockDocs.get(p.path)
+        await sleep(150)
+        return { ok: text != null, path: p.path, name: String(p.path).split('\\').pop(), text: text ?? '', version: docVersion(text ?? ''), exists: text != null, tooLarge: false }
+      }
+      case 'document.save': {
+        const now = mockDocs.get(p.path) ?? ''
+        if (docVersion(now) !== p.version) return { ok: false, conflict: true, version: docVersion(now), currentText: now, message: '' }
+        mockDocs.set(p.path, p.text)
+        return { ok: true, conflict: false, version: docVersion(p.text), currentText: '', message: '' }
+      }
+      case 'document.exportDocx':
+        await sleep(400)
+        return { ok: true, cancelled: false, path: 'D:\\文档\\' + String(p.path).split('\\').pop()!.replace(/\.md$/i, '.docx'), message: '' }
       case 'terminal.list':
         return []
       case 'terminal.stop': {

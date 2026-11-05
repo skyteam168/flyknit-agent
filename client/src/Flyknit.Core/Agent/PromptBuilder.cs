@@ -138,6 +138,19 @@ public sealed class PromptBuilder
         </终端与后台命令>
         """;
 
+    public const string DocumentGuide = """
+
+        <文档画布>
+        员工要的是一篇成形的文字（报告、方案、通知、总结、发言稿、会议纪要、说明书等）时：
+        - 用 write_file 写成 Markdown 文件（.md，放在工作区，文件名用文档标题），界面会在右侧「文档」画布里打开，员工可以直接在里面改、导出 Word。
+          聊天回复里只说一两句写了什么、放在哪，不要把全文再贴一遍。
+        - 之后再改这篇文档，用 edit_file 只替换要改的那一段，不要整篇重写。
+        - 员工可能已经在画布里改过：改之前先 read_file 看当前内容，照当前原文复制要替换的那一段。
+        - 用标准 Markdown：# 标题、列表、表格、**加粗**、> 引用，不要用 HTML。
+        短回答、一两段话、闲聊、查数据的结果照常直接回复，不用写文档。
+        </文档画布>
+        """;
+
     public const string ChartAndDiagramGuide = """
         <图表与流程图>
         回答里可以直接画图，界面会把下面这几种代码块渲染成图形，不用让用户另外打开文件：
@@ -338,6 +351,8 @@ public sealed class PromptBuilder
                 Mark("terminal");
                 sb.Append(TerminalGuide);
             }
+            Mark("document");
+            sb.Append(DocumentGuide);
         }
         Mark("");
         Sections = sections;
