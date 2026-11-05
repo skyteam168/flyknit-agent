@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Eye, FilePen, FileText, Globe, Info, ListChecks, Maximize2, Minimize2, Rows2, SquareTerminal, X } from '@lucide/vue'
+import { Activity, Eye, FilePen, FileText, Globe, Info, ListChecks, Maximize2, Minimize2, Rows2, SquareTerminal, X } from '@lucide/vue'
 import { closeRightPanel, current, currentState, setPreviewWidth, setRightRatio, setRightSplit, setRightTab2, state } from '../store'
 import RightPaneBody from './RightPaneBody.vue'
+import { backgroundCount, hasBackground } from '../background'
 
 /**
  * 右侧面板：文档、计划、文件预览、改动的文件、AI 浏览器、终端、会话信息放在同一块地方，用标签切换。
@@ -16,8 +17,8 @@ import RightPaneBody from './RightPaneBody.vue'
  */
 const { t } = useI18n()
 
-type Tab = 'document' | 'plan' | 'preview' | 'changes' | 'browser' | 'terminal' | 'session'
-const icons = { document: FileText, plan: ListChecks, preview: Eye, changes: FilePen, browser: Globe, terminal: SquareTerminal, session: Info }
+type Tab = 'document' | 'plan' | 'preview' | 'changes' | 'browser' | 'terminal' | 'background' | 'session'
+const icons = { document: FileText, plan: ListChecks, preview: Eye, changes: FilePen, browser: Globe, terminal: SquareTerminal, background: Activity, session: Info }
 
 const tabs = computed<Tab[]>(() => {
   const list: Tab[] = []
@@ -28,6 +29,8 @@ const tabs = computed<Tab[]>(() => {
   if (id && state.changes[id]?.some((x) => x.files.length)) list.push('changes')
   if (state.browser.active) list.push('browser')
   if (id && state.terminal[id]?.length) list.push('terminal')
+  // 后台：所有对话里正在进行的事（不只是当前对话）
+  if (hasBackground.value) list.push('background')
   list.push('session')
   return list
 })
@@ -137,6 +140,7 @@ const sized = computed(() => split.value || state.rightMax)
       >
         <component :is="icons[tab]" :size="14" />
         <span>{{ t(`ui.right.${tab}`) }}</span>
+        <span v-if="tab === 'background' && backgroundCount" class="num">{{ backgroundCount }}</span>
       </button>
       <span class="spacer" />
       <button
@@ -200,6 +204,7 @@ const sized = computed(() => split.value || state.rightMax)
         >
           <component :is="icons[tab]" :size="14" />
           <span>{{ t(`ui.right.${tab}`) }}</span>
+          <span v-if="tab === 'background' && backgroundCount" class="num">{{ backgroundCount }}</span>
         </button>
         <span class="spacer" />
         <button type="button" class="act" :title="t('ui.right.closePane')" @click="setRightSplit(false)">
@@ -269,6 +274,14 @@ const sized = computed(() => split.value || state.rightMax)
 /* 在下面一格里显示着的标签：淡淡标一下 */
 .tab.below {
   border-bottom-color: var(--line-strong, var(--line));
+}
+.num {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--indigo);
+  color: #fff;
+  font-size: 10px;
+  line-height: 15px;
 }
 .spacer {
   flex: 1;

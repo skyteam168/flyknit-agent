@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Copy, Languages, Menu, MessageCircleQuestion, MessageSquare, Minus, PanelLeft, PanelRight, Pin, Plus, Puzzle, Square, Wrench, X } from '@lucide/vue'
+import { Activity, Copy, Languages, Menu, MessageCircleQuestion, MessageSquare, Minus, PanelLeft, PanelRight, Pin, Plus, Puzzle, Square, Wrench, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import ConversationFiles from './ConversationFiles.vue'
 import { current, fail, newConversation, renameConversation, state, toggleMaximize, toggleSessionPanel, toggleSideChat, usedSkills } from '../store'
+import { backgroundCount } from '../background'
 import type { Mode } from '../types'
 
 defineProps<{ narrow: boolean; sidebarHidden: boolean }>()
@@ -44,6 +45,11 @@ async function pin() {
 function startNew() {
   newConversation()
   window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+}
+/** 打开右侧面板的「后台」标签 */
+function openBackground() {
+  toggleSessionPanel(true)
+  state.rightTab = 'background'
 }
 </script>
 
@@ -88,6 +94,17 @@ function startNew() {
     >
       <MessageCircleQuestion :size="16" />
     </button>
+    <!-- 后台有事在进行（别的对话里的任务、后台命令…）：点开右侧「后台」 -->
+    <button
+      v-if="current && state.view === 'chat' && backgroundCount > 0"
+      type="button"
+      class="icon-btn bg-btn"
+      :title="t('ui.background.topbar', { n: backgroundCount })"
+      @click="openBackground"
+    >
+      <Activity :size="16" />
+      <span class="bg-num">{{ backgroundCount }}</span>
+    </button>
     <button
       v-if="current && state.view === 'chat'"
       type="button"
@@ -117,6 +134,23 @@ function startNew() {
 </template>
 
 <style scoped>
+.bg-btn {
+  position: relative;
+  color: var(--indigo);
+}
+.bg-num {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--indigo);
+  color: #fff;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+}
 .flip {
   transform: scaleX(-1);
 }

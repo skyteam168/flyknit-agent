@@ -602,6 +602,8 @@ AI 写成篇文字时（提示词 `PromptBuilder.DocumentGuide`），用 `write_
 - 上下分屏（`state.rightLayout.split`，下面一格是 `state.rightTab2`）：整块面板统一用 `previewWidth`，各标签自己的宽度和拖拽条失效；
   同一个标签不会同时出现在两格（上面点了下面正在显示的标签就对调）。分屏开关、高度比例、下面一格的标签存在 localStorage。
 - 铺满（`state.rightMax`）：隐藏聊天区，面板撑满；换对话、关闭面板时退出。
+- 「后台」标签（`BackgroundTab.vue`，数据在 `background.ts`）：跨对话汇总正在跑的任务、上次没做完的（任务中心同一份 `runs.list`）、
+  后台命令（终端事件对所有对话都推，`state.terminal` 是全的）、未结束的专家子任务、24 小时内的定时任务；顶栏有计数按钮直达。
 
 ## 文件预览（右侧分屏）
 
