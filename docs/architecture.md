@@ -595,6 +595,14 @@ AI 写成篇文字时（提示词 `PromptBuilder.DocumentGuide`），用 `write_
 桥接：`document.open` / `document.load` / `document.save` / `document.exportDocx`，事件 `document.changed`。
 员工正在改（还没存）时 AI 又改了文件：界面不直接刷新，取 AI 的版本作为冲突，让员工选「用最新版本」或「保留我的修改」。
 
+## 右侧面板布局
+
+`RightPanel.vue` 管标签和布局，每一格的内容由 `RightPaneBody.vue` 按标签渲染。
+- 只有一格：各标签保持自己的宽度（会话信息 300、终端 380、预览 / 文档用可拖动的 `previewWidth`），和以前一样。
+- 上下分屏（`state.rightLayout.split`，下面一格是 `state.rightTab2`）：整块面板统一用 `previewWidth`，各标签自己的宽度和拖拽条失效；
+  同一个标签不会同时出现在两格（上面点了下面正在显示的标签就对调）。分屏开关、高度比例、下面一格的标签存在 localStorage。
+- 铺满（`state.rightMax`）：隐藏聊天区，面板撑满；换对话、关闭面板时退出。
+
 ## 文件预览（右侧分屏）
 
 `Flyknit.Core/Preview` 下是一组 `IPreviewProvider`，按注册顺序认领文件：

@@ -507,7 +507,8 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 20px 28px 40px;
+  /* 铺满时正文不要拉得太宽：一行最多 860px 左右，两边留白居中 */
+  padding: 20px max(28px, calc((100% - 860px) / 2)) 40px;
   color: var(--ink);
   font-size: var(--t-md, 15px);
   line-height: 1.75;

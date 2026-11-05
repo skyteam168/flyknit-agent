@@ -86,6 +86,10 @@ export const state = reactive({
   rightTab: '' as string,
   /** 员工点了右侧面板的关闭：计划不再自动弹出，直到打开预览、会话信息或换对话 */
   rightClosed: false,
+  /** 右侧面板布局：上下分屏（下面一格显示 rightTab2）、两格的高度比例、是否铺满聊天区（记住员工上次的选择，铺满除外） */
+  rightLayout: readRightLayout(),
+  rightTab2: '' as string,
+  rightMax: false,
   /** AI 浏览器的状态（宿主推 browser.state） */
   browser: { active: false, url: '', title: '', action: '', shot: '' },
   /** 终端：每个对话里 AI 执行过的命令和输出（宿主推 terminal.*，打开对话时取一次） */
@@ -273,6 +277,46 @@ export async function openSubtaskTrace(id: string, nested = false) {
 }
 
 const PreviewWidthKey = 'flyknit.previewWidth'
+const RightLayoutKey = 'flyknit.rightLayout'
+
+function readRightLayout(): { split: boolean; ratio: number; tab2: string } {
+  try {
+    const v = JSON.parse(localStorage.getItem(RightLayoutKey) ?? 'null')
+    if (v && typeof v === 'object') {
+      const ratio = Number(v.ratio)
+      return { split: !!v.split, ratio: Number.isFinite(ratio) ? Math.min(0.8, Math.max(0.2, ratio)) : 0.5, tab2: String(v.tab2 ?? '') }
+    }
+  } catch {
+    // 本地存储不可用（隐私模式之类）：用默认布局
+  }
+  return { split: false, ratio: 0.5, tab2: '' }
+}
+
+function saveRightLayout() {
+  try {
+    localStorage.setItem(RightLayoutKey, JSON.stringify({ ...state.rightLayout, tab2: state.rightTab2 }))
+  } catch {
+    // 存不下就算了，下次用默认布局
+  }
+}
+
+/** 上下分屏开关。打开时下面一格优先用上次的标签 */
+export function setRightSplit(on: boolean) {
+  state.rightLayout.split = on
+  if (on && !state.rightTab2) state.rightTab2 = state.rightLayout.tab2
+  saveRightLayout()
+}
+
+export function setRightRatio(ratio: number) {
+  state.rightLayout.ratio = Math.min(0.8, Math.max(0.2, ratio))
+  saveRightLayout()
+}
+
+export function setRightTab2(tab: string) {
+  state.rightTab2 = tab
+  saveRightLayout()
+}
+
 export const MinPreviewWidth = 320
 export const MaxPreviewWidth = 680
 export const MaxPreviewRatio = 0.50
@@ -820,6 +864,8 @@ export async function setTheme(theme: Theme) {
 // ---------- 会话操作 ----------
 export async function openConversation(id: string) {
   state.view = 'chat'
+  // 换对话时退出「铺满」：新对话先看聊天
+  if (state.currentId !== id) state.rightMax = false
   state.currentId = id
   const s = convState(id)
   if (!s.loaded) {
@@ -1394,6 +1440,7 @@ export function closeDocument(conversationId: string) {
 }
 
 export function closeRightPanel() {
+  state.rightMax = false
   state.preview = null
   toggleSessionPanel(false)
   state.rightClosed = true

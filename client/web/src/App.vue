@@ -118,7 +118,8 @@ const inConversation = computed(() => current.value !== null)
 const CHAT_MIN_WIDTH = 400
 const autoCollapseSidebar = computed(() => {
   if (narrow.value) return false // 窄窗口模式下不自动收起（已经是抽屉模式）
-  if (!state.preview && !state.docs[state.currentId ?? '']) return false // 没有打开预览、文档时不收起
+  // 没有打开预览、文档，也没有分屏时不收起
+  if (!state.preview && !state.docs[state.currentId ?? ''] && !(showRight.value && state.rightLayout.split)) return false
   // 计算聊天区域宽度 = 窗口宽度 - 侧边栏宽度 - 预览区域宽度
   const chatWidth = width.value - sidebarWidth.value - state.previewWidth
   return chatWidth < CHAT_MIN_WIDTH
@@ -303,7 +304,7 @@ onBeforeUnmount(() => {
         <LibraryPage v-if="state.view === 'library'" />
         <ExpertsPage v-else-if="state.view === 'experts'" />
         <TasksPage v-else-if="state.view === 'tasks'" />
-        <div v-else-if="inConversation" class="conversation">
+        <div v-else-if="inConversation" v-show="!(state.rightMax && showRight)" class="conversation">
           <!-- 专家对话：顶部标出是哪位专家；专家被下线了说一声 -->
           <div v-if="current?.expertId" class="expert-bar" :class="{ withdrawn: expertWithdrawn }">
             <template v-if="currentExpert">
