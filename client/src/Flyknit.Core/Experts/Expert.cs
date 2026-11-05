@@ -73,7 +73,7 @@ public sealed class Expert
 public static class ExpertRuntime
 {
     /// <summary>只读专家去掉的工具。执行命令保留：「仅可查看」权限下命令策略只放行查询类命令。</summary>
-    public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal) { "write_file", "delete_path" };
+    public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal) { "write_file", "edit_file", "delete_path" };
 
     public static bool Allows(Expert expert, ITool tool)
     {

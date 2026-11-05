@@ -430,7 +430,7 @@ skill-name/
 - **草稿与发布**：`experts` 表里存的是草稿，发布时拍成快照写进 `published`，同时在 `expert_versions` 留一份；员工端接口只返回快照。
   配置版本号（`config_events`）只在发布、下线、删除时变，员工端随即重新拉取。
 - **限制只做减法**：`disallowed_tools` 去掉指定工具；`mcp_servers` 非空时只保留这些连接器的工具（`McpTool.ServerId`），
-  提示词里的连接器说明也一起筛；`read_only` 把权限压到「仅可查看」并去掉 `write_file` / `delete_path`。
+  提示词里的连接器说明也一起筛；`read_only` 把权限压到「仅可查看」并去掉 `write_file` / `edit_file` / `delete_path`。
   没写的全部沿用，以后新加的技能、连接器自动可用。`preferred_skills` 只是提示，不限制。
 - **提示词**：在权限说明之后加一段 `<专家身份>`（职责、工作方式、专家知识、优先技能），并写明安全规则和用户确认不受专家身份影响。
 - **对话**：`conversations.expert_id` 在创建时定下。专家对话固定是办事模式、不做自动复盘（点踩也不复盘），
@@ -577,6 +577,47 @@ MCP 地址、介绍页（从页面里找 mcpServers 配置、`claude mcp add`、
 
 产出随本轮的回答存进 `messages.outputs`，重新打开会话时卡片还在。
 新工具要报产出，只需在返回的 `ToolResult` 上带 `Outputs`，不用改界面也不用改 AgentLoop。
+
+## 文档画布（右侧「文档」标签）
+
+AI 写成篇文字时（提示词 `PromptBuilder.DocumentGuide`），用 `write_file` 写 `.md`，之后用 `edit_file` 只替换要改的一段。
+`RunObserver.OnToolFinished` 看到这两个工具成功写了 Markdown（`DocumentCanvas.IsDocument`），就记进这个对话的文档、
+推 `document.changed`，界面在右侧画布打开或刷新。
+
+| 部分 | 位置 | 说明 |
+| --- | --- | --- |
+| `edit_file` | `Core/Tools/FileTools.cs` | old_text → new_text，必须唯一（或 replace_all）；权限、备份、改动记录同 `write_file`；只读专家去掉、LoopGuard 按路径计数 |
+| 读写 | `Core/Documents/DocumentCanvas.cs` | 版本 = 内容 SHA-256 前 16 位；保存带打开时的版本，文件期间被改过就返回冲突不覆盖；先写临时文件再替换 |
+| 宿主 | `AgentHost.Documents.cs` | 只能保存「这个对话打开过的文档」：AI 写过的，或员工从对话文件里打开的（这个对话改过的、或工作区里的）。界面不能借保存去写别处的文件 |
+| Word 导出 | `Core/Documents/DocxWriter.cs` | 界面用 markdown-it 把 Markdown 拆成块（`documents.ts` `markdownToDocModel`），宿主只按 OpenXML 写；不引第三方库 |
+| 界面 | `web/src/components/DocumentTab.vue`、`documents.ts` | contenteditable 编辑，`htmlToMarkdown` 转回存盘；停 1.5 秒或失焦自动保存；粘贴只取纯文字 |
+
+桥接：`document.open` / `document.load` / `document.save` / `document.exportDocx`，事件 `document.changed`。
+员工正在改（还没存）时 AI 又改了文件：界面不直接刷新，取 AI 的版本作为冲突，让员工选「用最新版本」或「保留我的修改」。
+
+## 右侧面板布局
+
+`RightPanel.vue` 管标签和布局，每一格的内容由 `RightPaneBody.vue` 按标签渲染。
+- 只有一格：各标签保持自己的宽度（会话信息 300、终端 380、预览 / 文档用可拖动的 `previewWidth`），和以前一样。
+- 上下分屏（`state.rightLayout.split`，下面一格是 `state.rightTab2`）：整块面板统一用 `previewWidth`，各标签自己的宽度和拖拽条失效；
+  同一个标签不会同时出现在两格（上面点了下面正在显示的标签就对调）。分屏开关、高度比例、下面一格的标签存在 localStorage。
+- 铺满（`state.rightMax`）：隐藏聊天区，面板撑满；换对话、关闭面板时退出。
+- 「后台」标签（`BackgroundTab.vue`，数据在 `background.ts`）：跨对话汇总正在跑的任务、上次没做完的（任务中心同一份 `runs.list`）、
+  后台命令（终端事件对所有对话都推，`state.terminal` 是全的）、未结束的专家子任务、24 小时内的定时任务；顶栏有计数按钮直达。
+
+## 工作区文件（右侧「文件」标签）
+
+`Core/Workspace/WorkspaceBrowser.cs`：`Resolve` 把相对路径解析到工作区里（..\、别的盘、UNC 一律返回 null），
+`List` 列一个文件夹（文件夹在前，单个文件夹最多 500 项，不列 `.git`，依赖 / 编译输出目录标 `Noise`），
+`Search` 按文件名广度优先找（最深 8 层、最多看 2 万项、最多 200 个结果，不进依赖目录和点开头的目录）。
+宿主 `AgentHost.Workspace.cs` 只用对话自己的工作区；桥接 `workspace.list` / `workspace.search` / `workspace.attach`。
+只读：预览、用默认程序打开、在文件夹中显示走已有的 `files.*`，加进输入框成为附件，Markdown 可转到文档画布。
+
+## 上下文用量细分
+
+`ContextUsage.ConversationParts`：对话消息拆成 `user` / `assistant`；工具结果按工具名分组（老消息没存工具名的，按 assistant 的
+tool call ID 找回来），每组列出最大的 `LargestOutputs`（5）次结果，标签是结果的开头一句。组的合计算全部，不只是列出来的几次。
+界面（`SessionPanel.vue`）在某一次结果超过自动整理门槛的 15% 时直接提示是哪一次。
 
 ## 文件预览（右侧分屏）
 

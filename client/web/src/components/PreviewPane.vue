@@ -2,9 +2,9 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BrandLoader from './BrandLoader.vue'
-import { ExternalLink, FolderOpen, X } from '@lucide/vue'
+import { ExternalLink, FolderOpen, PenLine, X } from '@lucide/vue'
 import { renderMarkdown } from '../markdown'
-import { closePreview, launchFile, revealFile, setPreviewWidth, state } from '../store'
+import { closePreview, current as currentConv, launchFile, openDocument, revealFile, setPreviewWidth, state } from '../store'
 import { useRichBlocks } from '../render/useRichBlocks'
 import PdfView from './PdfView.vue'
 import { encodeBlockCode, hasBlockRenderer } from '../render/blocks'
@@ -26,6 +26,8 @@ watch(
 )
 
 const sections = computed(() => doc.value?.sections ?? [])
+/** Markdown 文稿可以转到文档画布里直接改 */
+const editable = computed(() => !!currentConv.value && /\.(md|markdown)$/i.test(state.preview?.file.path ?? ''))
 const current = computed(() => sections.value[activeSection.value] ?? null)
 
 // 流程图源码（.mmd / .dot）直接渲染成图，渲染不了再退回源码
@@ -89,6 +91,9 @@ function onKeyResize(e: KeyboardEvent) {
 
     <header>
       <span class="name" :title="preview.file.path">{{ preview.file.name }}</span>
+      <button v-if="editable" type="button" class="ico" :title="t('ui.doc.openInCanvas')" @click="openDocument(currentConv!.id, preview.file.path)">
+        <PenLine :size="15" />
+      </button>
       <button type="button" class="ico" :title="t('ui.outputs.openWithDefault')" @click="launchFile(preview.file)">
         <ExternalLink :size="15" />
       </button>

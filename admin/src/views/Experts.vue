@@ -52,7 +52,7 @@ function hue(id: string) {
 }
 
 // 只读专家用不了的工具（员工端也按这个名单筛）。执行命令保留，但只读权限下只放行查询类命令
-const WRITE_TOOLS = ['write_file', 'delete_path']
+const WRITE_TOOLS = ['write_file', 'edit_file', 'delete_path']
 
 const CARD_TEMPLATE = '负责：\n适合：\n不负责：\n需要的信息：'
 

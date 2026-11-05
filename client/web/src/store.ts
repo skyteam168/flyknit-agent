@@ -86,10 +86,16 @@ export const state = reactive({
   rightTab: '' as string,
   /** 员工点了右侧面板的关闭：计划不再自动弹出，直到打开预览、会话信息或换对话 */
   rightClosed: false,
+  /** 右侧面板布局：上下分屏（下面一格显示 rightTab2）、两格的高度比例、是否铺满聊天区（记住员工上次的选择，铺满除外） */
+  rightLayout: readRightLayout(),
+  rightTab2: '' as string,
+  rightMax: false,
   /** AI 浏览器的状态（宿主推 browser.state） */
   browser: { active: false, url: '', title: '', action: '', shot: '' },
   /** 终端：每个对话里 AI 执行过的命令和输出（宿主推 terminal.*，打开对话时取一次） */
   terminal: {} as Record<string, TerminalRun[]>,
+  /** 文档画布：每个对话当前打开的文稿；rev 每次 AI 改了文件就 +1，画布据此重新读 */
+  docs: {} as Record<string, { path: string; name: string; rev: number }>,
   /** 打开着的「改动的文件」对话框 */
   changesView: null as { conversationId: string; turnId: string } | null,
   /** 管理员发布的专家 */
@@ -271,6 +277,46 @@ export async function openSubtaskTrace(id: string, nested = false) {
 }
 
 const PreviewWidthKey = 'flyknit.previewWidth'
+const RightLayoutKey = 'flyknit.rightLayout'
+
+function readRightLayout(): { split: boolean; ratio: number; tab2: string } {
+  try {
+    const v = JSON.parse(localStorage.getItem(RightLayoutKey) ?? 'null')
+    if (v && typeof v === 'object') {
+      const ratio = Number(v.ratio)
+      return { split: !!v.split, ratio: Number.isFinite(ratio) ? Math.min(0.8, Math.max(0.2, ratio)) : 0.5, tab2: String(v.tab2 ?? '') }
+    }
+  } catch {
+    // 本地存储不可用（隐私模式之类）：用默认布局
+  }
+  return { split: false, ratio: 0.5, tab2: '' }
+}
+
+function saveRightLayout() {
+  try {
+    localStorage.setItem(RightLayoutKey, JSON.stringify({ ...state.rightLayout, tab2: state.rightTab2 }))
+  } catch {
+    // 存不下就算了，下次用默认布局
+  }
+}
+
+/** 上下分屏开关。打开时下面一格优先用上次的标签 */
+export function setRightSplit(on: boolean) {
+  state.rightLayout.split = on
+  if (on && !state.rightTab2) state.rightTab2 = state.rightLayout.tab2
+  saveRightLayout()
+}
+
+export function setRightRatio(ratio: number) {
+  state.rightLayout.ratio = Math.min(0.8, Math.max(0.2, ratio))
+  saveRightLayout()
+}
+
+export function setRightTab2(tab: string) {
+  state.rightTab2 = tab
+  saveRightLayout()
+}
+
 export const MinPreviewWidth = 320
 export const MaxPreviewWidth = 680
 export const MaxPreviewRatio = 0.50
@@ -818,6 +864,8 @@ export async function setTheme(theme: Theme) {
 // ---------- 会话操作 ----------
 export async function openConversation(id: string) {
   state.view = 'chat'
+  // 换对话时退出「铺满」：新对话先看聊天
+  if (state.currentId !== id) state.rightMax = false
   state.currentId = id
   const s = convState(id)
   if (!s.loaded) {
@@ -1366,7 +1414,33 @@ export function toggleSessionPanel(open = !state.sessionPanel) {
 }
 
 /** 右侧面板的关闭：收起预览、会话信息，计划也先不自动弹 */
+/** 在文档画布里打开（员工从文件预览、对话文件里点的） */
+export async function openDocument(conversationId: string, path: string) {
+  const r = await bridge.openDocument(conversationId, path).catch(() => ({ ok: false }))
+  if (!r.ok) {
+    toast(i18n.global.t('ui.doc.cannotOpen'))
+    return
+  }
+  showDocument(conversationId, path)
+}
+
+function showDocument(conversationId: string, path: string) {
+  const prev = state.docs[conversationId]
+  const name = path.split(/[\\/]/).pop() ?? path
+  state.docs[conversationId] = { path, name, rev: prev && prev.path === path ? prev.rev + 1 : 0 }
+  if (conversationId !== state.currentId) return
+  // 同一个文件的只读预览关掉，免得两处各显示一份
+  if (state.preview?.file.path === path) state.preview = null
+  state.rightTab = 'document'
+  state.rightClosed = false
+}
+
+export function closeDocument(conversationId: string) {
+  delete state.docs[conversationId]
+}
+
 export function closeRightPanel() {
+  state.rightMax = false
   state.preview = null
   toggleSessionPanel(false)
   state.rightClosed = true
@@ -1701,6 +1775,9 @@ function onHostEvent(e: HostEvent) {
       state.browser = { active: e.active, url: e.url, title: e.title, action: e.action ?? '', shot: e.shot ?? state.browser.shot }
       if (e.active && !state.rightClosed) state.rightTab = 'browser'
       break
+    case 'document.changed':
+      showDocument(e.conversationId, e.path)
+      break
     case 'terminal.started':
       upsertTerminalRun(e.run)
       // 后台命令（开发服务器之类）一启动就切到终端，员工看得到、能随时停；普通命令只在终端标签里多一条
@@ -1758,7 +1835,8 @@ function onHostEvent(e: HostEvent) {
       const last = [...s.messages].reverse().find((m) => m.role === 'assistant')
       if (last) last.outputs = [...(last.outputs ?? []), ...e.files]
       if (state.autoPreview && e.conversationId === state.currentId && !state.preview) {
-        const first = e.files.find((f) => f.previewable && f.exists)
+        // Markdown 文稿由文档画布打开（document.changed），这里不再另开一份只读预览
+        const first = e.files.find((f) => f.previewable && f.exists && !/\.(md|markdown)$/i.test(f.path))
         if (first) void openPreview(first)
       }
       break

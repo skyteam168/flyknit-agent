@@ -206,6 +206,104 @@ public sealed class WriteFileTool : ITool
     }
 }
 
+/// <summary>
+/// 改文本文件里的一段：把 old_text 换成 new_text。改文档（报告、通知、发言稿）时只动要改的那一段，
+/// 不用把整篇重写一遍——省 token，也不会顺手把别的段落改掉。权限、备份、改动记录和 write_file 一样。
+/// </summary>
+public sealed class EditFileTool : ITool
+{
+    public string Name => "edit_file";
+    public string Description => "修改文本文件（md、txt、csv、代码等）中的一段：把 old_text 原样替换成 new_text，其余内容不动。" +
+        "old_text 必须和文件里的文字完全一致（含标点、空格、换行），并且要足够长、在文件中唯一；要改多处时分多次调用，或 replace_all=true。" +
+        "改文档优先用它，不要用 write_file 整篇重写。";
+    public JsonObject Parameters => ToolArgs.Schema(
+        ("path", "string", "文件路径", true),
+        ("old_text", "string", "要替换的原文（与文件内容完全一致）", true),
+        ("new_text", "string", "替换后的内容；为空表示删掉这段", true),
+        ("replace_all", "boolean", "为 true 时替换所有出现的地方，默认只允许出现一次", false));
+
+    public PolicyDecision Assess(JsonElement args, ToolContext ctx) => ctx.AssessWrite(args.Str("path"));
+
+    public string Describe(JsonElement args)
+    {
+        var old = args.Str("old_text");
+        var preview = old.Length > 30 ? old[..30] + "…" : old;
+        return $"修改文件 {args.Str("path")}：「{preview.ReplaceLineEndings(" ")}」";
+    }
+
+    public async Task<ToolResult> ExecuteAsync(JsonElement args, ToolContext ctx, CancellationToken ct)
+    {
+        var path = ctx.ResolvePath(args.Required("path"));
+        if (!File.Exists(path))
+        {
+            return ToolResult.Fail($"文件不存在：{path}。新建文件请用 write_file");
+        }
+        var oldText = args.Str("old_text");
+        var newText = args.Str("new_text");
+        if (oldText.Length == 0)
+        {
+            return ToolResult.Fail("old_text 不能为空。要在开头或末尾加内容，就把相邻的一段原文连同新内容一起替换");
+        }
+        if (oldText == newText)
+        {
+            return ToolResult.Fail("old_text 和 new_text 一样，没有要改的");
+        }
+
+        string content;
+        using (var reader = new StreamReader(path, Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
+        {
+            content = await reader.ReadToEndAsync(ct);
+        }
+        var (find, replace) = Match(content, oldText, newText);
+        var count = Count(content, find);
+        if (count == 0)
+        {
+            return ToolResult.Fail("文件里找不到 old_text。先用 read_file 看一下当前内容（文件可能刚被员工改过），再照原文复制要改的那一段");
+        }
+        var all = args.Bool("replace_all", false);
+        if (count > 1 && !all)
+        {
+            return ToolResult.Fail($"old_text 在文件里出现了 {count} 次，不知道改哪一处。多带一些前后文让它唯一，或者 replace_all=true 全部替换");
+        }
+
+        var saved = ctx.Backup?.Capture(path);
+        ctx.NoteChange(new FileChange(path, FileChange.Modified, saved, Name));
+        var updated = all ? content.Replace(find, replace, StringComparison.Ordinal) : ReplaceOnce(content, find, replace);
+        await File.WriteAllTextAsync(path, updated, new UTF8Encoding(false), ct);
+        var note = saved is null ? "" : "（原文件已备份）";
+        return ToolResult.Success($"已修改 {path}：替换了 {(all ? count : 1)} 处{note}").WithOutputs(path);
+    }
+
+    /// <summary>文件是 Windows 换行（\r\n）而模型给的是 \n 时，按文件的换行来找、来写。</summary>
+    internal static (string Find, string Replace) Match(string content, string oldText, string newText)
+    {
+        if (content.Contains(oldText, StringComparison.Ordinal) || !content.Contains("\r\n", StringComparison.Ordinal))
+        {
+            return (oldText, newText);
+        }
+        var crlf = oldText.Replace("\r\n", "\n").Replace("\n", "\r\n");
+        return content.Contains(crlf, StringComparison.Ordinal)
+            ? (crlf, newText.Replace("\r\n", "\n").Replace("\n", "\r\n"))
+            : (oldText, newText);
+    }
+
+    private static int Count(string content, string find)
+    {
+        var n = 0;
+        for (var i = content.IndexOf(find, StringComparison.Ordinal); i >= 0; i = content.IndexOf(find, i + find.Length, StringComparison.Ordinal))
+        {
+            n++;
+        }
+        return n;
+    }
+
+    private static string ReplaceOnce(string content, string find, string replace)
+    {
+        var i = content.IndexOf(find, StringComparison.Ordinal);
+        return content[..i] + replace + content[(i + find.Length)..];
+    }
+}
+
 public sealed class DeletePathTool : ITool
 {
     public string Name => "delete_path";

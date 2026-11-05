@@ -113,11 +113,47 @@ public static class ContextUsage
         };
     }
 
+    /// <summary>每种工具下面列出最大的几次结果：上下文满得快，多半是某一两次结果太大（读了整个大文件、查了一大张表）。</summary>
+    public const int LargestOutputs = 5;
+
     internal static IEnumerable<ContextPart> ConversationParts(IReadOnlyList<ChatMessage> conversation)
     {
-        var messages = conversation.Where(m => m.Role is ChatRole.User or ChatRole.Assistant).Sum(TokenEstimator.Estimate);
-        var outputs = conversation.Where(m => m.Role == ChatRole.Tool).Sum(TokenEstimator.Estimate);
-        yield return ContextPart.Of(Messages, "对话消息", messages);
-        yield return ContextPart.Of(ToolOutputs, "工具结果", outputs);
+        // 对话消息：员工说的（含附件说明）和 AI 回答的（含它调用工具时写的参数）分开
+        var user = conversation.Where(m => m.Role == ChatRole.User).Sum(TokenEstimator.Estimate);
+        var assistant = conversation.Where(m => m.Role == ChatRole.Assistant).Sum(TokenEstimator.Estimate);
+        var messageItems = new List<ContextPart>();
+        if (user > 0)
+        {
+            messageItems.Add(ContextPart.Of("user", "你说的话", user));
+        }
+        if (assistant > 0)
+        {
+            messageItems.Add(ContextPart.Of("assistant", "AI 的回答", assistant));
+        }
+        yield return new ContextPart(Messages, "对话消息", user + assistant, messageItems.OrderByDescending(p => p.Tokens).ToList());
+
+        // 工具结果：按工具分组，组里列出最大的几次
+        var names = conversation.Where(m => m.Role == ChatRole.Assistant)
+            .SelectMany(m => m.ToolCalls)
+            .GroupBy(c => c.Id)
+            .ToDictionary(g => g.Key, g => g.First().Name);
+        var outputs = conversation.Where(m => m.Role == ChatRole.Tool)
+            .Select(m => (Message: m, Tool: m.ToolName ?? (m.ToolCallId is { } id && names.TryGetValue(id, out var n) ? n : "tool"), Tokens: TokenEstimator.Estimate(m)))
+            .ToList();
+        var groups = outputs
+            .GroupBy(x => x.Tool)
+            .Select(g => new ContextPart(g.Key, g.Key, g.Sum(x => x.Tokens),
+                g.OrderByDescending(x => x.Tokens).Take(LargestOutputs)
+                    .Select(x => ContextPart.Of(x.Message.ToolCallId ?? x.Message.Id, Preview(x.Message.Content), x.Tokens)).ToList()))
+            .OrderByDescending(p => p.Tokens)
+            .ToList();
+        yield return new ContextPart(ToolOutputs, "工具结果", outputs.Sum(x => x.Tokens), groups);
+    }
+
+    /// <summary>一次工具结果的开头一句，界面上认得出是哪一次</summary>
+    private static string Preview(string content)
+    {
+        var line = content.ReplaceLineEndings(" ").Trim();
+        return line.Length > 40 ? line[..40] + "…" : line.Length > 0 ? line : "（空）";
     }
 }

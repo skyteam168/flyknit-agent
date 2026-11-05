@@ -928,6 +928,8 @@ export type HostEvent =
   | { type: 'runs.changed' }
   | { type: 'browser.state'; active: boolean; url: string; title: string; action?: string; shot?: string }
   | { type: 'terminal.started'; run: TerminalRun }
+  /** AI 写了 / 改了 Markdown 文稿：在文档画布里打开或刷新 */
+  | { type: 'document.changed'; conversationId: string; path: string; name: string; by: 'ai' }
   | { type: 'terminal.output'; conversationId: string; runId: string; text: string }
   | { type: 'terminal.ended'; run: TerminalRun }
   | { type: 'sidechat.delta'; requestId: string; text: string }
@@ -1150,4 +1152,47 @@ export interface TerminalRun {
 export interface RevertOutcome {
   reverted: string[]
   skipped: { path: string; reason: string }[]
+}
+
+/** 文档画布里打开的文档（宿主 document.load） */
+export interface DocumentInfo {
+  ok: boolean
+  path: string
+  name: string
+  text: string
+  /** 内容指纹：保存时带上，文件在这期间被改过就不覆盖 */
+  version: string
+  exists: boolean
+  tooLarge: boolean
+}
+
+export interface DocumentSaveResult {
+  ok: boolean
+  /** 文件在编辑期间被改过（多半是 AI 用 edit_file 改的）：currentText / version 是现在的内容 */
+  conflict: boolean
+  version: string
+  currentText: string
+  message: string
+}
+
+/** 右侧「文件」标签里工作区的一项（宿主 workspace.list / workspace.search） */
+export interface WorkspaceEntry {
+  name: string
+  /** 工作区里的相对路径（展开文件夹时传回去） */
+  path: string
+  fullPath: string
+  isDir: boolean
+  size: number
+  modifiedAt: string
+  /** 依赖、编译输出这类文件夹：标灰 */
+  noise: boolean
+  previewable: boolean
+}
+
+export interface WorkspaceListing {
+  root: string
+  exists: boolean
+  truncated: boolean
+  error: string
+  entries: WorkspaceEntry[]
 }

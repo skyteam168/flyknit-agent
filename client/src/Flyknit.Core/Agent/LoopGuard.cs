@@ -50,7 +50,7 @@ public sealed class LoopGuard
     public int RewriteStopAt { get; init; } = 8;
 
     /// <summary>按目标（文件路径）计数的工具：参数里的内容每次都不同，只看写的是哪个文件。</summary>
-    public static readonly HashSet<string> TargetTools = new(StringComparer.Ordinal) { "write_file", "delete_path" };
+    public static readonly HashSet<string> TargetTools = new(StringComparer.Ordinal) { "write_file", "edit_file", "delete_path" };
 
     /// <summary>
     /// 不影响「是不是同一个操作」的参数：同一条命令把超时从 60 改成 120 再跑一遍，仍然是在重复。
