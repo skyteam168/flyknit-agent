@@ -8,6 +8,7 @@ import BrowserTab from './BrowserTab.vue'
 import TerminalTab from './TerminalTab.vue'
 import DocumentTab from './DocumentTab.vue'
 import BackgroundTab from './BackgroundTab.vue'
+import FilesTab from './FilesTab.vue'
 
 /** 右侧面板里的一格：按标签显示对应的内容（分屏时上下两格各用一个） */
 defineProps<{ tab: string }>()
@@ -21,6 +22,7 @@ defineProps<{ tab: string }>()
   <BrowserTab v-else-if="tab === 'browser'" class="body" />
   <TerminalTab v-else-if="tab === 'terminal'" class="body" />
   <BackgroundTab v-else-if="tab === 'background'" class="body" />
+  <FilesTab v-else-if="tab === 'files'" class="body" />
   <SessionPanel v-else class="body" />
 </template>
 

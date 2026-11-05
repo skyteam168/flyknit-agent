@@ -1174,3 +1174,25 @@ export interface DocumentSaveResult {
   currentText: string
   message: string
 }
+
+/** 右侧「文件」标签里工作区的一项（宿主 workspace.list / workspace.search） */
+export interface WorkspaceEntry {
+  name: string
+  /** 工作区里的相对路径（展开文件夹时传回去） */
+  path: string
+  fullPath: string
+  isDir: boolean
+  size: number
+  modifiedAt: string
+  /** 依赖、编译输出这类文件夹：标灰 */
+  noise: boolean
+  previewable: boolean
+}
+
+export interface WorkspaceListing {
+  root: string
+  exists: boolean
+  truncated: boolean
+  error: string
+  entries: WorkspaceEntry[]
+}

@@ -86,6 +86,56 @@ public class ContextUsageTests
     }
 
     [Fact]
+    public void MessagesAndToolResultsShowWhatTakesTheMostRoom()
+    {
+        var read = new ToolCall("c1", "read_file", "{}");
+        var shell1 = new ToolCall("c2", "run_shell", "{}");
+        var shell2 = new ToolCall("c3", "run_shell", "{}");
+        var conversation = new List<ChatMessage>
+        {
+            ChatMessage.User("把 D 盘日报汇总一下"),
+            new() { Role = ChatRole.Assistant, Content = "", ToolCalls = { read, shell1, shell2 } },
+            ChatMessage.ToolResult(read, "日报第一行\n" + new string('字', 4000)),
+            ChatMessage.ToolResult(shell1, "退出码：0\n" + new string('x', 300)),
+            ChatMessage.ToolResult(shell2, "退出码：0"),
+            // 老消息里没存工具名的：按 assistant 的 tool call 认出来
+            new() { Role = ChatRole.Tool, ToolCallId = "c2", Content = "旧格式" },
+            ChatMessage.Assistant("汇总好了。"),
+        };
+
+        var report = ContextUsage.Measure(Array.Empty<(string, string)>(), Array.Empty<ITool>(), conversation, 131072, 92000, 8192);
+
+        var messages = report.Parts.Single(p => p.Key == ContextUsage.Messages);
+        Assert.Equal(new[] { "user", "assistant" }.OrderBy(x => x), messages.Items.Select(i => i.Key).OrderBy(x => x));
+        Assert.Equal(messages.Items.Sum(i => i.Tokens), messages.Tokens);
+
+        var outputs = report.Parts.Single(p => p.Key == ContextUsage.ToolOutputs);
+        Assert.Equal(new[] { "read_file", "run_shell" }, outputs.Items.Select(i => i.Key)); // 大的在前
+        Assert.Equal(outputs.Items.Sum(i => i.Tokens), outputs.Tokens);
+        var shell = outputs.Items.Single(i => i.Key == "run_shell");
+        Assert.Equal(3, shell.Items.Count);
+        Assert.StartsWith("退出码：0", shell.Items[0].Label);                    // 最大的一次在前，开头一句认得出
+        Assert.EndsWith("…", outputs.Items[0].Items[0].Label);
+        Assert.True(shell.Items[0].Tokens >= shell.Items[1].Tokens);
+    }
+
+    [Fact]
+    public void OnlyTheLargestFewResultsOfEachToolAreListed()
+    {
+        var conversation = Enumerable.Range(0, 9)
+            .Select(i => ChatMessage.ToolResult(new ToolCall("c" + i, "read_file", "{}"), new string('字', 100 * (i + 1))))
+            .ToList();
+
+        var outputs = ContextUsage.Measure(Array.Empty<(string, string)>(), Array.Empty<ITool>(), conversation, 131072, 92000, 8192)
+            .Parts.Single(p => p.Key == ContextUsage.ToolOutputs);
+
+        var group = Assert.Single(outputs.Items);
+        Assert.Equal(ContextUsage.LargestOutputs, group.Items.Count);
+        Assert.Equal("c8", group.Items[0].Key);
+        Assert.Equal(conversation.Sum(TokenEstimator.Estimate), group.Tokens); // 组的合计算全部，不只是列出来的几次
+    }
+
+    [Fact]
     public async Task CompactingNowKeepsTheLatestExchangeAndSummarizesTheRest()
     {
         var gateway = new SummaryGateway();

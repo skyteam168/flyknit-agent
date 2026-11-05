@@ -1918,8 +1918,12 @@ export function createMockHost(): HostTransport {
         const tools = (prefix: string, names: [string, number][]) => names.map(([n, t]) => part(prefix + n, n, t))
         const compacted = mockCompacted.has(c.id)
         const parts = [
-          part('messages', '对话消息', compacted ? 6200 : 58440),
-          part('tool_outputs', '工具结果', compacted ? 2100 : 31200),
+          part('messages', '对话消息', compacted ? 6200 : 58440, compacted ? [] : [part('assistant', 'AI 的回答', 40210), part('user', '你说的话', 18230)]),
+          part('tool_outputs', '工具结果', compacted ? 2100 : 31200, compacted ? [] : [
+            part('read_file', 'read_file', 22600, [part('c1', '日期,车间,班次,计划产量,实际产量,良品数,不良数,停机分钟…', 18400), part('c2', '# 质检周报模板 本周抽检 2,140 件…', 4200)]),
+            part('run_shell', 'run_shell', 6800, [part('c3', '退出码：0 Directory: D:\\日报 Mode LastWriteTime…', 5100), part('c4', '退出码：0 已移动 34 个文件', 1700)]),
+            part('mcp__tencent-docs__read_sheet', 'mcp__tencent-docs__read_sheet', 1800, [part('c5', '{"rows":[["工号","姓名","出勤"]…', 1800)]),
+          ]),
           part('tools', '工具定义', 21640, [
             part('builtin', '内置工具', 9800, tools('', [['run_shell', 2100], ['write_file', 1400], ['read_file', 1200], ['update_plan', 900], ['ask_user', 820]])),
             part('mcp:tencent-docs', '腾讯文档', 7400, tools('', [['create_sheet', 1900], ['read_sheet', 1700], ['append_rows', 1500]])),
@@ -1933,6 +1937,29 @@ export function createMockHost(): HostTransport {
         ]
         return { contextLength: 131072, reserveOutput: 8192, compactAt: 92160, parts, used: parts.reduce((a, x) => a + x.tokens, 0), lastPromptTokens: compacted ? null : 118430, measuredAt: now() }
       }
+      case 'workspace.list': {
+        await sleep(120)
+        const tree: Record<string, [string, boolean, number][]> = {
+          '': [['日报', true, 0], ['报表', true, 0], ['node_modules', true, 0], ['说明.md', false, 2310], ['产量汇总.xlsx', false, 48120], ['汇报.pptx', false, 183400], ['run.log', false, 920]],
+          '日报': [['8月', true, 0], ['9月', true, 0], ['2026-10-31.xlsx', false, 15320]],
+          '日报\\9月': [['2026-09-30.xlsx', false, 15102], ['2026-09-29.xlsx', false, 14980]],
+          '报表': [['质检周报.docx', false, 33100], ['CFT 会议发言稿.md', false, 1840]],
+        }
+        const rel = String(p.path ?? '')
+        const entries = (tree[rel] ?? []).map(([name, isDir, size]) => {
+          const path = rel ? rel + '\\' + name : name
+          return { name, path, fullPath: 'D:\\工作区\\' + path, isDir, size, modifiedAt: ago(30), noise: name === 'node_modules', previewable: !isDir && /\.(md|xlsx|docx|pptx|log|txt)$/i.test(name) }
+        })
+        return { root: 'D:\\工作区', exists: true, truncated: false, error: '', entries }
+      }
+      case 'workspace.search': {
+        await sleep(200)
+        const all = [['2026-10-31.xlsx', '日报\\2026-10-31.xlsx'], ['2026-09-30.xlsx', '日报\\9月\\2026-09-30.xlsx'], ['产量汇总.xlsx', '产量汇总.xlsx'], ['质检周报.docx', '报表\\质检周报.docx']]
+        const q = String(p.query ?? '').toLowerCase()
+        return { truncated: false, entries: all.filter(([n]) => n.toLowerCase().includes(q)).map(([name, path]) => ({ name, path, fullPath: 'D:\\工作区\\' + path, isDir: false, size: 15000, modifiedAt: ago(60), noise: false, previewable: true })) }
+      }
+      case 'workspace.attach':
+        return { fileName: String(p.path).split('\\').pop(), localPath: 'D:\\工作区\\' + p.path, mime: 'application/octet-stream', size: 15000 }
       case 'context.compact': {
         await sleep(1200)
         mockCompacted.add(p.conversationId)

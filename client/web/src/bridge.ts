@@ -9,6 +9,8 @@
  */
 import type { DocModel } from './documents'
 import type {
+  WorkspaceEntry,
+  WorkspaceListing,
   DocumentInfo,
   DocumentSaveResult,
   ChannelsInfo,
@@ -334,6 +336,12 @@ class Bridge {
   stopSide = (requestId: string) => this.call<void>('sidechat.stop', { requestId })
   /** 终端：这个对话里 AI 执行过的命令（带输出） */
   listTerminal = (conversationId: string) => this.call<TerminalRun[]>('terminal.list', { conversationId })
+  /** 右侧「文件」标签：列工作区里的一个文件夹（path 是相对工作区的路径，空 = 工作区本身） */
+  listWorkspace = (conversationId: string, path: string) => this.call<WorkspaceListing>('workspace.list', { conversationId, path })
+  searchWorkspace = (conversationId: string, query: string) =>
+    this.call<{ truncated: boolean; entries: WorkspaceEntry[] }>('workspace.search', { conversationId, query }, undefined, 30_000)
+  /** 工作区里的文件加进输入框（成为附件） */
+  attachWorkspaceFile = (conversationId: string, path: string) => this.call<AttachmentRef | null>('workspace.attach', { conversationId, path })
   /** 文档画布：员工从对话的文件里打开一篇 Markdown（只认这个对话改过的、或工作区里的文件） */
   openDocument = (conversationId: string, path: string) => this.call<{ ok: boolean }>('document.open', { conversationId, path })
   loadDocument = (conversationId: string, path: string) => this.call<DocumentInfo>('document.load', { conversationId, path })

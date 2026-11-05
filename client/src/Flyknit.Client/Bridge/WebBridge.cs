@@ -1782,6 +1782,32 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _host.ClearTerminal(Str("conversationId"));
                 return null;
 
+            // ---------- 工作区文件：右侧「文件」标签浏览、搜索（只读、只在工作区里） ----------
+            case "workspace.list":
+            {
+                var conv = Str("conversationId");
+                var listing = await Task.Run(() => _host.ListWorkspace(conv, Str("path")));
+                return new
+                {
+                    root = _host.WorkspaceOf(conv) ?? "",
+                    exists = listing.Exists,
+                    truncated = listing.Truncated,
+                    error = listing.Error,
+                    entries = listing.Entries.Select(WorkspaceEntryDto).ToList(),
+                };
+            }
+
+            case "workspace.search":
+            {
+                var conv = Str("conversationId");
+                var found = await Task.Run(() => _host.SearchWorkspace(conv, Str("query")));
+                return new { truncated = found.Truncated, entries = found.Results.Select(WorkspaceEntryDto).ToList() };
+            }
+
+            case "workspace.attach":
+                // 把工作区里的文件加进输入框（和拖进来一样成为附件）
+                return _host.WorkspaceFile(Str("conversationId"), Str("path")) is { } wsFile ? AttachmentDto.FromPath(wsFile) : null;
+
             // ---------- 文档画布：AI 写的 Markdown 文稿，员工直接改、导出 Word ----------
             case "document.open":
                 return new { ok = _host.OpenDocument(Str("conversationId"), Str("path")) };
@@ -2176,6 +2202,19 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 throw new NotSupportedException($"未知方法：{method}");
         }
     }
+
+    private static object WorkspaceEntryDto(Flyknit.Core.Workspace.WorkspaceEntry e) => new
+    {
+        name = e.Name,
+        path = e.Path,
+        fullPath = e.FullPath,
+        isDir = e.IsDirectory,
+        size = e.Size,
+        modifiedAt = e.ModifiedAt.ToString("O"),
+        noise = e.Noise,
+        // 能不能在右侧分屏里预览：和产出文件用同一套判断
+        previewable = !e.IsDirectory && OutputFileDto.From(e.FullPath).Previewable,
+    };
 
     private static string PasteDir => Path.Combine(AppPaths.Temp, "paste");
 

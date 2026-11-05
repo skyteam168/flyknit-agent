@@ -605,6 +605,20 @@ AI 写成篇文字时（提示词 `PromptBuilder.DocumentGuide`），用 `write_
 - 「后台」标签（`BackgroundTab.vue`，数据在 `background.ts`）：跨对话汇总正在跑的任务、上次没做完的（任务中心同一份 `runs.list`）、
   后台命令（终端事件对所有对话都推，`state.terminal` 是全的）、未结束的专家子任务、24 小时内的定时任务；顶栏有计数按钮直达。
 
+## 工作区文件（右侧「文件」标签）
+
+`Core/Workspace/WorkspaceBrowser.cs`：`Resolve` 把相对路径解析到工作区里（..\、别的盘、UNC 一律返回 null），
+`List` 列一个文件夹（文件夹在前，单个文件夹最多 500 项，不列 `.git`，依赖 / 编译输出目录标 `Noise`），
+`Search` 按文件名广度优先找（最深 8 层、最多看 2 万项、最多 200 个结果，不进依赖目录和点开头的目录）。
+宿主 `AgentHost.Workspace.cs` 只用对话自己的工作区；桥接 `workspace.list` / `workspace.search` / `workspace.attach`。
+只读：预览、用默认程序打开、在文件夹中显示走已有的 `files.*`，加进输入框成为附件，Markdown 可转到文档画布。
+
+## 上下文用量细分
+
+`ContextUsage.ConversationParts`：对话消息拆成 `user` / `assistant`；工具结果按工具名分组（老消息没存工具名的，按 assistant 的
+tool call ID 找回来），每组列出最大的 `LargestOutputs`（5）次结果，标签是结果的开头一句。组的合计算全部，不只是列出来的几次。
+界面（`SessionPanel.vue`）在某一次结果超过自动整理门槛的 15% 时直接提示是哪一次。
+
 ## 文件预览（右侧分屏）
 
 `Flyknit.Core/Preview` 下是一组 `IPreviewProvider`，按注册顺序认领文件：

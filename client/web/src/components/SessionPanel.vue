@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ChevronDown, ChevronRight, Folder, Plug, Shield, Sparkles, WandSparkles, X } from '@lucide/vue'
 import { compactConversation, current, currentState, loadContextUsage, state, toast, toggleSessionPanel } from '../store'
 import { convFiles, extLabel, outputFiles, uploadedFiles } from '../conversationFiles'
+import { toolLabel } from '../subtasks'
 import { kindIcon } from '../libraryIcons'
 import type { ContextPart, LibraryItem } from '../types'
 
@@ -38,8 +39,24 @@ const colors: Record<string, string> = {
 
 function label(p: ContextPart) {
   const key = p.key.startsWith('mcp:') ? '' : `ui.session.parts.${p.key}`
-  return key && te(key) ? t(key) : p.label
+  if (key && te(key)) return t(key)
+  // 工具定义、工具结果按工具分组时，键是工具名：显示成「读取文件」这种
+  if (te(`tool.names.${p.key}`) || p.key.startsWith('mcp__')) return toolLabel(p.key)
+  return p.label
 }
+
+/**
+ * 哪一次工具结果最占地方：超过自动整理门槛的 15% 就提示一句（读了整个大文件、查了一大张表时最常见），
+ * 员工知道是哪一步撑满的，可以整理对话，或者下次让 AI 只读需要的部分。
+ */
+const biggest = computed(() => {
+  const groups = usage.value?.parts.find((p) => p.key === 'tool_outputs')?.items ?? []
+  let best: { tool: string; label: string; tokens: number } | null = null
+  for (const g of groups) {
+    for (const x of g.items) if (!best || x.tokens > best.tokens) best = { tool: label(g), label: x.label, tokens: x.tokens }
+  }
+  return best && usage.value && best.tokens >= usage.value.compactAt * 0.15 ? best : null
+})
 
 function fmt(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
@@ -134,6 +151,7 @@ async function compact() {
             <i class="mark" :style="{ left: `${(usage.compactAt / total) * 100}%` }" />
           </div>
           <p class="muted small">{{ nearlyFull ? t('ui.session.compactSoon') : t('ui.session.untilCompact', { n: fmt(free) }) }}</p>
+          <p v-if="biggest" class="tip small">{{ t('ui.session.biggest', { tool: biggest.tool, n: fmt(biggest.tokens), what: biggest.label }) }}</p>
           <p v-if="!showDetails" class="muted small">{{ t('ui.session.simple') }}</p>
 
           <!-- 详细：每一块占多少，系统提示和工具定义还能再展开 -->
@@ -218,6 +236,14 @@ async function compact() {
 </template>
 
 <style scoped>
+.tip {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--amber, #d97706) 12%, transparent);
+  color: var(--ink);
+  line-height: 1.5;
+}
 .session {
   display: flex;
   flex: none;
