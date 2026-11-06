@@ -28,10 +28,13 @@ public sealed partial class AgentHost
     /// 需要员工确认的操作一律不远程放行：人不在电脑前，钉钉里回一句「同意」也说不清看没看明白要做什么。
     /// 被拦下的操作写进回复里，让员工回到电脑上处理。
     /// </summary>
-    public static string ChannelName(string channel) => channel switch { "wecom" => "企业微信", "mobile" => "手机", _ => "钉钉" };
+    public static string ChannelName(string channel) => channel switch { "wecom" => "企业微信", "mobile" => "手机", "event" => "事件触发", _ => "钉钉" };
 
     /// <param name="messageId">服务端的消息 ID。手机发来的任务用它回报进度、请求在手机上确认。</param>
-    public async Task<InstructionOutcome> RunChannelMessageAsync(string text, string sender, string conversationId, CancellationToken ct, string channel = "dingtalk", int messageId = 0)
+    /// <param name="permission">事件触发：服务端给的权限上限（空 = 不另外封顶）。</param>
+    /// <param name="rehearsal">事件触发：只预演。</param>
+    public async Task<InstructionOutcome> RunChannelMessageAsync(string text, string sender, string conversationId, CancellationToken ct, string channel = "dingtalk", int messageId = 0,
+        string permission = "", bool rehearsal = false)
     {
         var mobile = channel == "mobile" && messageId > 0;
         using var source = Flyknit.Core.Gateway.UsageSource.Use(mobile ? Flyknit.Core.Gateway.UsageSource.Mobile : Flyknit.Core.Gateway.UsageSource.Channel);
@@ -51,11 +54,16 @@ public sealed partial class AgentHost
         var progress = mobile ? new RemoteProgress(Server, messageId) : null;
         var confirm = new RemoteDecline(mobile ? Server : null, messageId, mobile ? Confirm : null, mobile ? Events : null, progress);
         // 授权记录：谁让做、做到哪。服务端核对不通过（这条消息不是发给这台电脑的）就不执行
-        var (grant, refused) = await IssueGrantAsync(conv, channel is "mobile" or "wecom" ? channel : "dingtalk",
-            messageId > 0 ? messageId.ToString(System.Globalization.CultureInfo.InvariantCulture) : "", sender, text, ct);
+        var (grant, refused) = await IssueGrantAsync(conv, channel is "mobile" or "wecom" or "event" ? channel : "dingtalk",
+            messageId > 0 ? messageId.ToString(System.Globalization.CultureInfo.InvariantCulture) : "", sender, text, ct,
+            permission.Length > 0 ? Flyknit.Core.Security.PermissionModes.Parse(permission) : null);
         if (refused is not null)
         {
             return new InstructionOutcome(false, "", refused, conv.Id);
+        }
+        if (rehearsal)
+        {
+            MarkRehearsal(conv.Id); // 只读调研、列出会做的修改（见 PlanMode.RehearsalGuide）
         }
         _remoteRuns[conv.Id] = 0;
         // 手机发来的：执行期间顺便收手机上补充的话（插话）和打断

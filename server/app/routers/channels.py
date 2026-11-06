@@ -71,6 +71,9 @@ class ChannelTaskOut(BaseModel):
     sender: str
     #: 接着上次的对话聊；空表示新开一个
     conversation_id: str
+    #: 事件触发：权限上限（readonly / workspace / full）和是否只预演；别的通道为空 / False
+    permission: str = ""
+    rehearsal: bool = False
 
 
 class ChannelPollOut(BaseModel):
@@ -138,7 +141,8 @@ async def poll_messages(
             await mobile_hub.hub.task_changed(r)  # 手机上显示「电脑已开始处理」
         binding = await session.get(ChannelBinding, r.binding_id) if r.binding_id else None
         out.append(ChannelTaskOut(id=r.id, channel=r.channel, text=r.text, sender=r.external_name,
-                                  conversation_id=binding.conversation_id if binding else ""))
+                                  conversation_id=binding.conversation_id if binding else "",
+                                  permission=r.permission or "", rehearsal=bool(r.rehearsal)))
     return ChannelPollOut(messages=out)
 
 

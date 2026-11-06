@@ -26,6 +26,9 @@ public sealed class ScheduleRunner : IDisposable
     private readonly Timer _timer;
     private int _ticking;
 
+    /// <summary>文件夹触发的任务：任务 ID → 这个文件夹看到哪了（程序这次打开期间）。</summary>
+    private readonly Dictionary<string, FolderWatch> _folders = new(StringComparer.Ordinal);
+
     /// <summary>任务列表有变化（界面刷新用）。</summary>
     public event Action? Changed;
 
@@ -86,6 +89,7 @@ public sealed class ScheduleRunner : IDisposable
             {
                 Run(task, now, manual: false);
             }
+            PollFolders(now);
         }
         finally
         {
@@ -93,8 +97,51 @@ public sealed class ScheduleRunner : IDisposable
         }
     }
 
+    /// <summary>
+    /// 文件夹触发：看一遍每个监视的文件夹，有到齐了的新文件就跑一次（这次的新文件列在任务原文后面）。
+    /// 任务还在跑时新文件先攒着，跑完下一轮再交。
+    /// </summary>
+    private void PollFolders(DateTimeOffset now)
+    {
+        List<ScheduledTask> tasks;
+        try
+        {
+            tasks = Store.List().Where(t => t.Enabled && t.Schedule.Kind == ScheduleKind.Folder && t.Schedule.WatchPath.Length > 0).ToList();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("读取文件夹触发任务失败", ex);
+            return;
+        }
+        foreach (var gone in _folders.Keys.Where(id => tasks.All(t => t.Id != id)).ToList())
+        {
+            _folders.Remove(gone);
+        }
+        foreach (var task in tasks)
+        {
+            if (!_folders.TryGetValue(task.Id, out var watch) || watch.Folder != task.Schedule.WatchPath || watch.Pattern != task.Schedule.Pattern)
+            {
+                watch = new FolderWatch(task.Schedule.WatchPath, task.Schedule.Pattern);
+                _folders[task.Id] = watch; // 第一次看：已经在的文件不算新文件
+            }
+            var listing = FolderWatch.List(watch.Folder);
+            if (listing is null)
+            {
+                continue; // 断网、没权限：下一轮再看，不算删掉
+            }
+            var busy = task.LastStatus == "running";
+            var files = watch.Poll(listing, take: !busy);
+            if (files.Count > 0)
+            {
+                Log.Info($"文件夹触发「{task.Name}」：{files.Count} 个新文件");
+                Run(task, now, manual: false, files);
+            }
+        }
+    }
+
     /// <summary>立即运行一次（界面上的「运行」按钮，或到点自动触发）。只负责把任务发出去，不等它跑完。</summary>
-    public (bool Ok, string Message) Run(ScheduledTask task, DateTimeOffset now, bool manual)
+    /// <param name="files">文件夹触发：这次的新文件（列在任务原文后面，授权记录记成事件触发）。</param>
+    public (bool Ok, string Message) Run(ScheduledTask task, DateTimeOffset now, bool manual, IReadOnlyList<string>? files = null)
     {
         if (task.Instructions.Trim().Length == 0)
         {
@@ -134,7 +181,15 @@ public sealed class ScheduleRunner : IDisposable
                 _host.MarkRehearsal(conv.Id);
             }
             // 授权记录：定时任务按任务里设的权限和工作区跑，跑完收回（OnRunFinished）
-            _host.IssueGrant(conv, "schedule", task.Id, $"定时任务：{task.Name}", task.Instructions);
+            var text = files is { Count: > 0 } ? FolderWatch.Describe(task.Instructions, files) : task.Instructions;
+            if (files is { Count: > 0 })
+            {
+                _host.IssueGrant(conv, "event", $"folder:{task.Id}", $"文件夹监视：{task.Name}", text);
+            }
+            else
+            {
+                _host.IssueGrant(conv, "schedule", task.Id, $"定时任务：{task.Name}", text);
+            }
             task.LastConversationId = conv.Id;
             Store.Save(task);
             Changed?.Invoke();
@@ -149,7 +204,7 @@ public sealed class ScheduleRunner : IDisposable
             // 带上「定时任务」：这次运行里的模型调用在后台用量统计里单独算一块
             using (Flyknit.Core.Gateway.UsageSource.Use(Flyknit.Core.Gateway.UsageSource.Schedule))
             {
-                _host.Send(conv.Id, task.Instructions, Array.Empty<Flyknit.Core.Chat.Attachment>(), null,
+                _host.Send(conv.Id, text, Array.Empty<Flyknit.Core.Chat.Attachment>(), null,
                     _host.UiLanguage, confirm, events);
             }
             Log.Info($"定时任务「{task.Name}」已开始运行（会话 {conv.Id}）");

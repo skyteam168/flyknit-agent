@@ -2328,6 +2328,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
         weekday = (int)t.Schedule.Weekday,
         dayOfMonth = t.Schedule.DayOfMonth,
         at = t.Schedule.At?.ToString("O"),
+        watchPath = t.Schedule.WatchPath,
+        pattern = t.Schedule.Pattern,
         enabled = t.Enabled,
         workspace = t.Workspace,
         permission = Flyknit.Core.Security.PermissionModes.ToText(t.Permission),
@@ -2355,7 +2357,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             I("minute", 0),
             (DayOfWeek)Math.Clamp(I("weekday", 1), 0, 6),
             I("dayOfMonth", 1),
-            DateTimeOffset.TryParse(S("at"), out var at) ? at : null);
+            DateTimeOffset.TryParse(S("at"), out var at) ? at : null,
+            S("watchPath").Trim(),
+            S("pattern").Trim());
     }
 
     private object SkillList() => _host.Skills.Skills.Select(s => new

@@ -178,6 +178,12 @@ public sealed class ChannelTask
     [JsonPropertyName("sender")] public string Sender { get; set; } = "";
     /// <summary>接着上次的对话；空表示新开一个。</summary>
     [JsonPropertyName("conversation_id")] public string ConversationId { get; set; } = "";
+
+    /// <summary>事件触发（channel=event）：这次任务的权限上限（readonly / workspace / full）；别的通道为空。</summary>
+    [JsonPropertyName("permission")] public string Permission { get; set; } = "";
+
+    /// <summary>事件触发：只预演，不真的执行。</summary>
+    [JsonPropertyName("rehearsal")] public bool Rehearsal { get; set; }
 }
 
 internal sealed class ChannelPoll

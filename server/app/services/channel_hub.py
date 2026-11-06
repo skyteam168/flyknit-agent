@@ -360,6 +360,8 @@ class Hub:
         if row.channel == mobile_hub.CHANNEL:
             # 手机 App 自己渲染 markdown、图表，原样推回去；推不到（App 没开）下次打开时按任务列表补
             row.replied = await mobile_hub.hub.task_changed(row)
+        elif row.channel == "event":
+            pass  # 事件触发没有人等回复：结果在后台「事件触发」和这台电脑的对话里看
         else:
             text = for_dingtalk(answer) if ok and answer.strip() else f"没办成：{error or '未知原因'}"
             row.replied = await self.say(row.channel, row.reply_webhook, row.reply_webhook_expires, row.external_id, text)
@@ -387,12 +389,16 @@ class Hub:
             return r.text if len(r.text) <= 30 else r.text[:30] + "…"
 
         for r in stale:
+            if r.channel == "event":
+                continue
             if r.channel == mobile_hub.CHANNEL:
                 await mobile_hub.hub.task_changed(r)
                 continue
             await self.say(r.channel, r.reply_webhook, r.reply_webhook_expires, r.external_id,
                            f"你的电脑一直没有上线，「{short(r)}」已取消。需要的话开机后再发一次。")
         for r in lost:
+            if r.channel == "event":
+                continue
             if r.channel == mobile_hub.CHANNEL:
                 r.replied = await mobile_hub.hub.task_changed(r)
                 continue

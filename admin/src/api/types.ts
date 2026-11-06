@@ -852,3 +852,33 @@ export interface TaskGrant {
   verified: boolean
   created_at: string
 }
+
+/** 事件触发：外部系统推一个事件，就在指定电脑上开一个任务 */
+export interface EventTrigger {
+  id: string
+  name: string
+  device_id: number | null
+  device_name: string
+  template: string
+  permission: 'readonly' | 'workspace' | 'full'
+  rehearsal: boolean
+  enabled: boolean
+  token_prefix: string
+  fire_count: number
+  last_fired_at: string | null
+  created_by: string
+  url: string
+  /** 只在创建时返回一次 */
+  token?: string
+}
+
+export interface EventRun {
+  id: number
+  trigger_id: string
+  status: string
+  error: string
+  answer: string
+  rehearsal: boolean
+  created_at: string
+  finished_at: string | null
+}

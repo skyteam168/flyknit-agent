@@ -18,6 +18,9 @@ public enum ScheduleKind
 
     Weekly,
     Monthly,
+
+    /// <summary>事件触发：监视的文件夹里出现新文件就执行（见 FolderWatch）。不按时间排期。</summary>
+    Folder,
 }
 
 /// <summary>
@@ -32,11 +35,15 @@ public sealed record ScheduleSpec(
     /// <summary>每月：几号（1-31，超过当月天数时取当月最后一天）。</summary>
     int DayOfMonth = 1,
     /// <summary>仅一次：执行时刻。</summary>
-    DateTimeOffset? At = null)
+    DateTimeOffset? At = null,
+    /// <summary>文件夹触发：监视哪个文件夹（只看这一层，不含子文件夹）。</summary>
+    string WatchPath = "",
+    /// <summary>文件夹触发：只看这些文件，例如 *.xlsx;*.csv；空 = 全部。</summary>
+    string Pattern = "")
 {
     public static ScheduleSpec Manual { get; } = new(ScheduleKind.Manual);
 
-    public bool IsRecurring => Kind is not (ScheduleKind.Manual or ScheduleKind.Once);
+    public bool IsRecurring => Kind is not (ScheduleKind.Manual or ScheduleKind.Once or ScheduleKind.Folder);
 
     /// <summary>算出 after 之后的下一次执行时间；手动任务和已过期的一次性任务返回 null。</summary>
     public DateTimeOffset? NextRun(DateTimeOffset after)
@@ -47,6 +54,7 @@ public sealed record ScheduleSpec(
         switch (Kind)
         {
             case ScheduleKind.Manual:
+            case ScheduleKind.Folder:
                 return null;
 
             case ScheduleKind.Once:
@@ -112,7 +120,7 @@ public sealed record ScheduleSpec(
     // ---------- 存库用的字符串形式 ----------
 
     public string Serialize() => JsonSerializer.Serialize(new Dto(
-        Kind.ToString().ToLowerInvariant(), Hour, Minute, (int)Weekday, DayOfMonth, At?.ToString("O")));
+        Kind.ToString().ToLowerInvariant(), Hour, Minute, (int)Weekday, DayOfMonth, At?.ToString("O"), WatchPath, Pattern));
 
     public static ScheduleSpec Parse(string? json)
     {
@@ -133,7 +141,9 @@ public sealed record ScheduleSpec(
                 dto.Minute,
                 (DayOfWeek)Math.Clamp(dto.Weekday, 0, 6),
                 dto.DayOfMonth,
-                DateTimeOffset.TryParse(dto.At, out var at) ? at : null);
+                DateTimeOffset.TryParse(dto.At, out var at) ? at : null,
+                dto.WatchPath ?? "",
+                dto.Pattern ?? "");
         }
         catch (JsonException)
         {
@@ -141,5 +151,6 @@ public sealed record ScheduleSpec(
         }
     }
 
-    private sealed record Dto(string Kind, int Hour, int Minute, int Weekday, int DayOfMonth, string? At);
+    private sealed record Dto(string Kind, int Hour, int Minute, int Weekday, int DayOfMonth, string? At,
+        string? WatchPath = null, string? Pattern = null);
 }

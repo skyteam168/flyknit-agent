@@ -40,7 +40,7 @@ async function firstLoad() {
   }
 }
 
-const kinds: ScheduleKind[] = ['manual', 'hourly', 'daily', 'weekdays', 'weekly', 'monthly', 'once']
+const kinds: ScheduleKind[] = ['manual', 'hourly', 'daily', 'weekdays', 'weekly', 'monthly', 'once', 'folder']
 const permissions: Permission[] = ['readonly', 'workspace', 'full']
 const weekdays = [1, 2, 3, 4, 5, 6, 0]
 
@@ -62,14 +62,17 @@ const form = reactive({
   weekday: 1,
   dayOfMonth: 1,
   at: '',
+  watchPath: '',
+  pattern: '',
   permission: 'workspace' as Permission,
   catchUp: true,
   rehearsal: false,
   enabled: true,
 })
 
-const needsTime = computed(() => form.kind !== 'manual' && form.kind !== 'once' && form.kind !== 'hourly')
-const canSave = computed(() => form.name.trim().length > 0 && form.instructions.trim().length > 0)
+const needsTime = computed(() => form.kind !== 'manual' && form.kind !== 'once' && form.kind !== 'hourly' && form.kind !== 'folder')
+const canSave = computed(() =>
+  form.name.trim().length > 0 && form.instructions.trim().length > 0 && (form.kind !== 'folder' || form.watchPath.trim().length > 0))
 
 function openNew(template?: (typeof templates)[number]) {
   Object.assign(form, {
@@ -82,6 +85,8 @@ function openNew(template?: (typeof templates)[number]) {
     weekday: template?.weekday ?? 1,
     dayOfMonth: template?.dayOfMonth ?? 1,
     at: localNow(60),
+    watchPath: '',
+    pattern: '',
     permission: 'workspace',
     catchUp: true,
     rehearsal: false,
@@ -101,6 +106,8 @@ function openEdit(task: ScheduledTask) {
     weekday: task.weekday,
     dayOfMonth: task.dayOfMonth,
     at: task.at ? task.at.slice(0, 16) : localNow(60),
+    watchPath: task.watchPath ?? '',
+    pattern: task.pattern ?? '',
     permission: task.permission,
     catchUp: task.catchUp,
     rehearsal: task.rehearsal ?? false,
@@ -181,6 +188,8 @@ function describe(task: ScheduledTask) {
       return t('ui.schedules.everyMonth', { day: task.dayOfMonth, time })
     case 'once':
       return task.at ? t('ui.schedules.onceAt', { at: when(task.at) }) : t('ui.schedules.kinds.once')
+    case 'folder':
+      return t('ui.schedules.onNewFile', { path: task.watchPath || '?' })
     default:
       return ''
   }
@@ -260,6 +269,17 @@ const close = () => (state.schedulesOpen = false)
             <input v-model="form.at" type="datetime-local" />
           </label>
         </div>
+        <template v-if="form.kind === 'folder'">
+          <label class="field">
+            <span>{{ t('ui.schedules.watchPath') }}</span>
+            <input v-model="form.watchPath" :placeholder="t('ui.schedules.watchPathPlaceholder')" />
+          </label>
+          <label class="field">
+            <span>{{ t('ui.schedules.pattern') }}</span>
+            <input v-model="form.pattern" placeholder="*.xlsx;*.csv" />
+            <small>{{ t('ui.schedules.folderHint') }}</small>
+          </label>
+        </template>
 
         <label class="field">
           <span>{{ t('ui.permission.title') }}</span>

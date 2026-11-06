@@ -15,8 +15,11 @@ async def test_admin_publishes_and_devices_fetch(client, device_headers):
     assert [c["name"] for c in r.json()["items"]] == ["周报", "qc-sum"]  # 开头的 / 去掉
 
     got = (await client.get("/api/v1/client/commands", headers=device_headers)).json()["items"]
-    assert got[0] == {"name": "周报", "title": "写本周工作周报", "description": "按日期汇总", "template": "帮我写 {日期} 这一周的工作周报"}
-    assert (await client.get("/api/v1/admin/commands", headers=ADMIN)).json()["items"] == got
+    # 员工端多一个 source（来自哪个插件；后台直接发布的为空）
+    assert got[0] == {"name": "周报", "title": "写本周工作周报", "description": "按日期汇总", "template": "帮我写 {日期} 这一周的工作周报",
+                      "source": ""}
+    assert (await client.get("/api/v1/admin/commands", headers=ADMIN)).json()["items"] == [
+        {k: v for k, v in c.items() if k != "source"} for c in got]
 
 
 async def test_bad_names_duplicates_and_reserved_are_refused(client, device_headers):

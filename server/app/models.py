@@ -144,7 +144,7 @@ class UsageModelDaily(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     #: 输入里命中模型服务商提示词缓存的部分（包含在 prompt_tokens 里）。上游不报就是 0
-    cached_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
     requests: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -164,7 +164,7 @@ class SkillPackage(Base):
     required: Mapped[bool] = mapped_column(Boolean, default=False)  # 所有电脑必装
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接导入。插件卸载时一起删
-    plugin: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    plugin: Mapped[str] = mapped_column(String(40), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -197,6 +197,35 @@ class Plugin(Base):
     installed_by: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class EventTrigger(Base):
+    """
+    事件触发：外部系统（ERP、MES、共享盘的同步脚本……）带密钥 POST 到 /api/v1/hooks/{id}，
+    就在指定的那台电脑上开一个任务（走通道消息那条路，channel=event）。
+
+    推来的内容是数据不是指令：包在 <事件数据> 里交给 AI。需要确认的操作一律不放行（没人在电脑前），
+    权限按 permission 封顶（服务端核对授权记录时也查），新建的默认先预演。总开关在设置表 event_triggers，默认关。
+    """
+
+    __tablename__ = "event_triggers"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), default="")
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    #: 交给 AI 的要求，{payload} 处放推来的数据；没写 {payload} 时数据接在后面
+    template: Mapped[str] = mapped_column(Text, default="")
+    permission: Mapped[str] = mapped_column(String(20), default="readonly")
+    #: 只预演：只读调研、列出会做的修改，不真的执行
+    rehearsal: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: 推送密钥的 sha256（明文只在创建 / 换密钥时给一次）
+    token_hash: Mapped[str] = mapped_column(String(64), default="")
+    token_prefix: Mapped[str] = mapped_column(String(12), default="")
+    created_by: Mapped[str] = mapped_column(String(100), default="")
+    fire_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class TaskGrant(Base):
@@ -248,7 +277,7 @@ class AuditLog(Base):
     #: 谁调的工具：main（主助手）或 expert:<专家 ID>
     actor: Mapped[str] = mapped_column(String(60), default="")
     #: 不是员工在电脑前发起的任务（手机、钉钉、定时、事件……）所依据的授权记录（task_grants.id）
-    grant_id: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    grant_id: Mapped[str] = mapped_column(String(40), default="")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
@@ -578,7 +607,7 @@ class McpVendor(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接配置
-    plugin: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    plugin: Mapped[str] = mapped_column(String(40), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -635,7 +664,7 @@ class Expert(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     published_by: Mapped[str] = mapped_column(String(100), default="")
     #: 由哪个插件装进来的（plugins.id）。空 = 管理员在后台建的
-    plugin: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    plugin: Mapped[str] = mapped_column(String(40), default="")
     updated_by: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -815,6 +844,9 @@ class ChannelMessage(Base):
     reply_webhook_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: 回复是否已经发回钉钉
     replied: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: 事件触发（channel=event）：这次任务的权限上限和是否只预演；别的通道为空 / False
+    permission: Mapped[str] = mapped_column(String(20), default="")
+    rehearsal: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

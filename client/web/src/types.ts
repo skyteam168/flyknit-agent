@@ -306,7 +306,7 @@ export interface ModelInfo {
   supportsVision: boolean
 }
 
-export type ScheduleKind = 'manual' | 'once' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly'
+export type ScheduleKind = 'manual' | 'once' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'folder'
 
 /** 定时任务。到点后 Agent 新建一个会话自动执行。 */
 export interface ScheduledTask {
@@ -320,6 +320,9 @@ export interface ScheduledTask {
   weekday: number
   dayOfMonth: number
   at: string | null
+  /** 文件夹触发：监视的文件夹、只看哪些文件（*.xlsx;*.csv，空 = 全部） */
+  watchPath?: string
+  pattern?: string
   enabled: boolean
   workspace: string | null
   permission: Permission

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Flyknit.Core.Security;
@@ -24,10 +25,10 @@ public sealed partial class AgentHost
     /// 连不上或老服务端（404）照样执行，本机的记录照存。
     /// </summary>
     public async Task<(TaskGrant Grant, string? Refused)> IssueGrantAsync(Conversation conv, string origin, string reference,
-        string requestedBy, string instruction, CancellationToken ct)
+        string requestedBy, string instruction, CancellationToken ct, PermissionMode? ceiling = null)
     {
-        var (grant, report) = IssueGrant(conv, origin, reference, requestedBy, instruction, ct);
-        if (origin is not ("mobile" or "dingtalk" or "wecom" or "instruction"))
+        var (grant, report) = IssueGrant(conv, origin, reference, requestedBy, instruction, ct, ceiling);
+        if (origin is not ("mobile" or "dingtalk" or "wecom" or "instruction") && !(origin == "event" && reference.Length > 0 && reference.All(char.IsDigit)))
         {
             return (grant, null);
         }
@@ -43,11 +44,12 @@ public sealed partial class AgentHost
 
     /// <summary>本机发起的（定时任务、事件触发）：记下、后台上报，不等服务端。</summary>
     public (TaskGrant Grant, Task<int> Report) IssueGrant(Conversation conv, string origin, string reference,
-        string requestedBy, string instruction, CancellationToken ct = default)
+        string requestedBy, string instruction, CancellationToken ct = default, PermissionMode? ceiling = null)
     {
         var previous = Store.Grants.Latest(conv.Id);
         var workspace = _settings.ResolveWorkspace(conv.Workspace);
-        var grant = TaskGrant.Issue(origin, conv.Id, reference, requestedBy, instruction, conv.Permission, workspace, previous);
+        var permission = ceiling is { } c ? (PermissionMode)Math.Min((int)conv.Permission, (int)c) : conv.Permission;
+        var grant = TaskGrant.Issue(origin, conv.Id, reference, requestedBy, instruction, permission, workspace, previous);
         Store.Grants.Add(grant);
         _activeGrants[conv.Id] = grant;
         var report = Task.Run(async () =>

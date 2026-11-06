@@ -1,5 +1,5 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
-import type { SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant,
+import type { SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun,
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
@@ -246,6 +246,14 @@ export const api = {
   deleteDevice: (id: number) => del(`/devices/${id}`),
   updateDevice: (id: number, body: Partial<{ disabled: boolean; owner: string; department: string; note: string }>) =>
     patch<Device>(`/devices/${id}`, body),
+  eventTriggers: () => get<{ enabled: boolean; items: EventTrigger[]; runs: EventRun[] }>('/event-triggers'),
+  setEventSwitch: (enabled: boolean) => put<{ enabled: boolean }>('/event-triggers/switch', { enabled }),
+  createEventTrigger: (body: Omit<EventTrigger, 'device_name' | 'token_prefix' | 'fire_count' | 'last_fired_at' | 'created_by' | 'url' | 'token'>) =>
+    post<EventTrigger>('/event-triggers', body),
+  updateEventTrigger: (id: string, body: Partial<Pick<EventTrigger, 'name' | 'device_id' | 'template' | 'permission' | 'rehearsal' | 'enabled'>>) =>
+    patch<EventTrigger>(`/event-triggers/${encodeURIComponent(id)}`, body),
+  rotateEventToken: (id: string) => post<{ token: string; token_prefix: string }>(`/event-triggers/${encodeURIComponent(id)}/rotate`),
+  deleteEventTrigger: (id: string) => del(`/event-triggers/${encodeURIComponent(id)}`),
   grants: (query: { device_id?: number; conversation_id?: string; origin?: string; limit?: number }) =>
     get<TaskGrant[]>('/grants', query),
   audit: (query: { decision?: string; device_id?: number | null; conversation_id?: string; limit: number; offset: number }) =>

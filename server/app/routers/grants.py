@@ -21,6 +21,7 @@ client_router = APIRouter(prefix="/api/v1/client/grants", tags=["grants"])
 admin_router = APIRouter(prefix="/api/v1/admin/grants", tags=["grants"], dependencies=[Depends(require_admin)])
 
 ORIGINS = ("mobile", "dingtalk", "wecom", "instruction", "schedule", "event")
+PERMISSION_RANK = {"readonly": 0, "workspace": 1, "full": 2}
 #: 服务端自己有记录、可以核对的来源
 CHANNELS = ("mobile", "dingtalk", "wecom")
 
@@ -47,6 +48,15 @@ def _out(g: TaskGrant, with_content: bool) -> dict:
 
 async def _verify(session: AsyncSession, device: Device, data: GrantIn) -> tuple[str, str] | None:
     """服务端自己的记录：(发起人, 原话)。不是可核对的来源返回 None。"""
+    if data.origin == "event" and data.reference.isdigit():
+        # 服务端推过来的事件（webhook）；员工电脑上的文件夹监视等本机事件不带数字编号，不在这里核对
+        msg = await session.get(ChannelMessage, int(data.reference))
+        if msg is None or msg.device_id != device.id or msg.channel != "event":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "找不到这台电脑收到的这个事件，不能据此授权")
+        ceiling = msg.permission or "readonly"
+        if PERMISSION_RANK[data.permission] > PERMISSION_RANK.get(ceiling, 0):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"这个事件最多只能「{ceiling}」，授权超出了")
+        return f"事件:{msg.external_name or msg.external_id}", msg.text
     if data.origin in CHANNELS:
         msg = await session.get(ChannelMessage, int(data.reference)) if data.reference.isdigit() else None
         if msg is None or msg.device_id != device.id:

@@ -1,6 +1,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import type { Component } from 'vue'
-import { Avatar, Box, ChatDotRound, Operation, Filter, ChatDotSquare, ChatLineSquare, Coin, Collection, Connection, Document, Iphone, Link, Lock, MagicStick, Microphone, Monitor, Odometer, Promotion, Tickets, Upload, UserFilled } from '@element-plus/icons-vue'
+import { Avatar, Box, Lightning, ChatDotRound, Operation, Filter, ChatDotSquare, ChatLineSquare, Coin, Collection, Connection, Document, Iphone, Link, Lock, MagicStick, Microphone, Monitor, Odometer, Promotion, Tickets, Upload, UserFilled } from '@element-plus/icons-vue'
 import { auth } from '@/store/auth'
 import AdminLayout from '@/layout/AdminLayout.vue'
 
@@ -28,6 +28,7 @@ export const menuRoutes: RouteRecordRaw[] = [
   { path: 'devices', name: 'devices', component: () => import('@/views/Devices.vue'), meta: { title: '设备列表', icon: Monitor, group: '运维' } },
   { path: 'tool-rules', name: 'tool-rules', component: () => import('@/views/ToolRules.vue'), meta: { title: '工具规则', icon: Filter, group: '运维' } },
   { path: 'security', name: 'security', component: () => import('@/views/Security.vue'), meta: { title: '安全中心', icon: Lock, group: '运维' } },
+  { path: 'event-triggers', name: 'event-triggers', component: () => import('@/views/EventTriggers.vue'), meta: { title: '事件触发', icon: Lightning, group: '运维' } },
   { path: 'tasks', name: 'tasks', component: () => import('@/views/Tasks.vue'), meta: { title: '任务中心', icon: Promotion, group: '运维' } },
   { path: 'instructions', name: 'instructions', component: () => import('@/views/Instructions.vue'), meta: { title: '指令中心', icon: MagicStick, group: '运维' } },
   { path: 'chats', name: 'chats', component: () => import('@/views/Chats.vue'), meta: { title: '聊天记录', icon: ChatDotRound, group: '运维' } },
