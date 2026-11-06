@@ -17,7 +17,7 @@ from ..deps import require_device
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from ..models import AuditLog, Device, DevicePolicy, EnrollmentTicket, ModelConfig, SkillPackage
+from ..models import AuditLog, Device, DevicePolicy, EnrollmentTicket, McpVendor, ModelConfig, SkillPackage
 from ..schemas import (
     SCENES,
     SkillOut,
@@ -208,12 +208,26 @@ async def client_config_wait(
     return {"revision": new_rev}
 
 
+def _mcp_source(tool_name: str, sources: dict[str, str]) -> str:
+    """mcp__<连接器>__<工具> → 连接器来源。连接器 id 本身可能带 _，取能对上的最长的那个。"""
+    if not tool_name.startswith("mcp__"):
+        return ""
+    hits = [vid for vid in sources if tool_name.startswith(f"mcp__{vid}__")]
+    return sources[max(hits, key=len)] if hits else "unknown"
+
+
 @router.post("/audit", status_code=204)
 async def report_audit(
     data: AuditBatchIn,
     device: Device = Depends(require_device),
     session: AsyncSession = Depends(get_session),
 ):
+    # MCP 工具当时来自哪个连接器、哪个插件：按服务端自己的连接器表填，员工端报不了也改不了
+    sources: dict[str, str] = {}
+    if any(i.tool_name.startswith("mcp__") for i in data.items):
+        for v in (await session.scalars(select(McpVendor))).all():
+            sources[v.id] = (f"plugin:{v.plugin}@{v.source_plugin_version or 'unknown'}"
+                             if (v.source_type or "global") == "plugin" else "global")
     for item in data.items:
         row = AuditLog(
             device_id=device.id,
@@ -230,6 +244,7 @@ async def report_audit(
             subtask_id=item.subtask_id,
             actor=item.actor,
             grant_id=item.grant_id,
+            mcp_source=_mcp_source(item.tool_name, sources),
         )
         if item.occurred_at is not None:
             row.occurred_at = item.occurred_at

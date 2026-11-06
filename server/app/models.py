@@ -278,6 +278,8 @@ class AuditLog(Base):
     actor: Mapped[str] = mapped_column(String(60), default="")
     #: 不是员工在电脑前发起的任务（手机、钉钉、定时、事件……）所依据的授权记录（task_grants.id）
     grant_id: Mapped[str] = mapped_column(String(40), default="")
+    #: MCP 工具调用当时的连接器来源：global，或 plugin:<插件>@<版本>。服务端收到时按连接器表填，员工端报的不算
+    mcp_source: Mapped[str] = mapped_column(String(120), default="")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
@@ -608,6 +610,13 @@ class McpVendor(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接配置
     plugin: Mapped[str] = mapped_column(String(40), default="")
+    #: 来源：global（管理员在「连接器」里建的）/ plugin（插件导入的）。老行升级后是 global
+    source_type: Mapped[str] = mapped_column(String(10), default="global")
+    #: 插件来源的细节（global 的都是空）：插件版本、清单文件、MCP 配置文件（包内相对路径）、插件里写的服务原名
+    source_plugin_version: Mapped[str] = mapped_column(String(50), default="")
+    source_manifest: Mapped[str] = mapped_column(String(200), default="")
+    source_mcp_config: Mapped[str] = mapped_column(String(200), default="")
+    source_server_name: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

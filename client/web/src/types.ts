@@ -463,6 +463,10 @@ export interface McpVendor {
   icon: string
   publisher: string
   category: string
+  /** global（IT 在后台建的）/ plugin（插件带来的） */
+  sourceType?: 'global' | 'plugin' | string
+  plugin?: string
+  sourcePluginVersion?: string
   homepage: string
   transport: string
   auth: 'none' | 'fields' | 'oauth' | string

@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { PluginItem, PluginPreview } from '@/api/types'
+import type { PluginConnector, PluginItem, PluginPreview } from '@/api/types'
 
 /**
  * 插件：一包技能 + 专家 + 连接器 + 快捷指令 + 工具规则（目录结构同 Claude Code plugins），按部门一键下发。
@@ -20,6 +20,8 @@ const source = ref<'file' | 'url'>('file')
 const file = ref<File | null>(null)
 const url = ref('')
 const preview = ref<PluginPreview | null>(null)
+/** 同名冲突时管理员填的新标识：插件里的服务名 → 新标识 */
+const renames = ref<Record<string, string>>({})
 const scope = ref<string[]>([])
 const required = ref(false)
 const busy = ref(false)
@@ -59,12 +61,31 @@ async function pick(e: Event) {
   if (!f) return
   file.value = f
   preview.value = null
+  renames.value = {}
+  await refreshPreview()
+}
+
+async function refreshPreview() {
+  if (!file.value) return
   busy.value = true
   try {
-    preview.value = await api.previewPlugin(f)
+    preview.value = await api.previewPlugin(file.value, renames.value)
   } finally {
     busy.value = false
   }
+}
+
+function useSuggested(c: PluginConnector) {
+  renames.value = { ...renames.value, [c.server]: c.suggested_rename }
+  void refreshPreview()
+}
+
+const RESULT: Record<PluginConnector['result'], { label: string; type: 'success' | 'info' | 'warning' | 'danger' }> = {
+  NEW: { label: '新建', type: 'success' },
+  UPDATE: { label: '更新', type: 'info' },
+  REUSE_EXISTING: { label: '复用现有', type: 'info' },
+  RENAMED: { label: '改名导入', type: 'warning' },
+  CONFLICT: { label: '冲突', type: 'danger' },
 }
 
 const canInstall = computed(() =>
@@ -76,7 +97,7 @@ async function install() {
   try {
     const p = source.value === 'url'
       ? await api.importPlugin(url.value.trim(), scope.value, required.value)
-      : await api.uploadPlugin(file.value!, scope.value, required.value)
+      : await api.uploadPlugin(file.value!, scope.value, required.value, renames.value)
     ElMessage.success(`已安装 ${p.name || p.id}${p.version ? ' v' + p.version : ''}`)
     dialog.value = false
     await load()
@@ -166,7 +187,10 @@ const parts = (c: Record<string, number>) => Object.entries(partLabels).filter((
           <ul>
             <li v-for="s in p.manifest.skills" :key="'s' + s.name">技能 <code>{{ s.name }}</code>：{{ s.description }}</li>
             <li v-for="e in p.manifest.experts" :key="'e' + e.id">专家 <code>{{ e.id }}</code>：{{ e.name }}</li>
-            <li v-for="c in p.manifest.connectors" :key="'c' + c.id">连接器 <code>{{ c.id }}</code>（{{ c.transport }}）：装好后在「MCP 连接器」里填密钥</li>
+            <li v-for="c in p.manifest.connectors" :key="'c' + (c.server || c.id)">
+              连接器 <code>{{ c.vendor_id || c.id }}</code>（{{ c.transport }}）<template v-if="c.result">· {{ RESULT[c.result]?.label ?? c.result }}</template>
+              <template v-if="c.source_mcp_config"> · 来源 {{ c.source_mcp_config }}</template>
+            </li>
             <li v-for="c in p.manifest.commands" :key="'k' + c.name">快捷指令 <code>/{{ c.name }}</code> {{ c.title }}</li>
             <li v-for="(r, i) in p.manifest.rules" :key="'r' + i">工具规则「{{ r.name }}」：{{ r.action }} {{ r.tools }}</li>
           </ul>
@@ -196,6 +220,22 @@ const parts = (c: Record<string, number>) => Object.entries(partLabels).filter((
           <el-alert v-if="preview.conflicts.length" type="error" :closable="false" show-icon
             :title="`这些东西已经存在、不是这个插件装的：${preview.conflicts.join('、')}。先改名或删掉再装`" />
           <el-alert v-for="w in preview.manifest.warnings" :key="w" :title="w" type="warning" :closable="false" show-icon class="warn" />
+          <div v-for="c in preview.manifest.connectors" :key="c.server" class="conn">
+            <div class="conn-head">
+              <el-tag size="small" :type="RESULT[c.result].type">{{ RESULT[c.result].label }}</el-tag>
+              <strong>{{ c.server }}</strong>
+              <span class="muted">→ 连接器 <code>{{ c.vendor_id }}</code>（工具名 mcp__{{ c.vendor_id }}__*）</span>
+            </div>
+            <div class="muted">
+              {{ c.transport === 'stdio' ? `${c.command} ${c.args.join(' ')}` : c.url }}
+              · 来源 {{ c.source_manifest }}<template v-if="c.source_mcp_config !== c.source_manifest"> → {{ c.source_mcp_config }}</template>
+            </div>
+            <div v-if="c.reason" class="muted">{{ c.reason }}</div>
+            <div v-if="c.result === 'CONFLICT' || c.result === 'RENAMED'" class="rename">
+              <el-input v-model="renames[c.server]" size="small" placeholder="新的连接器标识" class="rename-input" @change="refreshPreview" />
+              <el-button v-if="c.suggested_rename" size="small" link type="primary" @click="useSuggested(c)">用建议的 {{ c.suggested_rename }}</el-button>
+            </div>
+          </div>
         </div>
       </template>
       <template v-else>
@@ -311,6 +351,29 @@ const parts = (c: Record<string, number>) => Object.entries(partLabels).filter((
 }
 .preview p {
   margin: 0;
+}
+.conn {
+  padding: 8px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+.conn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.muted {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.rename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.rename-input {
+  width: 220px;
 }
 .opts {
   margin-top: 16px;

@@ -42,6 +42,20 @@ public sealed class McpVendor
     [JsonPropertyName("skip_tls_verify")] public bool SkipTlsVerify { get; set; }
     [JsonPropertyName("updated_at")] public DateTimeOffset UpdatedAt { get; set; }
 
+    // ---- 来源（老服务端没有这些字段：按「管理员手工建的」处理）----
+
+    /// <summary>global（管理员在「连接器」里建的）/ plugin（插件导入的）。</summary>
+    [JsonPropertyName("source_type")] public string SourceType { get; set; } = "global";
+    /// <summary>由哪个插件带来的（plugins.id）。</summary>
+    [JsonPropertyName("plugin")] public string Plugin { get; set; } = "";
+    [JsonPropertyName("source_plugin_version")] public string SourcePluginVersion { get; set; } = "";
+    [JsonPropertyName("source_manifest")] public string SourceManifest { get; set; } = "";
+    [JsonPropertyName("source_mcp_config")] public string SourceMcpConfig { get; set; } = "";
+    [JsonPropertyName("source_server_name")] public string SourceServerName { get; set; } = "";
+
+    /// <summary>插件带来的：本机进程的环境变量走白名单（见 StdioTransport.ApplyEnvironment）。</summary>
+    [JsonIgnore] public bool IsPlugin => string.Equals(SourceType, "plugin", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// 配置的指纹。管理员改了地址、命令、密钥模板之后，员工端据此知道要重连；
     /// 只改了介绍文字、图标不算。
@@ -54,7 +68,7 @@ public sealed class McpVendor
         foreach (var (k, v) in Env.OrderBy(p => p.Key, StringComparer.Ordinal)) sb.Append(k).Append('=').Append(v).Append('\u0001');
         foreach (var (k, v) in Headers.OrderBy(p => p.Key, StringComparer.Ordinal)) sb.Append(k).Append(':').Append(v).Append('\u0001');
         foreach (var (k, v) in Preset.OrderBy(p => p.Key, StringComparer.Ordinal)) sb.Append(k).Append('=').Append(v).Append('\u0001');
-        sb.Append(Auth).Append(TimeoutMs).Append(SkipTlsVerify ? '1' : '0');
+        sb.Append(Auth).Append(TimeoutMs).Append(SkipTlsVerify ? '1' : '0').Append(IsPlugin ? 'p' : 'g');
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())))[..16];
     }
 }
@@ -82,6 +96,12 @@ public sealed record McpServerConfig
     public IReadOnlyDictionary<string, string> Headers { get; init; } = new Dictionary<string, string>();
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(60);
     public bool SkipTlsVerify { get; init; }
+
+    /// <summary>
+    /// 本机进程只继承白名单里的系统环境变量、连接器的 env 不能改敏感变量。插件带来的连接器开着；
+    /// 管理员手工建的保持原来的行为（继承全部），不在这一阶段改。
+    /// </summary>
+    public bool IsolatedEnvironment { get; init; }
 }
 
 /// <summary>${KEY} / ${KEY:-默认值} 占位符。</summary>
@@ -146,6 +166,7 @@ public static partial class McpTemplate
                 .ToDictionary(p => p.Key, p => p.Value),
             Timeout = TimeSpan.FromMilliseconds(Math.Clamp(vendor.TimeoutMs, 5000, 600000)),
             SkipTlsVerify = vendor.Transport != "stdio" && vendor.SkipTlsVerify,
+            IsolatedEnvironment = vendor.IsPlugin,
         };
     }
 }

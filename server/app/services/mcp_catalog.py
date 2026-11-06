@@ -169,15 +169,39 @@ def parse_import(text: str) -> list[Draft]:
         raise McpConfigError(f"不是合法的 JSON（第 {exc.lineno} 行）：{exc.msg}") from exc
     if not isinstance(data, dict):
         raise McpConfigError("配置应该是一个 JSON 对象")
-    servers = data.get("mcpServers") or data.get("servers")
-    if isinstance(servers, dict):
-        if not servers:
+    return [_from_entry(name, entry) for name, entry in server_entries(data)]
+
+
+#: 一个服务配置里会出现的键：顶层每个值都是这样的对象时，就是「直接以服务名为键」的写法
+_SERVER_KEYS = ("command", "url", "type", "transport", "serverUrl")
+
+
+def server_entries(data: dict) -> list[tuple[str, dict]]:
+    """
+    一份配置里的（服务名，服务配置）。认这几种写法：
+    - {"mcpServers": {"名字": {...}}} / {"servers": {...}}（Claude Code、Claude Desktop、Cursor、官方 figma 插件）
+    - {"名字": {"command": ..., "args": [...]}} / {"名字": {"type": "http", "url": ...}}（官方 playwright 插件的 .mcp.json）
+    - 单个服务 {"type": "http", "url": ...}（名字取域名）
+    """
+    servers = data.get("mcpServers") if "mcpServers" in data else data.get("servers")
+    if servers is not None:
+        if not isinstance(servers, dict):
+            raise McpConfigError("mcpServers 应该是一个对象：{\"服务名\": {...}}")
+        entries = [(str(k), v) for k, v in servers.items() if isinstance(v, dict)]
+        if not entries:
             raise McpConfigError("mcpServers 里没有服务")
-        return [_from_entry(name, entry) for name, entry in servers.items() if isinstance(entry, dict)]
+        return entries
     if "url" in data or "command" in data:
         name = data.get("name") or _name_from_url(data.get("url", "")) or data.get("command", "server")
-        return [_from_entry(str(name), data)]
+        return [(str(name), data)]
+    if data and all(isinstance(v, dict) and any(k in v for k in _SERVER_KEYS) for v in data.values()):
+        return [(str(k), v) for k, v in data.items()]
     raise McpConfigError("没认出配置格式：需要 mcpServers，或者包含 url / command 的服务配置")
+
+
+def draft_from_entry(name: str, entry: dict) -> Draft:
+    """一个服务配置 → 草稿（写死的密钥挪成管理员预填的填写项，${VAR} 变成填写项）。"""
+    return _from_entry(name, entry)
 
 
 def _name_from_url(url: str) -> str:

@@ -115,6 +115,12 @@ export interface McpField {
 /** 管理员引入的一个 MCP 厂商 */
 export interface McpVendor {
   id: string
+  /** global（在这里手工建的）/ plugin（插件导入的） */
+  source_type?: 'global' | 'plugin' | string
+  plugin?: string
+  source_plugin_version?: string
+  source_mcp_config?: string
+  source_server_name?: string
   name: string
   description: string
   detail: string
@@ -353,6 +359,8 @@ export interface AuditLog {
   actor?: string
   /** 远程 / 定时 / 事件任务依据的授权记录 */
   grant_id?: string
+  /** MCP 工具当时的连接器来源：global / plugin:<插件>@<版本> / unknown */
+  mcp_source?: string
   occurred_at: string
   created_at: string
 }
@@ -795,7 +803,7 @@ export interface PluginManifest {
   skills: { name: string; description: string }[]
   commands: SlashCommand[]
   experts: { id: string; name: string; description: string }[]
-  connectors: { id: string; name: string; transport: string }[]
+  connectors: PluginConnector[]
   rules: ToolRule[]
   warnings: string[]
 }
@@ -881,4 +889,20 @@ export interface EventRun {
   rehearsal: boolean
   created_at: string
   finished_at: string | null
+}
+
+/** 插件里的一个 MCP 服务落成连接器的结果 */
+export interface PluginConnector {
+  server: string
+  id: string
+  transport: string
+  command: string
+  args: string[]
+  url: string
+  source_manifest: string
+  source_mcp_config: string
+  vendor_id: string
+  result: 'NEW' | 'UPDATE' | 'REUSE_EXISTING' | 'CONFLICT' | 'RENAMED'
+  reason: string
+  suggested_rename: string
 }

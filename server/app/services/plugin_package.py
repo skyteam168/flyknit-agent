@@ -29,7 +29,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from . import mcp_catalog, skill_library
+from . import plugin_mcp_resolver, skill_library
 
 MAX_ZIP_BYTES = skill_library.MAX_TOTAL_BYTES
 VALID_ID = re.compile(r"^[a-z][a-z0-9_-]{1,39}$")
@@ -58,7 +58,7 @@ class ParsedPlugin:
     commands: list[dict] = field(default_factory=list)
     #: [{id, fields: ExpertFields 的 dict}]
     experts: list[dict] = field(default_factory=list)
-    #: mcp_catalog.Draft 的 dict（id 已经加上插件前缀以外的检查）
+    #: plugin_mcp_resolver.PluginMcpDefinition 的 dict
     connectors: list[dict] = field(default_factory=list)
     #: tool_rules.ToolRule 的 dict（未校验，路由层校验）
     rules: list[dict] = field(default_factory=list)
@@ -72,7 +72,11 @@ class ParsedPlugin:
             "commands": self.commands,
             "experts": [{"id": e["id"], "name": e["fields"]["name"], "description": e["fields"]["description"][:300]}
                         for e in self.experts],
-            "connectors": [{"id": c["id"], "name": c["name"], "transport": c["transport"]} for c in self.connectors],
+            # 导入时（routers/plugins.py）再补上 result（NEW / REUSE_EXISTING / CONFLICT / RENAMED）和 vendor_id
+            "connectors": [{"id": c["name"], "name": c["source_server_name"], "transport": c["transport_type"],
+                            "command": c["command"], "args": c["args"], "url": c["url"],
+                            "source_manifest": c["source_manifest"], "source_mcp_config": c["source_mcp_config"]}
+                           for c in self.connectors],
             "rules": self.rules,
             "warnings": self.warnings,
         }
@@ -161,7 +165,7 @@ def parse(data: bytes, subdir: str = "") -> ParsedPlugin:
         _skills(zf, data_files=files, plugin=plugin)
         _commands(files, text, plugin)
         _experts(files, text, plugin)
-        _connectors(files, text, plugin)
+        _connectors(files, text, plugin, manifest, manifest_rel)
         _rules(files, text, plugin)
 
         if not (plugin.skills or plugin.commands or plugin.experts or plugin.connectors or plugin.rules):
@@ -252,29 +256,16 @@ def _experts(files: dict, text, plugin: ParsedPlugin) -> None:
             plugin.warnings.append(f"专家 {base} 的 model 设置不生效：模型由后台场景统一配置")
 
 
-def _connectors(files: dict, text, plugin: ParsedPlugin) -> None:
-    rel = next((r for r in (".mcp.json", "mcp.json") if r in files), None)
-    if rel is None:
-        return
+def _connectors(files: dict, text, plugin: ParsedPlugin, manifest: dict, manifest_rel: str) -> None:
+    """插件里声明的 MCP 服务（plugin.json 的 mcpServers、.mcp.json、mcp.json），见 plugin_mcp_resolver。"""
     try:
-        drafts = mcp_catalog.parse_import(text(rel))
-    except mcp_catalog.McpConfigError as exc:
-        raise PluginError(f"{rel}：{exc}") from exc
-    for d in drafts:
-        joined = json.dumps([d.command, d.args, d.env, d.url, d.headers], ensure_ascii=False)
-        if "CLAUDE_PLUGIN_ROOT" in joined:
-            raise PluginError(f"连接器 {d.name} 要在员工电脑上运行插件自带的程序（${{CLAUDE_PLUGIN_ROOT}}），不支持。"
-                              "请改成在线服务（http），或由 IT 在「连接器」里单独配置")
-        # 插件里的预填值（写死在配置里的密钥）不随包走：管理员装好后在「连接器」里填
-        if d.preset:
-            plugin.warnings.append(f"连接器 {d.name} 里写死的密钥没有导入，装好后请在「连接器」页面填写")
-            d.preset = {}
-        item = d.__dict__.copy()
-        try:
-            mcp_catalog.validate({**item, "fields": d.fields})
-        except mcp_catalog.McpConfigError as exc:
-            raise PluginError(f"连接器 {d.name}：{exc}") from exc
-        plugin.connectors.append(item)
+        defs, notes = plugin_mcp_resolver.resolve(files, text, manifest, manifest_rel, plugin.id, plugin.version)
+    except plugin_mcp_resolver.PluginMcpError as exc:
+        raise PluginError(str(exc)) from exc
+    plugin.warnings.extend(notes)
+    for d in defs:
+        plugin.warnings.extend(d.warnings)
+        plugin.connectors.append(d.to_dict())
 
 
 def _rules(files: dict, text, plugin: ParsedPlugin) -> None:

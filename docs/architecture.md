@@ -604,13 +604,42 @@ MCP 地址、介绍页（从页面里找 mcpServers 配置、`claude mcp add`、
 | `.claude-plugin/plugin.json`（也认 `.flyknit-plugin/`、根目录 `plugin.json`） | `plugins` 表 | name 必填（插件 id），version / description / author / homepage |
 | `skills/<名字>/SKILL.md` | `skill_packages`（`plugin` 列记来源） | 同技能库的校验（路径穿越、可执行文件、体积）；插件设「技能必装」时范围内电脑自动装 |
 | `agents/*.md` | `experts`（直接发布） | id = `<插件>-<名字>`；`tools` 白名单里没有写入类工具 → 只读；`disallowedTools` 照搬；`model` 不生效 |
-| `.mcp.json` | `mcp_vendors` | 同「连接器」导入；写死的密钥不随包走，装好后管理员填；`${CLAUDE_PLUGIN_ROOT}` 本地进程拒收 |
+| `.claude-plugin/plugin.json` 的 `mcpServers`（对象，或包内文件路径）+ `.mcp.json` / `mcp.json` | `mcp_vendors`（`source_type=plugin` + 来源列） | 见下面「插件 MCP」 |
 | `commands/*.md` | 插件清单，`/client/commands` 合并下发 | `$1…$9` → `{arg1}…`，`$ARGUMENTS` → `{arguments}`；同名时后台手写的优先；`!\`命令\`` 不执行 |
 | `rules.json` / `hooks/rules.json` | 插件清单，`/client/config` 的 `tool_rules` 合并下发 | 同「工具规则」校验；`hooks/hooks.json` 里的 command 类 hook（要在员工电脑上跑脚本）整包拒收 |
 
 下发范围 `plugins.departments`（空 = 全公司，按 `devices.department` 匹配）在服务端过滤：`plugin_scope.visible_ids` 用在技能列表和下载、
 专家、连接器、快捷指令、工具规则这几个员工端接口上，范围外或停用的插件带来的东西一样都拿不到。再传同一插件 = 升级（新版没有的删掉）；
 同名且不是本插件装的东西直接拒绝（409）。员工端「设置 → 插件」只读查看；插件不再下发时，它装进 org 目录的技能会被删掉（`AppSettings.PluginSkills`）。
+
+### 插件 MCP（PluginMcpResolver）
+
+插件 MCP 只是连接器的一个新来源，员工端仍然只认 `GET /api/v1/client/mcp/vendors`，**不读本机 `~/.claude/plugins`**
+（CLAUDE.md 第 6 条：员工不能自建 MCP）。链路：
+
+```
+插件 zip → plugin_package.parse → plugin_mcp_resolver.resolve（PluginMcpDefinition）
+  → routers/plugins.plan_connectors（NEW / UPDATE / REUSE_EXISTING / CONFLICT / RENAMED）→ IT 在预览里确认、导入
+  → mcp_vendors（source_type=plugin、plugin、source_plugin_version、source_manifest、source_mcp_config、source_server_name）
+  → 按部门下发 → McpService.RefreshVendorsAsync → ConnectAsync → McpConnection → Register → ToolRegistry
+  → McpTool.Assess → 工具规则 → 放行规则 → 确认 → 审计（服务端按连接器表补 mcp_source）→ 执行
+```
+
+- **配置来源**：plugin.json 的 `mcpServers`（对象 = 内联；字符串 = 包内相对路径，拒绝 `..`、绝对路径、盘符、UNC，文件不存在报错），
+  再加 `.mcp.json`、`mcp.json`，全部合并；同名配置相同算一个，不同直接报错。写法认 `{"mcpServers": {...}}` 和
+  顶层直接写服务名（官方 playwright 的 `.mcp.json`），`mcp_catalog.server_entries` 统一处理，后台「连接器」粘贴配置也能用。
+- **同名**：没有同名 → NEW；同名是本插件上次装的 → UPDATE；同名是后台手工建的、连接方式完全一样（传输、地址、命令、参数、env、请求头，
+  不比较预填密钥）→ REUSE_EXISTING，不新建、卸载插件也不删；其余 → CONFLICT（409，给建议的新标识 `<插件>-<服务名>`），
+  管理员选改名后 RENAMED，工具名随之变成 `mcp__<新标识>__*`，插件自带的快捷指令 / 专家 / 技能里写死旧工具名会在预览里提示。
+  不做「内部 id 再映射回同一个工具名」：一个工具名只对应一个连接器，放行规则、工具规则、专家的 `mcp_servers` 才指得清楚。
+- **安全**：本机进程只允许 `npx` / `uvx` / `uv` / `node` / `python` / `python3` / `py` 启动（看插件里写的命令；`docker`、shell、下载工具拒收）；
+  插件 env 不能设 `PATH`、`PATHEXT`、`COMSPEC`、`SYSTEMROOT`、`NODE_OPTIONS`、`npm_config_*`、`PYTHONPATH`、`PYTHONSTARTUP`、`DOTNET_*`、`*_PROXY` 等；
+  `${CLAUDE_PLUGIN_ROOT}` 拒收；写死的密钥不随包导入；`@latest` / 没写版本号的包在预览里提示固定版本。员工端对插件连接器的本机进程
+  只继承白名单里的系统变量（`StdioTransport.InheritedForPlugins`，员工电脑上的 API_KEY / TOKEN 不会带进去），env 里的敏感变量再挡一次；
+  后台手工建的连接器保持原来的行为。命令白名单挡不住 `npx` / `python` 运行任意代码，真正的把关是 IT 看过预览再导入。
+- **来源追溯**：审计记录的 `mcp_source`（`global` / `plugin:<插件>@<版本>` / `unknown`）由服务端收到审计时按当时的连接器表填，
+  员工端报不了也改不了；插件升级、删除后历史记录仍然对得上。
+- **没做**：MCP 的 HTTP 请求不经过网络白名单（`NetworkPolicy`），后台手工建的连接器也一样，插件连接器和它们一致。
 
 ### 任务授权记录（`task_grants`）
 

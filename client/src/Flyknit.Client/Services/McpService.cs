@@ -227,6 +227,9 @@ public sealed class McpService : IDisposable
             Icon = v.Icon,
             Publisher = v.Publisher,
             Category = v.Category,
+            SourceType = v.IsPlugin ? "plugin" : "global",
+            Plugin = v.Plugin,
+            SourcePluginVersion = v.SourcePluginVersion,
             Homepage = v.Homepage,
             Transport = v.Transport,
             Auth = v.Auth,
@@ -809,6 +812,10 @@ public sealed class McpVendorView
     public string Icon { get; set; } = "";
     public string Publisher { get; set; } = "";
     public string Category { get; set; } = "";
+    /// <summary>global / plugin：界面上标「来自插件 X」。</summary>
+    public string SourceType { get; set; } = "global";
+    public string Plugin { get; set; } = "";
+    public string SourcePluginVersion { get; set; } = "";
     public string Homepage { get; set; } = "";
     public string Transport { get; set; } = "";
     public string Auth { get; set; } = "";

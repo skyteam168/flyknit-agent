@@ -349,6 +349,9 @@ async function runTest() {
             <div class="title">
               <strong>{{ v.name }}</strong>
               <code>{{ v.id }}</code>
+              <el-tag v-if="v.source_type === 'plugin'" size="small" type="warning" effect="plain">
+                来自插件 {{ v.plugin }}{{ v.source_plugin_version ? ' ' + v.source_plugin_version : '' }}
+              </el-tag>
             </div>
             <el-switch v-model="v.enabled" size="small" @change="toggle(v)" />
           </div>
