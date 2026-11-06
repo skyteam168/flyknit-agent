@@ -143,6 +143,8 @@ class UsageModelDaily(Base):
     scene: Mapped[str] = mapped_column(String(20))
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    #: 输入里命中模型服务商提示词缓存的部分（包含在 prompt_tokens 里）。上游不报就是 0
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     requests: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

@@ -203,3 +203,17 @@ async def test_audit_records_the_scene(client, device_headers):
     rows = (await client.get("/api/v1/admin/audit", headers=ADMIN)).json()
     assert rows[0]["scene"] == "agent"
     assert rows[0]["decision"] == "blocked"
+
+
+def test_cached_tokens_are_read_from_every_provider_style():
+    assert usage_store.extract_cached(b'{"usage":{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":80}}}') == 80
+    assert usage_store.extract_cached(b'{"usage":{"prompt_tokens":100,"prompt_cache_hit_tokens":64}}') == 64
+    assert usage_store.extract_cached({"usage": {"cache_read_input_tokens": 10}}) == 10
+    assert usage_store.extract_cached(b'{"usage":{"prompt_tokens":100}}') == 0
+    assert usage_store.extract_cached(b"not json") == 0
+
+    scanner = usage_store.StreamUsageScanner()
+    scanner.feed(b'data: {"choices":[]}\n')
+    scanner.feed(b'data: {"usage":{"prompt_tokens":50,"completion_tokens":5,"prompt_cache_hit_tokens":40}}\n')
+    scanner.finish()
+    assert (scanner.prompt, scanner.completion, scanner.cached) == (50, 5, 40)

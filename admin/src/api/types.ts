@@ -404,6 +404,8 @@ export interface ModelUsage {
   prompt: number
   completion: number
   requests: number
+  /** 输入里命中模型服务商提示词缓存的部分（上游不报就是 0） */
+  cached?: number
   today_tokens: number
   today_requests: number
   scenes: { scene: string; tokens: number }[]

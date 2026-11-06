@@ -84,3 +84,19 @@ async def test_history_is_backfilled_once_from_chat_records(client):
     assert d["models"][0]["model"] == "Qwen3.5-397B"
     assert d["models"][0]["tokens"] == 8200
     assert d["models"][0]["today_tokens"] == 0
+
+
+@respx.mock
+async def test_prompt_cache_hits_are_counted_per_model(client, device_headers):
+    """上游报了缓存命中（DeepSeek / OpenAI 两种写法）就记下来，首页能看到命中率，判断缓存有没有起作用。"""
+    await setup_models(client)
+    route = respx.post("http://primary.local/v1/chat/completions")
+    route.mock(return_value=httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}],
+                                                      "usage": {**USAGE, "prompt_cache_hit_tokens": 600}}))
+    await ask(client, device_headers)
+    route.mock(return_value=httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}],
+                                                      "usage": {**USAGE, "prompt_tokens_details": {"cached_tokens": 900}}}))
+    await ask(client, device_headers)
+    d = (await client.get("/api/v1/admin/dashboard?days=7", headers=ADMIN)).json()
+    m = next(x for x in d["models"] if x["model"] == "Qwen3.5-397B")
+    assert m["prompt"] == 2000 and m["cached"] == 1500

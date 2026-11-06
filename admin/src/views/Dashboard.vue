@@ -299,7 +299,7 @@ const userShare = (tokens: number) => (rangeTotal.value ? Math.round((tokens / r
                 <span>{{ short(m.tokens) }}</span>
               </div>
               <el-progress :percentage="modelShare(m.tokens)" :stroke-width="6" />
-              <small>今日 {{ short(m.today_tokens) }} · 请求 {{ num(m.requests) }} 次 · 输入 {{ short(m.prompt) }} / 输出 {{ short(m.completion) }}</small>
+              <small>今日 {{ short(m.today_tokens) }} · 请求 {{ num(m.requests) }} 次 · 输入 {{ short(m.prompt) }} / 输出 {{ short(m.completion) }}<template v-if="m.cached && m.prompt"> · 缓存命中 {{ Math.round((m.cached / m.prompt) * 100) }}%</template></small>
               <small v-if="m.scenes.length" class="model-scenes">{{ modelScenes(m.scenes) }}</small>
             </li>
           </ul>
