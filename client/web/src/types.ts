@@ -1196,3 +1196,11 @@ export interface WorkspaceListing {
   error: string
   entries: WorkspaceEntry[]
 }
+
+/** 快捷指令：输入框里打 / 选的提示词模板。模板里的 {参数} 按顺序替换 */
+export interface SlashCommand {
+  name: string
+  title: string
+  description: string
+  template: string
+}

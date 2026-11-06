@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Flyknit.Core.Chat;
 using Flyknit.Core.Gateway;
 using Flyknit.Core.Security;
@@ -178,6 +179,11 @@ public sealed class AgentLoop
     {
         _gateway = gateway;
         _tools = tools;
+        // 外部服务工具多时按需加载（见 ToolExposure）：加载工具和要加载的工具在同一个清单里，专家筛过的清单也一样
+        if (_tools.Get(LoadToolsTool.ToolName) is null)
+        {
+            _tools.Add(new LoadToolsTool(_tools));
+        }
         _confirm = confirm;
         _audit = audit ?? new NullAuditSink();
         _options = options ?? new AgentOptions();
@@ -199,7 +205,11 @@ public sealed class AgentLoop
     {
         var newMessages = new List<ChatMessage>();
         var trace = new Trace(ctx.ConversationId);
-        var tools = useTools ? _tools.ToOpenAiTools() : null;
+        // 发给模型的工具：外部服务工具多时只发已加载的（每一步重新算，load_tools 之后下一步就带上）
+        JsonArray? ToolsNow() => useTools
+            ? new JsonArray(ToolExposure.Visible(_tools.All, ctx.LoadedTools, history).Select(t => (JsonNode)ToolRegistry.Definition(t)).ToArray())
+            : null;
+        var tools = ToolsNow();
         var failures = 0;
         string? modelName = null;
         TokenUsage? usage = null;
@@ -243,6 +253,21 @@ public sealed class AgentLoop
                 }
                 // 上一步的工具结果都已回填，这里接上用户的插话（不会插在调用和结果之间）
                 TakeInterjections();
+
+                // 上一步加载了外部服务工具：这一步起带上它们的完整说明
+                if (useTools && step > 0)
+                {
+                    var now = ToolsNow();
+                    if (now!.Count != tools!.Count)
+                    {
+                        tools = now;
+                        toolTokens = Context.TokenEstimator.Estimate(tools.ToJsonString());
+                        if (context is not null)
+                        {
+                            context.ToolTokens = toolTokens;
+                        }
+                    }
+                }
 
                 // 全局预算：每次调模型前看一眼。累计 token、连续没进展的轮数、改计划的次数
                 var budgetVerdict = budget.Check(out var budgetNote);
@@ -934,7 +959,8 @@ public sealed class AgentLoop
         {
             using var step = p.Step!;
             var call = p.Call;
-            var result = (executed ?? ToolResult.Fail("执行失败")).Truncate(_options.MaxToolOutputChars);
+            // 太长的结果存成文件，模型拿到开头、结尾和路径（见 ToolOutputSpill）
+            var result = ToolOutputSpill.Apply(executed ?? ToolResult.Fail("执行失败"), _options.MaxToolOutputChars, _options.ToolOutputDir, call.Name, call.Id);
             if (result.Usage is { } toolUsage)
             {
                 // 派遣出去的专家用掉的 token：算进这次运行的用量和预算

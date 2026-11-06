@@ -53,6 +53,7 @@ import {
   finishSpeech,
   interject,
   askSide,
+  loadCommands,
   dismissInterrupted,
   interruptedRun,
   resumeInterrupted,
@@ -69,8 +70,9 @@ import {
   stop,
   toast,
 } from '../store'
-import type { InterjectMode, Mode, PendingInput } from '../types'
+import type { InterjectMode, Mode, PendingInput, SlashCommand } from '../types'
 import { shouldFold, snippet } from '../pasted'
+import { expandCommand, findCommand, parseSlash, templateParams } from '../slash'
 
 const props = defineProps<{ home?: boolean }>()
 const { t } = useI18n()
@@ -132,8 +134,23 @@ async function submit(how?: InterjectMode) {
     void askSide(btw[1])
     return
   }
+  // 快捷指令：「/名字 参数…」展开成模板发出去；参数没填全就放回输入框，让员工补上
+  let outgoing = value
+  const slash = parseSlash(value)
+  const cmd = slash ? findCommand(slash.name, state.commands.mine, state.commands.it) : null
+  if (slash && cmd) {
+    const r = expandCommand(cmd, slash.rest)
+    if (r.missing.length) {
+      text.value = r.text
+      await nextTick()
+      resize()
+      toast(t('ui.slash.missing', { names: r.missing.join('、') }))
+      return
+    }
+    outgoing = r.text
+  }
   // 正在运行：回车 / 点发送是插话；长按或右键发送可以选「打断并优先」「排到本轮之后」
-  const sent = busy.value ? await interject(value, how ?? 'steer') : await send(value)
+  const sent = busy.value ? await interject(outgoing, how ?? 'steer') : await send(outgoing)
   // 没发出去（例如新对话没建成）就把文字放回输入框；附件在发送成功前不会从待发列表里拿走
   if (!sent && !text.value) {
     text.value = value
@@ -227,7 +244,62 @@ async function editInput(item: PendingInput) {
   box.value?.focus()
 }
 
+// ---------- 快捷指令选择：输入框里只有「/」加几个字时列出来 ----------
+interface SlashItem { name: string; title: string; template: string; source: 'builtin' | 'it' | 'mine' }
+const slashIndex = ref(0)
+const slashDismissed = ref('')
+const slashItems = computed<SlashItem[]>(() => {
+  const m = /^\/([^\s/]*)$/.exec(text.value)
+  if (!m || slashDismissed.value === text.value) return []
+  const q = m[1].toLowerCase()
+  const all: SlashItem[] = [
+    ...state.commands.mine.map((c) => ({ ...c, source: 'mine' as const })),
+    ...state.commands.it.filter((c) => !state.commands.mine.some((x) => x.name.toLowerCase() === c.name.toLowerCase())).map((c) => ({ ...c, source: 'it' as const })),
+    { name: 'btw', title: t('ui.slash.btw'), template: '', source: 'builtin' as const },
+  ]
+  return all.filter((c) => !q || c.name.toLowerCase().includes(q) || c.title.toLowerCase().includes(q)).slice(0, 8)
+})
+watch(slashItems, () => (slashIndex.value = 0))
+// 第一次打出 / 时刷新一下（后台刚发布的新指令也能马上用上）
+watch(
+  () => text.value === '/',
+  (on) => {
+    if (on) void loadCommands()
+  },
+)
+
+/** 选中一条：有参数的先放「/名字 」让员工接着打参数；没有参数的直接把模板放进输入框，看一眼再发 */
+async function pickSlash(c: SlashItem) {
+  const params = c.source === 'builtin' || templateParams(c.template).length > 0
+  text.value = params ? `/${c.name} ` : c.template
+  await nextTick()
+  resize()
+  box.value?.focus()
+}
+
+function slashHint(c: SlashItem) {
+  const params = templateParams(c.template)
+  return params.length ? params.map((p) => `{${p}}`).join(' ') : ''
+}
+
 function onKey(e: KeyboardEvent) {
+  if (slashItems.value.length && !e.isComposing) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const n = slashItems.value.length
+      slashIndex.value = (slashIndex.value + (e.key === 'ArrowDown' ? 1 : n - 1)) % n
+      return
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      void pickSlash(slashItems.value[slashIndex.value])
+      return
+    }
+    if (e.key === 'Escape') {
+      slashDismissed.value = text.value
+      return
+    }
+  }
   if (e.key === 'Escape' && menuOpen.value) {
     menuOpen.value = false
     return
@@ -491,6 +563,25 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
+      <!-- 快捷指令：打 / 时列出来，方向键选、回车或 Tab 选中 -->
+      <div v-if="slashItems.length" class="slash-menu" role="listbox" :aria-label="t('ui.slash.title')">
+        <button
+          v-for="(c, i) in slashItems"
+          :key="c.source + c.name"
+          type="button"
+          role="option"
+          class="slash-item"
+          :class="{ on: i === slashIndex }"
+          :aria-selected="i === slashIndex"
+          @mouseenter="slashIndex = i"
+          @mousedown.prevent="pickSlash(c)"
+        >
+          <span class="slash-name">/{{ c.name }}</span>
+          <span class="slash-args">{{ slashHint(c) }}</span>
+          <span class="slash-title">{{ c.title || c.template }}</span>
+          <span class="slash-src" :class="c.source">{{ t(`ui.slash.source.${c.source}`) }}</span>
+        </button>
+      </div>
       <textarea
         ref="box"
         v-model="text"
@@ -868,6 +959,62 @@ onBeforeUnmount(() => {
   }
 }
 
+.slash-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 260px;
+  margin: 6px 8px 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--loom);
+}
+.slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  text-align: left;
+}
+.slash-item.on {
+  background: var(--cloth-sunk);
+}
+.slash-name {
+  flex: none;
+  color: var(--indigo);
+  font-weight: 600;
+}
+.slash-args {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.slash-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slash-src {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--cloth-sunk);
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 16px;
+}
+.slash-src.it {
+  color: var(--indigo);
+}
 .card {
   max-width: var(--column);
   margin: 0 auto;

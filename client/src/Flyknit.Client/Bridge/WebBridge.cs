@@ -1782,6 +1782,22 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _host.ClearTerminal(Str("conversationId"));
                 return null;
 
+            // ---------- 快捷指令：输入框里打 / 选的提示词模板 ----------
+            case "commands.list":
+            {
+                var (it, mine) = await _host.ListCommandsAsync();
+                return new { it, mine };
+            }
+
+            case "commands.save":
+            {
+                var items = p.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
+                    ? arr.Deserialize<List<Flyknit.Core.Commands.SlashCommand>>(Json) ?? new()
+                    : new List<Flyknit.Core.Commands.SlashCommand>();
+                var problem = await Task.Run(() => _host.SaveMyCommands(items));
+                return new { ok = problem is null, message = problem ?? "" };
+            }
+
             // ---------- 工作区文件：右侧「文件」标签浏览、搜索（只读、只在工作区里） ----------
             case "workspace.list":
             {

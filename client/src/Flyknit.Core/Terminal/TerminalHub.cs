@@ -30,7 +30,8 @@ public sealed class TerminalRun
     public string Command { get; }
     public string Shell { get; }
     public string WorkingDirectory { get; }
-    public bool Background { get; }
+    /// <summary>后台命令。前台命令超时后可以转到后台（<see cref="TerminalHub.Promote"/>），所以会变。</summary>
+    public bool Background { get; internal set; }
     public DateTimeOffset StartedAt { get; }
 
     /// <summary>还在跑。</summary>
@@ -253,6 +254,30 @@ public sealed class TerminalHub : IDisposable
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         return run;
+    }
+
+    /// <summary>
+    /// 前台命令跑太久：转到后台接着跑（不杀掉），AI 之后用 shell_output 看、shell_stop 停。
+    /// 已经结束、这个对话后台命令已满时返回 false，调用方照旧按超时处理。
+    /// </summary>
+    public bool Promote(TerminalRun run)
+    {
+        lock (_gate)
+        {
+            if (!run.Running || run.Background)
+            {
+                return false;
+            }
+            var list = _byConversation.TryGetValue(run.ConversationId, out var l) ? l : new List<TerminalRun>();
+            if (list.Count(r => r.Background && r.Running) >= MaxBackgroundPerConversation)
+            {
+                return false;
+            }
+            run.Background = true;
+        }
+        // 界面按「开始」事件更新这条命令（标成后台运行中）
+        Raise(() => Started?.Invoke(run));
+        return true;
     }
 
     /// <summary>等命令结束（或超时、取消）。超时返回 false，命令还在跑。</summary>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Flyknit.Core.Workspace;
 
 namespace Flyknit.Client.Services;
@@ -9,6 +10,12 @@ namespace Flyknit.Client.Services;
 /// </summary>
 public sealed partial class AgentHost
 {
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<string>> _loadedTools = new(StringComparer.Ordinal);
+
+    /// <summary>这个对话加载过的外部服务工具（load_tools）：同一个对话下一轮接着用，不用再加载。</summary>
+    private HashSet<string> LoadedToolsOf(string conversationId) =>
+        _loadedTools.GetOrAdd(conversationId, _ => new HashSet<string>(StringComparer.Ordinal));
+
     /// <summary>这个对话的工作区；没有（对话、翻译模式，或者没选工作区）返回 null。</summary>
     public string? WorkspaceOf(string conversationId) =>
         Store.Get(conversationId)?.Workspace is { Length: > 0 } w && System.IO.Directory.Exists(w) ? w : null;

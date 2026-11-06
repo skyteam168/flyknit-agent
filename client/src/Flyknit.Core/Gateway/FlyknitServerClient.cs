@@ -647,6 +647,15 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Mcp.McpVendor>>(cancellationToken: ct) ?? new();
     }
 
+    /// <summary>IT 在后台发布的快捷指令。</summary>
+    public async Task<List<Flyknit.Core.Commands.SlashCommand>> GetCommandsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/commands");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return (await resp.Content.ReadFromJsonAsync<Flyknit.Core.Commands.SlashCommandList>(cancellationToken: ct))?.Items ?? new();
+    }
+
     /// <summary>管理员发布的专家（发布时的快照）。</summary>
     public async Task<List<Flyknit.Core.Experts.Expert>> GetExpertsAsync(CancellationToken ct)
     {

@@ -58,6 +58,15 @@ function docVersion(text: string): string {
   return (h >>> 0).toString(16)
 }
 
+/** 开发预览里的快捷指令 */
+const mockItCommands = [
+  { name: '周报', title: '写本周工作周报', description: '', template: '帮我写 {日期} 这一周的工作周报：完成了什么、遇到什么问题、下周计划，用表格列出关键数字' },
+  { name: '质检汇总', title: '汇总车间质检数据', description: '', template: '汇总 {车间} {日期} 的质检数据，算出不良率，按缺陷类型排序并分析主要原因' },
+]
+const mockMyCommands: { name: string; title: string; description: string; template: string }[] = [
+  { name: '润色', title: '把下面这段话改得更正式', description: '', template: '把下面这段话改得更正式、简洁，保留原意：{内容}' },
+]
+
 export function createMockHost(): HostTransport {
   let handler: (data: unknown) => void = () => {}
   const emit = (event: HostEvent) => handler({ kind: 'event', event })
@@ -1936,6 +1945,15 @@ export function createMockHost(): HostTransport {
           ]),
         ]
         return { contextLength: 131072, reserveOutput: 8192, compactAt: 92160, parts, used: parts.reduce((a, x) => a + x.tokens, 0), lastPromptTokens: compacted ? null : 118430, measuredAt: now() }
+      }
+      case 'commands.list':
+        return { it: mockItCommands, mine: mockMyCommands }
+      case 'commands.save': {
+        const items = (p.items ?? []) as { name: string; title: string; description: string; template: string }[]
+        const bad = items.find((c) => !/^[\w\-\u4e00-\u9fff]{1,20}$/.test(c.name.trim().replace(/^\//, '')))
+        if (bad) return { ok: false, message: `指令名「${bad.name}」只能用中文、字母、数字、- 和 _，不超过 20 个字，不能有空格` }
+        mockMyCommands.splice(0, mockMyCommands.length, ...items.map((c) => ({ ...c, name: c.name.trim().replace(/^\//, '') })))
+        return { ok: true, message: '' }
       }
       case 'workspace.list': {
         await sleep(120)

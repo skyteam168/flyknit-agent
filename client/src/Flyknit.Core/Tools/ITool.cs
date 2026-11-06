@@ -158,6 +158,11 @@ public sealed class ToolContext
     /// <summary>正在执行的工具调用的 ID（工具按顺序一个一个执行）。派遣专家时用它把界面上的卡片和子任务对上。</summary>
     public string CurrentCallId { get; set; } = "";
 
+    /// <summary>
+    /// 这个对话里已经用 load_tools 加载过的外部服务工具（见 ToolExposure）。宿主按对话保存，同一个对话下一轮还算加载过。
+    /// </summary>
+    public ISet<string> LoadedTools { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
     private readonly string? _workingDirectory;
 
     public string WorkingDirectory

@@ -766,3 +766,11 @@ export interface MobileRelease {
   download_path: string
   file_missing: boolean
 }
+
+/** 快捷指令：员工输入 /name 参数… 时把模板里的 {参数} 按顺序替换 */
+export interface SlashCommand {
+  name: string
+  title: string
+  description: string
+  template: string
+}

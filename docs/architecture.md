@@ -578,6 +578,17 @@ MCP 地址、介绍页（从页面里找 mcpServers 配置、`claude mcp add`、
 产出随本轮的回答存进 `messages.outputs`，重新打开会话时卡片还在。
 新工具要报产出，只需在返回的 `ToolResult` 上带 `Outputs`，不用改界面也不用改 AgentLoop。
 
+## Harness：按需加载、大结果落盘、长命令转后台、快捷指令
+
+参考 Claude Code、Codex、DeepSeek Harness 的同类机制：
+
+| 机制 | 位置 | 说明 |
+| --- | --- | --- |
+| 连接器工具按需加载 | `Core/Tools/ToolExposure.cs` | MCP 工具超过 `DeferAbove`（12）个时，每一步只发内置工具、已 `load_tools` 的和对话里调用过的 MCP 工具；`load_tools` 的说明里列全部 MCP 工具（名字 + 一句话），结果直接附参数说明。加载过的按对话记在宿主（`ToolContext.LoadedTools`）。会话信息里的「工具定义」也按实际发送的算 |
+| 大结果落盘 | `Core/Tools/ToolOutputSpill.cs` | 超过 `MaxToolOutputChars` 的结果完整写到 `%TEMP%\Flyknit\tool-outputs\<对话>\`，模型拿到开头、结尾、行数和路径，用 `read_file` 分段读；`read_file` 自己的结果仍按原文件行号续读。启动时清掉 7 天前的 |
+| 长命令转后台 | `TerminalHub.Promote` + `RunShellTool` | 前台命令到 `timeout_seconds` 还没结束：开着「后台命令」、这个对话后台命令没满时转为后台运行，返回编号和已有输出；否则照旧终止 |
+| 快捷指令 | 服务端 `routers/commands.py`（存设置表 `slash_commands`）、`Core/Commands/SlashCommands.cs`（员工自己的，`commands.json`）、`web/src/slash.ts` | `/名字 参数…` 在界面展开（参数按顺序替换，最后一个拿走剩下的文字），展开后作为员工的话发送，不带任何权限 |
+
 ## 文档画布（右侧「文档」标签）
 
 AI 写成篇文字时（提示词 `PromptBuilder.DocumentGuide`），用 `write_file` 写 `.md`，之后用 `edit_file` 只替换要改的一段。

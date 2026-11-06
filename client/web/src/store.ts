@@ -3,6 +3,7 @@ import { bridge } from './bridge'
 import { forHost, isTextAttachment, utf8Base64 } from './pasted'
 import { applyLanguage, i18n } from './i18n'
 import type {
+  SlashCommand,
   AppInfo,
   AttachmentRef,
   AskAnswerInput,
@@ -94,6 +95,8 @@ export const state = reactive({
   browser: { active: false, url: '', title: '', action: '', shot: '' },
   /** 终端：每个对话里 AI 执行过的命令和输出（宿主推 terminal.*，打开对话时取一次） */
   terminal: {} as Record<string, TerminalRun[]>,
+  /** 快捷指令：IT 发布的和自己加的（启动时取一次，打开选择列表时刷新） */
+  commands: { it: [] as SlashCommand[], mine: [] as SlashCommand[] },
   /** 文档画布：每个对话当前打开的文稿；rev 每次 AI 改了文件就 +1，画布据此重新读 */
   docs: {} as Record<string, { path: string; name: string; rev: number }>,
   /** 打开着的「改动的文件」对话框 */
@@ -499,6 +502,7 @@ export async function init() {
   void loadMcp(false, true)
   void refreshUsage()
   // 上次没做完的任务：启动时取一次，侧栏「任务中心」和对话里的「继续」提示要用；有的话提醒一句
+  void loadCommands()
   void loadRuns().then(() => {
     const n = state.runs.interrupted.length
     if (n > 0) toast(i18n.global.t('ui.tasks.startupToast', { n }))
@@ -1414,6 +1418,14 @@ export function toggleSessionPanel(open = !state.sessionPanel) {
 }
 
 /** 右侧面板的关闭：收起预览、会话信息，计划也先不自动弹 */
+export async function loadCommands() {
+  try {
+    state.commands = await bridge.listCommands()
+  } catch {
+    // 旧版宿主没有这个调用：没有快捷指令
+  }
+}
+
 /** 在文档画布里打开（员工从文件预览、对话文件里点的） */
 export async function openDocument(conversationId: string, path: string) {
   const r = await bridge.openDocument(conversationId, path).catch(() => ({ ok: false }))

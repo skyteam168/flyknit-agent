@@ -21,7 +21,7 @@ public sealed class RunShellTool : ITool
         ("command", "string", "要执行的命令", true),
         ("shell", "string", "powershell 或 cmd，默认 powershell", false),
         ("working_directory", "string", "工作目录，默认为工作区", false),
-        ("timeout_seconds", "integer", "超时时间（秒），默认 60，最大 600", false),
+        ("timeout_seconds", "integer", "超时时间（秒），默认 60，最大 600。到时间还没结束：开着「后台命令」时转到后台接着跑（返回编号），否则终止", false),
         ("background", "boolean", "true 表示在后台启动、不等它结束（开发服务器、监听编译这类一直运行的程序），返回编号；之后用 shell_output 看输出、shell_stop 停止。IT 开启「后台命令」才能用", false),
         ("wait_seconds", "integer", "后台启动后先等几秒再返回开头的输出，默认 5，最大 30", false));
 
@@ -85,8 +85,13 @@ public sealed class RunShellTool : ITool
 
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
+        var promoted = false;
         var run = hub.Start(ctx.ConversationId, psi, command, shell, background: false, (line, error) =>
         {
+            if (promoted)
+            {
+                return; // 转到后台后输出只记在终端里（有上限），这里不再攒
+            }
             var sb = error ? stderr : stdout;
             lock (sb) sb.AppendLine(line);
         });
@@ -100,6 +105,23 @@ public sealed class RunShellTool : ITool
         {
             hub.Stop(run);
             throw;
+        }
+        // 跑太久的命令：后台命令开着、还有空位时转到后台接着跑，不杀掉（同 DeepSeek Harness / Claude Code 的做法）。
+        // 员工停任务时它也接着跑，和后台启动的一样，可以在终端里停
+        if (!finished && ctx.Terminal is not null && ctx.BackgroundCommands && hub.Promote(run))
+        {
+            promoted = true;
+            // 这次结果里已经给了的输出，shell_output 不再重复给
+            var sofar = run.ReadNew(ShellOutputTool.MaxChars, out var skipped);
+            var note = new StringBuilder();
+            note.AppendLine($"命令运行超过 {timeout.TotalSeconds:0} 秒还没结束，已转到后台继续运行，编号 {run.Id}（没有终止）。");
+            note.AppendLine("用 shell_output 查看后续输出（可以带 wait_seconds 等它结束），不再需要时用 shell_stop 停掉。");
+            if (skipped > 0)
+            {
+                note.AppendLine($"…（前面省略 {skipped} 个字符）…");
+            }
+            note.Append(sofar.Length > 0 ? sofar.TrimEnd() : "（暂时还没有输出）");
+            return ToolResult.Success(note.ToString());
         }
         if (!finished)
         {

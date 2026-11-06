@@ -294,6 +294,8 @@ public sealed partial class AgentHost : IDisposable
     public AgentHost(AppSettings settings)
     {
         _settings = settings;
+        // 上次留下的落盘工具结果：超过 7 天的清掉（后台做，不拖慢启动）
+        _ = Task.Run(() => ToolOutputSpill.Prune(ToolOutputRoot));
         Server = new FlyknitServerClient(ProxyFactory.CreateHttpClient(settings), settings.ServerUrl, settings.DeviceToken);
         Store = new ConversationStore(AppPaths.Database);
         // 记忆条目和会话放在同一个数据库里（数据目录），md 文件仍在记忆目录，可以直接编辑
@@ -820,6 +822,7 @@ public sealed partial class AgentHost : IDisposable
             {
                 Policy = _policy,
                 ConversationId = id,
+                LoadedTools = LoadedToolsOf(id),
                 UserRequest = text,
                 Workspace = workspace,
                 Permission = permission,
@@ -937,7 +940,7 @@ public sealed partial class AgentHost : IDisposable
                 _contextLength = context.ContextLength;
             }
             RecordContextUsage(id, promptBuilder.Sections, prompt,
-                delegation.Prompt, context, conv.Mode == ConversationMode.Agent ? tools.All : Array.Empty<ITool>(), history, result, events);
+                delegation.Prompt, context, conv.Mode == ConversationMode.Agent ? ToolExposure.Visible(tools.All, ctx.LoadedTools, history) : Array.Empty<ITool>(), history, result, events);
 
             events.Post(new
             {
@@ -1035,7 +1038,12 @@ public sealed partial class AgentHost : IDisposable
         MaxRunTokens = RunTokenLimit(LongModeOn(conv)),
         PlanGuidance = Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
         VerifyOutputs = Security.On(Flyknit.Core.Security.SecuritySettings.VerifyOutputs),
+        // 太长的工具结果落盘：按对话分文件夹，放在临时目录里（7 天后清掉）
+        ToolOutputDir = Path.Combine(ToolOutputRoot, conv?.Id ?? "misc"),
     };
+
+    /// <summary>落盘的工具结果放在这里；启动时清掉 7 天前的。</summary>
+    private static string ToolOutputRoot => Path.Combine(AppPaths.Temp, "tool-outputs");
 
     /// <summary>
     /// 单次任务的 token 上限：IT 在安全中心设（单位万 tokens，0 = 不限），没下发时按 200 万。
@@ -1416,6 +1424,7 @@ public sealed partial class AgentHost : IDisposable
             {
                 Policy = _policy,
                 ConversationId = conv.Id,
+                LoadedTools = LoadedToolsOf(conv.Id),
                 UserRequest = prompt,
                 Workspace = workspace,
                 Permission = conv.Permission,

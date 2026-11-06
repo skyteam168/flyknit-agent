@@ -1,5 +1,5 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
-import type {
+import type { SlashCommand,
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
@@ -177,6 +177,10 @@ export const api = {
   downloadClientPackage: (server_url: string, label: string, format: 'exe' | 'zip') =>
     downloadPost('/client-package', { server_url, label, format }, format === 'exe' ? 'FlyknitBuddy-Setup.exe' : 'FlyknitBuddy.zip'),
   tickets: () => get<EnrollmentTicket[]>('/tickets'),
+
+  // 快捷指令：员工端输入框里打 / 选出来的提示词模板
+  commands: () => get<{ items: SlashCommand[] }>('/commands'),
+  saveCommands: (items: SlashCommand[]) => put<{ items: SlashCommand[] }>('/commands', { items }),
 
   // 用户协议与隐私政策（员工端登录界面上显示）
   legal: (kind: LegalKind) => get<LegalDoc>(`/legal/${kind}`),

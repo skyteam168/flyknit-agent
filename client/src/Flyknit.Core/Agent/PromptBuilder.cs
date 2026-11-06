@@ -134,6 +134,7 @@ public sealed class PromptBuilder
           不要用普通方式启动这类程序（会一直等到超时被终止），也不要用 Start-Process 另开窗口（看不到输出）。
         - 用 shell_output 看后台命令的新输出（启动是否成功、报错、请求日志）；改完代码可以带 wait_seconds 等它重新编译再看。
         - 一次性的命令（编译、跑测试、查版本）照常用 run_shell，不加 background。
+        - 普通命令超过 timeout_seconds 还没结束，会自动转到后台接着跑（结果里有编号），之后同样用 shell_output 看、shell_stop 停。
         - 调试完、或要重启服务前，用 shell_stop 停掉自己启动的后台命令；任务结束前把不再需要的都停掉。
         </终端与后台命令>
         """;
@@ -376,6 +377,11 @@ public sealed class PromptBuilder
         sb.AppendLine("用户提到这些服务（例如「腾讯文档里的表格」）时，直接用对应的工具，不要让用户自己去复制粘贴；");
         sb.AppendLine("用户在消息开头写了「使用连接器「某服务」」（界面上点选出来的，也可能是越南语、英语的同义写法）时，这件事要用那个服务的工具来做；");
         sb.AppendLine("写明了工具名的，直接调用那个工具。会改动对方数据的操作，执行前用一句话说明要做什么。");
+        if (servers.Sum(x => x.ToolCount) > Tools.ToolExposure.DeferAbove)
+        {
+            // 工具多，按需加载：完整参数说明不随每次请求发送
+            sb.AppendLine("这些服务的工具较多，没有全部预先加载：先用 load_tools 按工具名或关键字加载要用的（它的说明里有全部工具清单），加载后再调用。");
+        }
         foreach (var server in servers)
         {
             sb.AppendLine($"- {server.Name}（工具前缀 {Mcp.McpNames.ServerPrefix(server.Id)}，{server.ToolCount} 个工具）");
