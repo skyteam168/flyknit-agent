@@ -846,6 +846,11 @@ public sealed class AgentLoop
             try
             {
                 decision = tool.Assess(args, context);
+                // IT 的工具规则：只会收紧（拦下、必须确认），见 ToolRules
+                if (context.Rules is { IsEmpty: false } rules)
+                {
+                    decision = rules.Apply(call.Name, call.ArgumentsJson, decision);
+                }
                 summary = tool.Describe(args);
             }
             catch (Exception ex)
@@ -882,13 +887,13 @@ public sealed class AgentLoop
             if (decision.Level == RiskLevel.Confirm)
             {
                 // 1. 检查持久化规则
-                if (_approvals.IsAllowed(decision.Rule))
+                if (!decision.AlwaysAsk && _approvals.IsAllowed(decision.Rule))
                 {
                     decisionText = "remembered";
                 }
                 // 2. 检查会话级临时授权（本次任务内同类操作）。高危的从不自动放行：
                 //    授权按程序名记（"python"、"git status"），同一个程序的删除、改系统设置照样要问
-                else if (decision.Effect != CommandEffect.Destructive && IsSessionApproved(call.Name, summary))
+                else if (!decision.AlwaysAsk && decision.Effect != CommandEffect.Destructive && IsSessionApproved(call.Name, summary))
                 {
                     decisionText = "session";
                 }
@@ -960,7 +965,13 @@ public sealed class AgentLoop
             using var step = p.Step!;
             var call = p.Call;
             // 太长的结果存成文件，模型拿到开头、结尾和路径（见 ToolOutputSpill）
-            var result = ToolOutputSpill.Apply(executed ?? ToolResult.Fail("执行失败"), _options.MaxToolOutputChars, _options.ToolOutputDir, call.Name, call.Id);
+            var raw = executed ?? ToolResult.Fail("执行失败");
+            // IT 的工具规则：结果打码、加一句公司规定（在落盘之前，存下来的也是打过码的）
+            if (ctx.Rules is { IsEmpty: false } toolRules)
+            {
+                raw = raw with { Output = toolRules.Annotate(call.Name, call.ArgumentsJson, raw.Output) };
+            }
+            var result = ToolOutputSpill.Apply(raw, _options.MaxToolOutputChars, _options.ToolOutputDir, call.Name, call.Id);
             if (result.Usage is { } toolUsage)
             {
                 // 派遣出去的专家用掉的 token：算进这次运行的用量和预算

@@ -167,6 +167,38 @@ public class AgentLoopTests : IDisposable
     }
 
     [Fact]
+    public async Task AnItRuleMakesEveryCallAskEvenAfterAllowForSession()
+    {
+        var file = Path.Combine(_dir, "a.txt");
+        File.WriteAllText(file, "hello 440301199001011234");
+        var read = $"{{\"path\":{Json(file)}}}";
+        var gateway = new ScriptedGateway(Call("read_file", read), Call("read_file", read), new ChatTurn { Content = "好了" });
+        var confirm = new FixedConfirm(ConfirmChoice.AllowForSession);
+        var ctx = new ToolContext
+        {
+            Policy = CommandPolicy.Default(),
+            ConversationId = "c1",
+            Workspace = _dir,
+            Security = new SecuritySettings(new Dictionary<string, SecurityItem> { [SecuritySettings.Sandbox] = new() { Value = false, Locked = true } }),
+            Rules = new ToolRules(new[]
+            {
+                new ToolRule { Name = "读文件要确认", Tools = "read_file", Action = "confirm", Message = "公司规定读文件要确认" },
+                new ToolRule { Name = "打码", Tools = "*", Action = "none", Redact = @"\d{17}[\dXx]" },
+            }),
+        };
+        var history = new List<ChatMessage> { ChatMessage.User("读两次") };
+
+        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), confirm)
+            .RunAsync(history, Scenes.Agent, ctx, new Observer(), true, CancellationToken.None);
+
+        Assert.Equal(2, confirm.Requests.Count);              // 选了「本次都允许」，第二次照样问
+        Assert.Contains("公司规定读文件要确认", confirm.Requests[0].Decision.Reason);
+        var results = history.Where(m => m.Role == ChatRole.Tool).Select(m => m.Content).ToList();
+        Assert.All(results, r => Assert.DoesNotContain("440301", r)); // 结果打码后 AI 才看到
+        Assert.Contains("***", results[0]);
+    }
+
+    [Fact]
     public async Task ReadsFileAutomaticallyAndFinishes()
     {
         var file = Path.Combine(_dir, "a.txt");

@@ -25,6 +25,12 @@ public sealed class ScheduledTask
     /// <summary>电脑关机错过的任务，开机后补跑最近一次。</summary>
     public bool CatchUp { get; set; } = true;
 
+    /// <summary>
+    /// 预演（同 DeepSeek super-agent 的 observe 模式）：只读调研，把要做的修改一条条列出来，不真的执行。
+    /// 新建的定时任务先预演几次，看着没问题再关掉预演正式跑。
+    /// </summary>
+    public bool Rehearsal { get; set; }
+
     public DateTimeOffset? NextRunAt { get; set; }
     public DateTimeOffset? LastRunAt { get; set; }
 
@@ -74,6 +80,15 @@ public sealed class ScheduledTaskStore
             );
             """;
         cmd.ExecuteNonQuery();
+        // 后加的列：老数据库补上（只加不删）
+        using var cols = c.CreateCommand();
+        cols.CommandText = "SELECT COUNT(*) FROM pragma_table_info('scheduled_tasks') WHERE name = 'rehearsal'";
+        if ((long)cols.ExecuteScalar()! == 0)
+        {
+            using var alter = c.CreateCommand();
+            alter.CommandText = "ALTER TABLE scheduled_tasks ADD COLUMN rehearsal INTEGER NOT NULL DEFAULT 0";
+            alter.ExecuteNonQuery();
+        }
     }
 
     public List<ScheduledTask> List()
@@ -108,16 +123,16 @@ public sealed class ScheduledTaskStore
         cmd.CommandText = """
             INSERT INTO scheduled_tasks
                 (id, name, instructions, schedule, enabled, workspace, permission, model_id, catch_up,
-                 next_run_at, last_run_at, last_status, last_summary, last_conversation_id, run_count, created_at)
+                 next_run_at, last_run_at, last_status, last_summary, last_conversation_id, run_count, created_at, rehearsal)
             VALUES ($id, $name, $ins, $sched, $enabled, $ws, $perm, $model, $catch,
-                    $next, $last, $status, $summary, $conv, $count, $created)
+                    $next, $last, $status, $summary, $conv, $count, $created, $rehearsal)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name, instructions = excluded.instructions, schedule = excluded.schedule,
                 enabled = excluded.enabled, workspace = excluded.workspace, permission = excluded.permission,
                 model_id = excluded.model_id, catch_up = excluded.catch_up, next_run_at = excluded.next_run_at,
                 last_run_at = excluded.last_run_at, last_status = excluded.last_status,
                 last_summary = excluded.last_summary, last_conversation_id = excluded.last_conversation_id,
-                run_count = excluded.run_count
+                run_count = excluded.run_count, rehearsal = excluded.rehearsal
             """;
         cmd.Parameters.AddWithValue("$id", task.Id);
         cmd.Parameters.AddWithValue("$name", Trim(task.Name, 100));
@@ -128,6 +143,7 @@ public sealed class ScheduledTaskStore
         cmd.Parameters.AddWithValue("$perm", PermissionModes.ToText(task.Permission));
         cmd.Parameters.AddWithValue("$model", (object?)task.ModelId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$catch", task.CatchUp ? 1 : 0);
+        cmd.Parameters.AddWithValue("$rehearsal", task.Rehearsal ? 1 : 0);
         cmd.Parameters.AddWithValue("$next", (object?)task.NextRunAt?.ToString("O") ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$last", (object?)task.LastRunAt?.ToString("O") ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$status", task.LastStatus);
@@ -165,7 +181,7 @@ public sealed class ScheduledTaskStore
 
     private const string Select = """
         SELECT id, name, instructions, schedule, enabled, workspace, permission, model_id, catch_up,
-               next_run_at, last_run_at, last_status, last_summary, last_conversation_id, run_count, created_at
+               next_run_at, last_run_at, last_status, last_summary, last_conversation_id, run_count, created_at, rehearsal
         FROM scheduled_tasks
         """;
 
@@ -187,6 +203,7 @@ public sealed class ScheduledTaskStore
         LastConversationId = r.IsDBNull(13) ? null : r.GetString(13),
         RunCount = (int)r.GetInt64(14),
         CreatedAt = DateTimeOffset.Parse(r.GetString(15)),
+        Rehearsal = r.GetInt64(16) != 0,
     };
 
     private static string Trim(string s, int max)

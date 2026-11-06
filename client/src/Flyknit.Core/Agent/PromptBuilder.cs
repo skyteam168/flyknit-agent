@@ -89,6 +89,12 @@ public sealed class PromptContext
 
     /// <summary>这一轮能在后台启动命令（IT 打开了「后台命令」）：提示词里告诉模型调试时怎么用。</summary>
     public bool BackgroundCommands { get; init; }
+
+    /// <summary>计划模式：这一轮只调研、出方案，不改任何东西。</summary>
+    public bool PlanMode { get; init; }
+
+    /// <summary>预演（定时任务）：和计划模式一样只读，提示词换成「列出会做的修改」。</summary>
+    public bool Rehearsal { get; init; }
 }
 
 /// <summary>提示词里要说的一个已连接的 MCP 服务。</summary>
@@ -354,6 +360,16 @@ public sealed class PromptBuilder
             }
             Mark("document");
             sb.Append(DocumentGuide);
+            if (ctx.Rehearsal)
+            {
+                Mark("plan_mode");
+                sb.Append(Agent.PlanMode.RehearsalGuide);
+            }
+            else if (ctx.PlanMode)
+            {
+                Mark("plan_mode");
+                sb.Append(Agent.PlanMode.Guide);
+            }
         }
         Mark("");
         Sections = sections;

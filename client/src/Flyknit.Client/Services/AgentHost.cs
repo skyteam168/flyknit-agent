@@ -484,6 +484,8 @@ public sealed partial class AgentHost : IDisposable
             Owner = config.Owner;
             Department = config.Department;
             WebSearchEnabled = config.WebSearchEnabled;
+            // IT 的工具规则：下一轮任务起生效（正在跑的这一轮用开始时的那份）
+            ToolRules = new Flyknit.Core.Security.ToolRules(config.ToolRules);
             _configTimer.Change(TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
             // 顺带把本机信息报上去。配置拉得到就说明在线，两件事本来就是同一个信号。
             // 失败不影响对话，所以吞掉异常，不改 Connected。
@@ -712,6 +714,14 @@ public sealed partial class AgentHost : IDisposable
                 _ = Task.Run(() => ReportExpertUseAsync(expert.Id));
             }
             var permission = expert is null ? conv.Permission : Flyknit.Core.Experts.ExpertRuntime.CapPermission(expert, conv.Permission);
+            // 计划模式：这一轮只读调研、出方案（见 PlanMode）
+            // 预演（定时任务）和计划模式一样只读，只是提示词不同
+            var rehearsal = conv.Mode == ConversationMode.Agent && RehearsalOn(id);
+            var planMode = conv.Mode == ConversationMode.Agent && (PlanModeOn(id) || rehearsal);
+            if (planMode)
+            {
+                permission = Flyknit.Core.Agent.PlanMode.Cap(permission);
+            }
             var modelId = conv.ModelId ?? expert?.ModelId;
             var mcpServers = conv.Mode == ConversationMode.Agent ? Mcp.PromptInfo() : Array.Empty<McpPromptInfo>();
             if (expert is not null)
@@ -750,6 +760,8 @@ public sealed partial class AgentHost : IDisposable
                 Expert = expert,
                 BrowserAvailable = browser is not null && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, Flyknit.Core.Browser.BrowserToolSet.All[0])),
                 BackgroundCommands = backgroundCommands,
+                PlanMode = planMode,
+                Rehearsal = rehearsal,
             });
             // 派遣专家：开关开着、这一轮有候选专家时，主助手才看得到名单和 ask_expert
             var delegation = DelegationFor(conv, expert, DelegationQuery(stored, text), semantic);
@@ -823,6 +835,7 @@ public sealed partial class AgentHost : IDisposable
                 Policy = _policy,
                 ConversationId = id,
                 LoadedTools = LoadedToolsOf(id),
+                Rules = ToolRules,
                 UserRequest = text,
                 Workspace = workspace,
                 Permission = permission,
@@ -888,6 +901,10 @@ public sealed partial class AgentHost : IDisposable
                     perRun.Add(tool);
                 }
                 tools = perRun;
+            }
+            if (planMode)
+            {
+                tools = Flyknit.Core.Agent.PlanMode.Filter(tools);
             }
             var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(conv), Approvals)
             {
@@ -1041,6 +1058,9 @@ public sealed partial class AgentHost : IDisposable
         // 太长的工具结果落盘：按对话分文件夹，放在临时目录里（7 天后清掉）
         ToolOutputDir = Path.Combine(ToolOutputRoot, conv?.Id ?? "misc"),
     };
+
+    /// <summary>IT 在后台写的工具规则（拦截 / 必须确认 / 提醒 / 结果打码），随配置刷新。</summary>
+    public Flyknit.Core.Security.ToolRules ToolRules { get; private set; } = Flyknit.Core.Security.ToolRules.None;
 
     /// <summary>落盘的工具结果放在这里；启动时清掉 7 天前的。</summary>
     private static string ToolOutputRoot => Path.Combine(AppPaths.Temp, "tool-outputs");
@@ -1425,6 +1445,7 @@ public sealed partial class AgentHost : IDisposable
                 Policy = _policy,
                 ConversationId = conv.Id,
                 LoadedTools = LoadedToolsOf(conv.Id),
+                Rules = ToolRules,
                 UserRequest = prompt,
                 Workspace = workspace,
                 Permission = conv.Permission,

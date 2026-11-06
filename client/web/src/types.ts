@@ -326,9 +326,11 @@ export interface ScheduledTask {
   modelId: number | null
   /** 错过的任务开机后补跑 */
   catchUp: boolean
+  /** 预演：只读调研，列出会做的修改，不真的执行 */
+  rehearsal: boolean
   nextRunAt: string | null
   lastRunAt: string | null
-  /** ok / failed / stopped / running */
+  /** ok / rehearsed / failed / stopped / running */
   lastStatus: string
   lastSummary: string
   lastConversationId: string | null

@@ -296,6 +296,8 @@ class ClientConfigOut(BaseModel):
     department: str = ""
     #: 后台已开启联网搜索且密钥就绪；桌面「对话」可显示联网开关
     web_search_enabled: bool = False
+    #: IT 写的工具规则（拦截 / 必须确认 / 提醒 / 结果打码），只带启用的
+    tool_rules: list[dict] = Field(default_factory=list)
 
 
 class DevicePolicyIn(BaseModel):

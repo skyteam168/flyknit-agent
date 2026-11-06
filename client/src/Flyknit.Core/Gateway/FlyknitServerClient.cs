@@ -38,6 +38,8 @@ public sealed class ClientConfig
     [JsonPropertyName("department")] public string Department { get; set; } = "";
     /// <summary>后台已开启联网搜索且密钥就绪。</summary>
     [JsonPropertyName("web_search_enabled")] public bool WebSearchEnabled { get; set; }
+    /// <summary>IT 写的工具规则（只带启用的）。旧版服务端没有这一项。</summary>
+    [JsonPropertyName("tool_rules")] public List<Flyknit.Core.Security.ToolRule> ToolRules { get; set; } = new();
 }
 
 public sealed class ClientModel

@@ -774,3 +774,14 @@ export interface SlashCommand {
   description: string
   template: string
 }
+
+/** 工具规则：只能收紧（拦下、必须确认），或者加提醒、给结果打码 */
+export interface ToolRule {
+  name: string
+  enabled: boolean
+  tools: string
+  match: string
+  action: 'block' | 'confirm' | 'note' | 'none'
+  message: string
+  redact: string
+}

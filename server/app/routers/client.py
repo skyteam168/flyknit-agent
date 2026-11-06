@@ -35,6 +35,8 @@ from ..schemas import (
 from ..services import config_events, device_identity, legal_store, model_router, security_settings, settings_store, skill_library, usage_store, web_search
 from ..services.settings_store import get_policy
 
+from . import tool_rules
+
 log = logging.getLogger("flyknit.audit")
 router = APIRouter(prefix="/api/v1", tags=["client"])
 
@@ -188,6 +190,7 @@ async def client_config(
         server_version=__version__, scenes=scenes, policy=await get_policy(session), security=security,
         revision=config_events.current(), owner=device.owner, department=device.department,
         web_search_enabled=search_ready,
+        tool_rules=await tool_rules.current(session),
     )
 
 

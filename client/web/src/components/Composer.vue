@@ -26,6 +26,7 @@ import {
   RotateCcw,
   Sparkles,
   Timer,
+  ClipboardList,
   Square,
   Wrench,
   Zap,
@@ -58,6 +59,8 @@ import {
   interruptedRun,
   resumeInterrupted,
   setLongMode,
+  setPlanMode,
+  executePlan,
   togglePause,
   withdrawPending,
   onSpeechText,
@@ -94,6 +97,14 @@ const from = computed(() => current.value?.translateFrom ?? draftMode.translateF
 const to = computed(() => current.value?.translateTo ?? draftMode.translateTo)
 const busy = computed(() => currentState.value?.busy ?? false)
 const paused = computed(() => !!currentState.value?.paused)
+/** 计划模式（先出方案）：当前对话的，或者新对话打算开的 */
+const planMode = computed(() => (current.value ? !!state.planMode[current.value.id] : draftMode.planMode))
+/** 方案好了：计划模式下这一轮跑完、最后一条是 AI 的回答 */
+const planReady = computed(() => {
+  if (!planMode.value || busy.value || !current.value) return false
+  const msgs = currentState.value?.messages ?? []
+  return msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant'
+})
 /** 长任务模式：当前对话的，或者还没建的新对话打算开的 */
 const longMode = computed(() => (current.value ? !!current.value.longMode : draftMode.longMode))
 const longAllowed = computed(() => state.app?.longTasks !== false)
@@ -526,6 +537,13 @@ onBeforeUnmount(() => {
         <button type="button" class="paused-go ghost" @click="dismissInterrupted(interrupted.conversationId)">{{ t('ui.tasks.dismiss') }}</button>
         <button type="button" class="paused-go" @click="resumeInterrupted(interrupted.conversationId)"><Play :size="13" /> {{ t('ui.tasks.resume') }}</button>
       </div>
+      <!-- 计划模式：方案好了，员工确认后才动手 -->
+      <div v-if="planReady && !props.home" class="paused-bar plan-bar">
+        <ClipboardList :size="14" />
+        <span>{{ t('ui.planMode.ready') }}</span>
+        <button type="button" class="paused-go ghost" @click="box?.focus()">{{ t('ui.planMode.revise') }}</button>
+        <button type="button" class="paused-go" @click="executePlan"><Play :size="13" /> {{ t('ui.planMode.execute') }}</button>
+      </div>
       <!-- 暂停中：做完手上这一步后停住，点继续接着往下走 -->
       <div v-if="paused" class="paused-bar">
         <Pause :size="14" />
@@ -830,6 +848,16 @@ onBeforeUnmount(() => {
       <template v-if="mode === 'agent'">
         <WorkspacePicker />
         <PermissionPicker v-if="!currentExpert?.readOnly" />
+        <button
+          type="button"
+          class="long-btn"
+          :class="{ on: planMode }"
+          :aria-pressed="planMode"
+          :title="planMode ? t('ui.planMode.on') : t('ui.planMode.off')"
+          @click="setPlanMode(!planMode)"
+        >
+          <ClipboardList :size="13" /> {{ t('ui.planMode.label') }}
+        </button>
         <button
           v-if="longAllowed"
           type="button"

@@ -64,6 +64,7 @@ const form = reactive({
   at: '',
   permission: 'workspace' as Permission,
   catchUp: true,
+  rehearsal: false,
   enabled: true,
 })
 
@@ -83,6 +84,7 @@ function openNew(template?: (typeof templates)[number]) {
     at: localNow(60),
     permission: 'workspace',
     catchUp: true,
+    rehearsal: false,
     enabled: true,
   })
   editing.value = form
@@ -101,6 +103,7 @@ function openEdit(task: ScheduledTask) {
     at: task.at ? task.at.slice(0, 16) : localNow(60),
     permission: task.permission,
     catchUp: task.catchUp,
+    rehearsal: task.rehearsal ?? false,
     enabled: task.enabled,
   })
   editing.value = form
@@ -274,6 +277,14 @@ const close = () => (state.schedulesOpen = false)
           </span>
         </label>
 
+        <label class="check">
+          <input v-model="form.rehearsal" type="checkbox" />
+          <span>
+            <strong>{{ t('ui.schedules.rehearsal') }}</strong>
+            <small>{{ t('ui.schedules.rehearsalHint') }}</small>
+          </span>
+        </label>
+
         <div class="actions">
           <button type="button" class="btn" @click="editing = null">{{ t('ui.fullAccess.cancel') }}</button>
           <button type="button" class="btn primary" :disabled="!canSave || busy === 'save'" @click="save">
@@ -295,7 +306,7 @@ const close = () => (state.schedulesOpen = false)
             <div class="row-main">
               <span class="ico"><CalendarClock :size="16" /></span>
               <span class="main">
-                <strong>{{ task.name }}</strong>
+                <strong>{{ task.name }}<span v-if="task.rehearsal" class="rehearsal">{{ t('ui.schedules.rehearsalBadge') }}</span></strong>
                 <small class="ins">{{ task.instructions }}</small>
                 <small class="meta">
                   <Clock :size="11" />{{ describe(task) }}
@@ -498,6 +509,19 @@ h3 {
 .status.ok {
   background: var(--thread-wash);
   color: var(--thread);
+}
+.status.rehearsed {
+  background: var(--cloth-sunk);
+  color: var(--indigo);
+}
+.rehearsal {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--cloth-sunk);
+  color: var(--indigo);
+  font-size: var(--t-xs);
+  font-weight: 500;
 }
 .status.failed {
   background: var(--red-wash);

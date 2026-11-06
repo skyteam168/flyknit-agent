@@ -95,6 +95,8 @@ export const state = reactive({
   browser: { active: false, url: '', title: '', action: '', shot: '' },
   /** 终端：每个对话里 AI 执行过的命令和输出（宿主推 terminal.*，打开对话时取一次） */
   terminal: {} as Record<string, TerminalRun[]>,
+  /** 计划模式（先出方案）开着的对话 */
+  planMode: {} as Record<string, boolean>,
   /** 快捷指令：IT 发布的和自己加的（启动时取一次，打开选择列表时刷新） */
   commands: { it: [] as SlashCommand[], mine: [] as SlashCommand[] },
   /** 文档画布：每个对话当前打开的文稿；rev 每次 AI 改了文件就 +1，画布据此重新读 */
@@ -749,6 +751,48 @@ export async function dismissInterrupted(id: string) {
 }
 
 /** 当前对话（或还没建的新对话）的长任务模式 */
+/** 计划模式开关：这一轮只调研、出方案，不改任何东西 */
+export async function setPlanMode(on: boolean) {
+  const c = current.value
+  if (!c) {
+    draftMode.planMode = on
+    return
+  }
+  try {
+    await bridge.setPlanMode(c.id, on)
+    if (on) state.planMode[c.id] = true
+    else delete state.planMode[c.id]
+  } catch (e) {
+    fail(e)
+  }
+}
+
+/** 从某条回答分叉：新对话复制到这条为止（原对话不动），然后打开它，换个思路接着试 */
+export async function forkConversation(messageId: string) {
+  const c = current.value
+  if (!c) return
+  try {
+    const fork = await bridge.forkConversation(c.id, messageId, i18n.global.t('ui.fork.title', { title: c.title || i18n.global.t('ui.tasks.untitled') }))
+    if (!fork) {
+      toast(i18n.global.t('ui.fork.failed'))
+      return
+    }
+    state.conversations.unshift(fork)
+    await openConversation(fork.id)
+    toast(i18n.global.t('ui.fork.done'))
+  } catch (e) {
+    fail(e)
+  }
+}
+
+/** 方案确认：退出计划模式，让 AI 按方案动手 */
+export async function executePlan() {
+  const c = current.value
+  if (!c) return
+  await setPlanMode(false)
+  await send(i18n.global.t('ui.planMode.go'))
+}
+
 export async function setLongMode(on: boolean) {
   const c = current.value
   if (!c) {
@@ -919,6 +963,8 @@ export const draftMode = reactive({
   expertId: null as string | null,
   /** 新对话开长任务模式 */
   longMode: false,
+  /** 新对话先出方案（计划模式） */
+  planMode: false,
 })
 
 // ---------- 工作区与权限 ----------
@@ -1167,6 +1213,7 @@ export async function send(text: string): Promise<boolean> {
         c.translateTo = draftMode.translateTo
       }
       if (draftMode.longMode && c.mode === 'agent' && (await bridge.setLongMode(c.id, true).catch(() => false))) c.longMode = true
+      if (draftMode.planMode && c.mode === 'agent' && (await bridge.setPlanMode(c.id, true).catch(() => false))) state.planMode[c.id] = true
       state.conversations.unshift(c)
       id = c.id
       state.currentId = id

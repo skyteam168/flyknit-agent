@@ -317,21 +317,21 @@ export function createMockHost(): HostTransport {
     {
       id: 's1', name: '整理日报', instructions: '把 D:\\日报 里的 Excel 文件按月份归档到对应的子文件夹，完成后告诉我整理了多少个文件。',
       kind: 'weekdays', hour: 8, minute: 30, weekday: 1, dayOfMonth: 1, at: null, enabled: true,
-      workspace: null, permission: 'workspace', modelId: null, catchUp: true,
+      workspace: null, permission: 'workspace', modelId: null, catchUp: true, rehearsal: false,
       nextRunAt: new Date(Date.now() + 9 * 3600000).toISOString(), lastRunAt: new Date(Date.now() - 15 * 3600000).toISOString(),
       lastStatus: 'ok', lastSummary: '已整理 34 个文件', lastConversationId: null, runCount: 12,
     },
     {
       id: 's2', name: '生成质检周报', instructions: '汇总本周的质检数据，按车间做成 Excel 周报，保存到 D:\\报表，文件名带上日期。',
       kind: 'weekly', hour: 16, minute: 0, weekday: 5, dayOfMonth: 1, at: null, enabled: true,
-      workspace: null, permission: 'workspace', modelId: null, catchUp: true,
+      workspace: null, permission: 'workspace', modelId: null, catchUp: true, rehearsal: false,
       nextRunAt: new Date(Date.now() + 3 * 86400000).toISOString(), lastRunAt: new Date(Date.now() - 4 * 86400000).toISOString(),
       lastStatus: 'failed', lastSummary: '读取 9月.xls 失败：旧格式需要先另存为 .xlsx', lastConversationId: null, runCount: 3,
     },
     {
       id: 's3', name: '清理临时文件', instructions: '检查工作区里超过 30 天没有改动的临时文件，列出清单让我确认后再删除。',
       kind: 'monthly', hour: 9, minute: 0, weekday: 1, dayOfMonth: 1, at: null, enabled: false,
-      workspace: null, permission: 'readonly', modelId: null, catchUp: false,
+      workspace: null, permission: 'readonly', modelId: null, catchUp: false, rehearsal: true,
       nextRunAt: null, lastRunAt: null, lastStatus: '', lastSummary: '', lastConversationId: null, runCount: 0,
     },
   ]
@@ -1836,6 +1836,18 @@ export function createMockHost(): HostTransport {
         reverted.forEach((x) => revertedMock.add(x))
         return { reverted, skipped: targets.includes(MOCK_OLD) ? [{ path: MOCK_OLD, reason: '这个文件是命令改的，改之前没有备份，无法自动还原' }] : [] }
       }
+      case 'conversation.fork': {
+        const src = conversations.get(p.conversationId ?? p.id)
+        if (!src) return null
+        const c = { ...src, id: uid(), title: p.title, pinned: false, updatedAt: now() }
+        conversations.set(c.id, c)
+        const msgs = messages.get(src.id) ?? []
+        const cut = msgs.findIndex((m) => m.id === p.messageId)
+        messages.set(c.id, (cut >= 0 ? msgs.slice(0, cut + 1) : msgs).map((m) => ({ ...m, id: uid() })))
+        return c
+      }
+      case 'conversation.setPlanMode':
+        return true
       case 'conversation.setLongMode': {
         const c = conversations.get(p.id)
         if (c) c.longMode = !!p.on

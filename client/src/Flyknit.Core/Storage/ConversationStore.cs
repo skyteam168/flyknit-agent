@@ -844,6 +844,53 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
     /// 保存消息。已经存过的（同一个 ID）就地更新内容、链路、产出，位置不变：
     /// 运行中每一步先存一次，整轮结束时再存一次最终版本（补上链路、提醒等后来改动的内容）。
     /// </summary>
+    /// <summary>
+    /// 从某条消息分叉出一个新对话（同 Claude Code 的 rewind / fork）：复制到这条为止的消息，模式、工作区、权限、模型、专家照旧，
+    /// 原对话不动。停在一次工具调用中间时把它的结果一起带上，新对话的上下文是完整的。文件不复制（两个对话改的是同一批文件）。
+    /// 找不到对话或消息返回 null。
+    /// </summary>
+    public Conversation? Fork(string conversationId, string uptoMessageId, string title)
+    {
+        var source = Get(conversationId);
+        if (source is null)
+        {
+            return null;
+        }
+        var messages = GetMessages(conversationId);
+        var cut = messages.FindIndex(m => m.Id == uptoMessageId);
+        if (cut < 0)
+        {
+            return null;
+        }
+        var end = cut + 1;
+        while (end < messages.Count && messages[end].Role == ChatRole.Tool)
+        {
+            end++;
+        }
+        var fork = Create(source.Mode, title, source.ModelId, source.Workspace, source.Permission, source.ExpertId);
+        if (source.Mode == ConversationMode.Translate)
+        {
+            SetTranslateLanguages(fork.Id, source.TranslateFrom, source.TranslateTo);
+        }
+        Rename(fork.Id, title);
+        AddMessages(fork.Id, messages.Take(end).Select(m => new ChatMessage
+        {
+            Role = m.Role,
+            Content = m.Content,
+            Reasoning = m.Reasoning,
+            ToolCalls = m.ToolCalls.ToList(),
+            ToolCallId = m.ToolCallId,
+            ToolName = m.ToolName,
+            Attachments = m.Attachments.ToList(),
+            CreatedAt = m.CreatedAt,
+            ModelName = m.ModelName,
+            PromptTokens = m.PromptTokens,
+            CompletionTokens = m.CompletionTokens,
+            Outputs = m.Outputs.ToList(),
+        }));
+        return Get(fork.Id);
+    }
+
     public void AddMessages(string conversationId, IEnumerable<ChatMessage> messages)
     {
         using var c = Open();

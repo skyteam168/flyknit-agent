@@ -123,11 +123,16 @@ public sealed class ScheduleRunner : IDisposable
         {
             var conv = _host.Store.Create(
                 ConversationMode.Agent,
-                $"{task.Name} · {now:MM-dd HH:mm}",
+                $"{(task.Rehearsal ? RehearsalTag(_host.UiLanguage) : "")}{task.Name} · {now:MM-dd HH:mm}",
                 task.ModelId,
                 task.Workspace,
                 task.Permission);
             _host.Store.Rename(conv.Id, conv.Title); // 定时任务的标题固定，不让 AI 覆盖
+            if (task.Rehearsal)
+            {
+                // 预演：只读调研，列出会做的修改，不真的执行（见 PlanMode.RehearsalGuide）
+                _host.MarkRehearsal(conv.Id);
+            }
             task.LastConversationId = conv.Id;
             Store.Save(task);
             Changed?.Invoke();
@@ -172,7 +177,7 @@ public sealed class ScheduleRunner : IDisposable
             task.LastStatus = info.StopReason switch
             {
                 null => "failed",
-                AgentStopReason.Completed => "ok",
+                AgentStopReason.Completed => task.Rehearsal ? "rehearsed" : "ok",
                 AgentStopReason.Cancelled => "stopped",
                 _ => "failed",
             };
@@ -222,4 +227,12 @@ public sealed class ScheduleRunner : IDisposable
             }
         }
     }
+
+    /// <summary>预演对话标题前缀，跟界面语言走。</summary>
+    private static string RehearsalTag(string lang) => lang switch
+    {
+        var l when l.StartsWith("vi", StringComparison.OrdinalIgnoreCase) => "[Diễn tập] ",
+        var l when l.StartsWith("en", StringComparison.OrdinalIgnoreCase) => "[Rehearsal] ",
+        _ => "【预演】",
+    };
 }

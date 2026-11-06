@@ -115,4 +115,50 @@ public class ScheduleTests
         Assert.Equal(ScheduleKind.Manual, ScheduleSpec.Parse("{坏掉的").Kind);
         Assert.Equal(ScheduleKind.Manual, ScheduleSpec.Parse(null).Kind);
     }
+
+    [Fact]
+    public void RehearsalFlagIsAddedToOldDatabasesAndSurvivesSave()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"flyknit-sched-{Guid.NewGuid():N}.db");
+        try
+        {
+            Microsoft.Data.Sqlite.SqliteConnection Open()
+            {
+                var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+                c.Open();
+                return c;
+            }
+            // 旧版本的表没有 rehearsal 列
+            using (var c = Open())
+            {
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = """
+                    CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', instructions TEXT NOT NULL DEFAULT '',
+                        schedule TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, workspace TEXT NULL,
+                        permission TEXT NOT NULL DEFAULT 'workspace', model_id INTEGER NULL, catch_up INTEGER NOT NULL DEFAULT 1,
+                        next_run_at TEXT NULL, last_run_at TEXT NULL, last_status TEXT NOT NULL DEFAULT '', last_summary TEXT NOT NULL DEFAULT '',
+                        last_conversation_id TEXT NULL, run_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+                    INSERT INTO scheduled_tasks (id, name, created_at) VALUES ('old', '老任务', '2026-01-01T00:00:00+08:00');
+                    """;
+                cmd.ExecuteNonQuery();
+                ScheduledTaskStore.Migrate(c);
+                ScheduledTaskStore.Migrate(c); // 重复迁移不报错
+            }
+
+            var store = new ScheduledTaskStore(Open);
+            Assert.False(store.Get("old")!.Rehearsal); // 老任务默认真的执行，行为不变
+
+            var task = new ScheduledTask { Name = "预演任务", Instructions = "整理文件夹", Rehearsal = true };
+            store.Save(task);
+            Assert.True(store.Get(task.Id)!.Rehearsal);
+
+            task.Rehearsal = false;
+            store.Save(task);
+            Assert.False(store.Get(task.Id)!.Rehearsal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

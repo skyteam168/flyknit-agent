@@ -1223,6 +1223,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 task.Permission = Flyknit.Core.Security.PermissionModes.Parse(Str("permission"));
                 task.ModelId = Int("modelId");
                 task.CatchUp = !p.TryGetProperty("catchUp", out var cu) || cu.ValueKind != JsonValueKind.False;
+                task.Rehearsal = p.TryGetProperty("rehearsal", out var rh) && rh.ValueKind == JsonValueKind.True;
                 if (p.TryGetProperty("enabled", out var en))
                 {
                     task.Enabled = en.ValueKind != JsonValueKind.False;
@@ -1950,6 +1951,17 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             }
 
             // ---------- 长任务、任务中心 ----------
+            case "conversation.fork":
+            {
+                // 从某条消息分叉：新对话复制到那条为止，原对话不动
+                var fork = await Task.Run(() => _host.Store.Fork(Str("id"), Str("messageId"), Str("title")));
+                return fork is null ? null : ConversationDto.From(fork);
+            }
+
+            case "conversation.setPlanMode":
+                _host.SetPlanMode(Str("id"), p.TryGetProperty("on", out var pm) && pm.ValueKind == JsonValueKind.True);
+                return true;
+
             case "conversation.setLongMode":
                 return _host.SetLongMode(Str("id"), p.TryGetProperty("on", out var lm) && lm.ValueKind == JsonValueKind.True);
 
@@ -2314,6 +2326,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
         permission = Flyknit.Core.Security.PermissionModes.ToText(t.Permission),
         modelId = t.ModelId,
         catchUp = t.CatchUp,
+        rehearsal = t.Rehearsal,
         nextRunAt = t.NextRunAt?.ToString("O"),
         lastRunAt = t.LastRunAt?.ToString("O"),
         lastStatus = t.LastStatus,

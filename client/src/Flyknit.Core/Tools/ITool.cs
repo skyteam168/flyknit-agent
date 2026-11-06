@@ -163,6 +163,9 @@ public sealed class ToolContext
     /// </summary>
     public ISet<string> LoadedTools { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 
+    /// <summary>IT 写的工具规则（拦截 / 必须确认 / 提醒 / 结果打码）。</summary>
+    public Security.ToolRules? Rules { get; init; }
+
     private readonly string? _workingDirectory;
 
     public string WorkingDirectory
