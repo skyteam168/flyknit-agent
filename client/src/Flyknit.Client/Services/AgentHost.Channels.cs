@@ -50,6 +50,13 @@ public sealed partial class AgentHost
         // 手机：优先交给发起的手机批准；同时若电脑界面在，也弹出确认（谁先答用谁），避免双方都不弹、一直转圈。
         var progress = mobile ? new RemoteProgress(Server, messageId) : null;
         var confirm = new RemoteDecline(mobile ? Server : null, messageId, mobile ? Confirm : null, mobile ? Events : null, progress);
+        // 授权记录：谁让做、做到哪。服务端核对不通过（这条消息不是发给这台电脑的）就不执行
+        var (grant, refused) = await IssueGrantAsync(conv, channel is "mobile" or "wecom" ? channel : "dingtalk",
+            messageId > 0 ? messageId.ToString(System.Globalization.CultureInfo.InvariantCulture) : "", sender, text, ct);
+        if (refused is not null)
+        {
+            return new InstructionOutcome(false, "", refused, conv.Id);
+        }
         _remoteRuns[conv.Id] = 0;
         // 手机发来的：执行期间顺便收手机上补充的话（插话）和打断
         using var listen = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -83,6 +90,7 @@ public sealed partial class AgentHost
                 _runContext[conv.Id] = (UiLanguage, uiConfirm, ui);
             }
             _remoteRuns.TryRemove(conv.Id, out _);
+            EndGrant(conv.Id, grant);
             ContinuePending(conv.Id);
         }
     }

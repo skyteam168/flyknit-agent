@@ -115,6 +115,10 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
     /// <summary>定时任务与会话共用同一个数据库文件。</summary>
     public Scheduling.ScheduledTaskStore Schedules => _schedules ??= new Scheduling.ScheduledTaskStore(Open);
 
+    private Security.TaskGrantStore? _grants;
+
+    public Security.TaskGrantStore Grants => _grants ??= new Security.TaskGrantStore(Open);
+
     private Scheduling.ScheduledTaskStore? _schedules;
 
     private SqliteConnection Open()
@@ -225,6 +229,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
 
         // v0.6：定时任务
         Scheduling.ScheduledTaskStore.Migrate(c);
+        // 任务授权记录（远程 / 定时 / 事件任务的「谁让做、做到哪」，只插入）
+        Security.TaskGrantStore.Migrate(c);
 
         // v0.7：每轮任务的结果（任务效果统计：完成率、步数、产出文件问题，打开/关闭规划提醒和产出检查前后对比用）
         using var runs = c.CreateCommand();

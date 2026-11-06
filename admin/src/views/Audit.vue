@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Download, Refresh } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { AuditLog, Device } from '@/api/types'
+import type { AuditLog, Device, TaskGrant } from '@/api/types'
 import { DECISION_LABELS, dateTime, sceneLabel } from '@/utils/format'
 import { auth } from '@/store/auth'
 
@@ -54,6 +54,18 @@ const RISK_LABELS: Record<string, { label: string; type: 'danger' | 'warning' | 
   medium: { label: '中', type: 'warning' },
   low: { label: '低', type: 'info' },
 }
+// ---------- 任务授权：远程 / 定时 / 事件任务的「谁让做、做到哪」 ----------
+const ORIGIN_LABELS: Record<string, string> = {
+  mobile: '手机', dingtalk: '钉钉', wecom: '企业微信', instruction: '指令中心', schedule: '定时任务', event: '事件触发',
+}
+const PERMISSION_LABELS: Record<string, string> = { readonly: '仅可查看', workspace: '工作区内修改', full: '完全权限' }
+const grants = ref<Record<string, TaskGrant>>({})
+async function loadGrant(row: { conversation_id: string; grant_id?: string }) {
+  const list = await api.grants({ conversation_id: row.conversation_id, limit: 200 })
+  for (const g of list) grants.value[g.id] = g
+  if (!grants.value[row.grant_id!]) ElMessage.info('没有找到这份授权记录（可能是老版本员工端）')
+}
+
 const decisionOf = (d: string) => DECISION_LABELS[d] ?? { label: d || '—', type: 'info' as const }
 
 function pretty(args: string) {
@@ -122,6 +134,24 @@ async function doExport() {
                 <pre>{{ row.summary }}</pre>
               </div>
               <div v-if="row.conversation_id" class="muted">会话 <code>{{ row.conversation_id }}</code></div>
+              <div v-if="row.grant_id" class="grant">
+                <label>任务授权</label>
+                <template v-if="grants[row.grant_id]">
+                  <p>
+                    {{ ORIGIN_LABELS[grants[row.grant_id]!.origin] ?? grants[row.grant_id]!.origin }} ·
+                    {{ grants[row.grant_id]!.requested_by || '—' }}
+                    <el-tag size="small" :type="grants[row.grant_id]!.verified ? 'success' : 'info'">
+                      {{ grants[row.grant_id]!.verified ? '服务端已核对' : '员工端记录' }}
+                    </el-tag>
+                  </p>
+                  <p class="muted">
+                    权限上限：{{ PERMISSION_LABELS[grants[row.grant_id]!.permission] }}
+                    <template v-if="grants[row.grant_id]!.workspace"> · 工作区 <code>{{ grants[row.grant_id]!.workspace }}</code></template>
+                  </p>
+                  <pre v-if="grants[row.grant_id]!.instruction">{{ grants[row.grant_id]!.instruction }}</pre>
+                </template>
+                <el-button v-else link type="primary" @click="loadGrant(row as AuditLog)">查看「谁让做、做到哪」</el-button>
+              </div>
             </div>
           </template>
         </el-table-column>

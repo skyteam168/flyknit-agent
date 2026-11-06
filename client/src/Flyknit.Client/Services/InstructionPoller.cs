@@ -81,7 +81,7 @@ public sealed class InstructionPoller : IDisposable
             var what = ins.Title.Length > 0 ? ins.Title : "一项维护任务";
             _notify("IT 正在维护这台电脑", $"IT 正在为你的电脑执行：{what}。过程自动完成，请勿关机。");
 
-            var outcome = await _host.RunInstructionAsync(ins.Prompt, ins.Title, token);
+            var outcome = await _host.RunInstructionAsync(ins.Prompt, ins.Title, token, ins.RunId.ToString(System.Globalization.CultureInfo.InvariantCulture));
             await _host.Server.FinishInstructionAsync(ins.RunId, outcome.Ok, outcome.Answer, outcome.Error, outcome.ConversationId, token);
             Log.Info($"下发指令 run={ins.RunId} 回报完成 ok={outcome.Ok}");
         }

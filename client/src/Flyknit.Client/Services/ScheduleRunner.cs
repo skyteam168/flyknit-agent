@@ -133,6 +133,8 @@ public sealed class ScheduleRunner : IDisposable
                 // 预演：只读调研，列出会做的修改，不真的执行（见 PlanMode.RehearsalGuide）
                 _host.MarkRehearsal(conv.Id);
             }
+            // 授权记录：定时任务按任务里设的权限和工作区跑，跑完收回（OnRunFinished）
+            _host.IssueGrant(conv, "schedule", task.Id, $"定时任务：{task.Name}", task.Instructions);
             task.LastConversationId = conv.Id;
             Store.Save(task);
             Changed?.Invoke();

@@ -864,6 +864,7 @@ public sealed class AgentLoop
             var audit = new AuditEntry
             {
                 ConversationId = context.ConversationId,
+                GrantId = context.GrantId,
                 Scene = scene,
                 ToolName = call.Name,
                 Arguments = call.ArgumentsJson,

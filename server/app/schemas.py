@@ -243,6 +243,8 @@ class AuditItem(BaseModel):
     subtask_id: ClipOrEmpty(40) = ""
     #: main 或 expert:<专家 ID>
     actor: ClipOrEmpty(60) = ""
+    #: 依据的任务授权记录（远程 / 定时 / 事件任务）；员工自己发起的为空
+    grant_id: ClipOrEmpty(40) = ""
     occurred_at: datetime | None = None
 
 
@@ -267,6 +269,7 @@ class AuditOut(BaseModel):
     summary: str
     subtask_id: str = ""
     actor: str = ""
+    grant_id: str = ""
     occurred_at: datetime
     created_at: datetime
 

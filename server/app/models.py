@@ -199,6 +199,35 @@ class Plugin(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class TaskGrant(Base):
+    """
+    任务授权记录：不是员工坐在电脑前发起的任务（手机、钉钉 / 企业微信、IT 指令、定时任务、事件触发），
+    开始前记一份「谁让做、做到哪」：来源、发起人、原话、权限上限、工作区。
+
+    只插入、不修改、不删除（没有改和删的接口）。同一个对话后面再来的远程消息另记一份，
+    权限上限不会超过这个对话上一份的（员工端按这个封顶，见 TaskGrant.cs）。
+    来自通道和指令中心的，发起人和原话由服务端按自己的记录填，不信员工端报上来的（verified=True）。
+    """
+
+    __tablename__ = "task_grants"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    conversation_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    #: mobile / dingtalk / wecom / instruction / schedule / event
+    origin: Mapped[str] = mapped_column(String(20), default="")
+    #: 来源里的编号：通道消息 ID、指令执行 ID、定时任务 ID、事件触发器 ID
+    reference: Mapped[str] = mapped_column(String(100), default="")
+    requested_by: Mapped[str] = mapped_column(String(200), default="")
+    instruction: Mapped[str] = mapped_column(Text, default="")
+    #: readonly / workspace / full：这次任务最多能做到哪
+    permission: Mapped[str] = mapped_column(String(20), default="readonly")
+    workspace: Mapped[str] = mapped_column(String(500), default="")
+    #: 发起人和原话是服务端按自己的记录核对过的
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
@@ -218,6 +247,8 @@ class AuditLog(Base):
     subtask_id: Mapped[str] = mapped_column(String(40), default="")
     #: 谁调的工具：main（主助手）或 expert:<专家 ID>
     actor: Mapped[str] = mapped_column(String(60), default="")
+    #: 不是员工在电脑前发起的任务（手机、钉钉、定时、事件……）所依据的授权记录（task_grants.id）
+    grant_id: Mapped[str] = mapped_column(String(40), default="", server_default="")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 

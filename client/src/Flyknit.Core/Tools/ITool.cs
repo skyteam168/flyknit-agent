@@ -149,6 +149,9 @@ public sealed class ToolContext
     /// <summary>用户为任务选择的权限模式。</summary>
     public PermissionMode Permission { get; init; } = PermissionMode.Workspace;
 
+    /// <summary>这一轮依据的任务授权记录（远程 / 定时 / 事件任务）；员工自己发起的为空。写进审计。</summary>
+    public string GrantId { get; init; } = "";
+
     /// <summary>这次运行（员工的一句话引起的一轮）的 ID。派遣专家按它计次。</summary>
     public string RunId { get; init; } = "";
 

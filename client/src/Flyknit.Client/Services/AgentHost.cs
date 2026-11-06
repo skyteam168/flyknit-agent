@@ -722,6 +722,16 @@ public sealed partial class AgentHost : IDisposable
             {
                 permission = Flyknit.Core.Agent.PlanMode.Cap(permission);
             }
+            // 远程 / 定时 / 事件任务：按授权封顶、工作区用授权里的（后续消息扩大不了授权，见 TaskGrant）
+            var grant = ActiveGrant(id);
+            if (grant is not null)
+            {
+                permission = grant.Cap(permission);
+                if (grant.Workspace.Length > 0)
+                {
+                    workspace = grant.Workspace;
+                }
+            }
             var modelId = conv.ModelId ?? expert?.ModelId;
             var mcpServers = conv.Mode == ConversationMode.Agent ? Mcp.PromptInfo() : Array.Empty<McpPromptInfo>();
             if (expert is not null)
@@ -839,6 +849,7 @@ public sealed partial class AgentHost : IDisposable
                 UserRequest = text,
                 Workspace = workspace,
                 Permission = permission,
+                GrantId = grant?.Id ?? "",
                 RunId = Guid.NewGuid().ToString("N"),
                 Memory = Memory,
                 Episodes = Episodes,
@@ -1008,6 +1019,8 @@ public sealed partial class AgentHost : IDisposable
             cts.Dispose();
             MarkRunEnded(id);
             EndProgress(id);
+            // 授权只管这一轮：之后员工在电脑上接着说话按对话自己的权限来
+            _activeGrants.TryRemove(id, out _);
             ActiveRunsChanged?.Invoke(_runs.Count);
             // 排队的话接着发。钉钉、企业微信、手机发来的任务由 RunChannelMessageAsync 收尾后再接着发
             if (!_remoteRuns.ContainsKey(id))
@@ -1337,13 +1350,31 @@ public sealed partial class AgentHost : IDisposable
     /// 和员工自己发消息的区别只有一处：确认环节自动放行（IT 下发即授权）。但这只对「需要确认」
     /// 的那一档生效——被安全策略判为「阻止」的危险命令照样执行不了，每一步工具调用也照常写进审计。
     /// </summary>
-    public async Task<InstructionOutcome> RunInstructionAsync(string prompt, string title, CancellationToken ct)
+    /// <param name="reference">指令执行编号（服务端的 instruction_runs.id），写进授权记录、由服务端核对。</param>
+    public async Task<InstructionOutcome> RunInstructionAsync(string prompt, string title, CancellationToken ct, string reference = "")
     {
         using var source = UsageSource.Use(UsageSource.Instruction);
         var displayTitle = string.IsNullOrWhiteSpace(title) ? "IT 指令" : $"IT 指令 · {title}";
         var conv = Store.Create(ConversationMode.Agent, displayTitle);
         Store.Rename(conv.Id, conv.Title); // 固定标题，不让 AI 自动总结覆盖
         var confirm = new AutoApprove();
+        var (grant, refused) = await IssueGrantAsync(conv, "instruction", reference, "指令中心", prompt, ct);
+        if (refused is not null)
+        {
+            return new InstructionOutcome(false, "", refused, conv.Id);
+        }
+        try
+        {
+            return await RunInstructionCoreAsync(conv, prompt, confirm, ct);
+        }
+        finally
+        {
+            EndGrant(conv.Id, grant);
+        }
+    }
+
+    private async Task<InstructionOutcome> RunInstructionCoreAsync(Conversation conv, string prompt, IConfirmationHandler confirm, CancellationToken ct)
+    {
 
         // 界面还没就绪（窗口没加载过 webview）时静默执行，照样受策略约束、写审计
         if (Events is not { } events)
@@ -1419,6 +1450,13 @@ public sealed partial class AgentHost : IDisposable
             Store.AddMessages(conv.Id, new[] { user });
 
             var workspace = _settings.ResolveWorkspace(conv.Workspace);
+            // 指令中心的任务按授权封顶（RunInstructionAsync 里起的）
+            var grant = ActiveGrant(conv.Id);
+            var permission = grant?.Cap(conv.Permission) ?? conv.Permission;
+            if (grant is { Workspace.Length: > 0 })
+            {
+                workspace = grant.Workspace;
+            }
             var persona = PersonaForPrompt();
             var scheduledPrompt = new PromptBuilder(Memory, Skills, Episodes);
             var systemPrompt = scheduledPrompt.Build(new PromptContext
@@ -1429,7 +1467,7 @@ public sealed partial class AgentHost : IDisposable
                 Mode = ConversationMode.Agent,
                 UiLanguage = uiLanguage,
                 Workspace = workspace,
-                Permission = conv.Permission,
+                Permission = permission,
                 Sandboxed = Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
                 Query = prompt,
                 SemanticScores = await SemanticScoresAsync(prompt, cts.Token),
@@ -1448,7 +1486,8 @@ public sealed partial class AgentHost : IDisposable
                 Rules = ToolRules,
                 UserRequest = prompt,
                 Workspace = workspace,
-                Permission = conv.Permission,
+                Permission = permission,
+                GrantId = grant?.Id ?? "",
                 Memory = Memory,
                 Episodes = Episodes,
                 Skills = Skills,

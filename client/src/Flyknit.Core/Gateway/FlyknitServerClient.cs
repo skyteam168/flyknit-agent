@@ -143,6 +143,9 @@ public sealed class AuditEntry
 
     /// <summary>main（主助手）或 expert:&lt;专家 ID&gt;。</summary>
     [JsonPropertyName("actor")] public string Actor { get; set; } = "main";
+
+    /// <summary>远程 / 定时 / 事件任务依据的授权记录；员工自己发起的为空。</summary>
+    [JsonPropertyName("grant_id")] public string GrantId { get; set; } = "";
 }
 
 /// <summary>后台下发给本机、要由 AI agent 执行的一条指令。</summary>
@@ -426,6 +429,28 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<List<ClientModel>>(cancellationToken: ct) ?? new();
+    }
+
+    /// <summary>
+    /// 报一份任务授权记录。返回服务端的 HTTP 状态码：201 收下；4xx 是服务端核对不通过（例如这条消息不是发给这台电脑的）；
+    /// 404 是老版本服务端没有这个接口。
+    /// </summary>
+    public async Task<int> ReportGrantAsync(Flyknit.Core.Security.TaskGrant g, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/grants");
+        req.Content = JsonContent.Create(new
+        {
+            id = g.Id,
+            conversation_id = g.ConversationId,
+            origin = g.Origin,
+            reference = g.Reference,
+            requested_by = g.RequestedBy,
+            instruction = g.Instruction,
+            permission = Flyknit.Core.Security.PermissionModes.ToText(g.Permission),
+            workspace = g.Workspace,
+        });
+        using var resp = await SendAsync(req, ct);
+        return (int)resp.StatusCode;
     }
 
     public async Task ReportAuditAsync(IReadOnlyList<AuditEntry> items, CancellationToken ct)

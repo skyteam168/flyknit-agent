@@ -351,6 +351,8 @@ export interface AuditLog {
   subtask_id?: string
   /** main 或 expert:<专家 ID> */
   actor?: string
+  /** 远程 / 定时 / 事件任务依据的授权记录 */
+  grant_id?: string
   occurred_at: string
   created_at: string
 }
@@ -833,4 +835,20 @@ export interface PluginPreview {
   counts: PluginCounts
   conflicts: string[]
   upgrade_from: string | null
+}
+
+/** 任务授权记录：不是员工坐在电脑前发起的任务，「谁让做、做到哪」 */
+export interface TaskGrant {
+  id: string
+  device_id: number | null
+  conversation_id: string
+  origin: 'mobile' | 'dingtalk' | 'wecom' | 'instruction' | 'schedule' | 'event'
+  reference: string
+  requested_by: string
+  /** 原话；没有聊天查看权限时为空 */
+  instruction: string
+  permission: 'readonly' | 'workspace' | 'full'
+  workspace: string
+  verified: boolean
+  created_at: string
 }

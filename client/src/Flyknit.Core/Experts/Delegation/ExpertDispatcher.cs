@@ -221,6 +221,7 @@ public sealed class ExpertDispatcher
                 Security = parent.Security,
                 // IT 的工具规则对专家同样生效
                 Rules = parent.Rules,
+                GrantId = parent.GrantId,
             };
             var loop = new AgentLoop(
                 new SubtaskGateway(_host.Gateway, record.Id, state),

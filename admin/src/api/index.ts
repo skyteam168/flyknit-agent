@@ -1,5 +1,5 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
-import type { SlashCommand, ToolRule, PluginItem, PluginPreview,
+import type { SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant,
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
@@ -246,6 +246,8 @@ export const api = {
   deleteDevice: (id: number) => del(`/devices/${id}`),
   updateDevice: (id: number, body: Partial<{ disabled: boolean; owner: string; department: string; note: string }>) =>
     patch<Device>(`/devices/${id}`, body),
+  grants: (query: { device_id?: number; conversation_id?: string; origin?: string; limit?: number }) =>
+    get<TaskGrant[]>('/grants', query),
   audit: (query: { decision?: string; device_id?: number | null; conversation_id?: string; limit: number; offset: number }) =>
     get<AuditLog[]>('/audit', query),
 
