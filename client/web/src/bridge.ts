@@ -10,6 +10,7 @@
 import type { DocModel } from './documents'
 import type {
   SlashCommand,
+  PluginInfo,
   WorkspaceEntry,
   WorkspaceListing,
   DocumentInfo,
@@ -339,6 +340,7 @@ class Bridge {
   listTerminal = (conversationId: string) => this.call<TerminalRun[]>('terminal.list', { conversationId })
   /** 快捷指令：IT 发布的 + 自己的 */
   listCommands = () => this.call<{ it: SlashCommand[]; mine: SlashCommand[] }>('commands.list', {}, undefined, 15_000)
+  listPlugins = () => this.call<{ ok: boolean; items: PluginInfo[] }>('plugins.list', {}, undefined, 15_000)
   saveCommands = (items: SlashCommand[]) => this.call<{ ok: boolean; message: string }>('commands.save', { items })
   /** 右侧「文件」标签：列工作区里的一个文件夹（path 是相对工作区的路径，空 = 工作区本身） */
   listWorkspace = (conversationId: string, path: string) => this.call<WorkspaceListing>('workspace.list', { conversationId, path })

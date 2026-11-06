@@ -1958,6 +1958,17 @@ export function createMockHost(): HostTransport {
         ]
         return { contextLength: 131072, reserveOutput: 8192, compactAt: 92160, parts, used: parts.reduce((a, x) => a + x.tokens, 0), lastPromptTokens: compacted ? null : 118430, measuredAt: now() }
       }
+      case 'plugins.list':
+        return {
+          ok: true,
+          items: [
+            {
+              id: 'qc', name: '质检部插件', version: '1.2.0', description: '质检日报、来料检验分析、QMS 查询', author: 'IT 部',
+              required: true, counts: { skills: 2, commands: 1, experts: 1, connectors: 1, rules: 1 },
+              skills: ['qc-report', 'iqc-sampling'], commands: ['质检日报'], experts: ['来料检验专家'], connectors: ['QMS'],
+            },
+          ],
+        }
       case 'commands.list':
         return { it: mockItCommands, mine: mockMyCommands }
       case 'commands.save': {

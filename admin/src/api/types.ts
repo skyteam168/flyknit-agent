@@ -785,3 +785,50 @@ export interface ToolRule {
   message: string
   redact: string
 }
+
+/** 插件包（目录结构同 Claude Code plugins） */
+export interface PluginManifest {
+  skills: { name: string; description: string }[]
+  commands: SlashCommand[]
+  experts: { id: string; name: string; description: string }[]
+  connectors: { id: string; name: string; transport: string }[]
+  rules: ToolRule[]
+  warnings: string[]
+}
+
+export interface PluginCounts {
+  skills: number
+  commands: number
+  experts: number
+  connectors: number
+  rules: number
+}
+
+export interface PluginItem {
+  id: string
+  name: string
+  version: string
+  description: string
+  author: string
+  homepage: string
+  origin: string
+  manifest: PluginManifest
+  counts: PluginCounts
+  departments: string[]
+  required: boolean
+  enabled: boolean
+  installed_by: string
+  updated_at: string
+}
+
+export interface PluginPreview {
+  id: string
+  name: string
+  version: string
+  description: string
+  author: string
+  manifest: PluginManifest
+  counts: PluginCounts
+  conflicts: string[]
+  upgrade_from: string | null
+}

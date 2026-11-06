@@ -1799,6 +1799,13 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 return new { ok = problem is null, message = problem ?? "" };
             }
 
+            // ---------- 插件：IT 按部门下发的一包技能 / 专家 / 连接器 / 快捷指令 / 工具规则（只读展示） ----------
+            case "plugins.list":
+            {
+                var items = await _host.ListPluginsAsync();
+                return new { ok = items is not null, items = (object?)items ?? Array.Empty<object>() };
+            }
+
             // ---------- 工作区文件：右侧「文件」标签浏览、搜索（只读、只在工作区里） ----------
             case "workspace.list":
             {

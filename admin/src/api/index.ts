@@ -1,5 +1,5 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
-import type { SlashCommand, ToolRule,
+import type { SlashCommand, ToolRule, PluginItem, PluginPreview,
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
@@ -179,6 +179,22 @@ export const api = {
   tickets: () => get<EnrollmentTicket[]>('/tickets'),
 
   // 工具规则：AI 调用工具前后的拦截 / 必须确认 / 提醒 / 结果打码
+  plugins: () => get<{ items: PluginItem[]; departments: string[] }>('/plugins'),
+  previewPlugin: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<PluginPreview>('/plugins/preview', { method: 'POST', body: form })
+  },
+  uploadPlugin: (file: File, departments: string[], required: boolean) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<PluginItem>('/plugins/upload', { method: 'POST', body: form, query: { departments, required } })
+  },
+  importPlugin: (url: string, departments: string[], required: boolean) =>
+    post<PluginItem>('/plugins/import', { url, departments, required }),
+  updatePlugin: (id: string, body: Partial<{ enabled: boolean; required: boolean; departments: string[] }>) =>
+    patch<PluginItem>(`/plugins/${encodeURIComponent(id)}`, body),
+  deletePlugin: (id: string) => del(`/plugins/${encodeURIComponent(id)}`),
   toolRules: () => get<{ items: ToolRule[] }>('/tool-rules'),
   saveToolRules: (items: ToolRule[]) => put<{ items: ToolRule[] }>('/tool-rules', { items }),
 

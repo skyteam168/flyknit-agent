@@ -161,6 +161,38 @@ class SkillPackage(Base):
     file_count: Mapped[int] = mapped_column(Integer, default=0)
     required: Mapped[bool] = mapped_column(Boolean, default=False)  # 所有电脑必装
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接导入。插件卸载时一起删
+    plugin: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class Plugin(Base):
+    """
+    插件包：一包技能 + 专家 + 连接器 + 快捷指令 + 工具规则（目录结构同 Claude Code plugins）。
+
+    安装时把内容落进各自的表（skill_packages / experts / mcp_vendors 的 plugin 列记来源），
+    快捷指令和工具规则存在 manifest 里。下发给员工端时按 departments 过滤：
+    不在范围内的电脑看不到这个插件带来的任何东西（服务端过滤，不靠员工端自觉）。
+    """
+
+    __tablename__ = "plugins"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), default="")
+    version: Mapped[str] = mapped_column(String(50), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    author: Mapped[str] = mapped_column(String(100), default="")
+    homepage: Mapped[str] = mapped_column(String(500), default="")
+    origin: Mapped[str] = mapped_column(String(500), default="")
+    #: 解析出来的清单：skills / commands / experts / connectors / rules / warnings
+    manifest: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: 下发给哪些部门（devices.department）。空 = 全公司
+    departments: Mapped[list] = mapped_column(JSON, default=list)
+    #: 必装：范围内的电脑自动安装插件里的技能
+    required: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    installed_by: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -512,6 +544,8 @@ class McpVendor(Base):
     skip_tls_verify: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接配置
+    plugin: Mapped[str] = mapped_column(String(40), default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -567,6 +601,8 @@ class Expert(Base):
     published: Mapped[dict] = mapped_column(JSON, default=dict)  # 已发布的快照
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     published_by: Mapped[str] = mapped_column(String(100), default="")
+    #: 由哪个插件装进来的（plugins.id）。空 = 管理员在后台建的
+    plugin: Mapped[str] = mapped_column(String(40), default="", server_default="")
     updated_by: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

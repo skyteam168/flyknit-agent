@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import admin_name, require_admin
-from ..services import settings_store
+from ..models import Device
+from ..services import plugin_scope, settings_store
 
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["tool-rules"], dependencies=[Depends(require_admin)])
 
@@ -63,9 +64,12 @@ class ToolRulesIn(BaseModel):
     items: list[ToolRule] = Field(default_factory=list, max_length=MAX_RULES)
 
 
-async def current(session: AsyncSession) -> list[dict]:
-    """员工端配置里下发的规则（只带启用的）。"""
-    items = (await settings_store.get_value(session, KEY, {"items": []})).get("items", [])
+async def current(session: AsyncSession, device: Device | None = None) -> list[dict]:
+    """员工端配置里下发的规则（只带启用的）：后台写的 + 这台电脑范围内插件带来的。"""
+    items = list((await settings_store.get_value(session, KEY, {"items": []})).get("items", []))
+    for p in await plugin_scope.visible(session, device):
+        for r in (p.manifest or {}).get("rules", []):
+            items.append({**r, "name": f"[{p.name or p.id}] {r.get('name', '')}".strip()})
     return [r for r in items if r.get("enabled", True)]
 
 

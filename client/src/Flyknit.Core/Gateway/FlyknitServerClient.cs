@@ -118,6 +118,9 @@ public sealed class ServerSkill
     /// <summary>管理员要求所有电脑都安装。</summary>
     [JsonPropertyName("required")] public bool Required { get; set; }
 
+    /// <summary>由哪个插件带来的（空 = 管理员直接导入）。</summary>
+    [JsonPropertyName("plugin")] public string Plugin { get; set; } = "";
+
     [JsonPropertyName("updated_at")] public DateTimeOffset UpdatedAt { get; set; }
 }
 
@@ -656,6 +659,20 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return (await resp.Content.ReadFromJsonAsync<Flyknit.Core.Commands.SlashCommandList>(cancellationToken: ct))?.Items ?? new();
+    }
+
+    /// <summary>这台电脑范围内的插件（只读展示；内容各走各的接口）。服务端没有这个接口（老版本）时返回空。</summary>
+    public async Task<System.Text.Json.Nodes.JsonArray> GetPluginsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/plugins");
+        using var resp = await SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new();
+        }
+        await EnsureOk(resp, ct);
+        var node = await resp.Content.ReadFromJsonAsync<System.Text.Json.Nodes.JsonObject>(cancellationToken: ct);
+        return node?["items"] as System.Text.Json.Nodes.JsonArray ?? new();
     }
 
     /// <summary>管理员发布的专家（发布时的快照）。</summary>

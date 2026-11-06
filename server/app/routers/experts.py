@@ -27,7 +27,7 @@ from ..schemas import (
     ExpertPublishIn,
     ExpertVersionOut,
 )
-from ..services import config_events, expert_registry, security_settings, settings_store
+from ..services import config_events, expert_registry, plugin_scope, security_settings, settings_store
 
 log = logging.getLogger("flyknit.experts")
 admin_router = APIRouter(prefix="/api/v1/admin/experts", tags=["experts"], dependencies=[Depends(require_admin)])
@@ -37,7 +37,7 @@ client_router = APIRouter(prefix="/api/v1/client/experts", tags=["experts"])
 def _out(e: Expert, usage: dict[str, tuple[int, int]] | None = None) -> ExpertOut:
     uses, users = (usage or {}).get(e.id, (0, 0))
     return ExpertOut(
-        id=e.id, status=e.status, version=e.version, dirty=expert_registry.is_dirty(e), uses=uses, users=users,
+        id=e.id, plugin=e.plugin or "", status=e.status, version=e.version, dirty=expert_registry.is_dirty(e), uses=uses, users=users,
         published_at=e.published_at, published_by=e.published_by, updated_by=e.updated_by, updated_at=e.updated_at,
         **expert_registry.snapshot(e),
     )
@@ -198,16 +198,19 @@ async def delete_expert(expert_id: str, session: AsyncSession = Depends(get_sess
 
 # ---------- 员工端 ----------
 @client_router.get("", response_model=list[ExpertClientOut])
-async def client_experts(_: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
+async def client_experts(device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
     """已发布的专家（发布时的快照）。不在这个列表里的（下线、删除）员工端自己收起来。"""
     rows = await session.scalars(
         select(Expert).where(Expert.status == "published").order_by(Expert.sort_order, Expert.created_at))
     usage = await expert_registry.usage_totals(session)
+    visible = await plugin_scope.visible_ids(session, device)  # 插件带来的专家按插件的下发范围过滤
     out = []
     for e in rows.all():
+        if not plugin_scope.allowed(e.plugin, visible):
+            continue
         snap = expert_registry.from_snapshot(e.published)
         uses, users = usage.get(e.id, (0, 0))
-        out.append(ExpertClientOut(id=e.id, version=e.version, published_at=e.published_at, uses=uses, users=users,
+        out.append(ExpertClientOut(id=e.id, plugin=e.plugin or "", version=e.version, published_at=e.published_at, uses=uses, users=users,
                                    **snap.model_dump()))
     return out
 

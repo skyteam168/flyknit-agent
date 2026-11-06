@@ -270,6 +270,7 @@ public sealed class SkillService
         }
 
         _settings.RequiredSkills = library.Where(s => s.Required).Select(s => s.Name).ToList();
+        RemoveStalePluginSkills(library);
         _settings.Save();
 
         var installed = 0;
@@ -310,5 +311,38 @@ public sealed class SkillService
         }
         Refresh();
         return installed;
+    }
+
+    /// <summary>
+    /// 插件带来的必装技能：上次装过、这次服务端不再下发（插件卸载 / 停用 / 不在下发范围）的，从 org 目录删掉。
+    /// 只删 org 目录里的（员工自己装到个人目录的不动）。
+    /// </summary>
+    private void RemoveStalePluginSkills(List<ServerSkill> library)
+    {
+        var now = library.Where(s => s.Required && s.Plugin.Length > 0).Select(s => s.Name).ToList();
+        var org = Path.GetFullPath(AppPaths.OrgSkills).TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
+        foreach (var name in _settings.PluginSkills.Except(now, StringComparer.OrdinalIgnoreCase).ToList())
+        {
+            var skill = FindByPackage(name);
+            if (skill is null)
+            {
+                continue;
+            }
+            var dir = Path.GetFullPath(skill.Directory);
+            if (!dir.StartsWith(org, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            try
+            {
+                Directory.Delete(dir, recursive: true);
+                Log.Info($"插件已不再下发，删掉技能 {name}");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"删掉插件技能 {name} 失败", ex);
+            }
+        }
+        _settings.PluginSkills = now;
     }
 }

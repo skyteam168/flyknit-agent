@@ -395,6 +395,8 @@ class SkillOut(BaseModel):
     file_count: int = 0
     required: bool = False
     enabled: bool = True
+    #: 由哪个插件带来的（空 = 管理员直接导入）
+    plugin: str = ""
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -639,6 +641,7 @@ class McpVendorOut(BaseModel):
     """后台看到的：预填的值只露掩码。"""
 
     id: str
+    plugin: str = ""
     name: str
     description: str = ""
     detail: str = ""
@@ -668,6 +671,7 @@ class McpClientVendorOut(BaseModel):
     """员工端看到的：预填的值是明文——员工电脑要拿它去连接，本来就得知道。"""
 
     id: str
+    plugin: str = ""
     name: str
     description: str = ""
     detail: str = ""
@@ -773,6 +777,7 @@ class ExpertIn(ExpertFields):
 
 class ExpertOut(ExpertFields):
     id: str
+    plugin: str = ""
     status: str
     version: int
     uses: int = 0
@@ -828,6 +833,7 @@ class ExpertClientOut(ExpertFields):
     """员工端拿到的：已发布的快照，加上使用量。"""
 
     id: str
+    plugin: str = ""
     version: int
     uses: int = 0
     users: int = 0

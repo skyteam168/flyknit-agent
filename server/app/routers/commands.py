@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..deps import admin_name, require_admin, require_device
 from ..models import Device
-from ..services import settings_store
+from ..services import plugin_scope, settings_store
 
 client_router = APIRouter(prefix="/api/v1/client", tags=["commands"])
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["commands"], dependencies=[Depends(require_admin)])
@@ -70,5 +70,14 @@ async def admin_save(data: CommandsIn, who: str = Depends(admin_name), session: 
 
 
 @client_router.get("/commands")
-async def client_list(_device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
-    return {"items": await _items(session)}
+async def client_list(device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
+    """后台发布的 + 这台电脑范围内插件带来的。同名时后台的优先（插件的不覆盖 IT 手写的）。"""
+    items = [{**c, "source": ""} for c in await _items(session)]
+    taken = {c["name"].lower() for c in items} | RESERVED
+    for p in await plugin_scope.visible(session, device):
+        for c in (p.manifest or {}).get("commands", []):
+            if c.get("name", "").lower() in taken:
+                continue
+            taken.add(c["name"].lower())
+            items.append({**c, "source": p.name or p.id})
+    return {"items": items}

@@ -32,6 +32,23 @@ public sealed partial class AgentHost
         return (_itCommands, CommandStore.Load());
     }
 
+    /// <summary>
+    /// 这台电脑范围内的插件（IT 按部门下发）。只读展示：插件里的技能、专家、连接器、快捷指令、工具规则
+    /// 已经由服务端合并进各自的接口，这里不再单独生效一遍。连不上时返回 null。
+    /// </summary>
+    public async Task<System.Text.Json.Nodes.JsonArray?> ListPluginsAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            return await Server.GetPluginsAsync(cts.Token);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>保存员工自己的指令。不合规时返回原因。</summary>
     public string? SaveMyCommands(IReadOnlyList<SlashCommand> commands) => CommandStore.Save(commands);
 }

@@ -31,7 +31,7 @@ function expired(status: number, message: string) {
 export interface RequestOptions {
   method?: string
   body?: unknown
-  query?: Record<string, string | number | boolean | undefined | null>
+  query?: Record<string, string | number | boolean | string[] | undefined | null>
   /** 出错时不弹全局提示，交给调用方处理 */
   silent?: boolean
   raw?: boolean
@@ -40,7 +40,8 @@ export interface RequestOptions {
 export async function request<T = unknown>(path: string, opts: RequestOptions = {}): Promise<T> {
   const url = new URL(BASE + path, location.origin)
   for (const [k, v] of Object.entries(opts.query ?? {})) {
-    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
+    if (Array.isArray(v)) v.forEach((x) => url.searchParams.append(k, x))
+    else if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
   }
   const headers: Record<string, string> = {}
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`

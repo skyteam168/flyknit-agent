@@ -32,7 +32,7 @@ from ..schemas import (
     MachineInfoIn,
     SceneInfo,
 )
-from ..services import config_events, device_identity, legal_store, model_router, security_settings, settings_store, skill_library, usage_store, web_search
+from ..services import config_events, device_identity, plugin_scope, legal_store, model_router, security_settings, settings_store, skill_library, usage_store, web_search
 from ..services.settings_store import get_policy
 
 from . import tool_rules
@@ -190,7 +190,7 @@ async def client_config(
         server_version=__version__, scenes=scenes, policy=await get_policy(session), security=security,
         revision=config_events.current(), owner=device.owner, department=device.department,
         web_search_enabled=search_ready,
-        tool_rules=await tool_rules.current(session),
+        tool_rules=await tool_rules.current(session, device),
     )
 
 
@@ -283,16 +283,18 @@ async def client_usage(
 
 # ---------- 公司技能库 ----------
 @router.get("/client/skills", response_model=list[SkillOut])
-async def client_skills(_: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
-    """客户端可以安装的技能；required 的会被客户端自动安装。"""
+async def client_skills(device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
+    """客户端可以安装的技能；required 的会被客户端自动安装。插件带来的技能按插件的下发范围过滤。"""
     rows = await session.scalars(select(SkillPackage).where(SkillPackage.enabled.is_(True)).order_by(SkillPackage.name))
-    return rows.all()
+    visible = await plugin_scope.visible_ids(session, device)
+    return [s for s in rows.all() if plugin_scope.allowed(s.plugin, visible)]
 
 
 @router.get("/client/skills/{name}/download")
-async def download_skill(name: str, _: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
+async def download_skill(name: str, device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
     skill = await session.get(SkillPackage, name)
-    if skill is None or not skill.enabled:
+    if skill is None or not skill.enabled or not plugin_scope.allowed(
+            skill.plugin, await plugin_scope.visible_ids(session, device)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "技能不存在")
     path = skill_library.storage_dir(Path(get_settings().data_dir)) / f"{name}.zip"
     if not path.exists():

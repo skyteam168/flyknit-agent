@@ -1205,4 +1205,21 @@ export interface SlashCommand {
   title: string
   description: string
   template: string
+  /** IT 指令里由哪个插件带来的（插件名） */
+  source?: string
+}
+
+/** IT 按部门下发的插件（设置 →「插件」只读展示） */
+export interface PluginInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  author: string
+  required: boolean
+  counts: { skills: number; commands: number; experts: number; connectors: number; rules: number }
+  skills: string[]
+  commands: string[]
+  experts: string[]
+  connectors: string[]
 }

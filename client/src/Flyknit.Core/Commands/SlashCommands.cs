@@ -15,6 +15,9 @@ public sealed record SlashCommand
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonPropertyName("description")] public string Description { get; init; } = "";
     [JsonPropertyName("template")] public string Template { get; init; } = "";
+
+    /// <summary>IT 指令里由哪个插件带来的（插件名）；空 = 后台直接发布或员工自己的。</summary>
+    [JsonPropertyName("source")] public string Source { get; init; } = "";
 }
 
 /// <summary>IT 发布的这一批（服务端 GET /api/v1/client/commands 的返回）。</summary>

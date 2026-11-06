@@ -109,6 +109,7 @@ const params = (c: SlashCommand) => templateParams(c.template)
           <code>/{{ c.name }}</code>
           <span v-for="p in params(c)" :key="p" class="param">{{ p }}</span>
           <span class="title">{{ c.title }}</span>
+          <span v-if="c.source" class="param">{{ t('ui.commands.fromPlugin', { name: c.source }) }}</span>
         </div>
         <p class="tpl">{{ c.template }}</p>
       </div>
