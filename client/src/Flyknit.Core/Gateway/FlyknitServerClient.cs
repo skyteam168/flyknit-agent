@@ -38,6 +38,8 @@ public sealed class ClientConfig
     [JsonPropertyName("department")] public string Department { get; set; } = "";
     /// <summary>后台已开启联网搜索且密钥就绪。</summary>
     [JsonPropertyName("web_search_enabled")] public bool WebSearchEnabled { get; set; }
+    /// <summary>IT 写的工具规则（只带启用的）。旧版服务端没有这一项。</summary>
+    [JsonPropertyName("tool_rules")] public List<Flyknit.Core.Security.ToolRule> ToolRules { get; set; } = new();
 }
 
 public sealed class ClientModel
@@ -116,6 +118,9 @@ public sealed class ServerSkill
     /// <summary>管理员要求所有电脑都安装。</summary>
     [JsonPropertyName("required")] public bool Required { get; set; }
 
+    /// <summary>由哪个插件带来的（空 = 管理员直接导入）。</summary>
+    [JsonPropertyName("plugin")] public string Plugin { get; set; } = "";
+
     [JsonPropertyName("updated_at")] public DateTimeOffset UpdatedAt { get; set; }
 }
 
@@ -138,6 +143,9 @@ public sealed class AuditEntry
 
     /// <summary>main（主助手）或 expert:&lt;专家 ID&gt;。</summary>
     [JsonPropertyName("actor")] public string Actor { get; set; } = "main";
+
+    /// <summary>远程 / 定时 / 事件任务依据的授权记录；员工自己发起的为空。</summary>
+    [JsonPropertyName("grant_id")] public string GrantId { get; set; } = "";
 }
 
 /// <summary>后台下发给本机、要由 AI agent 执行的一条指令。</summary>
@@ -170,6 +178,12 @@ public sealed class ChannelTask
     [JsonPropertyName("sender")] public string Sender { get; set; } = "";
     /// <summary>接着上次的对话；空表示新开一个。</summary>
     [JsonPropertyName("conversation_id")] public string ConversationId { get; set; } = "";
+
+    /// <summary>事件触发（channel=event）：这次任务的权限上限（readonly / workspace / full）；别的通道为空。</summary>
+    [JsonPropertyName("permission")] public string Permission { get; set; } = "";
+
+    /// <summary>事件触发：只预演，不真的执行。</summary>
+    [JsonPropertyName("rehearsal")] public bool Rehearsal { get; set; }
 }
 
 internal sealed class ChannelPoll
@@ -423,6 +437,28 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         return await resp.Content.ReadFromJsonAsync<List<ClientModel>>(cancellationToken: ct) ?? new();
     }
 
+    /// <summary>
+    /// 报一份任务授权记录。返回服务端的 HTTP 状态码：201 收下；4xx 是服务端核对不通过（例如这条消息不是发给这台电脑的）；
+    /// 404 是老版本服务端没有这个接口。
+    /// </summary>
+    public async Task<int> ReportGrantAsync(Flyknit.Core.Security.TaskGrant g, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/grants");
+        req.Content = JsonContent.Create(new
+        {
+            id = g.Id,
+            conversation_id = g.ConversationId,
+            origin = g.Origin,
+            reference = g.Reference,
+            requested_by = g.RequestedBy,
+            instruction = g.Instruction,
+            permission = Flyknit.Core.Security.PermissionModes.ToText(g.Permission),
+            workspace = g.Workspace,
+        });
+        using var resp = await SendAsync(req, ct);
+        return (int)resp.StatusCode;
+    }
+
     public async Task ReportAuditAsync(IReadOnlyList<AuditEntry> items, CancellationToken ct)
     {
         if (items.Count == 0)
@@ -645,6 +681,29 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
         return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Mcp.McpVendor>>(cancellationToken: ct) ?? new();
+    }
+
+    /// <summary>IT 在后台发布的快捷指令。</summary>
+    public async Task<List<Flyknit.Core.Commands.SlashCommand>> GetCommandsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/commands");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return (await resp.Content.ReadFromJsonAsync<Flyknit.Core.Commands.SlashCommandList>(cancellationToken: ct))?.Items ?? new();
+    }
+
+    /// <summary>这台电脑范围内的插件（只读展示；内容各走各的接口）。服务端没有这个接口（老版本）时返回空。</summary>
+    public async Task<System.Text.Json.Nodes.JsonArray> GetPluginsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/plugins");
+        using var resp = await SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new();
+        }
+        await EnsureOk(resp, ct);
+        var node = await resp.Content.ReadFromJsonAsync<System.Text.Json.Nodes.JsonObject>(cancellationToken: ct);
+        return node?["items"] as System.Text.Json.Nodes.JsonArray ?? new();
     }
 
     /// <summary>管理员发布的专家（发布时的快照）。</summary>

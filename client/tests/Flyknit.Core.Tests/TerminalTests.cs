@@ -76,11 +76,11 @@ public sealed class TerminalTests : IDisposable
     [Fact]
     public async Task ATimedOutCommandIsStoppedAndMarkedSo()
     {
-        var result = await new RunShellTool().ExecuteAsync(Args(new { command = "sleep 30", timeout_seconds = 1 }), Ctx(), default);
+        // 后台命令关着：超时就终止（开着时会转到后台，见下面的用例）
+        var result = await new RunShellTool().ExecuteAsync(Args(new { command = "sleep 30", timeout_seconds = 1 }), Ctx(background: false), default);
 
         Assert.False(result.Ok);
         Assert.Contains("超时", result.Output);
-        Assert.Contains("background=true", result.Output); // 提醒模型一直运行的程序要在后台启动
         var run = Assert.Single(_hub.Runs("c1"));
         Assert.True(run.Stopped);
         Assert.False(run.Running);
@@ -116,6 +116,45 @@ public sealed class TerminalTests : IDisposable
 
         var again = await new ShellStopTool().ExecuteAsync(Args(new { id = run.Id }), ctx, default);
         Assert.Contains("本来就不在运行", again.Output);
+    }
+
+    [Fact]
+    public async Task ALongForegroundCommandMovesToTheBackgroundInsteadOfBeingKilled()
+    {
+        var ctx = Ctx();
+        var r = await new RunShellTool().ExecuteAsync(Args(new { command = TickForever, timeout_seconds = 1 }), ctx, default);
+
+        Assert.True(r.Ok, r.Output);
+        Assert.Contains("已转到后台", r.Output);
+        Assert.Contains("ready", r.Output);
+        var run = Assert.Single(_hub.Runs("c1"));
+        Assert.True(run.Background);
+        Assert.True(run.Running);
+        Assert.Contains(run.Id, r.Output);
+
+        // 接着看输出：已经给过的不重复
+        var more = await new ShellOutputTool().ExecuteAsync(Args(new { id = run.Id, wait_seconds = 1 }), ctx, default);
+        Assert.Contains("tick", more.Output);
+        Assert.DoesNotContain("ready", more.Output);
+        _hub.StopAll("c1");
+    }
+
+    [Fact]
+    public async Task WithoutBackgroundCommandsOrFreeSlotsALongCommandIsStillStopped()
+    {
+        var off = await new RunShellTool().ExecuteAsync(Args(new { command = "sleep 30", timeout_seconds = 1 }), Ctx(background: false), default);
+        Assert.False(off.Ok);
+        Assert.Contains("超时", off.Output);
+        Assert.True(Assert.Single(_hub.Runs("c1")).Stopped);
+
+        for (var i = 0; i < TerminalHub.MaxBackgroundPerConversation; i++)
+        {
+            await new RunShellTool().ExecuteAsync(Args(new { command = "sleep 30", background = true, wait_seconds = 0 }), Ctx(conv: "full"), default);
+        }
+        var full = await new RunShellTool().ExecuteAsync(Args(new { command = "sleep 30", timeout_seconds = 1 }), Ctx(conv: "full"), default);
+        Assert.False(full.Ok);
+        Assert.Contains("超时", full.Output);
+        Assert.Equal(TerminalHub.MaxBackgroundPerConversation, _hub.RunningInBackground("full"));
     }
 
     [Fact]

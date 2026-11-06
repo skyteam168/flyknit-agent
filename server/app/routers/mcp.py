@@ -26,7 +26,7 @@ from ..schemas import (
     McpVendorOut,
     McpVendorPatch,
 )
-from ..services import config_events, mcp_catalog, mcp_link
+from ..services import config_events, mcp_catalog, mcp_link, plugin_scope
 
 log = logging.getLogger("flyknit.mcp")
 
@@ -47,7 +47,7 @@ def _preset(v: McpVendor) -> dict[str, str]:
 
 def _admin_out(v: McpVendor) -> McpVendorOut:
     return McpVendorOut(
-        id=v.id, name=v.name, description=v.description, detail=v.detail, icon=v.icon,
+        id=v.id, plugin=v.plugin or "", name=v.name, description=v.description, detail=v.detail, icon=v.icon,
         publisher=v.publisher, category=v.category, homepage=v.homepage,
         transport=v.transport, url=v.url, command=v.command, args=v.args or [], env=v.env or {},
         headers=v.headers or {}, auth=v.auth, fields=v.fields or [],
@@ -62,7 +62,7 @@ def _client_out(v: McpVendor) -> McpClientVendorOut:
     preset = _preset(v)
     fields = v.fields or []
     return McpClientVendorOut(
-        id=v.id, name=v.name, description=v.description, detail=v.detail, icon=v.icon,
+        id=v.id, plugin=v.plugin or "", name=v.name, description=v.description, detail=v.detail, icon=v.icon,
         publisher=v.publisher, category=v.category, homepage=v.homepage,
         transport=v.transport, url=v.url, command=v.command, args=v.args or [], env=v.env or {},
         headers=v.headers or {}, auth=v.auth, fields=fields, preset=preset,
@@ -213,9 +213,10 @@ async def test_vendor(vendor_id: str, data: McpTestIn, request: Request, session
 
 # ---------- 员工端 ----------
 @client_router.get("/vendors", response_model=list[McpClientVendorOut])
-async def client_vendors(_: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
+async def client_vendors(device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
     """上架的连接器。员工端据此画卡片；不在这个列表里的连接（被下架或删掉）员工端会自己断开。"""
     rows = await session.scalars(
         select(McpVendor).where(McpVendor.enabled.is_(True)).order_by(McpVendor.sort_order, McpVendor.name)
     )
-    return [_client_out(v) for v in rows.all()]
+    visible = await plugin_scope.visible_ids(session, device)  # 插件带来的连接器按插件的下发范围过滤
+    return [_client_out(v) for v in rows.all() if plugin_scope.allowed(v.plugin, visible)]

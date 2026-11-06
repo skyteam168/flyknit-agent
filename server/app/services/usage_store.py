@@ -74,7 +74,7 @@ async def used_today(session: AsyncSession, device_id: int, day: str | None = No
 
 async def record(
     session: AsyncSession, device_id: int, scene: str, prompt: int, completion: int,
-    model_id: int | None = None, model_name: str = "",
+    model_id: int | None = None, model_name: str = "", cached: int = 0,
 ) -> None:
     """累加一次调用的用量。带上模型名的话，按模型的统计也记一笔。"""
     if prompt <= 0 and completion <= 0:
@@ -84,17 +84,18 @@ async def record(
     await _bump(session, UsageDaily, {"device_id": device_id, "day": day, "scene": scene},
                 {"prompt_tokens": max(0, prompt), "completion_tokens": max(0, completion), "requests": 1})
     if model_name:
-        await _add_model_usage(session, day, model_id, model_name, scene, max(0, prompt), max(0, completion), 1)
+        await _add_model_usage(session, day, model_id, model_name, scene, max(0, prompt), max(0, completion), 1,
+                               cached=max(0, min(cached, prompt)))
     await session.commit()
 
 
 async def _add_model_usage(
     session: AsyncSession, day: str, model_id: int | None, model_name: str, scene: str,
-    prompt: int, completion: int, requests: int,
+    prompt: int, completion: int, requests: int, cached: int = 0,
 ) -> None:
     name = model_name.strip()[:200] or "未知模型"
     await _bump(session, UsageModelDaily, {"day": day, "model_name": name, "scene": scene},
-                {"prompt_tokens": prompt, "completion_tokens": completion, "requests": requests},
+                {"prompt_tokens": prompt, "completion_tokens": completion, "requests": requests, "cached_tokens": cached},
                 {"model_id": model_id} if model_id is not None else {})
 
 
@@ -279,12 +280,39 @@ def extract_usage(payload: str | bytes) -> tuple[int, int]:
         return 0, 0
 
 
+def extract_cached(payload: bytes | str | dict) -> int:
+    """
+    输入里命中提示词缓存的 token 数。各家写法不一样：
+    OpenAI 兼容 usage.prompt_tokens_details.cached_tokens；DeepSeek usage.prompt_cache_hit_tokens；
+    Anthropic 风格 usage.cache_read_input_tokens。都没有就是 0（上游不支持或没命中）。
+    """
+    data = payload
+    if not isinstance(data, dict):
+        try:
+            data = json.loads(payload)
+        except (ValueError, TypeError):
+            return 0
+    usage = data.get("usage") if isinstance(data, dict) else None
+    if not isinstance(usage, dict):
+        return 0
+    details = usage.get("prompt_tokens_details")
+    for value in (details.get("cached_tokens") if isinstance(details, dict) else None,
+                  usage.get("prompt_cache_hit_tokens"), usage.get("cache_read_input_tokens")):
+        try:
+            if value:
+                return max(0, int(value))
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
 class StreamUsageScanner:
     """边转发边从 SSE 流里找 usage（客户端请求时带了 stream_options.include_usage）。"""
 
     def __init__(self) -> None:
         self.prompt = 0
         self.completion = 0
+        self.cached = 0
         self._buffer = b""
 
     def feed(self, chunk: bytes) -> None:
@@ -306,6 +334,7 @@ class StreamUsageScanner:
         if not line.startswith(b"data:") or b'"usage"' not in line:
             return
         prompt, completion = extract_usage(line[5:].strip())
+        self.cached = max(self.cached, extract_cached(line[5:].strip()))
         if prompt or completion:
             # 同一次请求只会报一次总量，取最大值避免重复累加
             self.prompt = max(self.prompt, prompt)

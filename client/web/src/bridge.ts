@@ -9,6 +9,8 @@
  */
 import type { DocModel } from './documents'
 import type {
+  SlashCommand,
+  PluginInfo,
   WorkspaceEntry,
   WorkspaceListing,
   DocumentInfo,
@@ -336,6 +338,10 @@ class Bridge {
   stopSide = (requestId: string) => this.call<void>('sidechat.stop', { requestId })
   /** 终端：这个对话里 AI 执行过的命令（带输出） */
   listTerminal = (conversationId: string) => this.call<TerminalRun[]>('terminal.list', { conversationId })
+  /** 快捷指令：IT 发布的 + 自己的 */
+  listCommands = () => this.call<{ it: SlashCommand[]; mine: SlashCommand[] }>('commands.list', {}, undefined, 15_000)
+  listPlugins = () => this.call<{ ok: boolean; items: PluginInfo[] }>('plugins.list', {}, undefined, 15_000)
+  saveCommands = (items: SlashCommand[]) => this.call<{ ok: boolean; message: string }>('commands.save', { items })
   /** 右侧「文件」标签：列工作区里的一个文件夹（path 是相对工作区的路径，空 = 工作区本身） */
   listWorkspace = (conversationId: string, path: string) => this.call<WorkspaceListing>('workspace.list', { conversationId, path })
   searchWorkspace = (conversationId: string, query: string) =>
@@ -361,6 +367,10 @@ class Bridge {
     this.call<RevertOutcome>('changes.revert', { conversationId, turnId, paths }, undefined, 60_000)
   /** 长任务模式开关。IT 关掉了这个功能时打不开（返回 false） */
   setLongMode = (id: string, on: boolean) => this.call<boolean>('conversation.setLongMode', { id, on })
+  /** 从某条消息分叉出新对话（复制到那条为止） */
+  forkConversation = (id: string, messageId: string, title: string) => this.call<Conversation | null>('conversation.fork', { id, messageId, title })
+  /** 计划模式（先出方案）：只在这次打开程序期间有效 */
+  setPlanMode = (id: string, on: boolean) => this.call<boolean>('conversation.setPlanMode', { id, on })
   /** 任务中心：正在跑的、上次没跑完的、最近跑完的 */
   listRuns = () => this.call<RunsList>('runs.list')
   /** 接着做上次没做完的任务 */

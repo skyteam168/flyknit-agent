@@ -1,6 +1,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import type { Component } from 'vue'
-import { Avatar, ChatDotRound, ChatDotSquare, ChatLineSquare, Coin, Collection, Connection, Document, Iphone, Link, Lock, MagicStick, Microphone, Monitor, Odometer, Promotion, Tickets, Upload, UserFilled } from '@element-plus/icons-vue'
+import { Avatar, Box, Lightning, ChatDotRound, Operation, Filter, ChatDotSquare, ChatLineSquare, Coin, Collection, Connection, Document, Iphone, Link, Lock, MagicStick, Microphone, Monitor, Odometer, Promotion, Tickets, Upload, UserFilled } from '@element-plus/icons-vue'
 import { auth } from '@/store/auth'
 import AdminLayout from '@/layout/AdminLayout.vue'
 
@@ -19,12 +19,16 @@ export const menuRoutes: RouteRecordRaw[] = [
   { path: 'quota', name: 'quota', component: () => import('@/views/Quota.vue'), meta: { title: '配额与用量', icon: Coin, group: '配置' } },
   { path: 'experts', name: 'experts', component: () => import('@/views/Experts.vue'), meta: { title: '专家', icon: Avatar, group: '配置' } },
   { path: 'skills', name: 'skills', component: () => import('@/views/Skills.vue'), meta: { title: '技能库', icon: Collection, group: '配置' } },
+  { path: 'plugins', name: 'plugins', component: () => import('@/views/Plugins.vue'), meta: { title: '插件', icon: Box, group: '配置' } },
+  { path: 'commands', name: 'commands', component: () => import('@/views/Commands.vue'), meta: { title: '快捷指令', icon: Operation, group: '配置' } },
   { path: 'mcp', name: 'mcp', component: () => import('@/views/Mcp.vue'), meta: { title: 'MCP 连接器', icon: Link, group: '配置' } },
   { path: 'channels', name: 'channels', component: () => import('@/views/Channels.vue'), meta: { title: '消息通道', icon: ChatDotSquare, group: '配置' } },
   { path: 'mobile', name: 'mobile', component: () => import('@/views/Mobile.vue'), meta: { title: '手机端', icon: Iphone, group: '配置' } },
   { path: 'speech', name: 'speech', component: () => import('@/views/Speech.vue'), meta: { title: '语音转文字', icon: Microphone, group: '配置' } },
   { path: 'devices', name: 'devices', component: () => import('@/views/Devices.vue'), meta: { title: '设备列表', icon: Monitor, group: '运维' } },
+  { path: 'tool-rules', name: 'tool-rules', component: () => import('@/views/ToolRules.vue'), meta: { title: '工具规则', icon: Filter, group: '运维' } },
   { path: 'security', name: 'security', component: () => import('@/views/Security.vue'), meta: { title: '安全中心', icon: Lock, group: '运维' } },
+  { path: 'event-triggers', name: 'event-triggers', component: () => import('@/views/EventTriggers.vue'), meta: { title: '事件触发', icon: Lightning, group: '运维' } },
   { path: 'tasks', name: 'tasks', component: () => import('@/views/Tasks.vue'), meta: { title: '任务中心', icon: Promotion, group: '运维' } },
   { path: 'instructions', name: 'instructions', component: () => import('@/views/Instructions.vue'), meta: { title: '指令中心', icon: MagicStick, group: '运维' } },
   { path: 'chats', name: 'chats', component: () => import('@/views/Chats.vue'), meta: { title: '聊天记录', icon: ChatDotRound, group: '运维' } },

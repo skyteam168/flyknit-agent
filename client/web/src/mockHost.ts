@@ -58,6 +58,15 @@ function docVersion(text: string): string {
   return (h >>> 0).toString(16)
 }
 
+/** 开发预览里的快捷指令 */
+const mockItCommands = [
+  { name: '周报', title: '写本周工作周报', description: '', template: '帮我写 {日期} 这一周的工作周报：完成了什么、遇到什么问题、下周计划，用表格列出关键数字' },
+  { name: '质检汇总', title: '汇总车间质检数据', description: '', template: '汇总 {车间} {日期} 的质检数据，算出不良率，按缺陷类型排序并分析主要原因' },
+]
+const mockMyCommands: { name: string; title: string; description: string; template: string }[] = [
+  { name: '润色', title: '把下面这段话改得更正式', description: '', template: '把下面这段话改得更正式、简洁，保留原意：{内容}' },
+]
+
 export function createMockHost(): HostTransport {
   let handler: (data: unknown) => void = () => {}
   const emit = (event: HostEvent) => handler({ kind: 'event', event })
@@ -308,21 +317,21 @@ export function createMockHost(): HostTransport {
     {
       id: 's1', name: '整理日报', instructions: '把 D:\\日报 里的 Excel 文件按月份归档到对应的子文件夹，完成后告诉我整理了多少个文件。',
       kind: 'weekdays', hour: 8, minute: 30, weekday: 1, dayOfMonth: 1, at: null, enabled: true,
-      workspace: null, permission: 'workspace', modelId: null, catchUp: true,
+      workspace: null, permission: 'workspace', modelId: null, catchUp: true, rehearsal: false,
       nextRunAt: new Date(Date.now() + 9 * 3600000).toISOString(), lastRunAt: new Date(Date.now() - 15 * 3600000).toISOString(),
       lastStatus: 'ok', lastSummary: '已整理 34 个文件', lastConversationId: null, runCount: 12,
     },
     {
       id: 's2', name: '生成质检周报', instructions: '汇总本周的质检数据，按车间做成 Excel 周报，保存到 D:\\报表，文件名带上日期。',
       kind: 'weekly', hour: 16, minute: 0, weekday: 5, dayOfMonth: 1, at: null, enabled: true,
-      workspace: null, permission: 'workspace', modelId: null, catchUp: true,
+      workspace: null, permission: 'workspace', modelId: null, catchUp: true, rehearsal: false,
       nextRunAt: new Date(Date.now() + 3 * 86400000).toISOString(), lastRunAt: new Date(Date.now() - 4 * 86400000).toISOString(),
       lastStatus: 'failed', lastSummary: '读取 9月.xls 失败：旧格式需要先另存为 .xlsx', lastConversationId: null, runCount: 3,
     },
     {
       id: 's3', name: '清理临时文件', instructions: '检查工作区里超过 30 天没有改动的临时文件，列出清单让我确认后再删除。',
       kind: 'monthly', hour: 9, minute: 0, weekday: 1, dayOfMonth: 1, at: null, enabled: false,
-      workspace: null, permission: 'readonly', modelId: null, catchUp: false,
+      workspace: null, permission: 'readonly', modelId: null, catchUp: false, rehearsal: true,
       nextRunAt: null, lastRunAt: null, lastStatus: '', lastSummary: '', lastConversationId: null, runCount: 0,
     },
   ]
@@ -1827,6 +1836,18 @@ export function createMockHost(): HostTransport {
         reverted.forEach((x) => revertedMock.add(x))
         return { reverted, skipped: targets.includes(MOCK_OLD) ? [{ path: MOCK_OLD, reason: '这个文件是命令改的，改之前没有备份，无法自动还原' }] : [] }
       }
+      case 'conversation.fork': {
+        const src = conversations.get(p.conversationId ?? p.id)
+        if (!src) return null
+        const c = { ...src, id: uid(), title: p.title, pinned: false, updatedAt: now() }
+        conversations.set(c.id, c)
+        const msgs = messages.get(src.id) ?? []
+        const cut = msgs.findIndex((m) => m.id === p.messageId)
+        messages.set(c.id, (cut >= 0 ? msgs.slice(0, cut + 1) : msgs).map((m) => ({ ...m, id: uid() })))
+        return c
+      }
+      case 'conversation.setPlanMode':
+        return true
       case 'conversation.setLongMode': {
         const c = conversations.get(p.id)
         if (c) c.longMode = !!p.on
@@ -1936,6 +1957,26 @@ export function createMockHost(): HostTransport {
           ]),
         ]
         return { contextLength: 131072, reserveOutput: 8192, compactAt: 92160, parts, used: parts.reduce((a, x) => a + x.tokens, 0), lastPromptTokens: compacted ? null : 118430, measuredAt: now() }
+      }
+      case 'plugins.list':
+        return {
+          ok: true,
+          items: [
+            {
+              id: 'qc', name: '质检部插件', version: '1.2.0', description: '质检日报、来料检验分析、QMS 查询', author: 'IT 部',
+              required: true, counts: { skills: 2, commands: 1, experts: 1, connectors: 1, rules: 1 },
+              skills: ['qc-report', 'iqc-sampling'], commands: ['质检日报'], experts: ['来料检验专家'], connectors: ['QMS'],
+            },
+          ],
+        }
+      case 'commands.list':
+        return { it: mockItCommands, mine: mockMyCommands }
+      case 'commands.save': {
+        const items = (p.items ?? []) as { name: string; title: string; description: string; template: string }[]
+        const bad = items.find((c) => !/^[\w\-\u4e00-\u9fff]{1,20}$/.test(c.name.trim().replace(/^\//, '')))
+        if (bad) return { ok: false, message: `指令名「${bad.name}」只能用中文、字母、数字、- 和 _，不超过 20 个字，不能有空格` }
+        mockMyCommands.splice(0, mockMyCommands.length, ...items.map((c) => ({ ...c, name: c.name.trim().replace(/^\//, '') })))
+        return { ok: true, message: '' }
       }
       case 'workspace.list': {
         await sleep(120)

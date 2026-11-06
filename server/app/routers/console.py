@@ -134,14 +134,16 @@ async def dashboard(
             select(
                 UsageModelDaily.day, UsageModelDaily.model_name, UsageModelDaily.scene,
                 UsageModelDaily.prompt_tokens, UsageModelDaily.completion_tokens, UsageModelDaily.requests,
+                UsageModelDaily.cached_tokens,
             ).where(UsageModelDaily.day >= start)
         )
     ).all()
     per_model: dict[str, dict] = {}
     per_model_day: dict[str, dict[str, int]] = {}
-    for day, name, scene, prompt, completion, requests in model_rows:
-        m = per_model.setdefault(name, {"tokens": 0, "prompt": 0, "completion": 0, "requests": 0,
+    for day, name, scene, prompt, completion, requests, cached in model_rows:
+        m = per_model.setdefault(name, {"tokens": 0, "prompt": 0, "completion": 0, "requests": 0, "cached": 0,
                                         "today_tokens": 0, "today_requests": 0, "scenes": {}})
+        m["cached"] += cached or 0
         tokens = prompt + completion
         m["tokens"] += tokens
         m["prompt"] += prompt

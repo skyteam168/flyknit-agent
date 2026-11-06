@@ -351,6 +351,8 @@ export interface AuditLog {
   subtask_id?: string
   /** main 或 expert:<专家 ID> */
   actor?: string
+  /** 远程 / 定时 / 事件任务依据的授权记录 */
+  grant_id?: string
   occurred_at: string
   created_at: string
 }
@@ -404,6 +406,8 @@ export interface ModelUsage {
   prompt: number
   completion: number
   requests: number
+  /** 输入里命中模型服务商提示词缓存的部分（上游不报就是 0） */
+  cached?: number
   today_tokens: number
   today_requests: number
   scenes: { scene: string; tokens: number }[]
@@ -765,4 +769,116 @@ export interface MobileRelease {
   /** 相对服务器地址的下载路径（不需要登录，靠链接里的随机串） */
   download_path: string
   file_missing: boolean
+}
+
+/** 快捷指令：员工输入 /name 参数… 时把模板里的 {参数} 按顺序替换 */
+export interface SlashCommand {
+  name: string
+  title: string
+  description: string
+  template: string
+}
+
+/** 工具规则：只能收紧（拦下、必须确认），或者加提醒、给结果打码 */
+export interface ToolRule {
+  name: string
+  enabled: boolean
+  tools: string
+  match: string
+  action: 'block' | 'confirm' | 'note' | 'none'
+  message: string
+  redact: string
+}
+
+/** 插件包（目录结构同 Claude Code plugins） */
+export interface PluginManifest {
+  skills: { name: string; description: string }[]
+  commands: SlashCommand[]
+  experts: { id: string; name: string; description: string }[]
+  connectors: { id: string; name: string; transport: string }[]
+  rules: ToolRule[]
+  warnings: string[]
+}
+
+export interface PluginCounts {
+  skills: number
+  commands: number
+  experts: number
+  connectors: number
+  rules: number
+}
+
+export interface PluginItem {
+  id: string
+  name: string
+  version: string
+  description: string
+  author: string
+  homepage: string
+  origin: string
+  manifest: PluginManifest
+  counts: PluginCounts
+  departments: string[]
+  required: boolean
+  enabled: boolean
+  installed_by: string
+  updated_at: string
+}
+
+export interface PluginPreview {
+  id: string
+  name: string
+  version: string
+  description: string
+  author: string
+  manifest: PluginManifest
+  counts: PluginCounts
+  conflicts: string[]
+  upgrade_from: string | null
+}
+
+/** 任务授权记录：不是员工坐在电脑前发起的任务，「谁让做、做到哪」 */
+export interface TaskGrant {
+  id: string
+  device_id: number | null
+  conversation_id: string
+  origin: 'mobile' | 'dingtalk' | 'wecom' | 'instruction' | 'schedule' | 'event'
+  reference: string
+  requested_by: string
+  /** 原话；没有聊天查看权限时为空 */
+  instruction: string
+  permission: 'readonly' | 'workspace' | 'full'
+  workspace: string
+  verified: boolean
+  created_at: string
+}
+
+/** 事件触发：外部系统推一个事件，就在指定电脑上开一个任务 */
+export interface EventTrigger {
+  id: string
+  name: string
+  device_id: number | null
+  device_name: string
+  template: string
+  permission: 'readonly' | 'workspace' | 'full'
+  rehearsal: boolean
+  enabled: boolean
+  token_prefix: string
+  fire_count: number
+  last_fired_at: string | null
+  created_by: string
+  url: string
+  /** 只在创建时返回一次 */
+  token?: string
+}
+
+export interface EventRun {
+  id: number
+  trigger_id: string
+  status: string
+  error: string
+  answer: string
+  rehearsal: boolean
+  created_at: string
+  finished_at: string | null
 }

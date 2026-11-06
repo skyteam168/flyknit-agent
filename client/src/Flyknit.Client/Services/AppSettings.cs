@@ -103,6 +103,9 @@ public sealed class AppSettings
     /// <summary>企业要求安装的技能名（服务端下发，不允许停用或卸载）。</summary>
     public System.Collections.Generic.List<string> RequiredSkills { get; set; } = new();
 
+    /// <summary>从插件装进 org 目录的技能：插件卸载、停用或这台电脑不在范围里了就删掉。</summary>
+    public System.Collections.Generic.List<string> PluginSkills { get; set; } = new();
+
     /// <summary>任务结束后自动复盘，学习偏好与经验。</summary>
     public bool EnableLearning { get; set; } = true;
 

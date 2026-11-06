@@ -113,6 +113,9 @@ public sealed class AgentOptions
     public TimeSpan ToolTimeout { get; init; } = TimeSpan.FromMinutes(10);
     public int MaxToolOutputChars { get; init; } = ToolResult.DefaultMaxChars;
 
+    /// <summary>太长的工具结果存到这个目录（见 ToolOutputSpill）；为空时照旧截断。</summary>
+    public string? ToolOutputDir { get; init; }
+
     /// <summary>连续多少次工具失败后停止，避免死循环。</summary>
     public int MaxConsecutiveFailures { get; init; } = 4;
 

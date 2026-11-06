@@ -143,6 +143,8 @@ class UsageModelDaily(Base):
     scene: Mapped[str] = mapped_column(String(20))
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    #: 输入里命中模型服务商提示词缓存的部分（包含在 prompt_tokens 里）。上游不报就是 0
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
     requests: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -161,8 +163,98 @@ class SkillPackage(Base):
     file_count: Mapped[int] = mapped_column(Integer, default=0)
     required: Mapped[bool] = mapped_column(Boolean, default=False)  # 所有电脑必装
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接导入。插件卸载时一起删
+    plugin: Mapped[str] = mapped_column(String(40), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class Plugin(Base):
+    """
+    插件包：一包技能 + 专家 + 连接器 + 快捷指令 + 工具规则（目录结构同 Claude Code plugins）。
+
+    安装时把内容落进各自的表（skill_packages / experts / mcp_vendors 的 plugin 列记来源），
+    快捷指令和工具规则存在 manifest 里。下发给员工端时按 departments 过滤：
+    不在范围内的电脑看不到这个插件带来的任何东西（服务端过滤，不靠员工端自觉）。
+    """
+
+    __tablename__ = "plugins"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), default="")
+    version: Mapped[str] = mapped_column(String(50), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    author: Mapped[str] = mapped_column(String(100), default="")
+    homepage: Mapped[str] = mapped_column(String(500), default="")
+    origin: Mapped[str] = mapped_column(String(500), default="")
+    #: 解析出来的清单：skills / commands / experts / connectors / rules / warnings
+    manifest: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: 下发给哪些部门（devices.department）。空 = 全公司
+    departments: Mapped[list] = mapped_column(JSON, default=list)
+    #: 必装：范围内的电脑自动安装插件里的技能
+    required: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    installed_by: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class EventTrigger(Base):
+    """
+    事件触发：外部系统（ERP、MES、共享盘的同步脚本……）带密钥 POST 到 /api/v1/hooks/{id}，
+    就在指定的那台电脑上开一个任务（走通道消息那条路，channel=event）。
+
+    推来的内容是数据不是指令：包在 <事件数据> 里交给 AI。需要确认的操作一律不放行（没人在电脑前），
+    权限按 permission 封顶（服务端核对授权记录时也查），新建的默认先预演。总开关在设置表 event_triggers，默认关。
+    """
+
+    __tablename__ = "event_triggers"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), default="")
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    #: 交给 AI 的要求，{payload} 处放推来的数据；没写 {payload} 时数据接在后面
+    template: Mapped[str] = mapped_column(Text, default="")
+    permission: Mapped[str] = mapped_column(String(20), default="readonly")
+    #: 只预演：只读调研、列出会做的修改，不真的执行
+    rehearsal: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: 推送密钥的 sha256（明文只在创建 / 换密钥时给一次）
+    token_hash: Mapped[str] = mapped_column(String(64), default="")
+    token_prefix: Mapped[str] = mapped_column(String(12), default="")
+    created_by: Mapped[str] = mapped_column(String(100), default="")
+    fire_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TaskGrant(Base):
+    """
+    任务授权记录：不是员工坐在电脑前发起的任务（手机、钉钉 / 企业微信、IT 指令、定时任务、事件触发），
+    开始前记一份「谁让做、做到哪」：来源、发起人、原话、权限上限、工作区。
+
+    只插入、不修改、不删除（没有改和删的接口）。同一个对话后面再来的远程消息另记一份，
+    权限上限不会超过这个对话上一份的（员工端按这个封顶，见 TaskGrant.cs）。
+    来自通道和指令中心的，发起人和原话由服务端按自己的记录填，不信员工端报上来的（verified=True）。
+    """
+
+    __tablename__ = "task_grants"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    conversation_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    #: mobile / dingtalk / wecom / instruction / schedule / event
+    origin: Mapped[str] = mapped_column(String(20), default="")
+    #: 来源里的编号：通道消息 ID、指令执行 ID、定时任务 ID、事件触发器 ID
+    reference: Mapped[str] = mapped_column(String(100), default="")
+    requested_by: Mapped[str] = mapped_column(String(200), default="")
+    instruction: Mapped[str] = mapped_column(Text, default="")
+    #: readonly / workspace / full：这次任务最多能做到哪
+    permission: Mapped[str] = mapped_column(String(20), default="readonly")
+    workspace: Mapped[str] = mapped_column(String(500), default="")
+    #: 发起人和原话是服务端按自己的记录核对过的
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class AuditLog(Base):
@@ -184,6 +276,8 @@ class AuditLog(Base):
     subtask_id: Mapped[str] = mapped_column(String(40), default="")
     #: 谁调的工具：main（主助手）或 expert:<专家 ID>
     actor: Mapped[str] = mapped_column(String(60), default="")
+    #: 不是员工在电脑前发起的任务（手机、钉钉、定时、事件……）所依据的授权记录（task_grants.id）
+    grant_id: Mapped[str] = mapped_column(String(40), default="")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
@@ -512,6 +606,8 @@ class McpVendor(Base):
     skip_tls_verify: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接配置
+    plugin: Mapped[str] = mapped_column(String(40), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -567,6 +663,8 @@ class Expert(Base):
     published: Mapped[dict] = mapped_column(JSON, default=dict)  # 已发布的快照
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     published_by: Mapped[str] = mapped_column(String(100), default="")
+    #: 由哪个插件装进来的（plugins.id）。空 = 管理员在后台建的
+    plugin: Mapped[str] = mapped_column(String(40), default="")
     updated_by: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -746,6 +844,9 @@ class ChannelMessage(Base):
     reply_webhook_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: 回复是否已经发回钉钉
     replied: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: 事件触发（channel=event）：这次任务的权限上限和是否只预演；别的通道为空 / False
+    permission: Mapped[str] = mapped_column(String(20), default="")
+    rehearsal: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -243,6 +243,8 @@ class AuditItem(BaseModel):
     subtask_id: ClipOrEmpty(40) = ""
     #: main 或 expert:<专家 ID>
     actor: ClipOrEmpty(60) = ""
+    #: 依据的任务授权记录（远程 / 定时 / 事件任务）；员工自己发起的为空
+    grant_id: ClipOrEmpty(40) = ""
     occurred_at: datetime | None = None
 
 
@@ -267,6 +269,7 @@ class AuditOut(BaseModel):
     summary: str
     subtask_id: str = ""
     actor: str = ""
+    grant_id: str = ""
     occurred_at: datetime
     created_at: datetime
 
@@ -296,6 +299,8 @@ class ClientConfigOut(BaseModel):
     department: str = ""
     #: 后台已开启联网搜索且密钥就绪；桌面「对话」可显示联网开关
     web_search_enabled: bool = False
+    #: IT 写的工具规则（拦截 / 必须确认 / 提醒 / 结果打码），只带启用的
+    tool_rules: list[dict] = Field(default_factory=list)
 
 
 class DevicePolicyIn(BaseModel):
@@ -393,6 +398,8 @@ class SkillOut(BaseModel):
     file_count: int = 0
     required: bool = False
     enabled: bool = True
+    #: 由哪个插件带来的（空 = 管理员直接导入）
+    plugin: str = ""
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -637,6 +644,7 @@ class McpVendorOut(BaseModel):
     """后台看到的：预填的值只露掩码。"""
 
     id: str
+    plugin: str = ""
     name: str
     description: str = ""
     detail: str = ""
@@ -666,6 +674,7 @@ class McpClientVendorOut(BaseModel):
     """员工端看到的：预填的值是明文——员工电脑要拿它去连接，本来就得知道。"""
 
     id: str
+    plugin: str = ""
     name: str
     description: str = ""
     detail: str = ""
@@ -771,6 +780,7 @@ class ExpertIn(ExpertFields):
 
 class ExpertOut(ExpertFields):
     id: str
+    plugin: str = ""
     status: str
     version: int
     uses: int = 0
@@ -826,6 +836,7 @@ class ExpertClientOut(ExpertFields):
     """员工端拿到的：已发布的快照，加上使用量。"""
 
     id: str
+    plugin: str = ""
     version: int
     uses: int = 0
     users: int = 0

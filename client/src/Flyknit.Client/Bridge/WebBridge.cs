@@ -1223,6 +1223,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 task.Permission = Flyknit.Core.Security.PermissionModes.Parse(Str("permission"));
                 task.ModelId = Int("modelId");
                 task.CatchUp = !p.TryGetProperty("catchUp", out var cu) || cu.ValueKind != JsonValueKind.False;
+                task.Rehearsal = p.TryGetProperty("rehearsal", out var rh) && rh.ValueKind == JsonValueKind.True;
                 if (p.TryGetProperty("enabled", out var en))
                 {
                     task.Enabled = en.ValueKind != JsonValueKind.False;
@@ -1782,6 +1783,29 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _host.ClearTerminal(Str("conversationId"));
                 return null;
 
+            // ---------- 快捷指令：输入框里打 / 选的提示词模板 ----------
+            case "commands.list":
+            {
+                var (it, mine) = await _host.ListCommandsAsync();
+                return new { it, mine };
+            }
+
+            case "commands.save":
+            {
+                var items = p.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
+                    ? arr.Deserialize<List<Flyknit.Core.Commands.SlashCommand>>(Json) ?? new()
+                    : new List<Flyknit.Core.Commands.SlashCommand>();
+                var problem = await Task.Run(() => _host.SaveMyCommands(items));
+                return new { ok = problem is null, message = problem ?? "" };
+            }
+
+            // ---------- 插件：IT 按部门下发的一包技能 / 专家 / 连接器 / 快捷指令 / 工具规则（只读展示） ----------
+            case "plugins.list":
+            {
+                var items = await _host.ListPluginsAsync();
+                return new { ok = items is not null, items = (object?)items ?? Array.Empty<object>() };
+            }
+
             // ---------- 工作区文件：右侧「文件」标签浏览、搜索（只读、只在工作区里） ----------
             case "workspace.list":
             {
@@ -1934,6 +1958,17 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             }
 
             // ---------- 长任务、任务中心 ----------
+            case "conversation.fork":
+            {
+                // 从某条消息分叉：新对话复制到那条为止，原对话不动
+                var fork = await Task.Run(() => _host.Store.Fork(Str("id"), Str("messageId"), Str("title")));
+                return fork is null ? null : ConversationDto.From(fork);
+            }
+
+            case "conversation.setPlanMode":
+                _host.SetPlanMode(Str("id"), p.TryGetProperty("on", out var pm) && pm.ValueKind == JsonValueKind.True);
+                return true;
+
             case "conversation.setLongMode":
                 return _host.SetLongMode(Str("id"), p.TryGetProperty("on", out var lm) && lm.ValueKind == JsonValueKind.True);
 
@@ -2293,11 +2328,14 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
         weekday = (int)t.Schedule.Weekday,
         dayOfMonth = t.Schedule.DayOfMonth,
         at = t.Schedule.At?.ToString("O"),
+        watchPath = t.Schedule.WatchPath,
+        pattern = t.Schedule.Pattern,
         enabled = t.Enabled,
         workspace = t.Workspace,
         permission = Flyknit.Core.Security.PermissionModes.ToText(t.Permission),
         modelId = t.ModelId,
         catchUp = t.CatchUp,
+        rehearsal = t.Rehearsal,
         nextRunAt = t.NextRunAt?.ToString("O"),
         lastRunAt = t.LastRunAt?.ToString("O"),
         lastStatus = t.LastStatus,
@@ -2319,7 +2357,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             I("minute", 0),
             (DayOfWeek)Math.Clamp(I("weekday", 1), 0, 6),
             I("dayOfMonth", 1),
-            DateTimeOffset.TryParse(S("at"), out var at) ? at : null);
+            DateTimeOffset.TryParse(S("at"), out var at) ? at : null,
+            S("watchPath").Trim(),
+            S("pattern").Trim());
     }
 
     private object SkillList() => _host.Skills.Skills.Select(s => new

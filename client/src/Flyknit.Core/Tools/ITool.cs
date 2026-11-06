@@ -149,6 +149,9 @@ public sealed class ToolContext
     /// <summary>用户为任务选择的权限模式。</summary>
     public PermissionMode Permission { get; init; } = PermissionMode.Workspace;
 
+    /// <summary>这一轮依据的任务授权记录（远程 / 定时 / 事件任务）；员工自己发起的为空。写进审计。</summary>
+    public string GrantId { get; init; } = "";
+
     /// <summary>这次运行（员工的一句话引起的一轮）的 ID。派遣专家按它计次。</summary>
     public string RunId { get; init; } = "";
 
@@ -157,6 +160,14 @@ public sealed class ToolContext
 
     /// <summary>正在执行的工具调用的 ID（工具按顺序一个一个执行）。派遣专家时用它把界面上的卡片和子任务对上。</summary>
     public string CurrentCallId { get; set; } = "";
+
+    /// <summary>
+    /// 这个对话里已经用 load_tools 加载过的外部服务工具（见 ToolExposure）。宿主按对话保存，同一个对话下一轮还算加载过。
+    /// </summary>
+    public ISet<string> LoadedTools { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>IT 写的工具规则（拦截 / 必须确认 / 提醒 / 结果打码）。</summary>
+    public Security.ToolRules? Rules { get; init; }
 
     private readonly string? _workingDirectory;
 

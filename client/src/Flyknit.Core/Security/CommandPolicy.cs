@@ -29,7 +29,10 @@ public sealed record PolicyDecision(RiskLevel Level, string Reason)
     public ApprovalCandidate? Rule { get; init; }
 
     /// <summary>需要确认时，用户能否选「以后同类命令自动执行」。</summary>
-    public bool Rememberable => Rule is not null;
+    public bool Rememberable => Rule is not null && !AlwaysAsk;
+
+    /// <summary>IT 的工具规则要求每次都确认：「以后自动允许」「本次对话都允许」都跳不过。</summary>
+    public bool AlwaysAsk { get; init; }
 
     public static PolicyDecision Auto(string reason = "") => new(RiskLevel.Auto, reason);
     public static PolicyDecision Confirm(string reason = "") => new(RiskLevel.Confirm, reason);

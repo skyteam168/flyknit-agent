@@ -32,6 +32,30 @@ public sealed partial class AgentHost
         && Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true);
 
     /// <summary>员工在对话里开 / 关长任务模式。IT 关掉了这个功能时打不开（返回 false）。</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _planMode = new(StringComparer.Ordinal);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _rehearsal = new(StringComparer.Ordinal);
+
+    /// <summary>预演运行的对话（定时任务开了预演）：只读，只列出会做的修改。</summary>
+    public bool RehearsalOn(string conversationId) => _rehearsal.ContainsKey(conversationId);
+
+    public void MarkRehearsal(string conversationId) => _rehearsal[conversationId] = 0;
+
+    /// <summary>计划模式（先出方案）：只在这次打开程序期间有效，员工点「按方案执行」或关掉开关就退出。</summary>
+    public bool PlanModeOn(string conversationId) => _planMode.ContainsKey(conversationId);
+
+    public void SetPlanMode(string conversationId, bool on)
+    {
+        if (on)
+        {
+            _planMode[conversationId] = 0;
+        }
+        else
+        {
+            _planMode.TryRemove(conversationId, out _);
+        }
+    }
+
     public bool SetLongMode(string conversationId, bool on)
     {
         if (on && !Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true))

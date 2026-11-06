@@ -306,7 +306,7 @@ export interface ModelInfo {
   supportsVision: boolean
 }
 
-export type ScheduleKind = 'manual' | 'once' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly'
+export type ScheduleKind = 'manual' | 'once' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'folder'
 
 /** 定时任务。到点后 Agent 新建一个会话自动执行。 */
 export interface ScheduledTask {
@@ -320,15 +320,20 @@ export interface ScheduledTask {
   weekday: number
   dayOfMonth: number
   at: string | null
+  /** 文件夹触发：监视的文件夹、只看哪些文件（*.xlsx;*.csv，空 = 全部） */
+  watchPath?: string
+  pattern?: string
   enabled: boolean
   workspace: string | null
   permission: Permission
   modelId: number | null
   /** 错过的任务开机后补跑 */
   catchUp: boolean
+  /** 预演：只读调研，列出会做的修改，不真的执行 */
+  rehearsal: boolean
   nextRunAt: string | null
   lastRunAt: string | null
-  /** ok / failed / stopped / running */
+  /** ok / rehearsed / failed / stopped / running */
   lastStatus: string
   lastSummary: string
   lastConversationId: string | null
@@ -1195,4 +1200,29 @@ export interface WorkspaceListing {
   truncated: boolean
   error: string
   entries: WorkspaceEntry[]
+}
+
+/** 快捷指令：输入框里打 / 选的提示词模板。模板里的 {参数} 按顺序替换 */
+export interface SlashCommand {
+  name: string
+  title: string
+  description: string
+  template: string
+  /** IT 指令里由哪个插件带来的（插件名） */
+  source?: string
+}
+
+/** IT 按部门下发的插件（设置 →「插件」只读展示） */
+export interface PluginInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  author: string
+  required: boolean
+  counts: { skills: number; commands: number; experts: number; connectors: number; rules: number }
+  skills: string[]
+  commands: string[]
+  experts: string[]
+  connectors: string[]
 }

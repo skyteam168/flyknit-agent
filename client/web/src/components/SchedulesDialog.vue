@@ -40,7 +40,7 @@ async function firstLoad() {
   }
 }
 
-const kinds: ScheduleKind[] = ['manual', 'hourly', 'daily', 'weekdays', 'weekly', 'monthly', 'once']
+const kinds: ScheduleKind[] = ['manual', 'hourly', 'daily', 'weekdays', 'weekly', 'monthly', 'once', 'folder']
 const permissions: Permission[] = ['readonly', 'workspace', 'full']
 const weekdays = [1, 2, 3, 4, 5, 6, 0]
 
@@ -62,13 +62,17 @@ const form = reactive({
   weekday: 1,
   dayOfMonth: 1,
   at: '',
+  watchPath: '',
+  pattern: '',
   permission: 'workspace' as Permission,
   catchUp: true,
+  rehearsal: false,
   enabled: true,
 })
 
-const needsTime = computed(() => form.kind !== 'manual' && form.kind !== 'once' && form.kind !== 'hourly')
-const canSave = computed(() => form.name.trim().length > 0 && form.instructions.trim().length > 0)
+const needsTime = computed(() => form.kind !== 'manual' && form.kind !== 'once' && form.kind !== 'hourly' && form.kind !== 'folder')
+const canSave = computed(() =>
+  form.name.trim().length > 0 && form.instructions.trim().length > 0 && (form.kind !== 'folder' || form.watchPath.trim().length > 0))
 
 function openNew(template?: (typeof templates)[number]) {
   Object.assign(form, {
@@ -81,8 +85,11 @@ function openNew(template?: (typeof templates)[number]) {
     weekday: template?.weekday ?? 1,
     dayOfMonth: template?.dayOfMonth ?? 1,
     at: localNow(60),
+    watchPath: '',
+    pattern: '',
     permission: 'workspace',
     catchUp: true,
+    rehearsal: false,
     enabled: true,
   })
   editing.value = form
@@ -99,8 +106,11 @@ function openEdit(task: ScheduledTask) {
     weekday: task.weekday,
     dayOfMonth: task.dayOfMonth,
     at: task.at ? task.at.slice(0, 16) : localNow(60),
+    watchPath: task.watchPath ?? '',
+    pattern: task.pattern ?? '',
     permission: task.permission,
     catchUp: task.catchUp,
+    rehearsal: task.rehearsal ?? false,
     enabled: task.enabled,
   })
   editing.value = form
@@ -178,6 +188,8 @@ function describe(task: ScheduledTask) {
       return t('ui.schedules.everyMonth', { day: task.dayOfMonth, time })
     case 'once':
       return task.at ? t('ui.schedules.onceAt', { at: when(task.at) }) : t('ui.schedules.kinds.once')
+    case 'folder':
+      return t('ui.schedules.onNewFile', { path: task.watchPath || '?' })
     default:
       return ''
   }
@@ -257,6 +269,17 @@ const close = () => (state.schedulesOpen = false)
             <input v-model="form.at" type="datetime-local" />
           </label>
         </div>
+        <template v-if="form.kind === 'folder'">
+          <label class="field">
+            <span>{{ t('ui.schedules.watchPath') }}</span>
+            <input v-model="form.watchPath" :placeholder="t('ui.schedules.watchPathPlaceholder')" />
+          </label>
+          <label class="field">
+            <span>{{ t('ui.schedules.pattern') }}</span>
+            <input v-model="form.pattern" placeholder="*.xlsx;*.csv" />
+            <small>{{ t('ui.schedules.folderHint') }}</small>
+          </label>
+        </template>
 
         <label class="field">
           <span>{{ t('ui.permission.title') }}</span>
@@ -271,6 +294,14 @@ const close = () => (state.schedulesOpen = false)
           <span>
             <strong>{{ t('ui.schedules.catchUp') }}</strong>
             <small>{{ t('ui.schedules.catchUpHint') }}</small>
+          </span>
+        </label>
+
+        <label class="check">
+          <input v-model="form.rehearsal" type="checkbox" />
+          <span>
+            <strong>{{ t('ui.schedules.rehearsal') }}</strong>
+            <small>{{ t('ui.schedules.rehearsalHint') }}</small>
           </span>
         </label>
 
@@ -295,7 +326,7 @@ const close = () => (state.schedulesOpen = false)
             <div class="row-main">
               <span class="ico"><CalendarClock :size="16" /></span>
               <span class="main">
-                <strong>{{ task.name }}</strong>
+                <strong>{{ task.name }}<span v-if="task.rehearsal" class="rehearsal">{{ t('ui.schedules.rehearsalBadge') }}</span></strong>
                 <small class="ins">{{ task.instructions }}</small>
                 <small class="meta">
                   <Clock :size="11" />{{ describe(task) }}
@@ -498,6 +529,19 @@ h3 {
 .status.ok {
   background: var(--thread-wash);
   color: var(--thread);
+}
+.status.rehearsed {
+  background: var(--cloth-sunk);
+  color: var(--indigo);
+}
+.rehearsal {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--cloth-sunk);
+  color: var(--indigo);
+  font-size: var(--t-xs);
+  font-weight: 500;
 }
 .status.failed {
   background: var(--red-wash);

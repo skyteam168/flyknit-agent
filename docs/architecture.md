@@ -578,6 +578,64 @@ MCP 地址、介绍页（从页面里找 mcpServers 配置、`claude mcp add`、
 产出随本轮的回答存进 `messages.outputs`，重新打开会话时卡片还在。
 新工具要报产出，只需在返回的 `ToolResult` 上带 `Outputs`，不用改界面也不用改 AgentLoop。
 
+## Harness：按需加载、大结果落盘、长命令转后台、快捷指令、工具规则、计划模式、分叉、预演
+
+参考 Claude Code、Codex、DeepSeek Harness 的同类机制：
+
+| 机制 | 位置 | 说明 |
+| --- | --- | --- |
+| 连接器工具按需加载 | `Core/Tools/ToolExposure.cs` | MCP 工具超过 `DeferAbove`（12）个时，每一步只发内置工具、已 `load_tools` 的和对话里调用过的 MCP 工具；`load_tools` 的说明里列全部 MCP 工具（名字 + 一句话），结果直接附参数说明。加载过的按对话记在宿主（`ToolContext.LoadedTools`）。会话信息里的「工具定义」也按实际发送的算 |
+| 大结果落盘 | `Core/Tools/ToolOutputSpill.cs` | 超过 `MaxToolOutputChars` 的结果完整写到 `%TEMP%\Flyknit\tool-outputs\<对话>\`，模型拿到开头、结尾、行数和路径，用 `read_file` 分段读；`read_file` 自己的结果仍按原文件行号续读。启动时清掉 7 天前的 |
+| 长命令转后台 | `TerminalHub.Promote` + `RunShellTool` | 前台命令到 `timeout_seconds` 还没结束：开着「后台命令」、这个对话后台命令没满时转为后台运行，返回编号和已有输出；否则照旧终止 |
+| 快捷指令 | 服务端 `routers/commands.py`（存设置表 `slash_commands`）、`Core/Commands/SlashCommands.cs`（员工自己的，`commands.json`）、`web/src/slash.ts` | `/名字 参数…` 在界面展开（参数按顺序替换，最后一个拿走剩下的文字），展开后作为员工的话发送，不带任何权限 |
+| IT 工具规则 | 服务端 `routers/tool_rules.py`（设置表 `tool_rules`，经 `/client/config` 的 `tool_rules` 下发）、`Core/Security/ToolRules.cs` | 按工具名（`*` 通配）+ 参数正则匹配：`block` 直接拒绝、`confirm` 每次都问（`PolicyDecision.AlwaysAsk`，不吃「以后允许」和本次会话放行，也不能记成规则）、`note` 在结果后附提醒、`redact` 把结果里匹配的内容打码。只会收紧，在 `CommandPolicy` / 权限检查之后叠加，不替代它们；正则 200ms 超时，无效正则服务端拒收 |
+| 计划模式 | `Core/Agent/PlanMode.cs`、宿主 `_planMode`（只在本次打开程序期间） | 办事对话开「先出方案」：权限封顶只读，去掉写入类工具（`write_file` `edit_file` `delete_path` `open_app` 浏览器点击/输入/选择，非只读或带 destructiveHint 的 MCP 工具），提示词加 `plan_mode` 段要求只调研、给方案；员工点「按方案执行」关掉计划模式并发一句继续 |
+| 从这里分叉 | `ConversationStore.Fork` + `conversation.fork` | 复制到所选回答为止（连同后面紧跟的工具结果），模式、模型、工作区、权限、专家照抄，消息换新 id；原对话不动 |
+| 定时任务预演 | `ScheduledTask.Rehearsal`（表 `scheduled_tasks.rehearsal`，老库自动加列，默认 0）、`ScheduleRunner`、宿主 `_rehearsal` | 开了预演的任务按计划模式同样的只读限制运行，提示词换成 `RehearsalGuide`（列出到时会做的每一项修改、不执行），对话标题带「预演」，运行结果记 `rehearsed` |
+
+## 平台化：插件包、事件触发、任务授权、提示词缓存
+
+### 插件包（IT 按部门下发）
+
+目录结构沿用 Claude Code plugins，社区插件可以直接导入：
+
+| 插件里的 | 落到哪里 | 说明 |
+| --- | --- | --- |
+| `.claude-plugin/plugin.json`（也认 `.flyknit-plugin/`、根目录 `plugin.json`） | `plugins` 表 | name 必填（插件 id），version / description / author / homepage |
+| `skills/<名字>/SKILL.md` | `skill_packages`（`plugin` 列记来源） | 同技能库的校验（路径穿越、可执行文件、体积）；插件设「技能必装」时范围内电脑自动装 |
+| `agents/*.md` | `experts`（直接发布） | id = `<插件>-<名字>`；`tools` 白名单里没有写入类工具 → 只读；`disallowedTools` 照搬；`model` 不生效 |
+| `.mcp.json` | `mcp_vendors` | 同「连接器」导入；写死的密钥不随包走，装好后管理员填；`${CLAUDE_PLUGIN_ROOT}` 本地进程拒收 |
+| `commands/*.md` | 插件清单，`/client/commands` 合并下发 | `$1…$9` → `{arg1}…`，`$ARGUMENTS` → `{arguments}`；同名时后台手写的优先；`!\`命令\`` 不执行 |
+| `rules.json` / `hooks/rules.json` | 插件清单，`/client/config` 的 `tool_rules` 合并下发 | 同「工具规则」校验；`hooks/hooks.json` 里的 command 类 hook（要在员工电脑上跑脚本）整包拒收 |
+
+下发范围 `plugins.departments`（空 = 全公司，按 `devices.department` 匹配）在服务端过滤：`plugin_scope.visible_ids` 用在技能列表和下载、
+专家、连接器、快捷指令、工具规则这几个员工端接口上，范围外或停用的插件带来的东西一样都拿不到。再传同一插件 = 升级（新版没有的删掉）；
+同名且不是本插件装的东西直接拒绝（409）。员工端「设置 → 插件」只读查看；插件不再下发时，它装进 org 目录的技能会被删掉（`AppSettings.PluginSkills`）。
+
+### 任务授权记录（`task_grants`）
+
+不是员工坐在电脑前发起的任务——手机、钉钉 / 企业微信、指令中心、定时任务、事件触发——开始前记一份 `TaskGrant`：来源、发起人、原话、
+权限上限、工作区。员工端 `AgentHost.IssueGrant(Async)` 写本地（SQLite 触发器拦住改和删）并报服务端；这一轮运行的权限 = `grant.Cap(...)`、
+工作区用授权里的，审计每条带 `grant_id`；一轮结束就收回。同一对话后来的远程消息另起一份，上限不超过上一份（后续消息扩大不了授权）。
+服务端那份也只插入：通道、指令中心、服务端推送的事件，发起人和原话以服务端自己的记录为准（`verified`），不是发给这台电脑的消息拒收、
+超出事件上限的拒收，员工端收到拒收就不执行。后台审计详情里能看到每条操作依据的授权（原话按聊天查看权限遮挡）。
+
+### 事件触发
+
+- **服务端推送**（`routers/events.py`）：IT 建触发器（指定电脑、要求模板、权限上限、默认只预演），外部系统带密钥 `POST /api/v1/hooks/{id}`。
+  总开关（设置 `event_triggers`）默认关；密钥只存 sha256；32KB、每分钟 30 次、排队 20 条封顶。事件走通道消息（`channel=event`，
+  带 `permission` / `rehearsal`），内容包在 `<事件数据>` 里并写明不是指令；需要确认的操作一律不放行（`RemoteDecline`）。
+- **本机文件夹**（`Core/Scheduling/FolderWatch.cs`）：定时任务新增「文件夹里有新文件」（`ScheduleKind.Folder` + `WatchPath` / `Pattern`）。
+  30 秒轮询（共享盘上 FileSystemWatcher 不可靠）；启动时已有的文件不算；大小和修改时间连续两次不变才算写完；临时文件忽略；
+  一次最多交 20 个，任务在跑时攒着。新文件列在 `<新文件>` 里交给 AI，授权记录记成 `event`。
+
+### 提示词缓存
+
+`PromptBuilder` 按「多久变一次」排：身份和规则 → 图表说明 → 工作区说明 → 连接器 / 浏览器 / 后台命令 / 文档 / 计划模式说明 →
+按问题挑的技能、记忆、相似任务 → 当前时间（放最后；原来在第三行，每分钟都让整段前缀缓存失效）。网关从上游 usage 读缓存命中
+（`prompt_tokens_details.cached_tokens` / `prompt_cache_hit_tokens` / `cache_read_input_tokens`）记进 `usage_model_daily.cached_tokens`，
+后台首页按模型显示命中率。
+
 ## 文档画布（右侧「文档」标签）
 
 AI 写成篇文字时（提示词 `PromptBuilder.DocumentGuide`），用 `write_file` 写 `.md`，之后用 `edit_file` 只替换要改的一段。

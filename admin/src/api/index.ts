@@ -1,5 +1,5 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
-import type {
+import type { SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun,
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
@@ -178,6 +178,30 @@ export const api = {
     downloadPost('/client-package', { server_url, label, format }, format === 'exe' ? 'FlyknitBuddy-Setup.exe' : 'FlyknitBuddy.zip'),
   tickets: () => get<EnrollmentTicket[]>('/tickets'),
 
+  // 工具规则：AI 调用工具前后的拦截 / 必须确认 / 提醒 / 结果打码
+  plugins: () => get<{ items: PluginItem[]; departments: string[] }>('/plugins'),
+  previewPlugin: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<PluginPreview>('/plugins/preview', { method: 'POST', body: form })
+  },
+  uploadPlugin: (file: File, departments: string[], required: boolean) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<PluginItem>('/plugins/upload', { method: 'POST', body: form, query: { departments, required } })
+  },
+  importPlugin: (url: string, departments: string[], required: boolean) =>
+    post<PluginItem>('/plugins/import', { url, departments, required }),
+  updatePlugin: (id: string, body: Partial<{ enabled: boolean; required: boolean; departments: string[] }>) =>
+    patch<PluginItem>(`/plugins/${encodeURIComponent(id)}`, body),
+  deletePlugin: (id: string) => del(`/plugins/${encodeURIComponent(id)}`),
+  toolRules: () => get<{ items: ToolRule[] }>('/tool-rules'),
+  saveToolRules: (items: ToolRule[]) => put<{ items: ToolRule[] }>('/tool-rules', { items }),
+
+  // 快捷指令：员工端输入框里打 / 选出来的提示词模板
+  commands: () => get<{ items: SlashCommand[] }>('/commands'),
+  saveCommands: (items: SlashCommand[]) => put<{ items: SlashCommand[] }>('/commands', { items }),
+
   // 用户协议与隐私政策（员工端登录界面上显示）
   legal: (kind: LegalKind) => get<LegalDoc>(`/legal/${kind}`),
   saveLegal: (kind: LegalKind, content: string) => put<LegalDoc>(`/legal/${kind}`, { content }),
@@ -222,6 +246,16 @@ export const api = {
   deleteDevice: (id: number) => del(`/devices/${id}`),
   updateDevice: (id: number, body: Partial<{ disabled: boolean; owner: string; department: string; note: string }>) =>
     patch<Device>(`/devices/${id}`, body),
+  eventTriggers: () => get<{ enabled: boolean; items: EventTrigger[]; runs: EventRun[] }>('/event-triggers'),
+  setEventSwitch: (enabled: boolean) => put<{ enabled: boolean }>('/event-triggers/switch', { enabled }),
+  createEventTrigger: (body: Omit<EventTrigger, 'device_name' | 'token_prefix' | 'fire_count' | 'last_fired_at' | 'created_by' | 'url' | 'token'>) =>
+    post<EventTrigger>('/event-triggers', body),
+  updateEventTrigger: (id: string, body: Partial<Pick<EventTrigger, 'name' | 'device_id' | 'template' | 'permission' | 'rehearsal' | 'enabled'>>) =>
+    patch<EventTrigger>(`/event-triggers/${encodeURIComponent(id)}`, body),
+  rotateEventToken: (id: string) => post<{ token: string; token_prefix: string }>(`/event-triggers/${encodeURIComponent(id)}/rotate`),
+  deleteEventTrigger: (id: string) => del(`/event-triggers/${encodeURIComponent(id)}`),
+  grants: (query: { device_id?: number; conversation_id?: string; origin?: string; limit?: number }) =>
+    get<TaskGrant[]>('/grants', query),
   audit: (query: { decision?: string; device_id?: number | null; conversation_id?: string; limit: number; offset: number }) =>
     get<AuditLog[]>('/audit', query),
 

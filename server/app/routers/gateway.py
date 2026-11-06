@@ -47,7 +47,7 @@ async def finish_stream(upstream, scanner, text, save_usage, save_chat) -> None:
         log.debug("关闭上游连接失败", exc_info=True)
     scanner.finish()
     text.finish()
-    await save_usage(scanner.prompt, scanner.completion)
+    await save_usage(scanner.prompt, scanner.completion, getattr(scanner, "cached", 0))
     await save_chat(text.text, scanner.prompt, scanner.completion)
 
 
@@ -206,14 +206,14 @@ async def chat_completions(
         except Exception:  # noqa: BLE001  存档失败不能让用户的对话失败
             log.warning("归档聊天记录失败 device=%s", device_id, exc_info=True)
 
-    async def save_usage(prompt: int, completion: int) -> None:
+    async def save_usage(prompt: int, completion: int, cached: int = 0) -> None:
         """用量记在服务端自己解析出来的数字上，和客户端上报无关。"""
         if prompt <= 0 and completion <= 0:
             return
         try:
             async with get_sessionmaker()() as s2:
                 await usage_store.record(s2, device_id, usage_scene, prompt, completion,
-                                         model_id=target.model_id, model_name=target.display_name)
+                                         model_id=target.model_id, model_name=target.display_name, cached=cached)
         except Exception:  # noqa: BLE001  统计失败不能影响对话
             log.warning("记录用量失败 device=%s", device_id, exc_info=True)
 
@@ -272,7 +272,7 @@ async def chat_completions(
     finally:
         await upstream.aclose()
     prompt, completion = usage_store.extract_usage(content)
-    await save_usage(prompt, completion)
+    await save_usage(prompt, completion, usage_store.extract_cached(content))
     try:
         payload = json.loads(content)
     except (ValueError, TypeError):
