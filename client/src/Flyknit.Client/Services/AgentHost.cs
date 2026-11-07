@@ -30,6 +30,15 @@ public interface IHostEvents
 }
 
 /// <summary>
+/// 流式回答 / 思考的一小段字（chat.delta / chat.reasoning）。单独一个类型，界面桥可以把连着来的几段合成一条再推。
+/// 属性名故意用小写：序列化出来和原来的匿名对象 { type, conversationId, text } 完全一样，
+/// 按名字反射读事件的地方（ProgressTee）也照常能读。
+/// </summary>
+#pragma warning disable IDE1006 // 小写属性名是有意的
+public sealed record StreamDelta(string type, string conversationId, string text);
+#pragma warning restore IDE1006
+
+/// <summary>
 /// 客户端的核心编排：会话存储、Agent 循环、工具、策略、记忆、Skills、审计。
 /// 与界面无关，界面通过 WebBridge 调用这里。
 /// </summary>
@@ -1709,9 +1718,9 @@ public sealed partial class AgentHost : IDisposable
             _host = host;
         }
 
-        public void OnContent(string delta) => _events.Post(new { type = "chat.delta", conversationId = _id, text = delta });
+        public void OnContent(string delta) => _events.Post(new StreamDelta("chat.delta", _id, delta));
 
-        public void OnReasoning(string delta) => _events.Post(new { type = "chat.reasoning", conversationId = _id, text = delta });
+        public void OnReasoning(string delta) => _events.Post(new StreamDelta("chat.reasoning", _id, delta));
 
         public void OnSources(IReadOnlyList<Flyknit.Core.Gateway.WebSource> sources) =>
             _events.Post(new

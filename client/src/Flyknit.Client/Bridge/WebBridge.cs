@@ -204,22 +204,70 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
     // ---------- 宿主 → 页面 ----------
 
-    public void Post(object evt) => Send(new { kind = "event", @event = evt });
-
-    private void Send(object message)
+    public void Post(object evt)
     {
-        var json = JsonSerializer.Serialize(message, Json);
-        _dispatcher.BeginInvoke(() =>
+        if (evt is StreamDelta delta)
+        {
+            Enqueue(delta); // 字块先放着：同一段连着来的合成一条再发
+            return;
+        }
+        Send(new { kind = "event", @event = evt });
+    }
+
+    private void Send(object message) => Enqueue(JsonSerializer.Serialize(message, Json));
+
+    // ---------- 发件箱 ----------
+    // 原来每条消息一个 BeginInvoke（Normal 优先级，比鼠标键盘输入高）。深度思考时模型几个字一条，
+    // 界面线程的队列被推送塞满，点「停止」要排很久才轮到——看起来就是点了没反应。
+    // 现在所有消息进同一个队列（顺序不变），只排一个 Background 优先级的任务一次推完：
+    // 输入、重绘、界面发来的请求先处理；连着的同类字块合成一条，推送次数少几十倍。
+    private readonly object _outboxGate = new();
+    private readonly List<object> _outbox = new(); // 序列化好的 json，或者还在攒的 StreamDelta
+    private bool _flushScheduled;
+
+    private void Enqueue(object item)
+    {
+        lock (_outboxGate)
+        {
+            if (item is StreamDelta d && _outbox.Count > 0 && _outbox[^1] is StreamDelta last
+                && last.type == d.type && last.conversationId == d.conversationId)
+            {
+                _outbox[^1] = last with { text = last.text + d.text };
+            }
+            else
+            {
+                _outbox.Add(item);
+            }
+            if (_flushScheduled)
+            {
+                return;
+            }
+            _flushScheduled = true;
+        }
+        _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(Flush));
+    }
+
+    private void Flush()
+    {
+        object[] items;
+        lock (_outboxGate)
+        {
+            items = _outbox.ToArray();
+            _outbox.Clear();
+            _flushScheduled = false;
+        }
+        foreach (var item in items)
         {
             try
             {
+                var json = item as string ?? JsonSerializer.Serialize(new { kind = "event", @event = item }, Json);
                 _web.PostWebMessageAsJson(json);
             }
             catch (Exception ex)
             {
                 Log.Warn("PostWebMessage 失败", ex);
             }
-        });
+        }
     }
 
     // ---------- 确认 ----------

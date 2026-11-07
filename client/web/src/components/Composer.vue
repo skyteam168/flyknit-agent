@@ -98,6 +98,7 @@ const from = computed(() => current.value?.translateFrom ?? draftMode.translateF
 const to = computed(() => current.value?.translateTo ?? draftMode.translateTo)
 const busy = computed(() => currentState.value?.busy ?? false)
 const paused = computed(() => !!currentState.value?.paused)
+const stopping = computed(() => !!currentState.value?.stopping)
 /** 计划模式（先出方案）：当前对话的，或者新对话打算开的 */
 const planMode = computed(() => (current.value ? !!state.planMode[current.value.id] : draftMode.planMode))
 /** 方案好了：计划模式下这一轮跑完、最后一条是 AI 的回答 */
@@ -850,8 +851,17 @@ onBeforeUnmount(() => {
           <button type="button" class="tool-btn icon-only" :class="{ on: paused }" :title="t(paused ? 'ui.pause.resume' : 'ui.pause.pause')" @click="togglePause">
             <component :is="paused ? Play : Pause" :size="16" />
           </button>
-          <button type="button" class="send stop" :title="t('input.stop')" @click="stop">
-            <Square :size="13" fill="currentColor" />
+          <button
+            type="button"
+            class="send stop"
+            :class="{ stopping }"
+            :disabled="stopping"
+            :title="t(stopping ? 'input.stopping' : 'input.stop')"
+            :aria-label="t(stopping ? 'input.stopping' : 'input.stop')"
+            @click="stop"
+          >
+            <Loader2 v-if="stopping" :size="15" class="spin" />
+            <Square v-else :size="13" fill="currentColor" />
           </button>
         </template>
         <button v-else type="button" class="send" :disabled="!canSend" :title="t('input.send')" @click="submit()">

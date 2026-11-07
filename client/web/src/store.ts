@@ -41,6 +41,8 @@ import type {
 import { SubtaskFinal } from './types'
 
 interface ConversationState {
+  /** 点了「停止」、宿主还没回这一轮结束：按钮显示「正在停止」，不再像点了没反应 */
+  stopping?: boolean
   messages: UiMessage[]
   loaded: boolean
   /** 打开对话时消息没加载出来的原因（界面上显示重试） */
@@ -1336,6 +1338,7 @@ export async function withdrawPending(item: PendingInput): Promise<string | null
 
 function beginRun(s: ConversationState) {
   s.busy = true
+  s.stopping = false
   s.notice = null
   s.notices = []
   s.draft = { content: '', reasoning: '' }
@@ -1449,7 +1452,20 @@ export async function setNotificationSound(sound: string) {
 }
 
 export async function stop() {
-  if (state.currentId) await bridge.stop(state.currentId).catch(fail)
+  const id = state.currentId
+  if (!id) return
+  const s = convState(id)
+  s.stopping = true
+  // 宿主取消后要等这一步收尾（模型请求断开、工具退出）才发结束事件。万一迟迟不来，
+  // 8 秒后把按钮恢复成可点，员工可以再点一次（再发一次取消）
+  const at = Date.now()
+  setTimeout(() => {
+    if (s.stopping && s.busy && Date.now() - at >= 8000) s.stopping = false
+  }, 8000)
+  await bridge.stop(id).catch((e) => {
+    s.stopping = false
+    fail(e)
+  })
 }
 
 export async function answerConfirm(conversationId: string, callId: string, choice: ConfirmChoice) {
@@ -1678,6 +1694,7 @@ function markRunning(conversationId: string): ConversationState {
 /** 一轮结束（正常结束或出错）：还在跑、还在等确认的工具卡片都算失败，收起压缩进度，刷新列表和用量 */
 function finishRun(s: ConversationState, conversationId: string) {
   s.busy = false
+  s.stopping = false
   s.paused = false
   void loadChanges(conversationId)
   s.draft = null
