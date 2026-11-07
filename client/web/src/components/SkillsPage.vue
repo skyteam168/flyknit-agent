@@ -159,7 +159,7 @@ onMounted(loadSkills)
 
       <div class="body">
         <!-- 已安装 -->
-        <template v-if="tab === 'installed'">
+        <div v-if="tab === 'installed'" class="grid">
           <template v-if="!state.loaded.skills && installed.length === 0">
             <div v-for="i in 4" :key="i" class="card" aria-hidden="true">
             <div class="row">
@@ -242,10 +242,10 @@ onMounted(loadSkills)
               </div>
             </div>
           </div>
-        </template>
+        </div>
 
         <!-- 公司技能库 -->
-        <template v-else-if="tab === 'library'">
+        <div v-else-if="tab === 'library'" class="grid">
           <div class="bar">
             <p class="tab-hint">{{ t('ui.skills.libraryHint') }}</p>
             <button type="button" class="icon-btn" :title="t('ui.model.title')" @click="loadLibrary"><RefreshCw :size="15" /></button>
@@ -283,10 +283,10 @@ onMounted(loadSkills)
               </button>
             </div>
           </div>
-        </template>
+        </div>
 
         <!-- 添加 -->
-        <template v-else>
+        <div v-else class="add-tab">
           <p class="tab-hint">{{ t('ui.skills.addHint') }}</p>
           <div class="add-row">
             <div class="add-text">
@@ -323,7 +323,7 @@ onMounted(loadSkills)
             </form>
           </div>
           <p class="safety"><TriangleAlert :size="14" /> {{ t('ui.skills.safety') }}</p>
-        </template>
+        </div>
       </div>
 
       <footer>
@@ -373,8 +373,7 @@ onMounted(loadSkills)
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 860px;
-  padding: 16px 28px 16px;
+  padding: 16px 28px 12px;
 }
 header {
   display: flex;
@@ -462,14 +461,34 @@ h2 {
   color: var(--ink-faint);
   font-size: var(--t-sm);
 }
+/* 卡片网格（同专家页）：有多宽排多少列；展开详情的那张占满一行 */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.grid > .empty,
+.grid > .bar {
+  grid-column: 1 / -1;
+}
+.add-tab {
+  max-width: 820px;
+}
 .card {
-  margin-bottom: 8px;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: 14px;
   background: var(--cloth);
-  transition: border-color 120ms;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.card:hover {
+  border-color: color-mix(in srgb, var(--indigo) 35%, var(--line));
+  box-shadow: var(--shadow-card);
 }
 .card.open {
+  grid-column: 1 / -1;
   border-color: var(--line-strong);
 }
 .card.off .main {
@@ -479,7 +498,40 @@ h2 {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 12px 14px;
+}
+/*
+ * 网格里的卡片：上面图标 + 名称 + 描述（占满整行宽），下面一行放状态、开关、展开（库里是「必装」和安装按钮）。
+ * 同专家卡片的上下结构，描述不再被右边的开关挤窄。
+ */
+.grid .row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 12px;
+  padding: 16px;
+}
+.grid .row > .icons {
+  grid-row: span 2;
+  align-self: start;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+.grid .row > .main {
+  grid-column: 2 / -1;
+}
+.grid .row > .main .desc {
+  min-height: 2.9em;
+}
+.grid .row > .state,
+.grid .row > .tag {
+  grid-column: 2;
+  justify-self: start;
+}
+.grid .row > .btn.primary {
+  grid-column: 4;
 }
 .icons {
   display: grid;

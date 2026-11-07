@@ -328,8 +328,7 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 1080px;
-  padding: 16px 28px 16px;
+  padding: 16px 28px 12px;
 }
 header {
   display: flex;

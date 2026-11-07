@@ -317,7 +317,7 @@ onMounted(firstLoad)
           <p>{{ t('ui.common.loadFailed', { msg: loadError }) }}</p>
           <button type="button" class="btn" @click="firstLoad">{{ t('ui.common.retry') }}</button>
         </div>
-        <template v-else-if="state.schedules.length">
+        <div v-else-if="state.schedules.length" class="grid">
           <div v-for="task in state.schedules" :key="task.id" class="card" :class="{ off: !task.enabled }">
             <div class="row-main">
               <span class="ico"><CalendarClock :size="16" /></span>
@@ -361,7 +361,7 @@ onMounted(firstLoad)
               <button type="button" class="mini" :title="t('menu.delete')" @click="removing = task"><Trash2 :size="14" /></button>
             </div>
           </div>
-        </template>
+        </div>
 
         <template v-else>
           <p class="empty"><CalendarClock :size="20" /> {{ t('ui.schedules.empty') }}</p>
@@ -424,8 +424,7 @@ onMounted(firstLoad)
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 860px;
-  padding: 16px 28px 16px;
+  padding: 16px 28px 12px;
 }
 header {
   display: flex;
@@ -469,10 +468,35 @@ h3 {
   overflow-y: auto;
   padding: 10px 2px;
 }
+/* 任务卡片网格（同专家页）：有多宽排多少列 */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 12px;
+}
+.body.form {
+  max-width: 860px;
+}
+.templates {
+  max-width: 1100px;
+}
 .card {
-  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: 14px;
+  background: var(--cloth);
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.card:hover {
+  border-color: color-mix(in srgb, var(--indigo) 35%, var(--line));
+  box-shadow: var(--shadow-card);
+}
+/* 卡片高度按同一行最高的那张撑齐，操作按钮贴底对齐 */
+.card .row-actions {
+  margin-top: auto;
 }
 .card.off .main {
   opacity: 0.55;
@@ -617,7 +641,7 @@ h3 {
 }
 .templates {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 8px;
 }
 .template {
