@@ -8,6 +8,9 @@ public static class Scenes
 {
     public const string Chat = "chat";
     public const string Agent = "agent";
+
+    /// <summary>开了「开发者工具」的办事任务。后台没单独配置时服务端回退到 agent。</summary>
+    public const string Code = "code";
     public const string Translate = "translate";
     public const string Title = "title";
     public const string Vision = "vision";

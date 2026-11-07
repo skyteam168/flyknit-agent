@@ -81,6 +81,7 @@ public class ServerClientTimeoutTests
             ResponseTimeout = TimeSpan.FromMilliseconds(300),
             StreamIdleTimeout = TimeSpan.FromMilliseconds(300),
             RequestTimeout = TimeSpan.FromMilliseconds(300),
+            RetryDelays = new[] { TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5) },
         };
 
     private static FlyknitServerClient Streaming(ScriptedStream.End end, params string[] chunks) =>
@@ -223,5 +224,117 @@ public class ServerClientTimeoutTests
         var client = Client(_ => throw new HttpRequestException("No connection could be made"));
         var ex = await Assert.ThrowsAsync<GatewayException>(() => client.CompleteAsync(Request(), null, CancellationToken.None));
         Assert.True(ex.IsNetworkError);
+    }
+
+    // ---------- 暂时性故障重试（只在还没收到回答时） ----------
+
+    private static HttpResponseMessage Ok() => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(Hello + Stop + "data: [DONE]\n\n", Encoding.UTF8, "text/event-stream"),
+    };
+
+    [Fact]
+    public async Task RetriesBadGatewayThenSucceeds()
+    {
+        var calls = 0;
+        var client = Client(_ => Task.FromResult(++calls < 3 ? new HttpResponseMessage(HttpStatusCode.BadGateway) : Ok()));
+        var turn = await client.CompleteAsync(Request(), null, CancellationToken.None);
+        Assert.Equal("你好", turn.Content);
+        Assert.Equal(3, calls);
+    }
+
+    [Fact]
+    public async Task RetriesConnectionFailure()
+    {
+        var calls = 0;
+        var client = Client(_ => ++calls == 1 ? throw new HttpRequestException("connection refused") : Task.FromResult(Ok()));
+        var turn = await client.CompleteAsync(Request(), null, CancellationToken.None);
+        Assert.Equal("你好", turn.Content);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task GivesUpAfterRetriesWithOriginalError()
+    {
+        var calls = 0;
+        var client = Client(_ => { calls++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)); });
+        var ex = await Assert.ThrowsAsync<GatewayException>(() => client.CompleteAsync(Request(), null, CancellationToken.None));
+        Assert.Equal(503, ex.StatusCode);
+        Assert.Equal(3, calls); // 第一次 + 两次重试
+    }
+
+    [Fact]
+    public async Task QuotaExceededIsNotRetried()
+    {
+        var calls = 0;
+        var client = Client(_ =>
+        {
+            calls++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent("{\"error\":{\"message\":\"今日额度已用完\",\"type\":\"quota_exceeded\"}}", Encoding.UTF8, "application/json"),
+            });
+        });
+        var ex = await Assert.ThrowsAsync<GatewayException>(() => client.CompleteAsync(Request(), null, CancellationToken.None));
+        Assert.Equal(1, calls);
+        Assert.Equal("今日额度已用完", ex.Message); // 错误体读过一次，EnsureOk 还能再读出说明
+    }
+
+    [Fact]
+    public async Task RateLimitWithoutQuotaIsRetried()
+    {
+        var calls = 0;
+        var client = Client(_ => Task.FromResult(++calls == 1
+            ? new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("{\"error\":{\"message\":\"rate limited\"}}") }
+            : Ok()));
+        await client.CompleteAsync(Request(), null, CancellationToken.None);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task ClientErrorsAreNotRetried()
+    {
+        var calls = 0;
+        var client = Client(_ => { calls++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{\"error\":{\"message\":\"bad\"}}") }); });
+        await Assert.ThrowsAsync<GatewayException>(() => client.CompleteAsync(Request(), null, CancellationToken.None));
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task LongRetryAfterIsNotWaitedFor()
+    {
+        var calls = 0;
+        var client = Client(_ =>
+        {
+            calls++;
+            var r = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            r.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(5));
+            return Task.FromResult(r);
+        });
+        await Assert.ThrowsAsync<GatewayException>(() => client.CompleteAsync(Request(), null, CancellationToken.None));
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task BrokenStreamMidAnswerIsNotRetried()
+    {
+        var calls = 0;
+        var client = Client(_ =>
+        {
+            calls++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new ScriptedStream(new[] { Hello }, ScriptedStream.End.Break)) });
+        });
+        await Assert.ThrowsAsync<GatewayException>(() => client.CompleteAsync(Request(), null, CancellationToken.None));
+        Assert.Equal(1, calls); // 半段回答已经推给界面了，重发会重复
+    }
+
+    [Fact]
+    public async Task UserCancelDuringRetryWaitStops()
+    {
+        using var cts = new CancellationTokenSource();
+        var client = Client(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadGateway)));
+        client.RetryDelays = new[] { TimeSpan.FromSeconds(30) };
+        cts.CancelAfter(100);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.CompleteAsync(Request(), null, cts.Token));
     }
 }

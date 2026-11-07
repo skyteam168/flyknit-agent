@@ -1111,6 +1111,8 @@ const zh = {
     slash: {
       title: "快捷指令",
       btw: "顺便问一句（答案在侧聊里，不打断任务）",
+      init: "生成项目说明 FLYKNIT.md（AI 先读一遍代码）",
+      initPrompt: "请为当前工作区生成项目说明文件 FLYKNIT.md。如果已经有 FLYKNIT.md、AGENTS.md 或 CLAUDE.md，先读一下，在它的基础上补充更新，不要丢掉已有的约定。\n先用 list_dir、search_files、grep、read_file 摸清楚：项目是做什么的、目录结构、技术栈、怎么安装依赖、怎么构建 / 运行 / 测试 / 检查代码风格（以项目里实际的脚本和配置为准，不要编）、代码约定和容易踩的坑。\n写成简洁的 Markdown（一般不超过 150 行），放在工作区根目录的 FLYKNIT.md。写完告诉我写了哪些部分、哪些地方拿不准。",
       missing: "还差参数：{names}。补上后再发送",
       source: { builtin: "自带", it: "公司", mine: "我的" },
     },
@@ -2704,6 +2706,8 @@ const vi: Messages = {
     slash: {
       title: "Lệnh nhanh",
       btw: "Hỏi nhanh (trả lời ở khung bên, không ngắt việc đang làm)",
+      init: "Tạo mô tả dự án FLYKNIT.md (AI đọc mã trước)",
+      initPrompt: "Hãy tạo tệp mô tả dự án FLYKNIT.md cho không gian làm việc hiện tại. Nếu đã có FLYKNIT.md, AGENTS.md hoặc CLAUDE.md, hãy đọc trước và bổ sung, cập nhật trên đó, không bỏ các quy ước sẵn có.\nTrước tiên dùng list_dir, search_files, grep, read_file để nắm rõ: dự án làm gì, cấu trúc thư mục, công nghệ, cách cài phụ thuộc, cách build / chạy / kiểm thử / kiểm tra phong cách mã (theo đúng script và cấu hình có trong dự án, không bịa), quy ước mã và những chỗ dễ sai.\nViết thành Markdown ngắn gọn (thường không quá 150 dòng), đặt ở FLYKNIT.md tại thư mục gốc. Viết xong cho tôi biết đã viết những phần nào và chỗ nào chưa chắc.",
       missing: "Còn thiếu tham số: {names}. Điền rồi gửi lại",
       source: { builtin: "Có sẵn", it: "Công ty", mine: "Của tôi" },
     },
@@ -4295,6 +4299,8 @@ const en: Messages = {
     slash: {
       title: "Quick commands",
       btw: "Quick side question (answered in the side chat, doesn't interrupt the task)",
+      init: "Generate the project guide FLYKNIT.md (AI reads the code first)",
+      initPrompt: "Please create a project guide file FLYKNIT.md for the current workspace. If FLYKNIT.md, AGENTS.md or CLAUDE.md already exists, read it first and extend or update it without dropping existing conventions.\nFirst use list_dir, search_files, grep and read_file to work out: what the project does, the directory layout, the tech stack, how to install dependencies, how to build / run / test / lint (based on the scripts and config actually in the project, don't make them up), coding conventions and common pitfalls.\nWrite concise Markdown (usually no more than 150 lines) to FLYKNIT.md in the workspace root. When done, tell me which sections you wrote and what you're unsure about.",
       missing: "Missing parameters: {names}. Fill them in and send again",
       source: { builtin: "Built-in", it: "Company", mine: "Mine" },
     },

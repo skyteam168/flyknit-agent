@@ -1858,6 +1858,7 @@ function onHostEvent(e: HostEvent) {
         if (e.keepScreenAllowed !== undefined) state.app.keepScreenAllowed = e.keepScreenAllowed
         if (e.contextDetails !== undefined) state.app.contextDetails = e.contextDetails
         if (e.longTasks !== undefined) state.app.longTasks = e.longTasks
+        if (e.developerTools !== undefined) state.app.developerTools = e.developerTools
         if (e.webSearchEnabled !== undefined) state.app.webSearchEnabled = e.webSearchEnabled
         if (e.deepThinking !== undefined) state.app.deepThinking = e.deepThinking
         if (e.webSearch !== undefined) state.app.webSearch = e.webSearch

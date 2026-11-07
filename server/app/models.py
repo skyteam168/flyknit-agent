@@ -37,6 +37,10 @@ class ModelConfig(Base):
     context_length: Mapped[int] = mapped_column(Integer, default=131072)
     extra_body: Mapped[dict] = mapped_column(JSON, default=dict)  # 透传给上游的额外参数
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 「深度思考」开关怎么告诉这个模型（客户端统一发 enable_thinking，网关按这里换成各家的写法），见 model_router.THINKING_PARAMS
+    thinking_param: Mapped[str] = mapped_column(String(32), default="enable_thinking")
+    # 思考内容回传：auto 照客户端发来的转发；strip 转发前去掉 messages 里的 reasoning_content（上游不认这个字段时用）
+    reasoning_echo: Mapped[str] = mapped_column(String(16), default="auto")
 
     provider: Mapped[Provider] = relationship(back_populates="models", lazy="joined")
 

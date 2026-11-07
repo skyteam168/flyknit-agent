@@ -63,6 +63,7 @@ flyknitbuddy/
 | --- | --- |
 | `chat` | 普通对话（无工具） |
 | `agent` | 办事（工具调用） |
+| `code` | 开了开发者工具的办事任务（未配置时回退 `agent`） |
 | `translate` | 翻译 |
 | `title` | 标题 / 记忆整理类短请求 |
 | `vision` | 带图 |
@@ -93,7 +94,8 @@ flyknitbuddy/
   Agent：`update_plan` `memory_write` `memory_search` `load_skill` `search_skills` `suggest_task`  
   交互 / 派遣：`ask_user` `ask_expert` `submit_result`  
   浏览器：`browser_open` / `read` / `click` / `type` / `select` / `scroll` / `back`  
-  Windows（Client 注册）：`open_app`
+  Windows（Client 注册）：`open_app`  
+  开发者工具（安全中心 `developer_tools`，默认关，任务走 `code` 场景）：`grep` `multi_edit` `git_status` `git_diff` `git_log` `git_commit`
 - **新工具**：实现 `ITool` → 注册；`ToolResult.Outputs` 报产出；确认走 Policy，禁止私自绕过。
 - **新预览**：`IPreviewProvider`；UI 只认宿主返回的 `kind`。
 - **新快捷键**：`Settings/Shortcuts.cs` + handler + 三语文案。

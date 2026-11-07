@@ -3,10 +3,20 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BeforeValidator, BaseModel, ConfigDict, Field, HttpUrl
 
-Scene = Literal["chat", "agent", "translate", "title", "vision", "asr"]
+Scene = Literal["chat", "agent", "code", "translate", "title", "vision", "asr"]
 # asr 是语音转文字，和对话模型不通用，所以它没有回退场景
 # embedding：把文字转成向量，员工端用来按意思检索记忆；没配置时员工端只按字面匹配
-SCENES: tuple[str, ...] = ("chat", "agent", "translate", "title", "vision", "asr", "embedding")
+# code：开了「开发者工具」的办事任务（读代码、改代码、跑 git）；没单独配置时回退到 agent
+SCENES: tuple[str, ...] = ("chat", "agent", "code", "translate", "title", "vision", "asr", "embedding")
+
+# 「深度思考」开关的写法（客户端统一发 enable_thinking: bool，网关按模型配置换成上游认的参数）：
+#   enable_thinking       原样转发（通义千问 / 百炼等）
+#   thinking              换成 thinking: {"type": "enabled" | "disabled"}（DeepSeek、智谱 GLM、火山方舟等）
+#   chat_template_kwargs  换成 chat_template_kwargs: {"enable_thinking": bool}（vLLM / SGLang 自建）
+#   none                  去掉（模型没有思考开关，或上游不认这个参数）
+ThinkingParam = Literal["enable_thinking", "thinking", "chat_template_kwargs", "none"]
+# 思考内容回传：auto 照客户端发来的转发（只有模型返回过思考内容时客户端才会带）；strip 转发前去掉
+ReasoningEcho = Literal["auto", "strip"]
 
 
 def Clip(n: int):  # noqa: N802  当类型用
@@ -54,6 +64,8 @@ class ModelIn(BaseModel):
     context_length: int = 131072
     extra_body: dict = Field(default_factory=dict)
     enabled: bool = True
+    thinking_param: ThinkingParam = "enable_thinking"
+    reasoning_echo: ReasoningEcho = "auto"
 
 
 class ModelPatch(BaseModel):
@@ -64,6 +76,8 @@ class ModelPatch(BaseModel):
     context_length: int | None = None
     extra_body: dict | None = None
     enabled: bool | None = None
+    thinking_param: ThinkingParam | None = None
+    reasoning_echo: ReasoningEcho | None = None
 
 
 class ModelOut(BaseModel):
@@ -78,6 +92,8 @@ class ModelOut(BaseModel):
     context_length: int
     extra_body: dict
     enabled: bool
+    thinking_param: str = "enable_thinking"
+    reasoning_echo: str = "auto"
 
 
 # ---------- 路由 ----------

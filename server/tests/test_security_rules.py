@@ -110,6 +110,8 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "browser_tools",
         # 客户端读它决定能不能在后台启动命令（run_shell background=true、shell_output、shell_stop）
         "background_commands",
+        # 客户端 AgentHost.DeveloperToolsFor 读它：grep、multi_edit、git_* 和 code 场景
+        "developer_tools",
         # 客户端读这几项决定能选哪些语气、能不能锁屏运行
         "persona_playful",
         "persona_custom",

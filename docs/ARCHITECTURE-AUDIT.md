@@ -276,3 +276,12 @@ REA、Craft Anything、Playwright MCP 由 IT 在后台配置成连接器。逆�
 | web / admin 构建 | — | 本次未改前端，未运行 |
 
 后续每个阶段的 PR 都以这两个数字为回归基线。
+
+---
+
+## 8. 实施进度
+
+| 阶段 | 状态 | 说明 |
+| --- | --- | --- |
+| 阶段 0 | 代码完成，Linux 单测通过 | 思考内容回传按数据决定（不按厂商写死）；服务端按模型配置「思考开关写法」（enable_thinking / thinking / chat_template_kwargs / 不传）和「思考回传」（自动 / 不回传）；网关请求在没收到任何回答前对连不上、超时、502/503/504、非额度 429 退避重试 2 次 |
+| 阶段 1 | 代码完成，Linux 单测通过，待 Windows 实机验证 | 安全中心「开发者工具」（默认关）；grep、search_files 支持 `**`、multi_edit、git_status / git_diff / git_log / git_commit；git 与 gh 命令按子命令 + 关键参数定级；`/init` 生成 FLYKNIT.md；`code` 场景 |

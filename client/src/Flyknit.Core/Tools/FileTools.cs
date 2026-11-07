@@ -101,10 +101,11 @@ public sealed class ListDirTool : ITool
 public sealed class SearchFilesTool : ITool
 {
     public string Name => "search_files";
-    public string Description => "在目录中按文件名通配符搜索文件（如 *.xlsx、*报表*），可选按文本内容过滤。";
+    public string Description => "在目录中按文件名通配符搜索文件（如 *.xlsx、*报表*），可选按文本内容过滤。" +
+        "支持 ** 跨目录（如 src/**/*.cs、**/{README,readme}.md），带 ** 或目录时会跳过 .git、node_modules。";
     public JsonObject Parameters => ToolArgs.Schema(
         ("path", "string", "搜索的起始目录", true),
-        ("pattern", "string", "文件名通配符，默认 *", false),
+        ("pattern", "string", "文件名通配符，默认 *；可写 **/*.ts 这类跨目录的写法", false),
         ("contains", "string", "只返回内容包含此文本的文件（仅限文本文件）", false),
         ("max_results", "integer", "最多返回数量，默认 100", false));
 
@@ -124,7 +125,7 @@ public sealed class SearchFilesTool : ITool
         var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, MaxRecursionDepth = 12 };
 
         var results = new List<string>();
-        foreach (var file in Directory.EnumerateFiles(root, pattern, options))
+        foreach (var file in Candidates(root, pattern, options, ct))
         {
             ct.ThrowIfCancellationRequested();
             if (contains.Length > 0)
@@ -157,6 +158,19 @@ public sealed class SearchFilesTool : ITool
         return results.Count == 0
             ? ToolResult.Success("没有找到匹配的文件")
             : ToolResult.Success($"找到 {results.Count} 个文件：\n" + string.Join("\n", results));
+    }
+
+    // 只按文件名找的（*.xlsx、*报表*）照旧用系统自带的通配符；带 ** 或目录的自己逐层遍历
+    private static readonly IReadOnlySet<string> WalkSkips = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".git", ".svn", ".hg", "node_modules" };
+
+    private static IEnumerable<string> Candidates(string root, string pattern, EnumerationOptions options, CancellationToken ct)
+    {
+        if (!Glob.NeedsWalk(pattern))
+        {
+            return Directory.EnumerateFiles(root, pattern, options);
+        }
+        var glob = new Glob(pattern);
+        return SourceTree.Files(root, WalkSkips, ct: ct).Where(glob.IsMatch).Select(rel => Path.Combine(root, rel));
     }
 }
 

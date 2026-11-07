@@ -90,6 +90,9 @@ public sealed class PromptContext
     /// <summary>这一轮能在后台启动命令（IT 打开了「后台命令」）：提示词里告诉模型调试时怎么用。</summary>
     public bool BackgroundCommands { get; init; }
 
+    /// <summary>这一轮有开发者工具（IT 打开了「开发者工具」）：提示词里告诉模型改代码、用 git 的规矩。</summary>
+    public bool DeveloperTools { get; init; }
+
     /// <summary>计划模式：这一轮只调研、出方案，不改任何东西。</summary>
     public bool PlanMode { get; init; }
 
@@ -143,6 +146,19 @@ public sealed class PromptBuilder
         - 普通命令超过 timeout_seconds 还没结束，会自动转到后台接着跑（结果里有编号），之后同样用 shell_output 看、shell_stop 停。
         - 调试完、或要重启服务前，用 shell_stop 停掉自己启动的后台命令；任务结束前把不再需要的都停掉。
         </终端与后台命令>
+        """;
+
+    public const string DeveloperGuide = """
+
+        <写代码>
+        这一轮有开发者工具。在代码仓库里干活时：
+        - 先摸清再动手：用 grep 按内容找定义和调用点、search_files 按文件名找（支持 src/**/*.ts），read_file 看上下文；工作区里有 FLYKNIT.md / AGENTS.md / CLAUDE.md 时照它的约定来。
+        - 改代码优先 edit_file / multi_edit（只动要改的地方），不要用 write_file 整个重写已有文件。
+        - git 用 git_status / git_diff / git_log 查看，用 git_commit 提交；提交前先看 diff 确认只包含这次要改的，说明写清改了什么、为什么。
+        - 没有员工明确要求，不要推送、不要改写历史（push --force、reset --hard、rebase 已推送的分支），不要删分支。
+        - 改完跑一下项目自己的构建、测试或检查命令确认没坏；跑不了要如实说，不要声称「已通过」。
+        - 不要把密码、令牌、Cookie 写进代码、提交说明或回答里。
+        </写代码>
         """;
 
     public const string DocumentGuide = """
@@ -319,6 +335,11 @@ public sealed class PromptBuilder
             {
                 Mark("terminal");
                 sb.Append(TerminalGuide);
+            }
+            if (ctx.DeveloperTools)
+            {
+                Mark("developer");
+                sb.Append(DeveloperGuide);
             }
             Mark("document");
             sb.Append(DocumentGuide);

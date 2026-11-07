@@ -169,6 +169,13 @@ SETTINGS: tuple[Setting, ...] = (
              "命令本身仍按权限和命令规则判定（该确认的照样确认、该拦的照样拦）；每个对话最多同时 4 个，员工可以在右侧「终端」里随时停止，"
              "删掉对话、退出程序时全部停掉。默认关闭。",
     ),
+    Setting(
+        key="developer_tools", kind="bool", default=False, locked=True,
+        title="开发者工具（写程序用）",
+        risk="打开后，办事模式下 AI 多了按内容搜代码（grep）、一次改多处（multi_edit）和 git 工具（查看状态 / 改动 / 历史、提交），"
+             "这类任务走「编程任务」场景（后台没单独配模型时用「任务」的模型），输入框可以用 /init 生成项目说明 FLYKNIT.md。"
+             "提交照样按权限和命令规则确认；推送、强制推送、删分支、丢弃修改等 git 操作按高危逐次确认。只给写程序的同事打开。默认关闭。",
+    ),
     # ---- 个性化：员工可以在设置里选回复语气、给 AI 起名字。这两项决定哪些能选 ----
     Setting(
         key="persona_playful", kind="bool", default=True, locked=True,

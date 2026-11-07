@@ -151,6 +151,10 @@ async function submit(how?: InterjectMode) {
   let outgoing = value
   const slash = parseSlash(value)
   const cmd = slash ? findCommand(slash.name, state.commands.mine, state.commands.it) : null
+  // /init：开发者工具打开时，让 AI 摸清工作区后写一份项目说明 FLYKNIT.md（员工或公司自己有同名指令时用他们的）
+  if (slash && !cmd && slash.name.toLowerCase() === 'init' && initAvailable.value) {
+    outgoing = t('ui.slash.initPrompt') + (slash.rest ? `\n\n${slash.rest}` : '')
+  }
   if (slash && cmd) {
     const r = expandCommand(cmd, slash.rest)
     if (r.missing.length) {
@@ -259,6 +263,7 @@ async function editInput(item: PendingInput) {
 
 // ---------- 快捷指令选择：输入框里只有「/」加几个字时列出来 ----------
 interface SlashItem { name: string; title: string; template: string; source: 'builtin' | 'it' | 'mine' }
+const initAvailable = computed(() => !!state.app?.developerTools && mode.value === 'agent')
 const slashIndex = ref(0)
 const slashDismissed = ref('')
 const slashItems = computed<SlashItem[]>(() => {
@@ -269,6 +274,7 @@ const slashItems = computed<SlashItem[]>(() => {
     ...state.commands.mine.map((c) => ({ ...c, source: 'mine' as const })),
     ...state.commands.it.filter((c) => !state.commands.mine.some((x) => x.name.toLowerCase() === c.name.toLowerCase())).map((c) => ({ ...c, source: 'it' as const })),
     { name: 'btw', title: t('ui.slash.btw'), template: '', source: 'builtin' as const },
+    ...(initAvailable.value ? [{ name: 'init', title: t('ui.slash.init'), template: '', source: 'builtin' as const }] : []),
   ]
   return all.filter((c) => !q || c.name.toLowerCase().includes(q) || c.title.toLowerCase().includes(q)).slice(0, 8)
 })

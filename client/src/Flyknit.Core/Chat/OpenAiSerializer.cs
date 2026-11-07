@@ -8,12 +8,29 @@ public static class OpenAiSerializer
     /// <summary>单张图片最大 10MB，超过则只以文字形式告知模型。</summary>
     public const long MaxInlineImageBytes = 10 * 1024 * 1024;
 
+    /// <summary>
+    /// 转换整段对话。思考内容（reasoning_content）怎么回传不按厂商写死，只看数据：
+    /// <list type="bullet">
+    /// <item>模型从没返回过思考内容（大多数非推理模型）：一个字段都不加，请求和以前完全一样。</item>
+    /// <item>返回过：带工具调用的 assistant 消息都带上 reasoning_content，这一条没有思考的填空字符串。
+    /// 推理模型在多步工具调用里要接着上一步的思路往下想，有的厂商（如 DeepSeek 思考模式）缺了这个字段直接报 400；
+    /// 不需要的厂商会忽略它。最终回答（不带工具调用）的思考不回传：下一轮用不上，白占上下文。</item>
+    /// </list>
+    /// 个别不接受这个字段的上游，由管理员在后台把模型的「思考内容回传」设为不回传，网关转发前去掉——客户端不需要知道是哪家。
+    /// </summary>
     public static JsonArray ToMessages(IEnumerable<ChatMessage> messages)
     {
+        var list = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
+        var echo = list.Any(m => m.Role == ChatRole.Assistant && !string.IsNullOrEmpty(m.Reasoning));
         var array = new JsonArray();
-        foreach (var m in messages)
+        foreach (var m in list)
         {
-            array.Add(ToJson(m));
+            var json = ToJson(m);
+            if (echo && m.Role == ChatRole.Assistant && m.ToolCalls.Count > 0)
+            {
+                json["reasoning_content"] = m.Reasoning ?? "";
+            }
+            array.Add(json);
         }
         return array;
     }

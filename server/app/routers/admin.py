@@ -250,6 +250,8 @@ async def test_model(model_id: int, request: Request, session: AsyncSession = De
         api_key=api_key,
         extra_body=dict(m.extra_body or {}),
         supports_vision=m.supports_vision,
+        thinking_param=m.thinking_param or "enable_thinking",
+        reasoning_echo=m.reasoning_echo or "auto",
     )
     body = build_body({"messages": [{"role": "user", "content": "ping"}], "max_tokens": 8}, target)
     started = time.perf_counter()

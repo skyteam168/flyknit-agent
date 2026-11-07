@@ -596,6 +596,14 @@ public sealed partial class AgentHost : IDisposable
     }
 
     /// <summary>深度思考 / 联网：写进请求 ExtraBody，翻译不带思考，联网仅「对话」。</summary>
+    /// <summary>
+    /// 这一轮能用的开发者工具：办事模式、IT 打开了「开发者工具」，再按专家的 disallowed_tools 减掉（专家只做减法）。
+    /// 关着时返回空，工具、提示词、场景都和以前一样。
+    /// </summary>
+    private IReadOnlyList<ITool> DeveloperToolsFor(Conversation conv, Flyknit.Core.Experts.Expert? expert) =>
+        Flyknit.Core.Tools.DeveloperToolSet.For(Security, conv.Mode == ConversationMode.Agent,
+            t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t));
+
     private IReadOnlyDictionary<string, JsonNode?>? ChatExtraBody(Conversation conv)
     {
         var search = _settings.WebSearch && conv.Mode == ConversationMode.Chat && WebSearchEnabled;
@@ -761,6 +769,8 @@ public sealed partial class AgentHost : IDisposable
                 && Security.On(Flyknit.Core.Security.SecuritySettings.BackgroundCommands, fallback: false)
                 && Tools.Get("run_shell") is { } shellTool
                 && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, shellTool));
+            // 开发者工具：IT 打开了「开发者工具」时办事模式才有（grep、multi_edit、git_*），这一轮走 code 场景
+            var developerTools = DeveloperToolsFor(conv, expert);
             var prompt = promptBuilder.Build(new PromptContext
             {
                 Tone = persona.Tone,
@@ -779,6 +789,7 @@ public sealed partial class AgentHost : IDisposable
                 Expert = expert,
                 BrowserAvailable = browser is not null && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, Flyknit.Core.Browser.BrowserToolSet.All[0])),
                 BackgroundCommands = backgroundCommands,
+                DeveloperTools = developerTools.Count > 0,
                 PlanMode = planMode,
                 Rehearsal = rehearsal,
             });
@@ -793,6 +804,8 @@ public sealed partial class AgentHost : IDisposable
             {
                 ConversationMode.Translate => Scenes.Translate,
                 ConversationMode.Chat => Scenes.Chat,
+                // 后台没单独给 code 配模型时服务端回退到 agent，所以这里不用判断
+                _ when developerTools.Count > 0 => Scenes.Code,
                 _ => Scenes.Agent,
             };
 
@@ -912,6 +925,7 @@ public sealed partial class AgentHost : IDisposable
                 extra.AddRange(Flyknit.Core.Terminal.TerminalToolSet.All
                     .Where(t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t)));
             }
+            extra.AddRange(developerTools);
             if (extra.Count > 0)
             {
                 // 共用的工具表不动（别的对话还在用），这一轮单独拷一份加上派遣、提问工具
