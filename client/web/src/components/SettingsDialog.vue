@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SquareSlash,
-  Puzzle,
   Bell,
   CircleArrowUp,
   CircleHelp,
@@ -37,7 +36,6 @@ import PersonalizePanel from './PersonalizePanel.vue'
 import SecurityPanel from './SecurityPanel.vue'
 import ShortcutsPanel from './ShortcutsPanel.vue'
 import CommandsPanel from './CommandsPanel.vue'
-import PluginsPanel from './PluginsPanel.vue'
 import ChannelsPanel from './ChannelsPanel.vue'
 import MobilePanel from './MobilePanel.vue'
 
@@ -45,7 +43,7 @@ const { t } = useI18n()
 const themes: Theme[] = ['system', 'light', 'dark']
 
 // ---------- 左侧菜单 ----------
-type Page = 'general' | 'notify' | 'shortcuts' | 'commands' | 'plugins' | 'network' | 'personalize' | 'memory' | 'dingtalk' | 'mobile' | 'data' | 'security' | 'about'
+type Page = 'general' | 'notify' | 'shortcuts' | 'commands' | 'network' | 'personalize' | 'memory' | 'dingtalk' | 'mobile' | 'data' | 'security' | 'about'
 const nav: { group: string; pages: { id: Page; icon: Component; label: string }[] }[] = [
   {
     group: 'settings.nav.groupSettings',
@@ -54,7 +52,6 @@ const nav: { group: string; pages: { id: Page; icon: Component; label: string }[
       { id: 'notify', icon: Bell, label: 'settings.nav.notify' },
       { id: 'shortcuts', icon: Keyboard, label: 'settings.shortcuts' },
       { id: 'commands', icon: SquareSlash, label: 'settings.commands' },
-      { id: 'plugins', icon: Puzzle, label: 'settings.plugins' },
       { id: 'network', icon: Globe, label: 'settings.nav.network' },
     ],
   },
@@ -505,7 +502,6 @@ onMounted(async () => {
         <!-- 快捷键 -->
         <ShortcutsPanel v-else-if="page === 'shortcuts'" />
         <CommandsPanel v-else-if="page === 'commands'" />
-        <PluginsPanel v-else-if="page === 'plugins'" />
 
         <!-- 网络 -->
         <template v-else-if="page === 'network'">

@@ -76,7 +76,7 @@ export const state = reactive({
   update: null as UpdateInfo | null,
   toast: '' as string,
   /** 主区域显示什么：对话（含新任务首页）、资料库，或者专家列表 */
-  view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks',
+  view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks' | 'plugins',
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
   /** 每个对话里每一轮改动的文件（打开对话、一轮结束时取） */
@@ -720,6 +720,11 @@ function refreshRunsSoon() {
 export function openTasks() {
   state.view = 'tasks'
   void loadRuns()
+}
+
+/** 侧栏「插件」：IT 按部门下发的插件（主区域页面） */
+export function openPlugins() {
+  state.view = 'plugins'
 }
 
 /** 上次没做完的任务（按对话 ID） */

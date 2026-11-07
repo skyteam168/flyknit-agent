@@ -22,6 +22,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
 import TasksPage from './components/TasksPage.vue'
+import PluginsPage from './components/PluginsPage.vue'
 import ChangesDialog from './components/ChangesDialog.vue'
 import SideChatPanel from './components/SideChatPanel.vue'
 import ExpertAvatar from './components/ExpertAvatar.vue'
@@ -304,6 +305,7 @@ onBeforeUnmount(() => {
         <LibraryPage v-if="state.view === 'library'" />
         <ExpertsPage v-else-if="state.view === 'experts'" />
         <TasksPage v-else-if="state.view === 'tasks'" />
+        <PluginsPage v-else-if="state.view === 'plugins'" />
         <div v-else-if="inConversation" v-show="!(state.rightMax && showRight)" class="conversation">
           <!-- 专家对话：顶部标出是哪位专家；专家被下线了说一声 -->
           <div v-if="current?.expertId" class="expert-bar" :class="{ withdrawn: expertWithdrawn }">
