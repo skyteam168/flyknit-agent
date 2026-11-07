@@ -400,6 +400,8 @@ export interface SkillInfo {
   name: string
   description: string
   version: string
+  /** 要用到的 MCP 连接器 ID（SKILL.md 的 mcp-servers） */
+  mcpServers?: string[]
   author: string
   license: string
   homepage: string

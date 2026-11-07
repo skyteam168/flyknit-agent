@@ -240,6 +240,11 @@ public sealed class LoadSkillTool : ITool
             sb.AppendLine($"版本：{skill.Version}");
         }
         sb.AppendLine($"技能目录：{skill.Directory}（说明中的相对路径都相对于此目录）");
+        if (Dependencies(skill, ctx) is { Length: > 0 } deps)
+        {
+            sb.AppendLine();
+            sb.Append(deps);
+        }
         sb.AppendLine();
         sb.AppendLine(skill.LoadBody());
         var files = skill.ListFiles();
@@ -253,6 +258,45 @@ public sealed class LoadSkillTool : ITool
             }
         }
         return Task.FromResult(ToolResult.Success(sb.ToString()));
+    }
+
+    /// <summary>
+    /// 技能声明的连接器连上没有：按这一轮真实的工具表查（工具名 mcp__&lt;ID&gt;__xxx），连上的列出真实工具名，
+    /// 没连上的明说哪些步骤做不了。技能说明里写的工具名可能和连接器实际给的不一样，以这里列的为准。
+    /// </summary>
+    internal static string Dependencies(Skills.SkillInfo skill, ToolContext ctx)
+    {
+        if (skill.RequiredMcp.Count == 0 && skill.OptionalMcp.Count == 0)
+        {
+            return "";
+        }
+        var names = ctx.ToolNames?.Invoke() ?? Array.Empty<string>();
+        var sb = new StringBuilder();
+        sb.AppendLine("## 这个技能要用的连接器（以这里为准）");
+        var missing = new List<string>();
+        foreach (var (id, required) in skill.RequiredMcp.Select(i => (i, true)).Concat(skill.OptionalMcp.Select(i => (i, false))))
+        {
+            var prefix = Mcp.McpNames.ServerPrefix(id);
+            var tools = names.Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(n => n).ToList();
+            if (tools.Count > 0)
+            {
+                sb.AppendLine($"- {id}：已连接，真实工具名：{string.Join("、", tools.Take(30))}{(tools.Count > 30 ? " 等" : "")}（不在工具列表里的先用 load_tools 加载）");
+            }
+            else
+            {
+                sb.AppendLine($"- {id}：没有连上{(required ? "（必需）" : "（可选）")}");
+                if (required)
+                {
+                    missing.Add(id);
+                }
+            }
+        }
+        if (missing.Count > 0)
+        {
+            sb.AppendLine($"缺少必需的连接器 {string.Join("、", missing)}：说明里用到它们的步骤现在做不了。不要编造 mcp__{missing[0]}__ 开头的工具名，" +
+                "也不要假装做过；先做不依赖它们的部分，然后如实告诉员工需要在「连接器」里连接（没有的话请 IT 上架）。");
+        }
+        return sb.ToString();
     }
 }
 

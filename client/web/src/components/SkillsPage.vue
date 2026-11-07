@@ -132,6 +132,12 @@ async function confirmRemove() {
 }
 
 onMounted(loadSkills)
+
+// 技能要用的连接器：连上了名字后面加 ✓（load_skill 时 AI 会如实说明没连上的那些步骤做不了）
+function mcpLabel(id: string) {
+  const v = state.mcp.find((x) => x.id === id)
+  return v ? `${v.name}${v.status === 'connected' ? ' ✓' : ''}` : id
+}
 </script>
 
 <template>
@@ -184,6 +190,9 @@ onMounted(loadSkills)
                   <small v-if="s.version" class="ver">v{{ s.version }}</small>
                 </strong>
                 <small class="desc">{{ s.description }}</small>
+                <small v-if="s.mcpServers?.length" class="deps" :title="t('ui.skills.needsMcpHint')">
+                  {{ t('ui.skills.needsMcp', { list: s.mcpServers.map(mcpLabel).join(', ') }) }}
+                </small>
               </span>
               <span class="state" :class="{ on: s.enabled }">
                 <i /> {{ s.enabled ? t('ui.skills.on') : t('ui.skills.off') }}
@@ -805,5 +814,9 @@ footer {
     opacity: 0;
     transform: translateY(6px) scale(0.98);
   }
+}
+.deps {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
 }
 </style>

@@ -44,14 +44,14 @@ public sealed class SkillService
         {
             if (Directory.Exists(path))
             {
-                return SkillPackage.Inspect(path, _policy(), Exists);
+                return SkillPackage.Inspect(path, _policy(), Exists, n => _catalog.FindAny(n)?.Version);
             }
             Directory.CreateDirectory(staging);
             System.IO.Compression.ZipFile.ExtractToDirectory(path, staging, overwriteFiles: true);
             var root = SkillPackage.FindSkillRoot(staging);
             return root is null
                 ? new SkillInspection { Error = "压缩包里没有找到 SKILL.md，这不是一个技能包" }
-                : SkillPackage.Inspect(root, _policy(), Exists);
+                : SkillPackage.Inspect(root, _policy(), Exists, n => _catalog.FindAny(n)?.Version);
         }
         catch (Exception ex)
         {

@@ -29,6 +29,40 @@ public sealed class SkillInspection
 
     /// <summary>已安装过同名技能时为 true（安装即升级）。</summary>
     public bool Replaces { get; init; }
+
+    /// <summary>已安装的那份的版本（没装过或没写版本为空）。</summary>
+    public string InstalledVersion { get; init; } = "";
+
+    /// <summary>要用到的 MCP 连接器（frontmatter 的 mcp-servers）。</summary>
+    public IReadOnlyList<string> RequiredMcp { get; init; } = Array.Empty<string>();
+}
+
+/// <summary>技能版本比较：按点分的数字逐段比（1.10.0 &gt; 1.9.2），不是数字的段按文字比。</summary>
+public static class SkillVersion
+{
+    /// <returns>a &lt; b 返回负数，相等 0，a &gt; b 正数；任一方为空返回 0（无法比较）。</returns>
+    public static int Compare(string a, string b)
+    {
+        a = a.Trim().TrimStart('v', 'V');
+        b = b.Trim().TrimStart('v', 'V');
+        if (a.Length == 0 || b.Length == 0)
+        {
+            return 0;
+        }
+        var pa = a.Split('.', '-', '+');
+        var pb = b.Split('.', '-', '+');
+        for (var i = 0; i < Math.Max(pa.Length, pb.Length); i++)
+        {
+            var x = i < pa.Length ? pa[i] : "0";
+            var y = i < pb.Length ? pb[i] : "0";
+            var c = int.TryParse(x, out var nx) && int.TryParse(y, out var ny) ? nx.CompareTo(ny) : string.Compare(x, y, StringComparison.OrdinalIgnoreCase);
+            if (c != 0)
+            {
+                return c;
+            }
+        }
+        return 0;
+    }
 }
 
 public sealed record SkillInstallResult(bool Ok, string Message, SkillInspection Inspection);
@@ -51,7 +85,8 @@ public static class SkillPackage
     private static readonly Regex ValidName = new(@"^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$", RegexOptions.Compiled);
 
     /// <summary>检查一个已解压的技能目录。</summary>
-    public static SkillInspection Inspect(string directory, CommandPolicy? policy, Func<string, bool>? exists = null)
+    /// <param name="installedVersion">已安装的同名技能的版本（没装过返回 null）：据此提醒「降级」。</param>
+    public static SkillInspection Inspect(string directory, CommandPolicy? policy, Func<string, bool>? exists = null, Func<string, string?>? installedVersion = null)
     {
         var skillFile = Path.Combine(directory, "SKILL.md");
         if (!File.Exists(skillFile))
@@ -147,6 +182,17 @@ public static class SkillPackage
         {
             warnings.Add("SKILL.md 正文内容很少");
         }
+        var mcp = new SkillInfo { Name = name, Description = description, Directory = directory, Meta = meta }.RequiredMcp;
+        if (mcp.Count > 0)
+        {
+            warnings.Add($"要用到这些连接器：{string.Join("、", mcp)}。没连上时技能里相关的步骤做不了（AI 会如实说明）");
+        }
+        var installed = installedVersion?.Invoke(name) ?? "";
+        var version = meta.TryGetValue("version", out var ver) ? ver : "";
+        if (SkillVersion.Compare(version, installed) < 0)
+        {
+            warnings.Add($"已安装的版本 {installed} 比这个包（{version}）新，安装会降级");
+        }
 
         return new SkillInspection
         {
@@ -159,6 +205,8 @@ public static class SkillPackage
             Bytes = total,
             Warnings = warnings,
             Replaces = exists?.Invoke(name) ?? false,
+            InstalledVersion = installed,
+            RequiredMcp = mcp,
         };
     }
 

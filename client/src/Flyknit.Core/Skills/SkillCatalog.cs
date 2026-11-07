@@ -55,6 +55,27 @@ public sealed class SkillInfo
         .Where(s => s.Length > 0)
         .ToList();
 
+    /// <summary>
+    /// 这个技能要用到的 MCP 连接器（frontmatter 里的 mcp-servers，也认 requires-mcp）。写的是连接器 ID，
+    /// 就是工具名 mcp__&lt;ID&gt;__xxx 中间那段。load_skill 时逐个查连上没有，没连上的如实告诉模型——不让它照着说明去编工具名。
+    /// </summary>
+    public IReadOnlyList<string> RequiredMcp => List("mcp-servers", "requires-mcp");
+
+    /// <summary>有更好、没有也能做的连接器（optional-mcp-servers）。</summary>
+    public IReadOnlyList<string> OptionalMcp => List("optional-mcp-servers");
+
+    private IReadOnlyList<string> List(params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (Meta.TryGetValue(key, out var raw) && raw.Trim().Length > 0)
+            {
+                return SkillCatalog.SplitList(raw);
+            }
+        }
+        return Array.Empty<string>();
+    }
+
     public string SkillFile => Path.Combine(Directory, "SKILL.md");
 
     /// <summary>相关度匹配用的文本。</summary>
@@ -470,6 +491,15 @@ public sealed class SkillCatalog : IDisposable
         }
         return (meta, body);
     }
+
+    /// <summary>frontmatter 里的列表：逗号 / 顿号分隔，或 [a, b] 写法，或已经被转成逗号的「- a」列表。</summary>
+    public static IReadOnlyList<string> SplitList(string raw) =>
+        raw.Trim().Trim('[', ']')
+            .Split(new[] { ',', '，', ';', '、' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => s.Trim('"', '\'', ' '))
+            .Where(s => s.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     private static string Unquote(string v)
     {

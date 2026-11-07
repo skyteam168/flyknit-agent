@@ -228,6 +228,7 @@ public sealed class AgentLoop
         var outputProblemsAtEnd = 0;
         var budget = new RunBudget { MaxTokens = _options.MaxRunTokens };
         ctx.Budget = budget; // 派遣专家时据此预留额度，专家用掉的再记回来
+        ctx.ToolNames = () => _tools.All.Select(t => t.Name).ToList();
         var endRequested = false; // 专家交卷：本次运行到此为止
         var guardNudges = 0;
         // 工具定义每次请求都要整份发过去（几十个工具能占好几万 token），压缩上下文时要算上
@@ -831,7 +832,7 @@ public sealed class AgentLoop
             var tool = _tools.Get(call.Name);
             if (tool is null)
             {
-                AppendTool(call, $"错误：不存在名为 {call.Name} 的工具");
+                AppendTool(call, MissingToolText(call.Name, _tools));
                 step.Dispose();
                 return PreparedCall.Done(call, false);
             }
@@ -1107,5 +1108,25 @@ public sealed class AgentLoop
         public Trace.StepTimer? Step { get; }
         public bool Ready { get; }
         public bool Ok { get; }
+    }
+
+    /// <summary>
+    /// 模型调了一个不存在的工具。连接器工具（mcp__x__y）说清楚是哪种情况：连接器没连上，还是连上了但没有这个工具——
+    /// 并列出那个连接器真实的工具名，免得它接着猜。
+    /// </summary>
+    internal static string MissingToolText(string name, ToolRegistry tools)
+    {
+        if (!Mcp.McpNames.IsMcp(name))
+        {
+            return $"错误：不存在名为 {name} 的工具";
+        }
+        var rest = name[Mcp.McpNames.Prefix.Length..];
+        var cut = rest.IndexOf("__", StringComparison.Ordinal);
+        var server = cut > 0 ? rest[..cut] : rest;
+        var prefix = Mcp.McpNames.Prefix + server + "__";
+        var real = tools.All.Select(t => t.Name).Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(n => n).ToList();
+        return real.Count == 0
+            ? $"错误：没有 {name} 这个工具——连接器「{server}」现在没有连上（或者不存在）。不要再猜它的工具名；告诉员工这一步需要先在「连接器」里连接「{server}」，没有的话请 IT 上架。"
+            : $"错误：连接器「{server}」没有 {name} 这个工具。它真实的工具有：{string.Join("、", real.Take(40))}{(real.Count > 40 ? " 等" : "")}。只能用这些名字。";
     }
 }

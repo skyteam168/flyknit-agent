@@ -265,6 +265,9 @@ public sealed class ToolContext
     /// </summary>
     public Func<IReadOnlyList<Chat.ChatMessage>>? ForkHistory { get; set; }
 
+    /// <summary>这一轮实际能用的全部工具名（含按需加载的连接器工具），由 Agent 循环填上。load_skill 据此核对技能依赖的连接器。</summary>
+    public Func<IReadOnlyCollection<string>>? ToolNames { get; set; }
+
     /// <summary>
     /// 给子代理用的上下文：权限取更严的、运行 ID 换成子任务的；不带浏览器（同一个窗口，几个子代理一起点会互相干扰）；
     /// 改动照样记进这一轮（员工能看到、能一键还原）。

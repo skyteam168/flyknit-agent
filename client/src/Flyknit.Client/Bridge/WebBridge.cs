@@ -2436,6 +2436,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
         name = s.Name,
         description = s.Description,
         version = s.Version,
+        mcpServers = s.RequiredMcp,
         author = s.Author,
         license = s.License,
         homepage = s.Homepage,
