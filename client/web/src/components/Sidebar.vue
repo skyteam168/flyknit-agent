@@ -27,6 +27,7 @@ import {
   PinOff,
   Plus,
   Plug,
+  Blocks,
   Puzzle,
   RotateCcw,
   Search,
@@ -50,7 +51,7 @@ import {
   newConversationIn,
   openConversation,
   openExperts,
-  openTasks,
+  openPlugins, openTasks,
   purgeConversation,
   refreshList,
   removeWorkspace,
@@ -468,6 +469,9 @@ onBeforeUnmount(() => {
         </button>
         <button type="button" @click="state.skillsOpen = true"><Puzzle :size="17" /> {{ t('ui.nav.skills') }}</button>
         <button type="button" @click="state.mcpOpen = true"><Plug :size="17" /> {{ t('ui.nav.connectors') }}</button>
+        <button type="button" :class="{ on: state.view === 'plugins' }" @click="(openPlugins(), emit('navigate'))">
+          <Blocks :size="17" /> {{ t('ui.nav.plugins') }}
+        </button>
         <button type="button" @click="state.schedulesOpen = true"><CalendarClock :size="17" /> {{ t('ui.nav.schedules') }}</button>
         <button
           ref="moreBtn"
