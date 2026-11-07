@@ -76,23 +76,25 @@ h1 {
   font-weight: 600;
 }
 .sub {
-  max-width: 820px;
+  max-width: 1100px;
   margin: 6px 0 0;
   color: var(--ink-faint);
   font-size: var(--t-sm);
   line-height: 1.6;
 }
+/* 卡片网格（同专家页）：有多宽排多少列 */
 .content {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  align-content: start;
+  gap: 14px;
   padding: 12px 28px 32px;
 }
-.content > * {
-  max-width: 820px;
+.content > .empty {
+  grid-column: 1 / -1;
 }
 .empty {
   margin: 60px 0;
@@ -100,13 +102,25 @@ h1 {
   font-size: var(--t-sm);
   text-align: center;
 }
+
 .item {
-  background: var(--cloth);
-}
-.item {
-  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 16px;
+  background: var(--cloth);
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.item:hover {
+  border-color: color-mix(in srgb, var(--indigo) 35%, var(--line));
+  box-shadow: var(--shadow-card);
+}
+.item .author {
+  margin-top: auto;
+  padding-top: 10px;
 }
 .row {
   display: flex;
