@@ -355,6 +355,8 @@ export interface UsageStats {
   dailyLimit: number
   remaining: number
   exceeded: boolean
+  /** 今天的额度什么时候清零（ISO 时间）；老服务端没有时为 null */
+  resetsAt?: string | null
   byScene: SceneUsage[]
   byDay: { day: string; tokens: number }[]
   contactName: string

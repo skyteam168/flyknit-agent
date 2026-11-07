@@ -35,6 +35,7 @@ import {
 import Popover from './Popover.vue'
 import VendorIcon from './VendorIcon.vue'
 import ModelPicker from './ModelPicker.vue'
+import QuotaRing from './QuotaRing.vue'
 import WorkspacePicker from './WorkspacePicker.vue'
 import PermissionPicker from './PermissionPicker.vue'
 import ConfirmBar from './ConfirmBar.vue'
@@ -71,7 +72,7 @@ import {
   startSpeech,
   state,
   stop,
-  toast,
+  toast, openConnectors,
 } from '../store'
 import type { InterjectMode, Mode, PendingInput, SlashCommand } from '../types'
 import { shouldFold, snippet } from '../pasted'
@@ -395,7 +396,7 @@ function useConnector(name: string, tool: string | null, close: () => void) {
 
 function manageConnectors(close: () => void) {
   close()
-  state.mcpOpen = true
+  openConnectors()
 }
 
 function useSkill(name: string, close?: () => void) {
@@ -767,6 +768,8 @@ onBeforeUnmount(() => {
         </div>
 
         <span class="spacer" />
+        <!-- 今日额度圆环：后台设了每日上限才显示 -->
+        <QuotaRing />
         <button
           v-if="original !== null"
           type="button"

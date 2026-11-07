@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Check, ChevronDown, Eye, KeyRound, Lightbulb, Link2, Loader2, Plug, Plus, RefreshCw, Search, TriangleAlert, Unplug, X } from '@lucide/vue'
 import { bridge } from '../bridge'
@@ -47,7 +47,19 @@ async function refresh() {
   await loadMcp(true)
   refreshing.value = false
 }
-onMounted(() => void loadMcp(true))
+onMounted(() => {
+  void loadMcp(true)
+  window.addEventListener('flyknit:escape', onEscape)
+})
+onBeforeUnmount(() => window.removeEventListener('flyknit:escape', onEscape))
+
+/** Esc（全局快捷键，见 App.vue 的 chat.stop）：详情开着就关详情，告诉 App 已经处理了 */
+function onEscape(e: Event) {
+  if (openId.value) {
+    e.preventDefault()
+    closeDetail()
+  }
+}
 
 function open(v: McpVendor) {
   openId.value = v.id
@@ -59,7 +71,6 @@ function open(v: McpVendor) {
 function closeDetail() {
   openId.value = null
 }
-const close = () => (state.mcpOpen = false)
 
 /** 卡片上的「+」：不用填东西的直接连，要填的先打开详情 */
 function quickConnect(v: McpVendor) {
@@ -116,15 +127,14 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
 </script>
 
 <template>
-  <div class="scrim" @mousedown.self="close" @keydown.esc="openId ? closeDetail() : close()">
-    <div class="dialog" role="dialog" aria-modal="true" :aria-label="t('ui.mcp.title')">
+  <div class="page-root">
+    <div class="dialog" role="region" :aria-label="t('ui.mcp.title')">
       <header>
         <div class="badge"><Plug :size="20" /></div>
         <div class="head-text">
           <h2>{{ t('ui.mcp.title') }}</h2>
           <p>{{ t('ui.mcp.hint') }}</p>
         </div>
-        <button type="button" class="icon-btn" :aria-label="t('settings.close')" @click="close"><X :size="18" /></button>
       </header>
 
       <div class="toolbar">
@@ -302,16 +312,24 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
   z-index: 70;
   background: color-mix(in srgb, var(--ink) 20%, transparent);
 }
-.dialog {
+/* 主区域页面（侧栏选中后显示在右侧，和资料库、插件页一样，不是弹窗） */
+.page-root {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  width: min(980px, 100%);
-  height: min(680px, calc(100vh - 32px));
-  padding: 22px 24px 18px;
-  border-radius: var(--r-lg);
-  background: var(--cloth);
-  box-shadow: var(--shadow-pop);
-  animation: pop 160ms ease-out;
+  background: var(--loom);
+}
+.dialog {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1080px;
+  padding: 16px 28px 16px;
 }
 header {
   display: flex;

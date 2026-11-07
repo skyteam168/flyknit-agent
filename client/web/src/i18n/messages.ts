@@ -663,6 +663,14 @@ const zh = {
     },
     safety: { agent: '安全模式：危险命令自动拦截，修改电脑前会先问你', other: '内容由 AI 生成，请核实重要信息' },
     modeLocked: '切换模式会开始一个新任务',
+    quota: {
+      aria: '今日额度已用 {p}%，点击查看用量',
+      used: '今日额度已用 {p}%',
+      exceeded: '今日额度已用完',
+      detail: '已用 {used} · 剩余 {left} / 共 {total} tokens',
+      resetToday: '今天 {time} 重置',
+      resetTomorrow: '明天 {time} 重置',
+    },
     usage: {
       tokens: '{n} tokens',
       detail: '输入 {prompt} · 输出 {completion} tokens',
@@ -2233,6 +2241,14 @@ const vi: Messages = {
     },
     safety: { agent: 'Chế độ an toàn: lệnh nguy hiểm bị chặn, sẽ hỏi bạn trước khi thay đổi máy tính', other: 'Nội dung do AI tạo, hãy kiểm tra thông tin quan trọng' },
     modeLocked: 'Đổi chế độ sẽ bắt đầu nhiệm vụ mới',
+    quota: {
+      aria: 'Đã dùng {p}% hạn mức hôm nay, bấm để xem chi tiết',
+      used: 'Đã dùng {p}% hạn mức hôm nay',
+      exceeded: 'Đã dùng hết hạn mức hôm nay',
+      detail: 'Đã dùng {used} · còn {left} / tổng {total} tokens',
+      resetToday: 'Đặt lại lúc {time} hôm nay',
+      resetTomorrow: 'Đặt lại lúc {time} ngày mai',
+    },
     usage: {
       tokens: '{n} tokens',
       detail: 'Đầu vào {prompt} · Đầu ra {completion} tokens',
@@ -3808,6 +3824,14 @@ const en: Messages = {
     },
     safety: { agent: 'Safe mode: dangerous commands are blocked, and you approve changes first', other: 'AI-generated content, check important details' },
     modeLocked: 'Switching modes starts a new task',
+    quota: {
+      aria: '{p}% of today’s quota used, click for details',
+      used: '{p}% of today’s quota used',
+      exceeded: 'Today’s quota is used up',
+      detail: '{used} used · {left} left of {total} tokens',
+      resetToday: 'Resets today at {time}',
+      resetTomorrow: 'Resets tomorrow at {time}',
+    },
     usage: {
       tokens: '{n} tokens',
       detail: 'Input {prompt} · Output {completion} tokens',

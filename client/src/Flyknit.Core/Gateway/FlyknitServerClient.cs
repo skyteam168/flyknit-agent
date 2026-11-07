@@ -60,6 +60,8 @@ public sealed class UsageStats
     [JsonPropertyName("daily_limit")] public int DailyLimit { get; set; }
     [JsonPropertyName("remaining")] public int Remaining { get; set; }
     [JsonPropertyName("exceeded")] public bool Exceeded { get; set; }
+    /// <summary>今天的额度什么时候清零。老服务端没有这个字段时为 null。</summary>
+    [JsonPropertyName("resets_at")] public DateTimeOffset? ResetsAt { get; set; }
     [JsonPropertyName("by_scene")] public List<SceneUsage> ByScene { get; set; } = new();
     [JsonPropertyName("by_day")] public List<DayUsage> ByDay { get; set; } = new();
     [JsonPropertyName("contact_name")] public string ContactName { get; set; } = "";

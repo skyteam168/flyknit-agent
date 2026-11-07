@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { CalendarClock, History, LoaderCircle, Pause, Play, RotateCcw, Smartphone, Square, SquareTerminal, Users, X } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { dismissInterrupted, fail, loadRuns, loadSchedules, openConversation, resumeInterrupted, state, stopTerminalRun } from '../store'
+import { dismissInterrupted, fail, loadRuns, loadSchedules, openConversation, resumeInterrupted, state, stopTerminalRun, openSchedules } from '../store'
 import { activeSubtasks, backgroundCommands, backgroundCount, conversationTitle, upcomingSchedules } from '../background'
 import type { RunningRun, TerminalRun } from '../types'
 
@@ -142,7 +142,7 @@ async function openCommand(r: TerminalRun) {
       <!-- 快到点的定时任务 -->
       <section v-if="upcomingSchedules.length">
         <h3>{{ t('ui.background.schedules') }}</h3>
-        <button v-for="s in upcomingSchedules" :key="s.id" type="button" class="item link" :title="t('ui.background.openSchedules')" @click="state.schedulesOpen = true">
+        <button v-for="s in upcomingSchedules" :key="s.id" type="button" class="item link" :title="t('ui.background.openSchedules')" @click="openSchedules()">
           <div class="row">
             <CalendarClock :size="13" class="origin" />
             <span class="title plain">{{ s.name }}</span>

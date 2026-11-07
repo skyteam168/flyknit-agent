@@ -13,7 +13,6 @@ import {
   Play,
   Plus,
   Trash2,
-  X,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { errorText, fail, loadSchedules, openConversation, state, toast } from '../store'
@@ -153,7 +152,6 @@ async function runNow(task: ScheduledTask) {
       return
     }
     toast(t('ui.schedules.started', { name: task.name }))
-    state.schedulesOpen = false
     if (r.conversationId) await openConversation(r.conversationId)
   } catch (e) {
     fail(e)
@@ -199,12 +197,11 @@ const when = (iso: string) => new Date(iso).toLocaleString([], { month: '2-digit
 const statusText = (s: string) => (s ? t(`ui.schedules.status.${s}`, s) : '')
 
 onMounted(firstLoad)
-const close = () => (state.schedulesOpen = false)
 </script>
 
 <template>
-  <div class="scrim" @mousedown.self="close" @keydown.esc="close">
-    <div class="dialog" role="dialog" aria-modal="true" :aria-label="t('ui.schedules.title')">
+  <div class="page-root">
+    <div class="dialog" role="region" :aria-label="t('ui.schedules.title')">
       <header>
         <div class="badge"><CalendarClock :size="20" /></div>
         <div class="head-text">
@@ -212,7 +209,6 @@ const close = () => (state.schedulesOpen = false)
           <p>{{ t('ui.schedules.subtitle') }}</p>
         </div>
         <button v-if="!editing" type="button" class="btn primary" @click="openNew()"><Plus :size="15" /> {{ t('ui.schedules.new') }}</button>
-        <button type="button" class="icon-btn" :aria-label="t('settings.close')" @click="close"><X :size="18" /></button>
       </header>
 
       <!-- 新建 / 编辑 -->
@@ -356,7 +352,7 @@ const close = () => (state.schedulesOpen = false)
                 v-if="task.lastConversationId"
                 type="button"
                 class="btn"
-                @click="state.schedulesOpen = false; openConversation(task.lastConversationId!)"
+                @click="openConversation(task.lastConversationId!)"
               >
                 {{ t('ui.schedules.lastRun') }}
               </button>
@@ -384,8 +380,6 @@ const close = () => (state.schedulesOpen = false)
 
       <footer>
         <span class="note"><CircleAlert :size="13" /> {{ t('ui.schedules.footer') }}</span>
-        <span class="spacer" />
-        <button type="button" class="btn primary" @click="close">{{ t('settings.close') }}</button>
       </footer>
     </div>
 
@@ -414,16 +408,24 @@ const close = () => (state.schedulesOpen = false)
 .scrim.inner {
   z-index: 70;
 }
-.dialog {
+/* 主区域页面（侧栏选中后显示在右侧，和资料库、插件页一样，不是弹窗） */
+.page-root {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  width: min(720px, 100%);
-  height: min(640px, calc(100vh - 32px));
-  padding: 22px 24px 16px;
-  border-radius: var(--r-lg);
-  background: var(--cloth);
-  box-shadow: var(--shadow-pop);
-  animation: pop 160ms ease-out;
+  background: var(--loom);
+}
+.dialog {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 860px;
+  padding: 16px 28px 16px;
 }
 header {
   display: flex;

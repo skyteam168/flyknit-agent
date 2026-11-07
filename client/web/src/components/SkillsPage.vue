@@ -17,7 +17,6 @@ import {
   TriangleAlert,
   Upload,
   User,
-  X,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { fail, loadSkills, state, toast } from '../store'
@@ -133,19 +132,17 @@ async function confirmRemove() {
 }
 
 onMounted(loadSkills)
-const close = () => (state.skillsOpen = false)
 </script>
 
 <template>
-  <div class="scrim" @mousedown.self="close" @keydown.esc="close">
-    <div class="dialog" role="dialog" aria-modal="true" :aria-label="t('ui.skills.title')">
+  <div class="page-root">
+    <div class="dialog" role="region" :aria-label="t('ui.skills.title')">
       <header>
         <div class="badge"><Puzzle :size="20" /></div>
         <div class="head-text">
           <h2>{{ t('ui.skills.title') }}</h2>
           <p>{{ t('ui.skills.hint') }}</p>
         </div>
-        <button type="button" class="icon-btn" :aria-label="t('settings.close')" @click="close"><X :size="18" /></button>
       </header>
 
       <nav class="tabs" role="tablist">
@@ -331,8 +328,6 @@ const close = () => (state.skillsOpen = false)
 
       <footer>
         <button type="button" class="btn" @click="bridge.openSkillsFolder().catch(fail)"><FolderOpen :size="15" /> {{ t('ui.skills.openFolder') }}</button>
-        <span class="spacer" />
-        <button type="button" class="btn primary" @click="close">{{ t('settings.close') }}</button>
       </footer>
     </div>
 
@@ -362,16 +357,24 @@ const close = () => (state.skillsOpen = false)
 .scrim.inner {
   z-index: 70;
 }
-.dialog {
+/* 主区域页面（侧栏选中后显示在右侧，和资料库、插件页一样，不是弹窗） */
+.page-root {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  width: min(720px, 100%);
-  height: min(640px, calc(100vh - 32px));
-  padding: 22px 24px 18px;
-  border-radius: var(--r-lg);
-  background: var(--cloth);
-  box-shadow: var(--shadow-pop);
-  animation: pop 160ms ease-out;
+  background: var(--loom);
+}
+.dialog {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 860px;
+  padding: 16px 28px 16px;
 }
 header {
   display: flex;

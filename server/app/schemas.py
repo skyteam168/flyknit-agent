@@ -361,6 +361,8 @@ class UsageOut(BaseModel):
     daily_limit: int = 0
     remaining: int = 0
     exceeded: bool = False
+    #: 今天的额度什么时候清零（明天 0 点，和服务端算「今天」用同一个时区）
+    resets_at: datetime | None = None
     by_scene: list[SceneUsage] = []
     by_day: list[DayUsage] = []
     contact_name: str = ""
