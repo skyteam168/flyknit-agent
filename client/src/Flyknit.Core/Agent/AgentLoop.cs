@@ -175,6 +175,12 @@ public sealed class AgentLoop
     /// </summary>
     public Action<ChatMessage>? Persist { get; init; }
 
+    /// <summary>
+    /// 断点（<see cref="RunCheckpoint"/> 的 JSON）：每执行一个工具、改一次计划、请员工确认一次就给一份，宿主存起来。
+    /// 程序被关后「继续」时据此说清做到哪一步、最后那个操作有没有执行完。保存失败不影响运行。
+    /// </summary>
+    public Action<string>? Checkpoint { get; init; }
+
     public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
@@ -238,7 +244,29 @@ public sealed class AgentLoop
             context.ToolTokens = toolTokens;
         }
 
-        void PlanChanged(IReadOnlyList<PlanItem> plan) => observer.OnPlanUpdated(plan);
+        var checkpoint = new RunCheckpoint { RunId = ctx.RunId };
+        void SaveCheckpoint()
+        {
+            if (Checkpoint is null)
+            {
+                return;
+            }
+            checkpoint.Steps = steps;
+            try
+            {
+                Checkpoint(checkpoint.ToJson());
+            }
+            catch (Exception)
+            {
+                // 断点存不下来不影响任务本身
+            }
+        }
+        void PlanChanged(IReadOnlyList<PlanItem> plan)
+        {
+            observer.OnPlanUpdated(plan);
+            checkpoint.PlanUpdated(plan);
+            SaveCheckpoint();
+        }
         ctx.PlanChanged += PlanChanged;
         try
         {
@@ -917,6 +945,8 @@ public sealed class AgentLoop
                         Decision = decision,
                         Rationale = rationale,
                     }, token);
+                    checkpoint.Asked(choice == ConfirmChoice.Reject);
+                    SaveCheckpoint();
 
                     if (choice == ConfirmChoice.Reject)
                     {
@@ -953,6 +983,17 @@ public sealed class AgentLoop
             try
             {
                 context.CurrentCallId = p.Call.Id;
+                string summary;
+                try
+                {
+                    summary = p.Tool.Describe(p.Args);
+                }
+                catch (Exception)
+                {
+                    summary = p.Call.Name;
+                }
+                checkpoint.ToolStarted(p.Call.Id, p.Call.Name, summary);
+                SaveCheckpoint();
                 return await p.Tool.ExecuteAsync(p.Args, context, timeout.Token);
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
@@ -1043,6 +1084,8 @@ public sealed class AgentLoop
                 }
             }
             AppendTool(call, text, images);
+            checkpoint.ToolFinished(call.Id, result.Ok);
+            SaveCheckpoint();
             return result.Ok;
         }
 

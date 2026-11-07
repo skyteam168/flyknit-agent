@@ -541,7 +541,7 @@ onBeforeUnmount(() => {
     <div class="card" :class="{ busy }">
       <!-- 上次没做完：已经做过的步骤都存着，可以接着做 -->
       <div v-if="interrupted && !props.home" class="paused-bar interrupted-bar">
-        <span>{{ t('ui.longTask.interruptedBar') }}</span>
+        <span>{{ t('ui.longTask.interruptedBar') }}<template v-if="interrupted.stage"> {{ t('ui.tasks.stoppedAt', { stage: interrupted.stage }) }}</template></span>
         <button type="button" class="paused-go ghost" @click="dismissInterrupted(interrupted.conversationId)">{{ t('ui.tasks.dismiss') }}</button>
         <button type="button" class="paused-go" @click="resumeInterrupted(interrupted.conversationId)"><Play :size="13" /> {{ t('ui.tasks.resume') }}</button>
       </div>

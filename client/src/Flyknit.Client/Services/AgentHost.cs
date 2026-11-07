@@ -959,6 +959,7 @@ public sealed partial class AgentHost : IDisposable
                 Interjections = InterjectionsFor(id),
                 Pause = PauseGateFor(id),
                 Persist = PersistFor(id),
+                Checkpoint = json => Store.SetRunState(id, json),
             };
             var extraBody = ChatExtraBody(conv);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context, extraBody);

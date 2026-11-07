@@ -101,6 +101,7 @@ const stopRun = (r: RunningRun) => act(() => bridge.stop(r.conversationId))
             <span class="meta">{{ t('ui.tasks.startedAt', { at: when(r.startedAt) }) }}</span>
           </div>
           <p v-if="r.origin !== 'ui'" class="step">{{ t(`ui.tasks.origin.${r.origin === 'remote' ? 'remote' : 'headless'}`) }}</p>
+          <p v-if="r.stage" class="step">{{ t('ui.tasks.stoppedAt', { stage: r.stage }) }}</p>
           <div class="row actions">
             <span class="spacer" />
             <button type="button" class="btn" @click="dismissInterrupted(r.conversationId)"><X :size="14" /> {{ t('ui.tasks.dismiss') }}</button>

@@ -137,9 +137,17 @@ public sealed partial class AgentHost
     /// </summary>
     public void ResumeInterrupted(string conversationId, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
     {
-        var message = NewUserMessage(null,
-            "继续上次没做完的任务（程序上次在执行中被关闭了）。先看看已经完成了哪些步骤、产出的文件在不在、对不对，最后那一步如果没执行完要先确认结果，再接着把任务做完。",
-            Array.Empty<Attachment>());
+        // 有断点就说清做到哪一步、最后那个操作有没有执行完（见 RunCheckpoint）
+        string? state = null;
+        try
+        {
+            state = Store.GetRunState(conversationId);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("读取任务断点失败", ex);
+        }
+        var message = NewUserMessage(null, Flyknit.Core.Agent.RunCheckpoint.ResumeNote(Flyknit.Core.Agent.RunCheckpoint.Parse(state)), Array.Empty<Attachment>());
         _autoContinues.TryRemove(conversationId, out _);
         StartRun(conversationId, uiLanguage, confirm, events, _ => message);
         events.Post(new { type = "chat.message", conversationId, message = MessageDto.From(message) });

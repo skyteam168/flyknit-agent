@@ -135,6 +135,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 title = r.Title,
                 startedAt = r.StartedAt.ToString("O"),
                 origin = r.Origin,
+                stage = r.Stage,
             }).ToList(),
             recent = recent.Select(r => new
             {

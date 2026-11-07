@@ -686,6 +686,8 @@ export interface InterruptedRunInfo {
   title: string
   startedAt: string
   origin: string
+  /** 断点里的当前阶段（计划里进行中的那一步） */
+  stage?: string
 }
 
 /** 最近跑完的一轮 */
