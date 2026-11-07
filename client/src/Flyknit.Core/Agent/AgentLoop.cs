@@ -1017,6 +1017,11 @@ public sealed class AgentLoop
             var call = p.Call;
             // 太长的结果存成文件，模型拿到开头、结尾和路径（见 ToolOutputSpill）
             var raw = executed ?? ToolResult.Fail("执行失败");
+            // 连接器、浏览器、命令输出里的 Cookie / 令牌 / 密码：进模型上下文、存进对话和审计之前先打码
+            if (SecretRedactor.AppliesTo(call.Name) && raw.Output.Length > 0)
+            {
+                raw = raw with { Output = SecretRedactor.Redact(raw.Output) };
+            }
             // IT 的工具规则：结果打码、加一句公司规定（在落盘之前，存下来的也是打过码的）
             if (ctx.Rules is { IsEmpty: false } toolRules)
             {

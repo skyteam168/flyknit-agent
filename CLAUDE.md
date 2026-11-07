@@ -92,7 +92,7 @@ flyknitbuddy/
   文件：`read_file` `list_dir` `search_files` `write_file` `delete_path`  
   Shell：`run_shell`（及 `shell_output` / `shell_stop`）  
   Agent：`update_plan` `memory_write` `memory_search` `load_skill` `search_skills` `suggest_task`  
-  交互 / 派遣：`ask_user` `ask_expert` `submit_result`  
+  交互 / 派遣：`ask_user` `ask_expert` `submit_result` `spawn_agent`（子代理，安全中心 `subagents`，默认关）  
   浏览器：`browser_open` / `read` / `click` / `type` / `select` / `scroll` / `back`  
   Windows（Client 注册）：`open_app`  
   开发者工具（安全中心 `developer_tools`，默认关，任务走 `code` 场景）：`grep` `multi_edit` `git_status` `git_diff` `git_log` `git_commit`

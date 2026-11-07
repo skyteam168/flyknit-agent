@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Flyknit.Core.Mcp;
 
@@ -12,7 +11,7 @@ namespace Flyknit.Core.Mcp;
 /// Authorization / Cookie 头、Bearer 令牌、token= / password= 这类键值、常见的密钥格式。
 /// 超过 <see cref="MaxBytes"/> 就把旧的挪成 .1（只留一份），不会无限变大。
 /// </summary>
-public sealed partial class McpServerLog
+public sealed class McpServerLog
 {
     public const long MaxBytes = 1024 * 1024;
     private const int MaxLineChars = 2000;
@@ -76,28 +75,6 @@ public sealed partial class McpServerLog
         }
     }
 
-    // ---------- 打码 ----------
-
-    [GeneratedRegex(@"(?i)\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key)\s*[:=]\s*[^\r\n]+")]
-    private static partial Regex HeaderPattern();
-
-    [GeneratedRegex(@"(?i)\b(bearer|basic)\s+[A-Za-z0-9\-._~+/]+=*")]
-    private static partial Regex SchemePattern();
-
-    [GeneratedRegex(@"(?i)([""']?\b[a-z0-9_\-]*(?:token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key|session|cookie)[a-z0-9_\-]*[""']?\s*[:=]\s*)(""[^""]*""|'[^']*'|[^\s,;&""'}]+)")]
-    private static partial Regex KeyValuePattern();
-
-    // 常见的令牌长相：GitHub、OpenAI 风格、Slack、AWS 访问密钥、JWT
-    [GeneratedRegex(@"\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9\-_]{16,}|xox[abprs]-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,})")]
-    private static partial Regex TokenPattern();
-
-    /// <summary>把一行里像凭证的部分换成 ***。</summary>
-    public static string Redact(string text)
-    {
-        text = HeaderPattern().Replace(text, m => m.Groups[1].Value + ": ***");
-        text = SchemePattern().Replace(text, m => m.Groups[1].Value + " ***");
-        text = KeyValuePattern().Replace(text, m => m.Groups[1].Value + "***");
-        text = TokenPattern().Replace(text, "***");
-        return text;
-    }
+    /// <summary>把一行里像凭证的部分换成 ***（见 <see cref="Security.SecretRedactor"/>）。</summary>
+    public static string Redact(string text) => Security.SecretRedactor.Redact(text);
 }

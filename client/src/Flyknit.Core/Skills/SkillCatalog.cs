@@ -472,9 +472,9 @@ public sealed class SkillCatalog : IDisposable
                 block.Clear();
             }
             var colon = line.IndexOf(':');
-            if (colon <= 0 || line.StartsWith(' '))
+            if (colon <= 0 || line.StartsWith(' ') || line.TrimStart().StartsWith('#'))
             {
-                continue;
+                continue; // YAML 注释行也跳过
             }
             var key = line[..colon].Trim();
             var value = line[(colon + 1)..].Trim();

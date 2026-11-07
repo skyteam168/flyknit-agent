@@ -286,3 +286,8 @@ REA、Craft Anything、Playwright MCP 由 IT 在后台配置成连接器。逆�
 | 阶段 0 | 代码完成，Linux 单测通过 | 思考内容回传按数据决定（不按厂商写死）；服务端按模型配置「思考开关写法」（enable_thinking / thinking / chat_template_kwargs / 不传）和「思考回传」（自动 / 不回传）；网关请求在没收到任何回答前对连不上、超时、502/503/504、非额度 429 退避重试 2 次 |
 | 阶段 1 | 代码完成，Linux 单测通过，待 Windows 实机验证 | 安全中心「开发者工具」（默认关）；grep、search_files 支持 `**`、multi_edit、git_status / git_diff / git_log / git_commit；git 与 gh 命令按子命令 + 关键参数定级；`/init` 生成 FLYKNIT.md；`code` 场景 |
 | 阶段 2 | 代码完成，Linux 单测 + 真实子进程测试通过，待 Windows 实机验证 | 员工取消时向 MCP 服务器发 notifications/cancelled；本机进程连接器跑稳（≥30 秒）后崩溃自动重启，10 分钟内最多 3 次，一启动就崩的不重启；每分钟 ping 健康检查，有调用在跑时不 ping，连续 2 次不回断开重连，界面显示延迟；每个连接器一份打码日志 logs\mcp\<id>.log（不记参数和返回内容），可在连接器页面打开；声明只读的 MCP 工具可并行；工具返回的图片存成文件并在界面显示，场景模型能识图时随下一次请求发给模型；stderr 进报错前打码；退出码读取竞态修复 |
+| 派遣/子代理 | 代码完成，Linux 单测通过，待 Windows 实机验证 | 专家交卷修复：最后的文字回答即结果（completed / 被叫停时 partial），全文 report 交回主助手，不再因没调 submit_result 判失败；新增 spawn_agent 子代理（fork / fresh，只读并行、可写逐次确认，安全中心「子代理」默认关），见 docs/expert-delegation-contract.md §9–§10 |
+| 阶段 3 | 代码完成，Linux 单测通过 | SKILL.md 的 mcp-servers / optional-mcp-servers；load_skill 按真实工具表报告连接器连没连上并列真实工具名；调了不存在的连接器工具时说明原因；技能安装预检提示依赖和降级；技能页面显示所需连接器 |
+| 阶段 4 | 代码完成，Linux 单测通过 | RunCheckpoint 每步落盘（本机 SQLite，未引入 Redis）：阶段、计划、计数、最后一个调用状态；「继续」时据此说明断点，执行中被关的那一步先核对再继续；中断任务显示「停在：阶段」 |
+| 阶段 5 | 代码完成，Linux 单测通过；REA / Craft Anything / Playwright 真实验收待 Windows 实机 | 连接器、浏览器、命令输出进模型上下文前打码（Cookie、Authorization、令牌、密码）；逆向与重建技能包 docs/skills/software-reverse-rebuild（合规边界、分阶段产出、只用真实工具名），IT 改好连接器 ID 后打包上传到技能库 |
+
