@@ -112,6 +112,8 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "background_commands",
         # 客户端 AgentHost.DeveloperToolsFor 读它：grep、multi_edit、git_* 和 code 场景
         "developer_tools",
+        # 客户端 SubAgentRunner.Enabled 读它：主助手有没有 spawn_agent
+        "subagents",
         # 客户端读这几项决定能选哪些语气、能不能锁屏运行
         "persona_playful",
         "persona_custom",

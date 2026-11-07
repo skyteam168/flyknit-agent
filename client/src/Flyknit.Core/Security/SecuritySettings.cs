@@ -82,6 +82,9 @@ public sealed class SecuritySettings
     /// <summary>开发者工具（grep、multi_edit、git_*，任务走 code 场景）。默认关闭，IT 给写程序的同事打开。</summary>
     public const string DeveloperTools = "developer_tools";
 
+    /// <summary>子代理（spawn_agent，主助手按任务开分身去调研、干活）。默认关闭。</summary>
+    public const string SubAgents = "subagents";
+
     /// <summary>单次任务 token 上限，单位万 tokens。0 表示不限；长任务模式按 5 倍算。</summary>
     public const string RunTokenBudget = "run_token_budget";
     public const string VerifyOutputs = "verify_outputs";

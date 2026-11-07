@@ -404,6 +404,9 @@ public sealed class AgentLoop
                     }
                 }
 
+                // fork 子代理继承到这里为止的对话（不含这条带调用的回答：它的工具结果还没有）
+                var forkPoint = history.Count;
+                ctx.ForkHistory = () => history.Take(forkPoint).ToList();
                 var assistant = ChatMessage.Assistant(content, turn.ToolCalls, turn.Reasoning.Length > 0 ? turn.Reasoning : null);
                 assistant.ModelName = turn.ModelName;
                 assistant.PromptTokens = turn.Usage?.PromptTokens;

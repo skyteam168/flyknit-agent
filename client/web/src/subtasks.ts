@@ -7,6 +7,12 @@ import type { FindingVerification, SubtaskDto, SubtaskExpert } from './types'
 /** 主助手派遣专家用的工具名 */
 export const AskExpertTool = 'ask_expert'
 
+/** 主助手开子代理用的工具名（卡片和专家任务共用） */
+export const SpawnAgentTool = 'spawn_agent'
+
+/** 这个工具调用要不要用子任务卡片显示（派遣专家、开子代理） */
+export const isSubtaskTool = (name: string) => name === AskExpertTool || name === SpawnAgentTool
+
 /** 专家调用的工具名换成给人看的（内置工具按名字表翻译，MCP 工具显示「厂商 · 工具」），不认识的原样显示 */
 export function toolLabel(name: string): string {
   if (!name) return ''
@@ -33,7 +39,8 @@ export function verificationCounts(dto: SubtaskDto): Record<FindingVerification,
 }
 
 /** ask_expert 的调用参数：专家还没开始（没收到 expert.started）时卡片靠它显示派给谁、做什么 */
-export function askExpertArgs(json: string | undefined): { expert: SubtaskExpert | null; task: string } {
+export function askExpertArgs(json: string | undefined, toolName = AskExpertTool): { expert: SubtaskExpert | null; task: string } {
+  if (toolName === SpawnAgentTool) return spawnAgentArgs(json)
   let a: { expert?: unknown; task?: unknown } = {}
   try {
     a = JSON.parse(json ?? '{}') ?? {}
@@ -48,6 +55,18 @@ export function askExpertArgs(json: string | undefined): { expert: SubtaskExpert
       ? { id: key, name: key, avatar: '', version: 0 }
       : null
   return { expert, task: typeof a.task === 'string' ? a.task : '' }
+}
+
+/** spawn_agent 的参数：子代理还没开始时卡片显示标题和任务 */
+function spawnAgentArgs(json: string | undefined): { expert: SubtaskExpert | null; task: string } {
+  let a: { description?: unknown; prompt?: unknown } = {}
+  try {
+    a = JSON.parse(json ?? '{}') ?? {}
+  } catch {
+    // 参数不完整时只显示「子代理」
+  }
+  const name = typeof a.description === 'string' && a.description.trim() ? a.description.trim() : i18n.global.t('ui.subagent.name')
+  return { expert: { id: 'subagent', name, avatar: '🤖', version: 0 }, task: typeof a.prompt === 'string' ? a.prompt : '' }
 }
 
 /** 一行任务摘要：只取第一行，太长截断 */

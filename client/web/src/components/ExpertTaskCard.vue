@@ -14,7 +14,10 @@ const props = defineProps<{ tool: ToolActivity; conversationId: string }>()
 const { t } = useI18n()
 
 const sub = computed(() => subtaskFor(props.conversationId, props.tool.callId))
-const fromArgs = computed(() => askExpertArgs(props.tool.args))
+const fromArgs = computed(() => askExpertArgs(props.tool.args, props.tool.name))
+// 子代理（spawn_agent）和专家共用这张卡片，几句文案换成子代理的说法
+const isSub = computed(() => props.tool.name === 'spawn_agent')
+const say = (key: 'starting' | 'notStarted' | 'noSummary' | 'dispatching') => t(isSub.value ? `ui.subagent.${key}` : `ui.delegate.${key}`)
 const expert = computed(() => sub.value?.expert ?? fromArgs.value.expert)
 const task = computed(() => sub.value?.task || fromArgs.value.task)
 const result = computed(() => sub.value?.result ?? null)
@@ -51,7 +54,7 @@ const status = computed(() => {
 const stepText = computed(() => {
   const step = sub.value?.step
   if (waiting.value && (!step || step.kind !== 'waiting_confirmation')) return t('ui.delegate.waitingShort')
-  if (!step) return t('ui.delegate.starting')
+  if (!step) return say('starting')
   if (step.kind === 'thinking') return t('ui.delegate.thinking')
   const name = toolLabel(step.name)
   if (step.kind === 'waiting_confirmation') return name ? t('ui.delegate.waiting', { name }) : t('ui.delegate.waitingShort')
@@ -92,7 +95,7 @@ const plainText = computed(() => oneLine(props.tool.output ?? '', 160))
       <ExpertAvatar v-if="expert" :avatar="expert.avatar" :name="expert.name" :id="expert.id" :size="30" />
       <span v-else class="avatar-ph"><BriefcaseBusiness :size="16" /></span>
       <div class="who">
-        <span class="name">{{ expert?.name || t('ui.delegate.dispatching') }}</span>
+        <span class="name">{{ expert?.name || say('dispatching') }}</span>
         <span v-if="task" class="task" :title="task">{{ oneLine(task) }}</span>
       </div>
       <span class="badge" :class="status">{{ t(`ui.delegate.status.${status}`) }}</span>
@@ -102,7 +105,7 @@ const plainText = computed(() => oneLine(props.tool.output ?? '', 160))
     <div v-if="phase === 'dispatching'" class="step">
       <BrandLoader
         size="sm"
-        :text="(expert ? t('ui.delegate.dispatchingTo', { name: expert.name }) : t('ui.delegate.dispatching')).replace(/[.…]+$/, '')"
+        :text="(isSub ? say('dispatching') : expert ? t('ui.delegate.dispatchingTo', { name: expert.name }) : t('ui.delegate.dispatching')).replace(/[.…]+$/, '')"
       />
       <span class="time"><Clock :size="12" />{{ elapsed }}</span>
     </div>
@@ -118,7 +121,7 @@ const plainText = computed(() => oneLine(props.tool.output ?? '', 160))
 
     <!-- 已结束 -->
     <template v-else-if="phase === 'final' && result">
-      <p class="summary">{{ result.summary || t('ui.delegate.noSummary') }}</p>
+      <p class="summary">{{ result.summary || say('noSummary') }}</p>
       <p v-if="result.error || result.errorCode" class="error">
         <CircleAlert :size="14" />
         <span>{{ result.error || result.errorCode }}<code v-if="result.error && result.errorCode">{{ result.errorCode }}</code></span>
@@ -159,7 +162,7 @@ const plainText = computed(() => oneLine(props.tool.output ?? '', 160))
 
     <!-- 没有子任务信息：没派出去（开关关了、次数用完），或者老版本宿主 -->
     <p v-else-if="phase === 'plain' && (tool.state !== 'done' || plainText)" class="summary muted">
-      <template v-if="tool.state !== 'done'">{{ t('ui.delegate.notStarted') }}<template v-if="plainText">：</template></template>{{ plainText }}
+      <template v-if="tool.state !== 'done'">{{ say('notStarted') }}<template v-if="plainText">：</template></template>{{ plainText }}
     </p>
   </div>
 </template>

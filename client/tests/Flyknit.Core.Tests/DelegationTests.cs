@@ -334,30 +334,48 @@ public class DelegationTests : IDisposable
     // ---------- 2. 没交卷 ----------
 
     [Fact]
-    public async Task NoSubmissionAfterRealWorkIsPartialNotCompleted()
+    public async Task PlainTextAnswerAfterWorkIsTheResult()
     {
+        // 和 Claude Code / Codex 的子代理一样：没调 submit_result、直接用文字交代结果，最后那段回答就是结果
         var h = new Harness();
         h.Host.AllTools.Add(new FakeTool("mes_query", "订单 1001"));
-        h.Gateway.Children(Call("mes_query", new { }), Say("查到了订单 1001，包装延误。"));
+        h.Gateway.Children(Call("mes_query", new { }), Say("查到了订单 1001，包装延误。\n\n详细：包装线 3 号机停机 2 小时。"));
 
         var result = await Dispatch(h, Ctx());
 
         Assert.True(result.Ok);
-        Assert.Equal("partial", h.Only.Status);
-        Assert.Equal("no_submission", h.Only.ErrorCode);
-        Assert.Empty(h.Only.Findings);
+        Assert.Equal("completed", h.Only.Status);
+        Assert.Equal("", h.Only.ErrorCode);
+        Assert.Empty(h.Only.Findings); // 没有逐条核验的结论
+        Assert.Equal("查到了订单 1001，包装延误。", h.Only.Summary);
+        Assert.Contains("包装线 3 号机停机 2 小时", h.Only.Report);
+        // 完整回答交回主助手，主助手不用自己重做
+        Assert.Contains("包装线 3 号机停机 2 小时", result.Output);
+        Assert.Contains("<专家的完整回答>", result.Output);
     }
 
     [Fact]
-    public async Task NoSubmissionWithoutAnyWorkIsFailed()
+    public async Task PlainTextAnswerWithoutToolsIsAlsoTheResult()
+    {
+        // 写作、分析这类不调工具的任务：以前一律判「没交卷」失败
+        var h = new Harness();
+        h.Gateway.Children(Say("我觉得是包装的问题：三个订单都卡在包装环节。"));
+
+        var result = await Dispatch(h, Ctx());
+
+        Assert.Equal("completed", h.Only.Status);
+        Assert.Contains("三个订单都卡在包装环节", result.Output);
+    }
+
+    [Fact]
+    public async Task EmptyAnswerIsFailed()
     {
         var h = new Harness();
-        h.Gateway.Children(Say("我觉得是包装的问题。"));
+        h.Gateway.Children(Say(""));
 
         await Dispatch(h, Ctx());
 
         Assert.Equal("failed", h.Only.Status);
-        Assert.StartsWith("no_submission", h.Only.ErrorCode);
     }
 
     [Fact]

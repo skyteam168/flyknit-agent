@@ -846,6 +846,8 @@ export interface SubtaskDto {
   context: string
   status: SubtaskStatus
   summary: string
+  /** 完整的文字结果（专家、子代理最后那段回答） */
+  report?: string
   findings: SubtaskFinding[]
   openQuestions: string[]
   nextSuggestions: string[]

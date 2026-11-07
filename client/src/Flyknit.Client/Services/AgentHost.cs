@@ -927,6 +927,18 @@ public sealed partial class AgentHost : IDisposable
                     .Where(t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t)));
             }
             extra.AddRange(developerTools);
+            // 子代理：IT 打开了「子代理」时主助手能开分身（spawn_agent）。用这一轮最终的工具表，计划模式下只能只读
+            ToolRegistry? runTools = null;
+            if (Flyknit.Core.Agent.SubAgents.SubAgentRunner.Enabled(Security, conv.Mode == ConversationMode.Agent))
+            {
+                var runner = new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, confirm, () => AgentOptionsFor(conv), _auditSink, Approvals, Store, DelegationEvents)
+                    .WithTraceSerializer((trace, stop) => Bridge.TraceDto.Serialize(trace, stop));
+                var spawn = new Flyknit.Core.Agent.SubAgents.SpawnAgentTool(runner, () => runTools ?? tools, scene, modelId, ChatExtraBody(conv), forceReadOnly: planMode || rehearsal);
+                if (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, spawn))
+                {
+                    extra.Add(spawn);
+                }
+            }
             if (extra.Count > 0)
             {
                 // 共用的工具表不动（别的对话还在用），这一轮单独拷一份加上派遣、提问工具
@@ -941,6 +953,7 @@ public sealed partial class AgentHost : IDisposable
             {
                 tools = Flyknit.Core.Agent.PlanMode.Filter(tools);
             }
+            runTools = tools;
             var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(conv), Approvals)
             {
                 Interjections = InterjectionsFor(id),

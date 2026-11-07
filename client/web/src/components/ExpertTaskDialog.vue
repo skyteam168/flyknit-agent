@@ -5,6 +5,7 @@ import { Activity, CircleAlert, CircleHelp, Clock, Cpu, FileText, Lightbulb, Wre
 import { openSubtaskTrace, state } from '../store'
 import { artifactExt, formatDuration, openArtifact, VerificationOrder, verificationCounts } from '../subtasks'
 import ExpertAvatar from './ExpertAvatar.vue'
+import { renderMarkdown } from '../markdown'
 
 // 专家任务详情：交给专家的任务和背景、每条结论和它的依据（以及有没有核对过）、
 // 待确认的问题、建议、产出文件、工具调用和用量；执行记录要看时再向宿主取
@@ -89,7 +90,11 @@ onMounted(async () => {
             </p>
           </section>
 
-          <section>
+          <section v-if="dto.report">
+            <h3>{{ t('ui.delegate.report') }}</h3>
+            <div class="md report" v-html="renderMarkdown(dto.report)" />
+          </section>
+          <section v-else>
             <h3>{{ t('ui.delegate.summary') }}</h3>
             <p class="pre">{{ dto.summary || t('ui.delegate.noSummary') }}</p>
           </section>
@@ -624,5 +629,13 @@ footer .btn {
     flex-direction: column;
     gap: 4px;
   }
+}
+.report {
+  max-height: 420px;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--cloth-sunk);
 }
 </style>
