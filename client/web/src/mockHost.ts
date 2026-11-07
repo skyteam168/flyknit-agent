@@ -1309,6 +1309,7 @@ export function createMockHost(): HostTransport {
           dailyLimit: 200000,
           remaining: 15700,
           exceeded: false,
+          resetsAt: (() => { const d = new Date(); d.setHours(24, 0, 0, 0); return d.toISOString() })(),
           byScene: [
             { scene: 'agent', prompt: 52100, completion: 6800, total: 58900, requests: 14 },
             { scene: 'chat', prompt: 14200, completion: 3900, total: 18100, requests: 9 },

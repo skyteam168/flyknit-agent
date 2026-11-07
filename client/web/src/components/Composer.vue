@@ -35,6 +35,7 @@ import {
 import Popover from './Popover.vue'
 import VendorIcon from './VendorIcon.vue'
 import ModelPicker from './ModelPicker.vue'
+import QuotaRing from './QuotaRing.vue'
 import WorkspacePicker from './WorkspacePicker.vue'
 import PermissionPicker from './PermissionPicker.vue'
 import ConfirmBar from './ConfirmBar.vue'
@@ -767,6 +768,8 @@ onBeforeUnmount(() => {
         </div>
 
         <span class="spacer" />
+        <!-- 今日额度圆环：后台设了每日上限才显示 -->
+        <QuotaRing />
         <button
           v-if="original !== null"
           type="button"

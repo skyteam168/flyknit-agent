@@ -217,3 +217,18 @@ def test_cached_tokens_are_read_from_every_provider_style():
     scanner.feed(b'data: {"usage":{"prompt_tokens":50,"completion_tokens":5,"prompt_cache_hit_tokens":40}}\n')
     scanner.finish()
     assert (scanner.prompt, scanner.completion, scanner.cached) == (50, 5, 40)
+
+
+async def test_usage_tells_when_the_daily_quota_resets(client, device_headers):
+    """员工端的额度圆环要显示「几点重置」：明天 0 点，和服务端算「今天」用同一个时区（UTC+8）。"""
+    from datetime import datetime, timedelta, timezone
+
+    usage = (await client.get("/api/v1/client/usage", headers=device_headers)).json()
+    at = datetime.fromisoformat(usage["resets_at"])
+    tz8 = timezone(timedelta(hours=8))
+    local = at.astimezone(tz8)
+    assert (local.hour, local.minute, local.second) == (0, 0, 0)
+    assert local.date().isoformat() > usage["day"]  # 是「明天」0 点
+    assert timedelta(0) < at - datetime.now(timezone.utc) <= timedelta(days=1)
+    # 和服务端的「今天」对得上
+    assert local.date() - timedelta(days=1) == datetime.fromisoformat(usage["day"]).date()

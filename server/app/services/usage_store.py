@@ -32,6 +32,13 @@ SCENES = ("agent", "chat", "translate", "vision", "title", "asr", "embedding",
           "schedule", "channel", "instruction", "mobile")
 
 
+def resets_at(tz_offset_hours: int = 8) -> datetime:
+    """今天的额度什么时候清零：按 today() 同一个时区，明天 0 点（带时区，界面按员工电脑的时区显示）。"""
+    tz = timezone(timedelta(hours=tz_offset_hours))
+    local = datetime.now(timezone.utc).astimezone(tz)
+    return datetime.combine(local.date() + timedelta(days=1), datetime.min.time(), tzinfo=tz)
+
+
 def today(tz_offset_hours: int = 8) -> str:
     """按本地时区算“今天”，工厂都在同一个时区，默认 UTC+8。"""
     return (datetime.now(timezone.utc) + timedelta(hours=tz_offset_hours)).date().isoformat()
@@ -203,6 +210,7 @@ async def device_stats(session: AsyncSession, device_id: int, days: int = 7) -> 
         "daily_limit": limit,
         "remaining": max(0, limit - total_today) if limit else 0,
         "exceeded": bool(limit) and total_today >= limit,
+        "resets_at": resets_at(),
         "by_scene": [{"scene": s, **v} for s, v in sorted(by_scene.items())],
         "by_day": [{"day": d, "tokens": by_day.get(d, 0)} for d in sorted(by_day)],
         "contact_name": quota["contact_name"],

@@ -1270,6 +1270,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     dailyLimit = usage.DailyLimit,
                     remaining = usage.Remaining,
                     exceeded = usage.Exceeded,
+                    resetsAt = usage.ResetsAt?.ToString("O"),
                     byScene = usage.ByScene.Select(x => new { scene = x.Scene, prompt = x.Prompt, completion = x.Completion, total = x.Total, requests = x.Requests }).ToList(),
                     byDay = usage.ByDay.Select(x => new { day = x.Day, tokens = x.Tokens }).ToList(),
                     contactName = usage.ContactName,
