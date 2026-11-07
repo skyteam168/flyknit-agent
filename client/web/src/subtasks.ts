@@ -1,6 +1,6 @@
 import { i18n } from './i18n'
-import { launchFile, mcpToolLabel, openPreview, state } from './store'
-import type { FindingVerification, OutputFile, SubtaskDto, SubtaskExpert } from './types'
+import { asOutputFile, launchFile, mcpToolLabel, openPreview, state } from './store'
+import type { FindingVerification, SubtaskDto, SubtaskExpert } from './types'
 
 // 专家任务卡片和详情弹窗共用的小工具
 
@@ -54,14 +54,6 @@ export function askExpertArgs(json: string | undefined): { expert: SubtaskExpert
 export function oneLine(text: string, max = 120): string {
   const line = (text ?? '').trim().split(/\r?\n/)[0] ?? ''
   return line.length > max ? line.slice(0, max) + '…' : line
-}
-
-// 宿主能在分屏里预览的格式（和 OutputFiles 的 previewable 同一套判断，这里只能按扩展名猜）
-const Previewable = new Set(['md', 'txt', 'csv', 'json', 'log', 'xlsx', 'xls', 'docx', 'pptx', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'html', 'htm'])
-
-function asOutputFile(a: { path: string; name: string; exists: boolean }): OutputFile {
-  const extension = (/\.([^.\\/]+)$/.exec(a.name || a.path)?.[1] ?? '').toLowerCase()
-  return { path: a.path, name: a.name, extension, size: 0, modifiedAt: '', previewable: Previewable.has(extension), exists: a.exists }
 }
 
 /** 点产出文件：能预览的在右侧分屏打开，其余用默认应用打开（和 OutputFiles 一样） */

@@ -38,7 +38,8 @@ export function isTextAttachment(a: AttachmentRef): boolean {
 
 /** 发给宿主时去掉只给界面用的全文，免得同一段文字在桥上传两遍 */
 export function forHost(a: AttachmentRef): AttachmentRef {
-  const { pasteText: _drop, ...rest } = a
+  // 缩略图（整张图片的 data URL，动辄几 MB）宿主用不上，别在发送时再传一遍
+  const { pasteText: _drop, preview: _preview, saving: _saving, ...rest } = a
   return rest
 }
 

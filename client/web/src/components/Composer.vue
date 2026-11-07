@@ -72,7 +72,7 @@ import {
   startSpeech,
   state,
   stop,
-  toast, openConnectors,
+  toast, openConnectors, openAttachment,
 } from '../store'
 import type { InterjectMode, Mode, PendingInput, SlashCommand } from '../types'
 import { shouldFold, snippet } from '../pasted'
@@ -573,10 +573,22 @@ onBeforeUnmount(() => {
             <button type="button" class="paste-edit" :title="t('ui.paste.expand')" :aria-label="t('ui.paste.expand')" @click="expandPaste(i)"><Pencil :size="13" /></button>
           </div>
         </div>
-        <div v-else class="chip" :title="a.localPath">
-          <img v-if="a.preview" :src="a.preview" alt="" />
-          <component :is="a.mime.startsWith('image/') ? ImageIcon : FileText" v-else :size="15" />
-          <span>{{ a.fileName }}</span>
+        <div v-else class="chip" :class="{ saving: a.saving }" :title="a.saving ? t('ui.attach.saving') : a.localPath">
+          <!-- 点开看：图片、PDF、Office 等按类型在客户端里打开（见 openAttachment） -->
+          <span
+            class="chip-open"
+            role="button"
+            :tabindex="a.saving ? -1 : 0"
+            :aria-disabled="a.saving"
+            :aria-label="t('ui.attach.open', { name: a.fileName })"
+            @click="openAttachment(a)"
+            @keydown.enter.prevent="openAttachment(a)"
+          >
+            <img v-if="a.preview" :src="a.preview" alt="" />
+            <component :is="a.mime.startsWith('image/') ? ImageIcon : FileText" v-else :size="15" />
+            <span class="chip-name">{{ a.fileName }}</span>
+            <Loader2 v-if="a.saving" :size="13" class="spin" />
+          </span>
           <button type="button" :aria-label="t('menu.delete')" @click="state.pending.splice(i, 1)"><X :size="13" /></button>
         </div>
         </template>
@@ -1090,7 +1102,25 @@ onBeforeUnmount(() => {
   object-fit: cover;
   border-radius: 4px;
 }
-.chip span {
+.chip-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  cursor: pointer;
+}
+.chip-open:hover .chip-name {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.chip.saving .chip-open {
+  cursor: progress;
+}
+.chip.saving img {
+  opacity: 0.6;
+}
+.chip-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

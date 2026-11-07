@@ -2060,6 +2060,11 @@ export function createMockHost(): HostTransport {
           const bytes = Uint8Array.from(atob(p.base64), (c) => c.charCodeAt(0))
           mockPreviews[localPath] = { kind: 'text', text: new TextDecoder().decode(bytes), language: null }
         }
+        if (String(p.mime).startsWith('image/')) {
+          // 真宿主在任务运行时可能要过一会才处理完：界面不该等它才显示缩略图
+          await sleep(1500)
+          mockPreviews[localPath] = { kind: 'image', dataUrl: `data:${p.mime};base64,${p.base64}` }
+        }
         return { fileName: p.fileName, localPath, mime: p.mime, size: Math.round((p.base64.length * 3) / 4) }
       }
       case 'window.toggleTopmost':

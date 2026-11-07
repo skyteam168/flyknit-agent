@@ -2050,13 +2050,20 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "files.saveBlob":
             {
-                // 每次一个子目录：同名的「粘贴文本.txt」连粘几段也不会互相覆盖
-                var dir = Path.Combine(PasteDir, Guid.NewGuid().ToString("N")[..12]);
-                Directory.CreateDirectory(dir);
-                var name = string.Join("_", Str("fileName").Split(Path.GetInvalidFileNameChars()));
-                var path = Path.Combine(dir, string.IsNullOrWhiteSpace(name) ? $"paste-{Guid.NewGuid():N}.png" : name);
-                await File.WriteAllBytesAsync(path, Convert.FromBase64String(Str("base64")));
-                return AttachmentDto.FromPath(path);
+                var fileName = Str("fileName");
+                var base64 = Str("base64");
+                // 解码、写盘放到后台线程：粘贴一张截图是几 MB 的 base64，任务跑着时界面线程本来就忙，
+                // 在这里解码会让界面（和后面排队的请求）一起卡住
+                return await Task.Run(async () =>
+                {
+                    // 每次一个子目录：同名的「粘贴文本.txt」连粘几段也不会互相覆盖
+                    var dir = Path.Combine(PasteDir, Guid.NewGuid().ToString("N")[..12]);
+                    Directory.CreateDirectory(dir);
+                    var name = string.Join("_", fileName.Split(Path.GetInvalidFileNameChars()));
+                    var path = Path.Combine(dir, string.IsNullOrWhiteSpace(name) ? $"paste-{Guid.NewGuid():N}.png" : name);
+                    await File.WriteAllBytesAsync(path, Convert.FromBase64String(base64));
+                    return AttachmentDto.FromPath(path);
+                });
             }
 
             // ---------- 资料库 ----------

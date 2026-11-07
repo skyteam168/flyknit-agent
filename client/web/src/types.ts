@@ -558,6 +558,8 @@ export interface AttachmentRef {
   preview?: string
   /** 员工粘贴的长文本：界面上是卡片，发给模型时整段放进消息 */
   pasted?: boolean
+  /** 粘贴的图片还在后台存成文件（界面先显示缩略图，存好之前不能发送、不能打开） */
+  saving?: boolean
   /** 粘贴的全文，只在本机界面里用（编辑、查看），不发给宿主；从历史加载的消息没有，要看时向宿主读 */
   pasteText?: string
 }
