@@ -209,7 +209,8 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
 
         <h2>{{ connected(current) ? current.name : t('ui.mcp.connectTo', { name: current.name }) }}</h2>
         <p class="lead">{{ current.description }}</p>
-        <p v-if="current.publisher || current.category" class="meta">
+        <p v-if="current.publisher || current.category || current.sourceType === 'plugin'" class="meta">
+          <span v-if="current.sourceType === 'plugin'">{{ t('ui.mcp.fromPlugin', { name: current.plugin, version: current.sourcePluginVersion || '?' }) }}</span>
           <span v-if="current.publisher">{{ t('ui.mcp.publisher') }}：{{ current.publisher }}</span>
           <span v-if="current.category">{{ current.category }}</span>
           <a v-if="current.homepage" :href="current.homepage" target="_blank" rel="noopener"><Link2 :size="12" /> {{ t('ui.mcp.homepage') }}</a>

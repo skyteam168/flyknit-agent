@@ -47,7 +47,10 @@ def _preset(v: McpVendor) -> dict[str, str]:
 
 def _admin_out(v: McpVendor) -> McpVendorOut:
     return McpVendorOut(
-        id=v.id, plugin=v.plugin or "", name=v.name, description=v.description, detail=v.detail, icon=v.icon,
+        id=v.id, plugin=v.plugin or "", source_type=v.source_type or "global",
+        source_plugin_version=v.source_plugin_version or "", source_manifest=v.source_manifest or "",
+        source_mcp_config=v.source_mcp_config or "", source_server_name=v.source_server_name or "",
+        name=v.name, description=v.description, detail=v.detail, icon=v.icon,
         publisher=v.publisher, category=v.category, homepage=v.homepage,
         transport=v.transport, url=v.url, command=v.command, args=v.args or [], env=v.env or {},
         headers=v.headers or {}, auth=v.auth, fields=v.fields or [],
@@ -62,7 +65,10 @@ def _client_out(v: McpVendor) -> McpClientVendorOut:
     preset = _preset(v)
     fields = v.fields or []
     return McpClientVendorOut(
-        id=v.id, plugin=v.plugin or "", name=v.name, description=v.description, detail=v.detail, icon=v.icon,
+        id=v.id, plugin=v.plugin or "", source_type=v.source_type or "global",
+        source_plugin_version=v.source_plugin_version or "", source_manifest=v.source_manifest or "",
+        source_mcp_config=v.source_mcp_config or "", source_server_name=v.source_server_name or "",
+        name=v.name, description=v.description, detail=v.detail, icon=v.icon,
         publisher=v.publisher, category=v.category, homepage=v.homepage,
         transport=v.transport, url=v.url, command=v.command, args=v.args or [], env=v.env or {},
         headers=v.headers or {}, auth=v.auth, fields=fields, preset=preset,

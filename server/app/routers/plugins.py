@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,7 +28,7 @@ from ..db import get_session
 from ..deps import admin_name, require_admin, require_device
 from ..models import Device, Expert, ExpertVersion, McpVendor, Plugin, SkillPackage
 from ..schemas import ExpertFields
-from ..services import config_events, expert_registry, plugin_package, plugin_scope, skill_library
+from ..services import config_events, expert_registry, mcp_catalog, plugin_package, plugin_scope, skill_library
 from . import commands as commands_router
 from . import tool_rules as tool_rules_router
 
@@ -38,6 +40,8 @@ class PluginImportIn(BaseModel):
     url: str = Field(min_length=1, max_length=1000)
     departments: list[str] = Field(default_factory=list, max_length=100)
     required: bool = False
+    #: 同名冲突时管理员选的改名：插件里的服务名 → 新的连接器标识
+    renames: dict[str, str] = Field(default_factory=dict)
 
 
 class PluginPatch(BaseModel):
@@ -111,11 +115,112 @@ async def _conflicts(session: AsyncSession, parsed: plugin_package.ParsedPlugin)
         row = await session.get(Expert, e["id"])
         if row is not None and (row.plugin or "") != parsed.id:
             found.append(f"专家 {e['id']}")
-    for c in parsed.connectors:
-        row = await session.get(McpVendor, c["id"])
-        if row is not None and (row.plugin or "") != parsed.id:
-            found.append(f"连接器 {c['id']}")
     return found
+
+
+# ---------- 插件里的 MCP 服务 → 连接器 ----------
+NEW, UPDATE, REUSE, CONFLICT, RENAMED = "NEW", "UPDATE", "REUSE_EXISTING", "CONFLICT", "RENAMED"
+
+
+def _vendor_config(v: McpVendor) -> dict:
+    """已有连接器的连接方式，和插件定义同一个形状（不含管理员预填的值、介绍文字）。"""
+    return {"transport": v.transport, "url": (v.url or "").strip(), "command": (v.command or "").strip(),
+            "args": list(v.args or []), "env": dict(sorted((v.env or {}).items())),
+            "headers": dict(sorted((v.headers or {}).items()))}
+
+
+def _def_config(d: dict) -> dict:
+    return {"transport": d["transport_type"], "url": d["url"].strip(), "command": d["command"].strip(),
+            "args": list(d["args"]), "env": dict(sorted(d["env"].items())),
+            "headers": dict(sorted(d["headers"].items()))}
+
+
+async def _suggest(session: AsyncSession, plugin_id: str, name: str) -> str:
+    base = mcp_catalog.slugify(f"{plugin_id}-{name}")[:37]
+    candidate, n = base, 2
+    while await session.get(McpVendor, candidate) is not None:
+        candidate, n = f"{base}-{n}", n + 1
+    return candidate
+
+
+def _parse_renames(items: list[str]) -> dict[str, str]:
+    """查询参数 rename=原名=新标识。"""
+    out = {}
+    for item in items:
+        old, sep, new = item.partition("=")
+        if sep and old.strip() and new.strip():
+            out[old.strip()] = new.strip()
+    return out
+
+
+async def plan_connectors(session: AsyncSession, parsed: plugin_package.ParsedPlugin,
+                          renames: dict[str, str]) -> list[dict]:
+    """
+    每个 MCP 服务怎么落成连接器。同名绝不静默覆盖：
+    - NEW：没有同名，直接建，工具名 mcp__<服务名>__*；
+    - UPDATE：同名的就是这个插件上次装的（升级）；
+    - REUSE_EXISTING：管理员手工建的同名连接器、连接方式完全一样：不再建一个，插件直接用它（卸载插件也不删它）；
+    - CONFLICT：同名但配置不同（或属于别的插件）：默认拒绝，给出建议的新标识；
+    - RENAMED：管理员选了改名，按新标识建，工具名随之变成 mcp__<新标识>__*。
+    """
+    plan: list[dict] = []
+    used: set[str] = set()
+    for d in parsed.connectors:
+        name = d["name"]
+        item = {
+            "server": d["source_server_name"], "id": name, "transport": d["transport_type"],
+            "command": d["command"], "args": d["args"], "url": d["url"],
+            "source_manifest": d["source_manifest"], "source_mcp_config": d["source_mcp_config"],
+            "vendor_id": name, "result": NEW, "reason": "", "suggested_rename": "",
+        }
+        target = renames.get(d["source_server_name"]) or renames.get(name)
+        if target:
+            item["vendor_id"] = target
+            row = await session.get(McpVendor, target)
+            if not mcp_catalog.VENDOR_ID.match(target):
+                item.update(result=CONFLICT, reason="新标识只能用小写字母、数字、- 和 _，2~40 个字符")
+            elif row is not None and (row.plugin or "") != parsed.id:
+                item.update(result=CONFLICT, reason=f"新标识 {target} 也已经被占用了",
+                            suggested_rename=await _suggest(session, parsed.id, name))
+            else:
+                item["result"] = RENAMED
+        else:
+            row = await session.get(McpVendor, name)
+            if row is None:
+                item["result"] = NEW
+            elif (row.plugin or "") == parsed.id:
+                item["result"] = UPDATE
+            elif not row.plugin and _vendor_config(row) == _def_config(d):
+                item.update(result=REUSE, reason=f"复用现有连接器 {row.id}（连接方式完全一样）")
+            else:
+                owner = f"插件 {row.plugin}" if row.plugin else "管理员在「连接器」里建的"
+                item.update(result=CONFLICT, reason=f"已经有同名连接器 {row.id}（{owner}），连接方式不一样",
+                            suggested_rename=await _suggest(session, parsed.id, name))
+        if item["result"] != REUSE:
+            if item["vendor_id"] in used:
+                item.update(result=CONFLICT, reason=f"插件里有两个服务都要用标识 {item['vendor_id']}")
+            used.add(item["vendor_id"])
+        if item["result"] == RENAMED and (refs := _references(parsed, name)):
+            parsed.warnings.append(f"MCP 服务 {name} 改名为 {item['vendor_id']} 后，工具名变成 mcp__{item['vendor_id']}__*；"
+                                   f"这些地方还写着 mcp__{name}__，需要自己改：{'、'.join(refs)}")
+        plan.append(item)
+    return plan
+
+
+def _references(parsed: plugin_package.ParsedPlugin, name: str) -> list[str]:
+    """插件自己的快捷指令、专家、技能里写死的 mcp__<名字>__（改名后会失效）。"""
+    needle = f"mcp__{name}__"
+    refs = [f"/{c['name']}" for c in parsed.commands if needle in c.get("template", "")]
+    refs += [f"专家 {e['id']}" for e in parsed.experts if needle in e["fields"].get("instructions", "")]
+    for sk in parsed.skills:
+        try:
+            with zipfile.ZipFile(io.BytesIO(sk.data)) as zf:
+                if any(needle in zf.read(n).decode("utf-8", "replace") for n in zf.namelist() if n.lower().endswith(".md")):
+                    refs.append(f"技能 {sk.name}")
+        except zipfile.BadZipFile:
+            continue
+    return refs
+
 
 
 def _parse(content: bytes, subdir: str = "") -> plugin_package.ParsedPlugin:
@@ -145,11 +250,19 @@ async def _remove_parts(session: AsyncSession, plugin_id: str, keep: dict[str, s
 
 
 async def install(session: AsyncSession, parsed: plugin_package.ParsedPlugin, origin: str, who: str,
-                  departments: list[str], required: bool) -> Plugin:
+                  departments: list[str], required: bool, renames: dict[str, str] | None = None) -> Plugin:
     conflicts = await _conflicts(session, parsed)
     if conflicts:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"这些东西已经存在、不是这个插件装的：{'、'.join(conflicts)}。先改名或删掉再装")
+    plan = await plan_connectors(session, parsed, renames or {})
+    bad = [p for p in plan if p["result"] == CONFLICT]
+    if bad:
+        raise HTTPException(status.HTTP_409_CONFLICT, "MCP server name already exists with different configuration："
+                            + "；".join(f"{p['server']}：{p['reason']}"
+                                       + (f"，可以改名为 {p['suggested_rename']}" if p["suggested_rename"] else "")
+                                       for p in bad))
+    owned = {p["vendor_id"]: p for p in plan if p["result"] != REUSE}
     rules = _check_rules(parsed)
     commands = _check_commands(parsed)
 
@@ -157,7 +270,7 @@ async def install(session: AsyncSession, parsed: plugin_package.ParsedPlugin, or
     await _remove_parts(session, parsed.id, keep={
         "skills": {s.name for s in parsed.skills},
         "experts": {e["id"] for e in parsed.experts},
-        "connectors": {c["id"] for c in parsed.connectors},
+        "connectors": set(owned),
     })
     plugin = existing or Plugin(id=parsed.id)
     plugin.name, plugin.version, plugin.description = parsed.name, parsed.version, parsed.description
@@ -195,22 +308,29 @@ async def install(session: AsyncSession, parsed: plugin_package.ParsedPlugin, or
                                   note=f"插件 {parsed.name} {parsed.version}".strip()[:300], published_by=who,
                                   published_at=now))
 
-    for c in parsed.connectors:
-        row = await session.get(McpVendor, c["id"])
+    defs = {d["name"]: d for d in parsed.connectors}
+    for vendor_id, p in owned.items():
+        c = defs[p["id"]]
+        row = await session.get(McpVendor, vendor_id)
         if row is None:
-            row = McpVendor(id=c["id"], name=c["name"], enabled=True)
+            row = McpVendor(id=vendor_id, name=c["source_server_name"][:100], enabled=True)
             session.add(row)
-        row.name, row.transport, row.url, row.command = c["name"][:100], c["transport"], c["url"], c["command"]
+        row.name = (c["source_server_name"] if p["result"] != RENAMED else f"{c['source_server_name']}（{parsed.name}）")[:100]
+        row.transport, row.url, row.command = c["transport_type"], c["url"], c["command"]
         row.args, row.env, row.headers = c["args"], c["env"], c["headers"]
         row.auth, row.fields = c["auth"], c["fields"]
         row.publisher, row.category = parsed.author[:100], parsed.name[:50]
         row.description = row.description or parsed.description[:300]
-        row.plugin = parsed.id
-        # 管理员已经填好的预填值保留；连接器自己的 _apply 也是这么处理删掉的填写项（留下还在的）
-        # preset_enc 是加密的 JSON，字段对不上时员工连接会提示要填，不需要在这里解开
+        # 来源：插件、版本、清单、配置文件、原名。员工端照原样拿到，审计按它记 mcp_source
+        row.plugin, row.source_type = parsed.id, "plugin"
+        row.source_plugin_version = (parsed.version or "unknown")[:50]
+        row.source_manifest, row.source_mcp_config = c["source_manifest"][:200], c["source_mcp_config"][:200]
+        row.source_server_name = c["source_server_name"][:100]
+        # 管理员已经填好的预填值（preset_enc）保留：字段对不上时员工连接会提示要填
 
     manifest = parsed.summary()
     manifest["commands"], manifest["rules"] = commands, rules
+    manifest["connectors"] = plan  # 每个服务的处理结果（NEW / UPDATE / REUSE_EXISTING / RENAMED）和落到哪个连接器
     plugin.manifest = manifest
     await session.commit()
     config_events.bump()
@@ -227,28 +347,33 @@ async def list_plugins(session: AsyncSession = Depends(get_session)):
 
 
 @admin_router.post("/preview")
-async def preview(file: UploadFile = File(...), session: AsyncSession = Depends(get_session)):
-    """只解析不安装：看看包里有什么、会不会和已有的东西冲突。"""
+async def preview(file: UploadFile = File(...), rename: list[str] = Query(default=[]),
+                  session: AsyncSession = Depends(get_session)):
+    """只解析不安装：看看包里有什么、每个 MCP 服务会新建 / 复用 / 冲突、会不会和已有的东西冲突。"""
     parsed = _parse(await file.read())
     rules = _check_rules(parsed)
     commands = _check_commands(parsed)
+    plan = await plan_connectors(session, parsed, _parse_renames(rename))
     summary = parsed.summary()
-    summary["commands"], summary["rules"] = commands, rules
+    summary["commands"], summary["rules"], summary["connectors"] = commands, rules, plan
     existing = await session.get(Plugin, parsed.id)
     return {
         "id": parsed.id, "name": parsed.name, "version": parsed.version, "description": parsed.description,
         "author": parsed.author, "manifest": summary, "counts": _counts(summary),
-        "conflicts": await _conflicts(session, parsed),
+        "conflicts": await _conflicts(session, parsed)
+        + [f"连接器 {p['server']}：{p['reason']}" for p in plan if p["result"] == CONFLICT],
         "upgrade_from": existing.version if existing else None,
     }
 
 
 @admin_router.post("/upload")
 async def upload(file: UploadFile = File(...), departments: list[str] = Query(default=[]),
-                 required: bool = False, who: str = Depends(admin_name), session: AsyncSession = Depends(get_session)):
-    """上传插件 zip 安装（再传同一个插件就是升级）。"""
+                 required: bool = False, rename: list[str] = Query(default=[]),
+                 who: str = Depends(admin_name), session: AsyncSession = Depends(get_session)):
+    """上传插件 zip 安装（再传同一个插件就是升级）。rename=原名=新标识：同名冲突时改名导入。"""
     parsed = _parse(await file.read())
-    return _out(await install(session, parsed, file.filename or "上传", who, departments, required))
+    return _out(await install(session, parsed, file.filename or "上传", who, departments, required,
+                              _parse_renames(rename)))
 
 
 @admin_router.post("/import")
@@ -260,7 +385,7 @@ async def import_url(data: PluginImportIn, request: Request, who: str = Depends(
     except skill_library.SkillError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     parsed = _parse(content, skill_library.github_subdir(data.url))
-    return _out(await install(session, parsed, data.url, who, data.departments, data.required))
+    return _out(await install(session, parsed, data.url, who, data.departments, data.required, data.renames))
 
 
 @admin_router.patch("/{plugin_id}")
@@ -307,7 +432,7 @@ async def client_plugins(device: Device = Depends(require_device), session: Asyn
             "skills": [s["name"] for s in m.get("skills", [])],
             "commands": [c["name"] for c in m.get("commands", [])],
             "experts": [e["name"] for e in m.get("experts", [])],
-            "connectors": [c["name"] for c in m.get("connectors", [])],
+            "connectors": [c.get("server") or c.get("name", "") for c in m.get("connectors", [])],
             "updated_at": p.updated_at,
         })
     return {"items": out}

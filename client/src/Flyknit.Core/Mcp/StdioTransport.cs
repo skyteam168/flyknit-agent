@@ -75,7 +75,7 @@ public sealed class StdioTransport : McpTransport
                 psi.ArgumentList.Add(a);
             }
         }
-        ApplyEnvironment(psi.Environment, _runtime, _config.Env);
+        ApplyEnvironment(psi.Environment, _runtime, _config.Env, _config.IsolatedEnvironment);
         if (!string.IsNullOrEmpty(_workingDirectory) && Directory.Exists(_workingDirectory))
         {
             psi.WorkingDirectory = _workingDirectory;
@@ -306,11 +306,46 @@ public sealed class StdioTransport : McpTransport
         return sb.ToString();
     }
 
+    /// <summary>插件连接器的子进程从系统继承的环境变量（只有系统路径、用户目录这类，没有密钥）。</summary>
+    public static readonly IReadOnlySet<string> InheritedForPlugins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "COMSPEC", "OS", "COMPUTERNAME",
+        "TEMP", "TMP", "USERPROFILE", "USERNAME", "USERDOMAIN", "HOMEDRIVE", "HOMEPATH", "HOME",
+        "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "ALLUSERSPROFILE", "PUBLIC",
+        "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432",
+        "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION",
+        "LANG", "LC_ALL", "TZ",
+        // 公司代理：npx / uvx 下载包要用。插件自己不能设（下面的 IsProtected），只能沿用系统的
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+    };
+
+    /// <summary>插件连接器的 env 不能设的变量（会改变子进程找程序、加载代码、走代理的方式）。和服务端 plugin_mcp_resolver 一致。</summary>
+    public static bool IsProtected(string key)
+    {
+        var k = key.ToUpperInvariant();
+        return k is "PATH" or "PATHEXT" or "COMSPEC" or "SYSTEMROOT" or "WINDIR" or "NODE_OPTIONS" or "NODE_PATH"
+                   or "PYTHONPATH" or "PYTHONSTARTUP" or "PYTHONHOME" or "LD_PRELOAD" or "LD_LIBRARY_PATH" or "DYLD_INSERT_LIBRARIES"
+            || k.StartsWith("NPM_CONFIG_", StringComparison.Ordinal) || k.StartsWith("DOTNET_", StringComparison.Ordinal)
+            || k.StartsWith("COR_", StringComparison.Ordinal) || k.StartsWith("CORECLR_", StringComparison.Ordinal)
+            || k.EndsWith("_PROXY", StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// 子进程的环境变量：托管运行环境的目录加到 PATH 最前面，再设它的变量，最后是连接器自己的 env（优先）。
+    /// <paramref name="isolated"/>（插件带来的连接器）：先去掉不在 <see cref="InheritedForPlugins"/> 里的系统变量
+    /// （员工电脑上的 API_KEY、TOKEN 之类不会被带进插件的进程），连接器 env 里的敏感变量不生效。
+    /// 服务端导入时已经拒收这类 env，这里再挡一次。
     /// </summary>
-    public static void ApplyEnvironment(IDictionary<string, string?> env, McpRuntimeEnvironment? runtime, IReadOnlyDictionary<string, string> vendorEnv)
+    public static void ApplyEnvironment(IDictionary<string, string?> env, McpRuntimeEnvironment? runtime, IReadOnlyDictionary<string, string> vendorEnv,
+        bool isolated = false)
     {
+        if (isolated)
+        {
+            foreach (var key in env.Keys.Where(k => !InheritedForPlugins.Contains(k)).ToList())
+            {
+                env.Remove(key);
+            }
+        }
         if (runtime is not null)
         {
             if (runtime.PathDirs.Count > 0)
@@ -326,6 +361,10 @@ public sealed class StdioTransport : McpTransport
         }
         foreach (var (k, v) in vendorEnv)
         {
+            if (isolated && IsProtected(k))
+            {
+                continue;
+            }
             env[k] = v;
         }
     }

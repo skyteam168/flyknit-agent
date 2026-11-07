@@ -134,6 +134,9 @@ async function doExport() {
                 <pre>{{ row.summary }}</pre>
               </div>
               <div v-if="row.conversation_id" class="muted">会话 <code>{{ row.conversation_id }}</code></div>
+              <div v-if="row.mcp_source" class="muted">
+                连接器来源：{{ row.mcp_source === 'global' ? '后台手工配置' : row.mcp_source === 'unknown' ? '未知（连接器已删除）' : row.mcp_source.replace(/^plugin:/, '插件 ') }}
+              </div>
               <div v-if="row.grant_id" class="grant">
                 <label>任务授权</label>
                 <template v-if="grants[row.grant_id]">

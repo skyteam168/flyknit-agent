@@ -270,6 +270,7 @@ class AuditOut(BaseModel):
     subtask_id: str = ""
     actor: str = ""
     grant_id: str = ""
+    mcp_source: str = ""
     occurred_at: datetime
     created_at: datetime
 
@@ -645,6 +646,12 @@ class McpVendorOut(BaseModel):
 
     id: str
     plugin: str = ""
+    #: global / plugin；老服务端没有这些字段，员工端按默认值处理
+    source_type: str = "global"
+    source_plugin_version: str = ""
+    source_manifest: str = ""
+    source_mcp_config: str = ""
+    source_server_name: str = ""
     name: str
     description: str = ""
     detail: str = ""
@@ -675,6 +682,12 @@ class McpClientVendorOut(BaseModel):
 
     id: str
     plugin: str = ""
+    #: global / plugin；老服务端没有这些字段，员工端按默认值处理
+    source_type: str = "global"
+    source_plugin_version: str = ""
+    source_manifest: str = ""
+    source_mcp_config: str = ""
+    source_server_name: str = ""
     name: str
     description: str = ""
     detail: str = ""

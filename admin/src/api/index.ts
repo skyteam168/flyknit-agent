@@ -61,6 +61,10 @@ import type { SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, Even
   SoftwarePackage,
 } from './types'
 
+/** 改名导入：插件里的服务名 → 新的连接器标识，查询参数写成 rename=原名=新标识 */
+const renameQuery = (renames: Record<string, string>) =>
+  Object.entries(renames).filter(([, v]) => v.trim()).map(([k, v]) => `${k}=${v.trim()}`)
+
 export const api = {
   // 账号
   login: (username: string, password: string) =>
@@ -180,18 +184,20 @@ export const api = {
 
   // 工具规则：AI 调用工具前后的拦截 / 必须确认 / 提醒 / 结果打码
   plugins: () => get<{ items: PluginItem[]; departments: string[] }>('/plugins'),
-  previewPlugin: (file: File) => {
+  previewPlugin: (file: File, renames: Record<string, string> = {}) => {
     const form = new FormData()
     form.append('file', file)
-    return request<PluginPreview>('/plugins/preview', { method: 'POST', body: form })
+    return request<PluginPreview>('/plugins/preview', { method: 'POST', body: form, query: { rename: renameQuery(renames) } })
   },
-  uploadPlugin: (file: File, departments: string[], required: boolean) => {
+  uploadPlugin: (file: File, departments: string[], required: boolean, renames: Record<string, string> = {}) => {
     const form = new FormData()
     form.append('file', file)
-    return request<PluginItem>('/plugins/upload', { method: 'POST', body: form, query: { departments, required } })
+    return request<PluginItem>('/plugins/upload', {
+      method: 'POST', body: form, query: { departments, required, rename: renameQuery(renames) },
+    })
   },
-  importPlugin: (url: string, departments: string[], required: boolean) =>
-    post<PluginItem>('/plugins/import', { url, departments, required }),
+  importPlugin: (url: string, departments: string[], required: boolean, renames: Record<string, string> = {}) =>
+    post<PluginItem>('/plugins/import', { url, departments, required, renames }),
   updatePlugin: (id: string, body: Partial<{ enabled: boolean; required: boolean; departments: string[] }>) =>
     patch<PluginItem>(`/plugins/${encodeURIComponent(id)}`, body),
   deletePlugin: (id: string) => del(`/plugins/${encodeURIComponent(id)}`),

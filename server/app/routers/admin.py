@@ -688,6 +688,7 @@ _AUDIT_COLUMNS = (
     ("actor", "执行者"),
     ("subtask_id", "派遣记录"),
     ("grant_id", "任务授权"),
+    ("mcp_source", "连接器来源"),
 )
 _EXPORT_MAX_ROWS = 200_000
 _EXPORT_BATCH = 1000
