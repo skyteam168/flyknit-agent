@@ -64,7 +64,7 @@ import {
   selectedWorkspace,
   state,
   toast,
-  togglePin,
+  togglePin, openConnectors, openSchedules, openSkills,
 } from '../store'
 import type { Conversation, Mode } from '../types'
 
@@ -467,12 +467,18 @@ onBeforeUnmount(() => {
         <button type="button" :class="{ on: state.view === 'library' }" @click="(openLibrary(), emit('navigate'))">
           <LibraryBig :size="17" /> {{ t('ui.nav.library') }}
         </button>
-        <button type="button" @click="state.skillsOpen = true"><Puzzle :size="17" /> {{ t('ui.nav.skills') }}</button>
-        <button type="button" @click="state.mcpOpen = true"><Plug :size="17" /> {{ t('ui.nav.connectors') }}</button>
+        <button type="button" :class="{ on: state.view === 'skills' }" @click="(openSkills(), emit('navigate'))">
+          <Puzzle :size="17" /> {{ t('ui.nav.skills') }}
+        </button>
+        <button type="button" :class="{ on: state.view === 'connectors' }" @click="(openConnectors(), emit('navigate'))">
+          <Plug :size="17" /> {{ t('ui.nav.connectors') }}
+        </button>
         <button type="button" :class="{ on: state.view === 'plugins' }" @click="(openPlugins(), emit('navigate'))">
           <Blocks :size="17" /> {{ t('ui.nav.plugins') }}
         </button>
-        <button type="button" @click="state.schedulesOpen = true"><CalendarClock :size="17" /> {{ t('ui.nav.schedules') }}</button>
+        <button type="button" :class="{ on: state.view === 'schedules' }" @click="(openSchedules(), emit('navigate'))">
+          <CalendarClock :size="17" /> {{ t('ui.nav.schedules') }}
+        </button>
         <button
           ref="moreBtn"
           type="button"

@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { FilePlus2 } from '@lucide/vue'
 import Sidebar from './components/Sidebar.vue'
 import TopBar from './components/TopBar.vue'
 import Home from './components/Home.vue'
-import SkillsDialog from './components/SkillsDialog.vue'
-import ConnectorsDialog from './components/ConnectorsDialog.vue'
+import SkillsPage from './components/SkillsPage.vue'
+import ConnectorsPage from './components/ConnectorsPage.vue'
 import MemoryDialog from './components/MemoryDialog.vue'
 import ResizeEdges from './components/ResizeEdges.vue'
 import UsageDialog from './components/UsageDialog.vue'
-import SchedulesDialog from './components/SchedulesDialog.vue'
+import SchedulesPage from './components/SchedulesPage.vue'
 import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
 import UpdateBar from './components/UpdateBar.vue'
@@ -50,7 +50,7 @@ import {
   toggleMaximize,
   toggleSideChat,
   stop,
-  toast,
+  toast, openSchedules, openSkills,
 } from './store'
 import { loadShortcuts, registerShortcut, startShortcuts } from './shortcuts'
 
@@ -140,7 +140,10 @@ function wireShortcuts() {
     else if (state.trace) backTrace()
     else if (state.subtaskDetail) state.subtaskDetail = null
     else if (state.preview) closePreview()
-    else if (currentState.value?.busy) void stop()
+    // 主区域的页面（连接器详情之类）先关自己的：Esc 是这个全局快捷键，事件到不了页面里
+    else if (!window.dispatchEvent(new CustomEvent('flyknit:escape', { cancelable: true }))) return
+    // 不在对话页面时不停任务：看不见的那个对话不该被一个 Esc 停掉
+    else if (state.view === 'chat' && currentState.value?.busy) void stop()
   })
   registerShortcut('chat.focusInput', () => composer.value?.focusInput())
   registerShortcut('sidebar.toggle', toggleSidebar)
@@ -149,9 +152,9 @@ function wireShortcuts() {
   registerShortcut('font.decrease', () => stepFontScale(-1))
   registerShortcut('font.reset', () => void setFontScale(1))
   registerShortcut('settings.open', () => (state.settingsOpen = true))
-  registerShortcut('skills.open', () => (state.skillsOpen = true))
+  registerShortcut('skills.open', openSkills)
   registerShortcut('memory.open', () => (state.memoryOpen = true))
-  registerShortcut('schedules.open', () => (state.schedulesOpen = true))
+  registerShortcut('schedules.open', openSchedules)
   registerShortcut('usage.open', () => (state.usageOpen = true))
   registerShortcut('window.fullscreen', () => void toggleMaximize())
 }
@@ -194,15 +197,17 @@ function toggleSidebar() {
   }
 }
 
-/** 连接器详情里点了「试试这样用」的例子：放进输入框，用户看一眼再发 */
-function useExample(text: string) {
-  state.mcpOpen = false
+/** 连接器详情里点了「试试这样用」的例子：回到对话，放进输入框，用户看一眼再发 */
+async function useExample(text: string) {
+  state.view = 'chat'
+  await nextTick() // 输入框要等对话区域重新挂上
   if (inConversation.value) composer.value?.fill(text)
   else home.value?.fill(text)
 }
 
-function useSkill(name: string) {
-  state.skillsOpen = false
+async function useSkill(name: string) {
+  state.view = 'chat'
+  await nextTick()
   if (inConversation.value) composer.value?.useSkill(name)
   else home.value?.useSkill(name)
 }
@@ -306,6 +311,9 @@ onBeforeUnmount(() => {
         <ExpertsPage v-else-if="state.view === 'experts'" />
         <TasksPage v-else-if="state.view === 'tasks'" />
         <PluginsPage v-else-if="state.view === 'plugins'" />
+        <ConnectorsPage v-else-if="state.view === 'connectors'" @use="useExample" />
+        <SkillsPage v-else-if="state.view === 'skills'" @use="useSkill" />
+        <SchedulesPage v-else-if="state.view === 'schedules'" />
         <div v-else-if="inConversation" v-show="!(state.rightMax && showRight)" class="conversation">
           <!-- 专家对话：顶部标出是哪位专家；专家被下线了说一声 -->
           <div v-if="current?.expertId" class="expert-bar" :class="{ withdrawn: expertWithdrawn }">
@@ -338,11 +346,8 @@ onBeforeUnmount(() => {
     <ChangesDialog v-if="state.changesView" />
     <TraceDialog v-if="state.trace" />
     <SettingsDialog v-if="state.settingsOpen" />
-    <SkillsDialog v-if="state.skillsOpen" @use="useSkill" />
-    <ConnectorsDialog v-if="state.mcpOpen" @use="useExample" />
     <MemoryDialog v-if="state.memoryOpen" />
     <UsageDialog v-if="state.usageOpen" />
-    <SchedulesDialog v-if="state.schedulesOpen" />
     <ExpertDetail v-if="state.expertDetail" />
     <div v-if="state.toast" class="toast" role="status">{{ state.toast }}</div>
     <ResizeEdges />

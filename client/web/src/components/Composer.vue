@@ -71,7 +71,7 @@ import {
   startSpeech,
   state,
   stop,
-  toast,
+  toast, openConnectors,
 } from '../store'
 import type { InterjectMode, Mode, PendingInput, SlashCommand } from '../types'
 import { shouldFold, snippet } from '../pasted'
@@ -395,7 +395,7 @@ function useConnector(name: string, tool: string | null, close: () => void) {
 
 function manageConnectors(close: () => void) {
   close()
-  state.mcpOpen = true
+  openConnectors()
 }
 
 function useSkill(name: string, close?: () => void) {

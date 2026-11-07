@@ -76,7 +76,7 @@ export const state = reactive({
   update: null as UpdateInfo | null,
   toast: '' as string,
   /** 主区域显示什么：对话（含新任务首页）、资料库，或者专家列表 */
-  view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks' | 'plugins',
+  view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
   /** 每个对话里每一轮改动的文件（打开对话、一轮结束时取） */
@@ -118,9 +118,7 @@ export const state = reactive({
   /** 每个对话最近一次回答时的上下文用量；null = 还没回答过，undefined = 还没取 */
   contextUsage: {} as Record<string, ContextUsage | null>,
   settingsOpen: false,
-  skillsOpen: false,
   /** MCP 连接器面板 */
-  mcpOpen: false,
   mcp: [] as McpVendor[],
   /** 侧栏任务列表按模式筛选 */
   filter: 'all' as 'all' | Mode,
@@ -129,7 +127,6 @@ export const state = reactive({
   workspaces: [] as WorkspaceInfo[],
   memoryOpen: false,
   usageOpen: false,
-  schedulesOpen: false,
   schedules: [] as ScheduledTask[],
   maximized: false,
   /** 正在压缩上下文的会话（界面上显示进度条） */
@@ -725,6 +722,19 @@ export function openTasks() {
 /** 侧栏「插件」：IT 按部门下发的插件（主区域页面） */
 export function openPlugins() {
   state.view = 'plugins'
+}
+
+/** 侧栏「连接器」「技能」「定时任务」：和插件一样在主区域显示，不是弹窗 */
+export function openConnectors() {
+  state.view = 'connectors'
+}
+
+export function openSkills() {
+  state.view = 'skills'
+}
+
+export function openSchedules() {
+  state.view = 'schedules'
 }
 
 /** 上次没做完的任务（按对话 ID） */
@@ -1958,7 +1968,7 @@ function onHostEvent(e: HostEvent) {
       break
     case 'schedules.changed':
       // 定时任务到点运行、状态变化
-      if (state.schedulesOpen) void loadSchedules()
+      if (state.view === 'schedules') void loadSchedules()
       break
     case 'app.focusInput':
       window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
