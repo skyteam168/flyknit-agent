@@ -19,6 +19,15 @@ public sealed class McpConnection : IAsyncDisposable
     }
 
     public McpServerConfig Config { get; }
+
+    /// <summary>这个连接器的日志，可以为空。</summary>
+    public McpServerLog? Log { get; private init; }
+
+    /// <summary>连上的时间（自动重启要看它跑了多久：一启动就崩的不反复拉起）。</summary>
+    public DateTimeOffset ConnectedAt { get; private set; }
+
+    /// <summary>最近一次健康检查的往返耗时。</summary>
+    public TimeSpan? LastLatency { get; set; }
     public McpClient Client => _client ?? throw new InvalidOperationException("还没连上");
     public IReadOnlyList<McpToolInfo> Tools { get; private set; } = Array.Empty<McpToolInfo>();
 
@@ -36,9 +45,9 @@ public sealed class McpConnection : IAsyncDisposable
     public static async Task<McpConnection> ConnectAsync(
         McpServerConfig config, HttpClient http, string clientVersion,
         Func<CancellationToken, Task<string?>>? bearer, string? workingDirectory, CancellationToken ct,
-        McpRuntimeEnvironment? runtime = null)
+        McpRuntimeEnvironment? runtime = null, McpServerLog? log = null)
     {
-        var connection = new McpConnection(config);
+        var connection = new McpConnection(config) { Log = log };
         async Task<IReadOnlyDictionary<string, string>> Headers(CancellationToken token)
         {
             var headers = new Dictionary<string, string>(config.Headers, StringComparer.OrdinalIgnoreCase);
@@ -131,6 +140,8 @@ public sealed class McpConnection : IAsyncDisposable
 
     private async Task StartAsync(McpTransport transport, string kind, string clientVersion, CancellationToken ct)
     {
+        transport.Log = Log;
+        Log?.Write($"开始连接（{kind}）");
         var client = new McpClient(transport, Config.Timeout)
         {
             HandshakeTimeout = InstallsPackages(Config) ? FirstInstallHandshake : null,
@@ -142,6 +153,7 @@ public sealed class McpConnection : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
+            Log?.Write("连接失败：" + ex.Message);
             var detail = transport is StdioTransport stdio && stdio.StderrTail.Length > 0 && ex is not McpAuthRequiredException
                 ? $"{ex.Message}\n{Tail(stdio.StderrTail)}"
                 : ex.Message;
@@ -156,6 +168,9 @@ public sealed class McpConnection : IAsyncDisposable
         }
         _client = client;
         TransportUsed = kind;
+        ConnectedAt = DateTimeOffset.Now;
+        Log?.Write($"已连接：{client.ServerName} {client.ServerVersion}，协议 {client.NegotiatedVersion}，{Tools.Count} 个工具");
+        client.Closed += reason => Log?.Write("连接断开：" + reason);
         client.Closed += reason => Closed?.Invoke(reason);
         client.ToolsChanged += () => _ = RefreshToolsAsync();
     }
@@ -176,6 +191,8 @@ public sealed class McpConnection : IAsyncDisposable
 
     public Task<McpCallResult> CallAsync(string tool, JsonNode? arguments, CancellationToken ct) =>
         Client.CallToolAsync(tool, arguments, ct);
+
+    public Task<TimeSpan> PingAsync(TimeSpan timeout, CancellationToken ct) => Client.PingAsync(timeout, ct);
 
     private static Uri ParseUrl(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttps || u.Scheme == Uri.UriSchemeHttp)

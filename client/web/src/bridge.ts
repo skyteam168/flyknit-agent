@@ -245,6 +245,7 @@ class Bridge {
     this.call<{ ok: boolean; message: string; vendor: McpVendor | null }>('mcp.connect', { id, values }, undefined, 6 * 60_000)
   cancelMcp = (id: string) => this.call<void>('mcp.cancel', { id })
   disconnectMcp = (id: string, forget: boolean) => this.call<McpVendor | null>('mcp.disconnect', { id, forget })
+  openMcpLog = (id: string) => this.call<boolean>('mcp.openLog', { id })
   // 从技能库下载安装，宿主最多等 3 分钟
   installSkillFromLibrary = (name: string) => this.call<SkillInstallOutcome>('skills.installFromLibrary', { name }, undefined, 200_000)
 

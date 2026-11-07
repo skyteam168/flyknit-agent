@@ -1605,6 +1605,8 @@ export function createMockHost(): HostTransport {
       }
       case 'mcp.cancel':
         return
+      case 'mcp.openLog':
+        return false
       case 'mcp.disconnect': {
         const v = mcpVendors.find((x) => x.id === p.id)!
         Object.assign(v, { status: 'disconnected', enabled: false, tools: [], connectedAt: null })

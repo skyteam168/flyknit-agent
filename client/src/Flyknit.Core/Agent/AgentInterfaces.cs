@@ -116,6 +116,9 @@ public sealed class AgentOptions
     /// <summary>太长的工具结果存到这个目录（见 ToolOutputSpill）；为空时照旧截断。</summary>
     public string? ToolOutputDir { get; init; }
 
+    /// <summary>这个场景的模型支持识图：工具返回的图片下一步一起发给它（见 <see cref="ChatRequest.InlineToolImages"/>）。</summary>
+    public bool InlineToolImages { get; init; }
+
     /// <summary>连续多少次工具失败后停止，避免死循环。</summary>
     public int MaxConsecutiveFailures { get; init; } = 4;
 

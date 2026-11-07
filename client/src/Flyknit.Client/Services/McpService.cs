@@ -40,6 +40,14 @@ public sealed class McpService : IDisposable
     private readonly ConcurrentDictionary<string, Runtime> _runtime = new();
     private readonly CancellationTokenSource _life = new();
     private readonly McpRuntimeManager _runtimes;
+    private readonly ConcurrentDictionary<string, McpServerLog> _logs = new();
+
+    /// <summary>每个连接器一份日志：%APPDATA%\Flyknit\logs\mcp\&lt;id&gt;.log（打过码，见 McpServerLog）。</summary>
+    private static string LogDir => Path.Combine(AppPaths.Logs, "mcp");
+
+    /// <summary>健康检查：每分钟 ping 一次，10 秒没回算一次失败，连续两次就断开重连。</summary>
+    private static readonly TimeSpan HealthInterval = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan HealthTimeout = TimeSpan.FromSeconds(10);
     private HttpClient _http;
     /// <summary>仅用于管理员勾了「不校验证书」的连接器；正规 HTTPS 仍走 _http。</summary>
     private HttpClient _httpInsecure;
@@ -78,6 +86,15 @@ public sealed class McpService : IDisposable
         http.Timeout = Timeout.InfiniteTimeSpan;
         http.DefaultRequestHeaders.UserAgent.ParseAdd("FlyknitBuddy");
         return http;
+    }
+
+    private McpServerLog LogFor(string id) => _logs.GetOrAdd(id, key => new McpServerLog(LogDir, key));
+
+    /// <summary>这个连接器的日志文件（界面上「查看日志」打开它）。还没写过返回 null。</summary>
+    public string? LogPath(string id)
+    {
+        var path = LogFor(id).Path;
+        return File.Exists(path) ? path : null;
     }
 
     private HttpClient HttpFor(McpServerConfig config) =>
@@ -255,6 +272,8 @@ public sealed class McpService : IDisposable
             ServerName = rt?.Connection?.Client.ServerName ?? "",
             TransportUsed = rt?.Transport ?? "",
             ConnectedAt = rt?.ConnectedAt,
+            LatencyMs = rt?.Connection?.LastLatency is { } latency ? (int)Math.Round(latency.TotalMilliseconds) : null,
+            HasLog = File.Exists(LogFor(v.Id).Path),
             Tools = (rt?.Connection?.Tools ?? Array.Empty<McpToolInfo>()).Select(t => new McpToolView
             {
                 Name = t.Name,
@@ -348,6 +367,12 @@ public sealed class McpService : IDisposable
             connection.Closed += reason => OnClosed(id, connection, reason);
             connection.ToolsChanged += () => Register(id, vendor, connection);
             Register(id, vendor, connection);
+            // 进程没退、连接没断，但对方不再回话（卡死）：健康检查发现后断开重连
+            var health = new McpHealthMonitor(connection, HealthInterval, HealthTimeout);
+            health.Unhealthy += reason => OnUnhealthy(id, connection, reason);
+            health.Latency += _ => Changed?.Invoke(id);
+            rt.Health = health;
+            health.Start();
             Set(id, rt, McpStatus.Connected, "");
             Log.Info($"MCP 连接器 {id} 已连接（{connection.TransportUsed}，{connection.Tools.Count} 个工具）");
             return View(vendor);
@@ -397,7 +422,7 @@ public sealed class McpService : IDisposable
         try
         {
             var http = HttpFor(config);
-            return await McpConnection.ConnectAsync(config, http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime);
+            return await McpConnection.ConnectAsync(config, http, _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime, LogFor(vendor.Id));
         }
         catch (McpAuthRequiredException ex) when (interactive && WantsBrowserLogin(vendor, ex))
         {
@@ -406,7 +431,7 @@ public sealed class McpService : IDisposable
             await AuthorizeAsync(vendor, new Uri(config.Url), ex.WwwAuthenticate, ct, config.SkipTlsVerify);
             try
             {
-                return await McpConnection.ConnectAsync(config, HttpFor(config), _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime);
+                return await McpConnection.ConnectAsync(config, HttpFor(config), _clientVersion, bearer, _settings.ResolveWorkspace(null), ct, runtime, LogFor(vendor.Id));
             }
             catch (McpAuthRequiredException again)
             {
@@ -535,6 +560,7 @@ public sealed class McpService : IDisposable
         rt.Connection = null;
         rt.Transport = "";
         rt.ConnectedAt = null;
+        await StopHealthAsync(rt);
         if (connection is not null)
         {
             try
@@ -555,9 +581,37 @@ public sealed class McpService : IDisposable
         Changed?.Invoke(id);
     }
 
+    private static async Task StopHealthAsync(Runtime rt)
+    {
+        var health = rt.Health;
+        rt.Health = null;
+        if (health is not null)
+        {
+            await health.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>健康检查连续 ping 不通：当成断线处理，再把这个卡住的连接关掉（本机进程会被结束）。</summary>
+    private void OnUnhealthy(string id, McpConnection connection, string reason)
+    {
+        LogFor(id).Write("健康检查失败，断开重连：" + reason);
+        OnClosed(id, connection, reason);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await connection.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"关闭卡住的 MCP 连接 {id} 出错：{ex.Message}");
+            }
+        });
+    }
+
     /// <summary>
-    /// 连接断了：远程的按 1、2、4、8、16 秒退避重连五次（和 Claude Code 一样），
-    /// 本机进程不自动重启——它退出多半是自己出了问题，反复拉起只会反复失败。
+    /// 连接断了：要不要重连、等多久见 <see cref="McpReconnectPolicy"/>——
+    /// 远程的退避重连五次；本机进程跑稳过的（不是一启动就崩）10 分钟内最多自动重启三次。
     /// </summary>
     private void OnClosed(string id, McpConnection connection, string reason)
     {
@@ -568,14 +622,30 @@ public sealed class McpService : IDisposable
         Log.Warn($"MCP 连接器 {id} 断开：{reason}");
         _tools.RemoveWhere(t => t is McpTool m && m.ServerId == id);
         rt.Connection = null;
-        if (rt.Transport == "stdio" || rt.Retries >= 5)
+        _ = StopHealthAsync(rt);
+        var now = DateTimeOffset.Now;
+        var recent = McpReconnectPolicy.Recent(rt.Restarts, now);
+        var delay = McpReconnectPolicy.Next(rt.Transport, rt.Retries, now - connection.ConnectedAt, recent);
+        if (delay is null)
         {
+            var why = rt.Transport == "stdio" && now - connection.ConnectedAt < McpReconnectPolicy.MinStdioUptime
+                ? "（刚启动就退出，多半是配置或环境问题，不自动重启）"
+                : rt.Transport == "stdio" ? $"（10 分钟内已自动重启 {recent} 次，不再重启）" : "";
+            LogFor(id).Write("不再自动重连" + why);
             Set(id, rt, McpStatus.Failed, $"连接断开：{reason}");
             return;
         }
-        var delay = TimeSpan.FromSeconds(Math.Pow(2, rt.Retries++));
+        if (rt.Transport == "stdio")
+        {
+            rt.Restarts.Add(now);
+        }
+        else
+        {
+            rt.Retries++;
+        }
+        LogFor(id).Write($"{delay.Value.TotalSeconds:0} 秒后自动重连");
         Set(id, rt, McpStatus.Connecting, "连接断开，正在重连…");
-        _ = Task.Delay(delay, _life.Token).ContinueWith(_ => ReconnectAsync(id, reason), TaskScheduler.Default);
+        _ = Task.Delay(delay.Value, _life.Token).ContinueWith(_ => ReconnectAsync(id, reason), TaskScheduler.Default);
     }
 
     private async Task ReconnectAsync(string id, string why)
@@ -592,7 +662,9 @@ public sealed class McpService : IDisposable
         catch (Exception ex)
         {
             Log.Warn($"MCP 连接器 {id} 重连失败（{why}）：{ex.Message}");
-            if (_runtime.TryGetValue(id, out var r) && retries < 5 && r.Status == McpStatus.Failed)
+            // 本机进程重启失败就停：启动都起不来，再试也一样
+            var remote = Vendors().FirstOrDefault(v => v.Id == id) is { Transport: not "stdio" };
+            if (remote && _runtime.TryGetValue(id, out var r) && retries < McpReconnectPolicy.MaxRemoteRetries && r.Status == McpStatus.Failed)
             {
                 r.Retries = retries + 1;
                 _ = Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, retries + 1)), _life.Token)
@@ -660,6 +732,10 @@ public sealed class McpService : IDisposable
         public DateTimeOffset? ConnectedAt { get; set; }
         public int Retries { get; set; }
         public CancellationTokenSource? Attempt { get; set; }
+        public McpHealthMonitor? Health { get; set; }
+
+        /// <summary>本机进程最近自动重启的时间（只看 10 分钟内的）。</summary>
+        public List<DateTimeOffset> Restarts { get; } = new();
     }
 
     // ---------- 本机存储 ----------
@@ -832,6 +908,12 @@ public sealed class McpVendorView
     public string ServerName { get; set; } = "";
     public string TransportUsed { get; set; } = "";
     public DateTimeOffset? ConnectedAt { get; set; }
+
+    /// <summary>最近一次健康检查的往返耗时（毫秒）；还没检查过为空。</summary>
+    public int? LatencyMs { get; set; }
+
+    /// <summary>有这个连接器的日志，界面上显示「查看日志」。</summary>
+    public bool HasLog { get; set; }
     public List<McpToolView> Tools { get; set; } = new();
 }
 

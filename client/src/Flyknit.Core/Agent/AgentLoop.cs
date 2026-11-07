@@ -325,6 +325,7 @@ public sealed class AgentLoop
                             ModelId = modelId,
                             ConversationId = ctx.ConversationId,
                             ExtraBody = extraBody,
+                            InlineToolImages = _options.InlineToolImages,
                         },
                         observer,
                         ct);
@@ -746,9 +747,13 @@ public sealed class AgentLoop
 
         ToolCall? MapLeakedCall(LeakedToolCall c) => MapLeaked(c, _tools);
 
-        void AppendTool(ToolCall call, string content)
+        void AppendTool(ToolCall call, string content, List<Attachment>? attachments = null)
         {
             var m = ChatMessage.ToolResult(call, content);
+            if (attachments is { Count: > 0 })
+            {
+                m.Attachments.AddRange(attachments);
+            }
             Append(m);
             observer.OnToolMessage(m);
         }
@@ -972,7 +977,9 @@ public sealed class AgentLoop
             {
                 raw = raw with { Output = toolRules.Annotate(call.Name, call.ArgumentsJson, raw.Output) };
             }
-            var result = ToolOutputSpill.Apply(raw, _options.MaxToolOutputChars, _options.ToolOutputDir, call.Name, call.Id);
+            // 工具返回的图片先存成文件（结果里补上路径、算进产出、挂成附件），再按长度落盘
+            var (withImages, images) = ToolImageStore.Save(raw, _options.ToolOutputDir, call.Name, call.Id);
+            var result = ToolOutputSpill.Apply(withImages, _options.MaxToolOutputChars, _options.ToolOutputDir, call.Name, call.Id);
             if (result.Usage is { } toolUsage)
             {
                 // 派遣出去的专家用掉的 token：算进这次运行的用量和预算
@@ -1031,7 +1038,7 @@ public sealed class AgentLoop
                     }
                 }
             }
-            AppendTool(call, text);
+            AppendTool(call, text, images);
             return result.Ok;
         }
 

@@ -36,6 +36,12 @@ public sealed class ChatRequest
 
     /// <summary>专家执行子任务时的子任务 ID：服务端据此检查子任务还能不能继续、累计用量、卡预算。</summary>
     public string? SubtaskId { get; init; }
+
+    /// <summary>
+    /// 把工具返回的图片（截图等）发给模型。只有这个场景的模型支持识图时才开：
+    /// 否则网关看到图片会把整个请求改走识图场景，那个模型未必会调工具。
+    /// </summary>
+    public bool InlineToolImages { get; init; }
 }
 
 public sealed class WebSource

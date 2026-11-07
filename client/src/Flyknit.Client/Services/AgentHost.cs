@@ -481,6 +481,7 @@ public sealed partial class AgentHost : IDisposable
                 ApplySecurity();
                 OnDelegationSwitchChanged();
             }
+            _sceneVision = config.Scenes.Where(s => s.Available).GroupBy(s => s.Scene).ToDictionary(g => g.Key, g => g.First().SupportsVision);
             var agent = config.Scenes.FirstOrDefault(s => s.Scene == Scenes.Agent);
             if (agent is { ContextLength: > 0 } && _contextLength == 0)
             {
@@ -1085,8 +1086,26 @@ public sealed partial class AgentHost : IDisposable
     }
 
     /// <summary>Agent 循环的设置：步数上限来自本机设置，规划提醒、产出检查由 IT 在安全中心开关（没下发时默认开）。</summary>
+    /// <summary>服务端配置里各场景的主模型能不能识图（拉配置时刷新）。</summary>
+    private IReadOnlyDictionary<string, bool> _sceneVision = new Dictionary<string, bool>();
+
+    /// <summary>
+    /// 工具返回的图片要不要发给模型：这一轮场景的模型能识图、员工没在输入框另选模型时才发。
+    /// 不能识图时发了图，网关会把整个请求改走识图场景，那个模型未必会调工具，任务就断了。
+    /// </summary>
+    private bool InlineToolImagesFor(Conversation? conv)
+    {
+        if (conv is null || conv.ModelId is not null)
+        {
+            return false;
+        }
+        var scene = DeveloperToolsFor(conv, null).Count > 0 ? Scenes.Code : Scenes.Agent;
+        return _sceneVision.TryGetValue(scene, out var vision) && vision;
+    }
+
     private AgentOptions AgentOptionsFor(Conversation? conv = null) => new()
     {
+        InlineToolImages = InlineToolImagesFor(conv),
         MaxSteps = LongModeOn(conv) ? Math.Max(_settings.ResolveAgentMaxSteps(), LongModeSteps) : _settings.ResolveAgentMaxSteps(),
         MaxRunTokens = RunTokenLimit(LongModeOn(conv)),
         PlanGuidance = Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),

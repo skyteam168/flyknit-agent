@@ -936,7 +936,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         var body = new JsonObject
         {
             ["model"] = request.Scene,
-            ["messages"] = OpenAiSerializer.ToMessages(request.Messages),
+            ["messages"] = OpenAiSerializer.ToMessages(request.Messages, request.InlineToolImages),
             ["stream"] = request.Stream,
         };
         if (!string.IsNullOrEmpty(request.ConversationId))

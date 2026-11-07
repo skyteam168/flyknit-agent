@@ -30,14 +30,17 @@ public sealed class StdioTransport : McpTransport
         _runtime = runtime;
     }
 
-    /// <summary>最近的标准错误输出（截尾）。</summary>
+    /// <summary>
+    /// 最近的标准错误输出（截尾，已打码）。它会出现在报错里——界面上、工具结果里（模型看得到），
+    /// 所以和日志一样先把像凭证的部分换成 ***：有的服务启动失败时会把请求头、连接串原样打出来。
+    /// </summary>
     public string StderrTail
     {
         get
         {
             lock (_stderr)
             {
-                return _stderr.ToString().Trim();
+                return McpServerLog.Redact(_stderr.ToString().Trim());
             }
         }
     }
@@ -96,9 +99,11 @@ public sealed class StdioTransport : McpTransport
             {
                 return;
             }
+            var text = ConsoleText.FromLatin1(e.Data);
+            Log?.Write("stderr: " + text);
             lock (_stderr)
             {
-                _stderr.AppendLine(ConsoleText.FromLatin1(e.Data));
+                _stderr.AppendLine(text);
                 if (_stderr.Length > StderrKeep * 2)
                 {
                     _stderr.Remove(0, _stderr.Length - StderrKeep);
@@ -137,8 +142,17 @@ public sealed class StdioTransport : McpTransport
         {
             // 进程被关掉时读会抛异常，下面统一报告
         }
+        // 输出流关了不等于进程已经退出：稍等一下再读退出码，不然常常只能写「?」
+        try
+        {
+            _process.WaitForExit(2000);
+        }
+        catch (Exception)
+        {
+        }
         var tail = StderrTail;
-        var code = _process.HasExited ? _process.ExitCode.ToString() : "?";
+        var code = _process.HasExited ? _process.ExitCode.ToString(CultureInfo.InvariantCulture) : "?";
+        Log?.Write($"进程退出，退出码 {code}");
         FailAll(tail.Length > 0
             ? $"{_config.Command} 已退出（退出码 {code}）：{Last(tail, 500)}"
             : $"{_config.Command} 已退出（退出码 {code}）");

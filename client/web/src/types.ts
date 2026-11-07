@@ -481,6 +481,10 @@ export interface McpVendor {
   serverName: string
   transportUsed: string
   connectedAt: string | null
+  /** 最近一次健康检查的往返耗时（毫秒） */
+  latencyMs?: number | null
+  /** 有这个连接器的日志 */
+  hasLog?: boolean
   tools: McpTool[]
 }
 

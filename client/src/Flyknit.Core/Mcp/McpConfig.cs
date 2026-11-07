@@ -198,7 +198,7 @@ public static class McpNames
 
     public static bool IsMcp(string name) => name.StartsWith(Prefix, StringComparison.Ordinal);
 
-    private static string Sanitize(string s)
+    internal static string Sanitize(string s)
     {
         var sb = new StringBuilder(s.Length);
         foreach (var c in s)

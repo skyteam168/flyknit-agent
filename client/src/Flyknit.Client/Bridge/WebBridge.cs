@@ -1539,6 +1539,17 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "mcp.disconnect":
                 return await _host.Mcp.DisconnectAsync(Str("id"), Bool("forget"));
 
+            case "mcp.openLog":
+            {
+                // 连接器自己的日志（打过码），用系统默认的文本编辑器打开
+                if (_host.Mcp.LogPath(Str("id")) is not { } logPath)
+                {
+                    return false;
+                }
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(logPath) { UseShellExecute = true });
+                return true;
+            }
+
             case "skills.list":
                 _host.SkillManager.Refresh();
                 return SkillList();

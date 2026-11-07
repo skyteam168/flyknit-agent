@@ -285,3 +285,4 @@ REA、Craft Anything、Playwright MCP 由 IT 在后台配置成连接器。逆�
 | --- | --- | --- |
 | 阶段 0 | 代码完成，Linux 单测通过 | 思考内容回传按数据决定（不按厂商写死）；服务端按模型配置「思考开关写法」（enable_thinking / thinking / chat_template_kwargs / 不传）和「思考回传」（自动 / 不回传）；网关请求在没收到任何回答前对连不上、超时、502/503/504、非额度 429 退避重试 2 次 |
 | 阶段 1 | 代码完成，Linux 单测通过，待 Windows 实机验证 | 安全中心「开发者工具」（默认关）；grep、search_files 支持 `**`、multi_edit、git_status / git_diff / git_log / git_commit；git 与 gh 命令按子命令 + 关键参数定级；`/init` 生成 FLYKNIT.md；`code` 场景 |
+| 阶段 2 | 代码完成，Linux 单测 + 真实子进程测试通过，待 Windows 实机验证 | 员工取消时向 MCP 服务器发 notifications/cancelled；本机进程连接器跑稳（≥30 秒）后崩溃自动重启，10 分钟内最多 3 次，一启动就崩的不重启；每分钟 ping 健康检查，有调用在跑时不 ping，连续 2 次不回断开重连，界面显示延迟；每个连接器一份打码日志 logs\mcp\<id>.log（不记参数和返回内容），可在连接器页面打开；声明只读的 MCP 工具可并行；工具返回的图片存成文件并在界面显示，场景模型能识图时随下一次请求发给模型；stderr 进报错前打码；退出码读取竞态修复 |

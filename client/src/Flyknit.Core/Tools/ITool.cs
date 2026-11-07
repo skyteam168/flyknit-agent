@@ -32,6 +32,13 @@ public sealed record ToolResult(bool Ok, string Output)
     /// <summary>执行记录里这一步换个样子记（派遣专家记成 subtask 步骤）。</summary>
     public ToolTraceNote? Trace { get; init; }
 
+    /// <summary>
+    /// 工具返回的图片（外部服务的截图、渲染结果）。Agent 循环存成文件、挂到这条工具结果上：
+    /// 员工在界面上能打开看；模型支持识图时，下一次请求把图片一起发给它（见 OpenAiSerializer）。
+    /// 文字里用 <see cref="ToolImage.Marker"/> 标出位置，存好后换成保存路径。
+    /// </summary>
+    public IReadOnlyList<ToolImage> Images { get; init; } = Array.Empty<ToolImage>();
+
     public static ToolResult Success(string output) => new(true, output);
     public static ToolResult Fail(string error) => new(false, error);
 
@@ -47,6 +54,9 @@ public sealed record ToolResult(bool Ok, string Output)
         return this with { Output = $"{head}\n\n…（已省略 {Output.Length - maxChars} 个字符）…\n\n{tail}" };
     }
 }
+
+/// <summary>工具返回的一张图片。Marker 是它在结果文字里的那句说明（存好文件后在后面补上路径）。</summary>
+public sealed record ToolImage(string Mime, byte[] Data, string Marker);
 
 /// <summary>执行记录里这一步的类型、名字和说明。</summary>
 public sealed record ToolTraceNote(string Kind, string Name, string Summary, string Detail);
