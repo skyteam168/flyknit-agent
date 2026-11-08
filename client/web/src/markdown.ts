@@ -38,11 +38,34 @@ function fenceClosed(map: [number, number] | null, markup: string, lines: string
   return last > map[0] && (lines[last] ?? '').trim().startsWith(markup)
 }
 
+// PR / Issue 地址（和宿主 RefLink.Parse 同一个格式）：显示成带图标的「#12」，鼠标停上去弹卡片（MessageList 里的 RefHoverCard）
+const REF_LINK = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(pull|issues)\/(\d{1,9})(?:[/?#].*)?$/
+
+/** 认得出的 PR / Issue 链接：类型和编号；否则 null */
+export function parseRefLink(href: string): { kind: 'pr' | 'issue'; number: number } | null {
+  const m = REF_LINK.exec(href)
+  if (!m || Number(m[2]) <= 0) return null
+  return { kind: m[1] === 'pull' ? 'pr' : 'issue', number: Number(m[2]) }
+}
+
 // 链接在系统浏览器中打开
 const defaultLink = md.renderer.rules.link_open ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-  tokens[idx].attrSet('target', '_blank')
-  tokens[idx].attrSet('rel', 'noopener')
+  const token = tokens[idx]
+  token.attrSet('target', '_blank')
+  token.attrSet('rel', 'noopener')
+  const href = token.attrGet('href') ?? ''
+  const ref = parseRefLink(href)
+  if (ref) {
+    token.attrSet('data-ref', ref.kind)
+    token.attrJoin('class', 'ref-link')
+    // 链接文字就是地址本身（模型直接贴的网址）时才换成「#12」；模型自己写了文字就保留
+    const text = tokens[idx + 1]
+    const bare = href.replace(/^https:\/\//, '')
+    if (text?.type === 'text' && tokens[idx + 2]?.type === 'link_close' && (text.content === href || text.content === bare)) {
+      text.content = `#${ref.number}`
+    }
+  }
   return defaultLink(tokens, idx, options, env, self)
 }
 
@@ -59,5 +82,5 @@ export function stripToolMarkup(text: string): string {
 /** streaming：正在输出的回答，没写完的图表块先显示占位 */
 export function renderMarkdown(text: string, opts?: { streaming?: boolean }): string {
   const env = opts?.streaming ? { streaming: true, lines: text.split('\n') } : {}
-  return DOMPurify.sanitize(md.render(text, env), { ADD_ATTR: ['target', 'data-copy', 'data-lang', 'data-code'] })
+  return DOMPurify.sanitize(md.render(text, env), { ADD_ATTR: ['target', 'data-copy', 'data-lang', 'data-code', 'data-ref'] })
 }

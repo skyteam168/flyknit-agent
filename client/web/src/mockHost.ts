@@ -443,7 +443,7 @@ export function createMockHost(): HostTransport {
     conversations.set(c.id, c)
     messages.set(c.id, [
       { id: uid(), role: 'user', content: title, createdAt: c.updatedAt },
-      { id: uid(), role: 'assistant', content: '这是一段历史对话的示例内容。', createdAt: c.updatedAt },
+      { id: uid(), role: 'assistant', content: '这是一段历史对话的示例内容。测试 PR 已开好：https://github.com/skyteam168/flyknit-agent/pull/100 ，上一个是 https://github.com/skyteam168/flyknit-agent/pull/99 ，问题记在 https://github.com/skyteam168/flyknit-agent/issues/7 。', createdAt: c.updatedAt },
     ])
     return c.id
   }
@@ -2017,6 +2017,18 @@ export function createMockHost(): HostTransport {
         return { ok: true, message: '' }
       case 'repo.open':
         return true
+      case 'repo.card': {
+        await sleep(300)
+        const m = /\/(pull|issues)\/(\d+)/.exec(String(p.url ?? ''))
+        if (!m) return null
+        const n = Number(m[2])
+        const repo = String(p.url).split('/').slice(3, 5).join('/')
+        if (m[1] === 'issues') {
+          return { kind: 'issue', state: n % 2 ? 'open' : 'closed', repo, number: n, title: '悬浮球在副屏上位置不对', author: 'yangxiaowei', url: p.url, at: new Date(Date.now() - 5 * 3600_000).toISOString(), additions: 0, deletions: 0, files: 0, comments: 3 }
+        }
+        const states = ['merged', 'open', 'closed', 'draft'] as const
+        return { kind: 'pr', state: states[n % 4], repo, number: n, title: 'docs：PR #93～#99 的验收测试清单', author: 'skyteam168', url: p.url, at: new Date(Date.now() - 4 * 60_000).toISOString(), additions: 273, deletions: 0, files: 1, comments: 0 }
+      }
       case 'pr.list': {
         const base = {
           conversationId: p.conversationId, draft: false, head: 'claude/trusting-cannon-qmkq7q', base: 'main', autoFix: true, autoFixes: 1,

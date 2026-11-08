@@ -1244,6 +1244,24 @@ export interface RepoInfo {
   behind: number
 }
 
+/** 聊天里 PR / Issue 链接的悬停卡片（宿主用 gh 查的） */
+export interface RefCard {
+  kind: 'pr' | 'issue'
+  state: 'open' | 'draft' | 'merged' | 'closed'
+  /** owner/repo */
+  repo: string
+  number: number
+  title: string
+  author: string
+  url: string
+  /** 合并 / 关闭的时间；还开着时是创建时间 */
+  at: string
+  additions: number
+  deletions: number
+  files: number
+  comments: number
+}
+
 export type PrCheckState = 'pass' | 'fail' | 'pending' | 'skip'
 
 /** 盯着的一个 PR */

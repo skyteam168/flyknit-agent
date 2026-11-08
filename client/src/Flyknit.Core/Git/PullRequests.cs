@@ -67,6 +67,24 @@ public static class GhCli
         return PrStatus.Parse(doc.RootElement);
     }
 
+    /// <summary>
+    /// 聊天里 PR / Issue 链接的悬停卡片。只读查询（gh pr view / gh issue view 直接给地址），
+    /// 不需要在那个仓库的工作副本里，所以在临时目录里跑。
+    /// </summary>
+    public static async Task<RefCard?> CardAsync(RefLink link, CancellationToken ct)
+    {
+        var args = link.Kind == "pr"
+            ? new List<string> { "pr", "view", link.Url, "--json", RefCard.PrFields }
+            : new List<string> { "issue", "view", link.Url, "--json", RefCard.IssueFields };
+        var r = await RunAsync(Path.GetTempPath(), args, ct);
+        if (r.ExitCode != 0 || r.Stdout.Trim().Length == 0)
+        {
+            return null;
+        }
+        using var doc = JsonDocument.Parse(r.Stdout);
+        return RefCard.Parse(link, doc.RootElement);
+    }
+
     /// <summary>建 PR，返回 PR 地址。</summary>
     /// <param name="repo">owner/repo：不在那个仓库的工作副本里时指定（沙箱出口从临时目录建 PR）。</param>
     public static async Task<string> CreateAsync(string directory, string title, string body, string baseBranch, string head, bool draft, CancellationToken ct, string? repo = null)
