@@ -37,6 +37,10 @@ public sealed class SubAgentTests : IDisposable
         public Func<ChatRequest, int, ChatTurn> Child { get; set; } = (_, _) => new ChatTurn { Content = "子代理的结论：一切正常" };
         public TimeSpan ChildDelay { get; set; } = TimeSpan.Zero;
         private int _childCalls;
+        private int _inFlight;
+
+        /// <summary>同时在等模型回复的子代理最多有几个（判断有没有并行，不看总耗时：CI 机器慢时耗时不可靠）。</summary>
+        public int MaxChildrenInFlight;
 
         public static bool IsChild(ChatRequest r) => r.Messages.Any(m => m.Role == ChatRole.User && m.Content.Contains("<子代理任务"));
 
@@ -45,11 +49,24 @@ public sealed class SubAgentTests : IDisposable
             Requests.Enqueue(request);
             if (IsChild(request))
             {
-                if (ChildDelay > TimeSpan.Zero)
+                var now = Interlocked.Increment(ref _inFlight);
+                int seen;
+                while ((seen = Volatile.Read(ref MaxChildrenInFlight)) < now
+                    && Interlocked.CompareExchange(ref MaxChildrenInFlight, now, seen) != seen)
                 {
-                    await Task.Delay(ChildDelay, ct);
                 }
-                return Child(request, Interlocked.Increment(ref _childCalls));
+                try
+                {
+                    if (ChildDelay > TimeSpan.Zero)
+                    {
+                        await Task.Delay(ChildDelay, ct);
+                    }
+                    return Child(request, Interlocked.Increment(ref _childCalls));
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _inFlight);
+                }
             }
             lock (Parent)
             {
@@ -254,12 +271,11 @@ public sealed class SubAgentTests : IDisposable
             new { description = "B", prompt = "调研 B 模块的结构和入口" },
             new { description = "C", prompt = "调研 C 模块的结构和入口" }));
 
-        var watch = Stopwatch.StartNew();
         var result = await Run(tools);
-        watch.Stop();
 
         Assert.Equal(3, result.NewMessages.Count(m => m.Role == ChatRole.Tool));
-        Assert.True(watch.ElapsedMilliseconds < 1000, $"用了 {watch.ElapsedMilliseconds} ms，没有并行"); // 串行至少 1200 ms
+        // 每个子代理等模型 400 ms：串行时同一时刻只有 1 个在等，并行时 3 个重叠
+        Assert.True(_gateway.MaxChildrenInFlight >= 2, $"同时在跑的子代理最多 {_gateway.MaxChildrenInFlight} 个，没有并行");
         // 结果按调用顺序写回
         var order = result.NewMessages.Where(m => m.Role == ChatRole.Tool).Select(m => m.ToolCallId).ToList();
         Assert.Equal(new[] { "call_0", "call_1", "call_2" }, order);
