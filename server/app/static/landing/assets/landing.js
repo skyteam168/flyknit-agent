@@ -9,7 +9,7 @@
   // ---------- 文案：中文就是页面里写的，越南语和英语在这里 ----------
   var DICT = {
     vi: {
-      'nav.features': 'Tính năng', 'nav.scenes': 'Ứng dụng', 'nav.experts': 'Chuyên gia', 'nav.security': 'Bảo mật', 'nav.faq': 'Hỏi đáp', 'nav.download': 'Tải về',
+      'nav.features': 'Tính năng', 'nav.scenes': 'Ứng dụng', 'nav.experts': 'Chuyên gia', 'nav.security': 'Bảo mật', 'nav.faq': 'Hỏi đáp', 'nav.docs': 'Tài liệu', 'nav.download': 'Tải về',
       'hero.eyebrow': 'Trợ lý AI cho máy tính văn phòng nhà máy · 中文 / Tiếng Việt / English',
       'hero.title': 'Nói việc cần làm,<br /><span class="grad">phần còn lại để FlyknitBuddy lo</span>',
       'hero.lead': 'Sắp xếp tệp, phân tích Excel, viết email và báo cáo, dịch thuật, cài phần mềm, thao tác máy tính — chỉ cần nói bằng ngôn ngữ quen thuộc. Dữ liệu ở lại mạng nội bộ công ty, IT quản lý tập trung.',
@@ -122,7 +122,7 @@
       'foot.tag': 'Trợ lý AI cho máy tính văn phòng nhà máy',
     },
     en: {
-      'nav.features': 'Features', 'nav.scenes': 'Use cases', 'nav.experts': 'Experts', 'nav.security': 'Security', 'nav.faq': 'FAQ', 'nav.download': 'Download',
+      'nav.features': 'Features', 'nav.scenes': 'Use cases', 'nav.experts': 'Experts', 'nav.security': 'Security', 'nav.faq': 'FAQ', 'nav.docs': 'Docs', 'nav.download': 'Download',
       'hero.eyebrow': 'The AI assistant for factory office PCs · 中文 / Tiếng Việt / English',
       'hero.title': 'Say what needs doing.<br /><span class="grad">FlyknitBuddy handles the rest.</span>',
       'hero.lead': 'Organize files, analyze Excel, write emails and reports, translate, install software and operate your PC — just ask in the language you use every day. Your data stays on the company network, managed by IT.',

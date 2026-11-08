@@ -10,6 +10,7 @@ from dotenv.parser import parse_stream
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import make_url
 
@@ -180,6 +181,16 @@ async def healthz():
 _admin_dist = Path(__file__).resolve().parent / "static" / "admin"
 if _admin_dist.is_dir():
     app.mount("/admin", StaticFiles(directory=_admin_dist, html=True), name="admin")
+
+# 帮助中心（site/ 目录 npm run build 的产物，VitePress）。/docs 是 FastAPI 的接口文档，所以放在 /help
+_help_dist = Path(__file__).resolve().parent / "static" / "help"
+if _help_dist.is_dir():
+    @app.get("/help", include_in_schema=False)
+    async def help_without_slash():
+        # 手敲的 /help 没有结尾斜杠，挂载点不认，转到 /help/
+        return RedirectResponse("/help/")
+
+    app.mount("/help", StaticFiles(directory=_help_dist, html=True), name="help")
 
 # 产品页（落地页）：直接打开 http://服务器:8000/ 就是。静态文件，改完刷新就生效。
 # 挂在最后：前面的接口、/admin、/healthz 都优先匹配

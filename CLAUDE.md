@@ -38,6 +38,7 @@ flyknitbuddy/
 │   └── run.bat / run.ps1   一键编译启动（日志 client/build.log）
 ├── admin/                  Vue 3 + Element Plus 管理后台源码
 ├── mobile/                 uni-app x（UTS / uvue）手机端
+├── site/                   帮助中心（VitePress）→ server/app/static/help，挂在 /help；不写服务器地址等内部信息
 └── docs/                   architecture.md、专家派遣约定等
 ```
 
