@@ -3,12 +3,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Promotion, Refresh, Search, MagicStick } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { AgentRun, Device, MachineAgent, MachineAgentDetail } from '@/api/types'
+import type { AgentRun, Department, Device, DeviceAccess, MachineAgent, MachineAgentDetail } from '@/api/types'
 import { auth } from '@/store/auth'
 import { bytes, dateTime, isOnline, relative, short } from '@/utils/format'
 import { agentOnline, kindLabel, statusMeta } from '@/utils/tasks'
 import DispatchDialog from '@/components/DispatchDialog.vue'
 import InstructionDialog from '@/components/InstructionDialog.vue'
+import PolicyEditor from '@/components/PolicyEditor.vue'
 
 type Row = Device & { agent: MachineAgent | null }
 
@@ -104,7 +105,14 @@ const editOpen = ref(false)
 const editing = ref(false)
 const editForm = reactive({ id: 0, machine_name: '', owner: '', department: '', note: '' })
 
+// 部门只能从清单里选（「部门」页维护），写法统一，按部门的隔离才不会漏
+const departments = ref<Department[]>([])
+async function loadDepartments() {
+  departments.value = await api.departments()
+}
+
 function openEdit(d: Row) {
+  void loadDepartments()
   Object.assign(editForm, {
     id: d.id,
     machine_name: d.machine_name,
@@ -130,6 +138,7 @@ async function saveEdit() {
     }
     editOpen.value = false
     ElMessage.success('已保存')
+    if (detailDevice.value?.id === editForm.id) void loadAccess(editForm.id)
   } finally {
     editing.value = false
   }
@@ -178,8 +187,39 @@ const detailRuns = ref<AgentRun[]>([])
 const detailLoading = ref(false)
 const detailDevice = ref<Row | null>(null)
 
+// ---------- 这台电脑能用什么、单独的安全设置 ----------
+const access = ref<DeviceAccess | null>(null)
+const canEditSecurity = computed(() => !!auth.user?.is_owner && !auth.user?.must_change_password)
+const SOURCE_LABEL: Record<string, string> = { device: '这台电脑', department: '部门', global: '全厂', default: '默认' }
+
+async function loadAccess(id: number) {
+  access.value = null
+  try {
+    access.value = await api.deviceAccess(id)
+  } catch {
+    access.value = null
+  }
+}
+
+/** 这台电脑单独设置之前生效的值：有部门就是部门这一层（含全厂），否则是全厂 */
+async function loadDevicePolicy() {
+  const device = detailDevice.value!
+  if (!departments.value.length) await loadDepartments()
+  const dept = departments.value.find((d) => d.name === device.department)
+  const [policy, upper] = await Promise.all([
+    api.devicePolicy(device.id),
+    dept ? api.departmentPolicy(dept.id).then((p) => p.effective) : api.security().then((s) => s.effective),
+  ])
+  return { policy, inherited: upper }
+}
+
+const deviceOverrides = computed(() =>
+  access.value ? Object.entries(access.value.security_sources).filter(([, src]) => src === 'device' || src === 'department') : [],
+)
+
 async function openDetail(d: Row) {
   detailDevice.value = d
+  void loadAccess(d.id)
   drawer.value = true
   if (!d.agent) {
     detail.value = null
@@ -343,7 +383,13 @@ function summaryText(): string {
           <el-input v-model="editForm.owner" maxlength="50" placeholder="这台电脑的实际使用人" />
         </el-form-item>
         <el-form-item label="部门">
-          <el-input v-model="editForm.department" maxlength="50" placeholder="所属部门" />
+          <el-select v-model="editForm.department" filterable clearable placeholder="不属于任何部门" style="width: 100%">
+            <el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.name" />
+          </el-select>
+          <small class="form-tip">
+            部门决定这台电脑能用哪些技能、专家、连接器，以及部门的安全设置。清单在
+            <router-link to="/departments">「部门」</router-link>页维护。
+          </small>
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="editForm.note" type="textarea" :rows="3" maxlength="200" show-word-limit placeholder="位置、用途等（可选）" />
@@ -366,6 +412,45 @@ function summaryText(): string {
           <div><label>设备标识</label><code class="muted">{{ detailDevice.machine_guid || '—' }}</code></div>
           <div v-if="detailDevice.note" class="note"><label>备注</label><span>{{ detailDevice.note }}</span></div>
         </div>
+
+        <section class="block">
+          <h3>这台电脑能用的 <small>按部门和使用范围算出来的，和员工端拿到的一致</small></h3>
+          <el-alert
+            v-if="access && !access.department_known"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="`部门「${access.department}」不在部门清单里，按部门限定的东西这台电脑都用不了。到「编辑台账」里重新选一下部门。`"
+            style="margin-bottom: 8px"
+          />
+          <div v-if="access" class="access">
+            <div><label>技能 {{ access.skills.length }}</label><span>{{ access.skills.join('、') || '—' }}</span></div>
+            <div><label>专家 {{ access.experts.length }}</label><span>{{ access.experts.map((e) => e.name).join('、') || '—' }}</span></div>
+            <div><label>连接器 {{ access.mcp.length }}</label><span>{{ access.mcp.map((v) => v.name).join('、') || '—' }}</span></div>
+            <div v-if="deviceOverrides.length">
+              <label>安全设置</label>
+              <span>
+                <el-tag v-for="[key, src] in deviceOverrides" :key="key" size="small" :type="src === 'device' ? 'warning' : 'info'" class="src-tag">
+                  {{ access.security[key]?.title }}：{{ SOURCE_LABEL[src] }}
+                </el-tag>
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <section class="block">
+          <h3>安全设置（这台电脑单独） <small>优先于部门和全厂</small></h3>
+          <PolicyEditor
+            layer="这台电脑"
+            upper="部门 / 全厂"
+            :can-edit="canEditSecurity"
+            :reload-key="detailDevice.id + ':' + detailDevice.department"
+            :load="loadDevicePolicy"
+            :save="(body) => api.setDevicePolicy(detailDevice!.id, body)"
+            :clear="() => api.clearDevicePolicy(detailDevice!.id)"
+            @saved="loadAccess(detailDevice!.id)"
+          />
+        </section>
 
         <template v-if="detailDevice.agent">
           <div class="agent-bar">
@@ -621,5 +706,27 @@ powershell -ExecutionPolicy Bypass -File install-agent.ps1 `
   word-break: break-word;
   max-height: 120px;
   overflow: auto;
+}
+.form-tip {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.access {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.access > div {
+  display: flex;
+  gap: 10px;
+}
+.access label {
+  flex: none;
+  width: 84px;
+  color: var(--el-text-color-secondary);
+}
+.src-tag {
+  margin: 0 4px 4px 0;
 }
 </style>

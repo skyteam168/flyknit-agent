@@ -70,14 +70,8 @@ public sealed class SkillService
     /// 取自 SKILL.md 的 name 字段（可能是 "Excel / XLSX" 这种显示名）。安装目录名是 Sanitize(显示名)，
     /// 正好等于包名，所以同时按 原名 / 规范化名 / 目录名 匹配。
     /// </summary>
-    public SkillInfo? FindByPackage(string packageName)
-    {
-        var key = packageName.Trim();
-        return _catalog.Skills.FirstOrDefault(s =>
-            s.Name.Equals(key, StringComparison.OrdinalIgnoreCase)
-            || SkillPackage.Sanitize(s.Name).Equals(key, StringComparison.OrdinalIgnoreCase)
-            || Path.GetFileName(s.Directory.TrimEnd('\\', '/')).Equals(key, StringComparison.OrdinalIgnoreCase));
-    }
+    public SkillInfo? FindByPackage(string packageName) =>
+        _catalog.Skills.FirstOrDefault(s => Flyknit.Core.Skills.LibrarySkillScope.Matches(s, packageName));
 
     /// <summary>从本地 zip 或文件夹安装。</summary>
     public SkillInstallResult InstallFrom(string path, string origin = "")
@@ -271,6 +265,7 @@ public sealed class SkillService
 
         _settings.RequiredSkills = library.Where(s => s.Required).Select(s => s.Name).ToList();
         RemoveStalePluginSkills(library);
+        RemoveOutOfScopeLibrarySkills(library);
         _settings.Save();
 
         var installed = 0;
@@ -311,6 +306,28 @@ public sealed class SkillService
         }
         Refresh();
         return installed;
+    }
+
+    /// <summary>
+    /// 从公司技能库装的技能，这次服务端不再下发给这台电脑的（IT 改了使用范围、这台电脑换了部门、技能下架或删掉），删掉。
+    /// 服务端已经按部门 / 电脑范围过滤过清单；只删 org 目录和个人目录里来源是「公司技能库」的，员工从别处装的不碰。
+    /// </summary>
+    private void RemoveOutOfScopeLibrarySkills(List<ServerSkill> library)
+    {
+        var names = library.Select(s => s.Name).ToList();
+        var stale = Flyknit.Core.Skills.LibrarySkillScope.Stale(_catalog.Skills, names, new[] { AppPaths.OrgSkills, UserRoot });
+        foreach (var skill in stale)
+        {
+            try
+            {
+                Directory.Delete(skill.Directory, recursive: true);
+                Log.Info($"技能 {skill.Name} 已不在这台电脑的使用范围内，已删除");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"删除不在使用范围内的技能 {skill.Name} 失败", ex);
+            }
+        }
     }
 
     /// <summary>

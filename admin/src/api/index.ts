@@ -1,5 +1,5 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
-import type { SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun,
+import type { Department, DeviceAccess, ItemScope, LayerPolicy, ScopeKind, SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun,
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
@@ -319,6 +319,24 @@ export const api = {
   feedbackImage: async (id: number, name: string) =>
     URL.createObjectURL(await (await request<Response>(`/feedback/${id}/images/${encodeURIComponent(name)}`, { raw: true })).blob()),
   feedbackLogs: (id: number) => download(`/feedback/${id}/logs`, undefined, `feedback-${id}.zip`),
+  // 部门与隔离：部门清单、部门 / 单台电脑的安全设置、技能 / 专家 / 连接器的使用范围
+  departments: () => get<Department[]>('/departments'),
+  createDepartment: (body: { name: string; note?: string }) => post<Department>('/departments', body),
+  updateDepartment: (id: number, body: Partial<{ name: string; note: string; sort_order: number }>) =>
+    patch<Department>(`/departments/${id}`, body),
+  deleteDepartment: (id: number) => del(`/departments/${id}`),
+  departmentPolicy: (id: number) => get<LayerPolicy>(`/departments/${id}/policy`),
+  setDepartmentPolicy: (id: number, body: { overrides: Record<string, boolean | number>; locks: Record<string, boolean>; note?: string }) =>
+    put<LayerPolicy>(`/departments/${id}/policy`, body),
+  clearDepartmentPolicy: (id: number) => del(`/departments/${id}/policy`),
+  devicePolicy: (id: number) => get<LayerPolicy>(`/devices/${id}/policy`),
+  setDevicePolicy: (id: number, body: { overrides: Record<string, boolean | number>; locks: Record<string, boolean>; note?: string }) =>
+    put<LayerPolicy>(`/devices/${id}/policy`, body),
+  clearDevicePolicy: (id: number) => del(`/devices/${id}/policy`),
+  deviceAccess: (id: number) => get<DeviceAccess>(`/devices/${id}/access`),
+  scopes: () => get<Record<ScopeKind, Record<string, ItemScope>>>('/scopes'),
+  setScope: (kind: ScopeKind, id: string, body: ItemScope) =>
+    put<ItemScope>(`/scopes/${kind}/${encodeURIComponent(id)}`, body),
   updateFeedback: (id: number, body: { status?: FeedbackStatus; note?: string }) => patch<FeedbackItem>(`/feedback/${id}`, body),
   deleteFeedback: (id: number) => del(`/feedback/${id}`),
 }

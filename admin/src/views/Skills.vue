@@ -4,17 +4,30 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadRequestOptions } from 'element-plus'
 import { Delete, Edit, Link, MagicStick, Refresh, Search, UploadFilled } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { Skill } from '@/api/types'
+import type { ItemScope, Skill } from '@/api/types'
 import { bytes, dateTime } from '@/utils/format'
 import SkillEditor from '@/components/SkillEditor.vue'
+import ScopeTag from '@/components/ScopeTag.vue'
 
 const skills = ref<Skill[]>([])
 const loading = ref(false)
 const keyword = ref('')
 
+const KIND = 'skill' as const
+// 使用范围（哪些部门 / 电脑能用），和列表一起拉
+const scopes = ref<Record<string, ItemScope>>({})
+async function loadScopes() {
+  try {
+    scopes.value = (await api.scopes())[KIND] ?? {}
+  } catch {
+    scopes.value = {}
+  }
+}
+
 async function load() {
   loading.value = true
   try {
+    void loadScopes()
     skills.value = await api.skills()
   } finally {
     loading.value = false
@@ -136,6 +149,11 @@ async function remove(s: Skill) {
         </el-table-column>
         <el-table-column label="更新时间" width="150">
           <template #default="{ row }">{{ dateTime(row.updated_at) }}</template>
+        </el-table-column>
+        <el-table-column label="使用范围" width="170">
+          <template #default="{ row }">
+            <ScopeTag kind="skill" :item-id="row.name" :item-name="row.name" :scope="scopes[row.name]" @saved="(s) => (scopes[row.name] = s)" />
+          </template>
         </el-table-column>
         <el-table-column label="必装" width="80" align="center">
           <template #default="{ row }"><el-switch v-model="row.required" :disabled="!row.enabled" @change="patch(row as Skill, 'required')" /></template>

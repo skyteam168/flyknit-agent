@@ -26,7 +26,7 @@ from ..schemas import (
     SubtaskStateOut,
     SubtaskTokens,
 )
-from ..services import expert_registry, subtask_store
+from ..services import expert_registry, item_scope, plugin_scope, subtask_store
 from ..services.subtask_store import utc
 
 log = logging.getLogger("flyknit.subtasks")
@@ -62,10 +62,12 @@ async def _mine(session: AsyncSession, subtask_id: str, device: Device) -> Subta
 @client_router.post("", response_model=SubtaskCreatedOut, status_code=201)
 async def create_subtask(data: SubtaskCreateIn, device: Device = Depends(require_device),
                          session: AsyncSession = Depends(get_session)):
-    if not await subtask_store.delegation_enabled(session, device.id):
+    if not await subtask_store.delegation_enabled(session, device):
         raise _reject(403, "delegation_disabled", "IT 没有开启「派遣专家」")
     e = await session.get(Expert, data.expert_id)
-    snap = expert_registry.from_snapshot(e.published) if e is not None and e.status == "published" else None
+    # 范围外（不在这台电脑的部门 / 电脑范围、插件的下发范围）的专家和不存在一样：主助手派不过去
+    in_scope = e is not None and item_scope.visible(e, device, await plugin_scope.visible_ids(session, device))
+    snap = expert_registry.from_snapshot(e.published) if e is not None and e.status == "published" and in_scope else None
     # 看的是已发布的快照：草稿里改了 allow_delegate 没发布，员工端不受影响
     if snap is None or not snap.allow_delegate:
         raise _reject(403, "expert_unavailable", "这位专家不存在、未发布或不接受派遣")

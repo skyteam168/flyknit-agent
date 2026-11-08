@@ -26,7 +26,7 @@ from ..schemas import (
     McpVendorOut,
     McpVendorPatch,
 )
-from ..services import config_events, mcp_catalog, mcp_link, plugin_scope
+from ..services import config_events, item_scope, mcp_catalog, mcp_link, plugin_scope
 
 log = logging.getLogger("flyknit.mcp")
 
@@ -224,5 +224,6 @@ async def client_vendors(device: Device = Depends(require_device), session: Asyn
     rows = await session.scalars(
         select(McpVendor).where(McpVendor.enabled.is_(True)).order_by(McpVendor.sort_order, McpVendor.name)
     )
-    visible = await plugin_scope.visible_ids(session, device)  # 插件带来的连接器按插件的下发范围过滤
-    return [_client_out(v) for v in rows.all() if plugin_scope.allowed(v.plugin, visible)]
+    # 按使用范围（部门 / 电脑）和插件的下发范围过滤。管理员预填的公共账号只在这里下发，范围外的电脑拿不到
+    visible = await plugin_scope.visible_ids(session, device)
+    return [_client_out(v) for v in rows.all() if item_scope.visible(v, device, visible)]

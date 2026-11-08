@@ -28,7 +28,7 @@ from ..db import get_session
 from ..deps import admin_name, require_admin, require_device
 from ..models import Device, Expert, ExpertVersion, McpVendor, Plugin, SkillPackage
 from ..schemas import ExpertFields
-from ..services import config_events, expert_registry, mcp_catalog, plugin_package, plugin_scope, skill_library
+from ..services import config_events, department_store, expert_registry, mcp_catalog, plugin_package, plugin_scope, skill_library
 from . import commands as commands_router
 from . import tool_rules as tool_rules_router
 
@@ -275,7 +275,7 @@ async def install(session: AsyncSession, parsed: plugin_package.ParsedPlugin, or
     plugin = existing or Plugin(id=parsed.id)
     plugin.name, plugin.version, plugin.description = parsed.name, parsed.version, parsed.description
     plugin.author, plugin.homepage, plugin.origin = parsed.author, parsed.homepage, origin[:500]
-    plugin.departments = _depts(departments)
+    plugin.departments = await department_store.register(session, _depts(departments))
     plugin.required = required
     plugin.installed_by = who
     if existing is None:
@@ -396,7 +396,7 @@ async def patch(plugin_id: str, data: PluginPatch, session: AsyncSession = Depen
     if data.enabled is not None:
         p.enabled = data.enabled
     if data.departments is not None:
-        p.departments = _depts(data.departments)
+        p.departments = await department_store.register(session, _depts(data.departments))
     if data.required is not None:
         p.required = data.required
         for row in (await session.scalars(select(SkillPackage).where(SkillPackage.plugin == plugin_id))).all():
