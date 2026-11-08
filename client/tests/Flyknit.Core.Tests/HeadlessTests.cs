@@ -468,6 +468,30 @@ public sealed class HeadlessTests : IDisposable
     }
 
     [Fact]
+    public async Task RedirectedJsonIsPureAscii()
+    {
+        // 输出给程序读时：中文转义成 \uXXXX，GBK 的 PowerShell 读进去也不会乱码，解析出来还是原文
+        foreach (var format in new[] { "json", "stream-json" })
+        {
+            var (o, _) = CliOptions.Parse(new[] { "-p", "x", "--format", format, "-w", _dir });
+            o = new CliOptions { Command = o!.Command, Prompt = o.Prompt, Format = o.Format, Workspace = o.Workspace, AsciiJson = true };
+            var output = new StringWriter();
+            await PrintCommand.RunAsync(o, Env(new Scripted(new ChatTurn { Content = "你好，Xin chào" })), null, output, PermissionMode.Workspace, CancellationToken.None);
+            var text = output.ToString();
+            Assert.All(text, c => Assert.True(c < 128, $"{format} 里有非 ASCII 字符：{c}"));
+            var last = text.Split('\n', StringSplitOptions.RemoveEmptyEntries)[^1];
+            var result = format == "json" ? JsonNode.Parse(text)! : JsonNode.Parse(last)!;
+            Assert.Equal("你好，Xin chào", result["answer"]!.GetValue<string>());
+        }
+
+        // 直接显示在窗口里：原样输出，人看得懂
+        var (plain, _) = CliOptions.Parse(new[] { "-p", "x", "-w", _dir });
+        var shown = new StringWriter();
+        await PrintCommand.RunAsync(plain!, Env(new Scripted(new ChatTurn { Content = "你好" })), null, shown, PermissionMode.Workspace, CancellationToken.None);
+        Assert.Contains("你好", shown.ToString());
+    }
+
+    [Fact]
     public async Task MissingWorkspaceIsAUsageError()
     {
         var (o, _) = CliOptions.Parse(new[] { "-p", "x", "-w", Path.Combine(_dir, "nope") });

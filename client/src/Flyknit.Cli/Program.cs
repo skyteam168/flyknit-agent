@@ -14,6 +14,21 @@ public static class Program
     {
         // 不用控制台的代码页：Windows 中文系统默认 GBK，中文和越南文会变成乱码。协议和 JSON 一律 UTF-8（不带 BOM）
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        // 直接显示在命令行窗口时：运行期间把窗口切到 UTF-8（不然 GBK 窗口里中文全是乱码），退出时切回原来的，
+        // 不影响这个窗口里之后运行的其他程序。输出被管道 / 重定向时不动窗口，JSON 改用 ASCII 转义（见 CliOptions.AsciiJson）
+        Encoding? previous = null;
+        if (OperatingSystem.IsWindows() && (!Console.IsOutputRedirected || !Console.IsErrorRedirected))
+        {
+            try
+            {
+                previous = Console.OutputEncoding;
+                Console.OutputEncoding = utf8;
+            }
+            catch (IOException)
+            {
+                previous = null;
+            }
+        }
         var stdout = new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = false };
         var stderr = new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true };
         try
@@ -23,6 +38,16 @@ public static class Program
         finally
         {
             await stdout.FlushAsync();
+            if (previous is not null)
+            {
+                try
+                {
+                    Console.OutputEncoding = previous;
+                }
+                catch (IOException)
+                {
+                }
+            }
         }
     }
 
@@ -65,6 +90,7 @@ public static class Program
         var acp = options.Command == "acp";
         var connection = await CliHost.ConnectAsync(profile, acp ? "ide" : "cli", handler: null, Warn, cts.Token);
         var permission = PrintCommand.ResolvePermission(options.Permission, profile.DefaultPermission);
+        var asciiJson = Console.IsOutputRedirected;
 
         if (acp)
         {
@@ -83,7 +109,7 @@ public static class Program
         if (!connection.Ok)
         {
             Warn(connection.Error);
-            await PrintCommand.WriteErrorAsync(stdout, options.Format, connection.ExitCode, connection.Error);
+            await PrintCommand.WriteErrorAsync(stdout, options.Format, connection.ExitCode, connection.Error, Console.IsOutputRedirected);
             return connection.ExitCode;
         }
 
@@ -104,6 +130,7 @@ public static class Program
             {
                 Command = options.Command,
                 Prompt = text,
+                AsciiJson = asciiJson,
                 Workspace = options.Workspace,
                 Permission = options.Permission,
                 Format = options.Format,
@@ -112,6 +139,20 @@ public static class Program
             };
         }
 
+        if (asciiJson && !options.AsciiJson)
+        {
+            options = new CliOptions
+            {
+                Command = options.Command,
+                Prompt = options.Prompt,
+                AsciiJson = true,
+                Workspace = options.Workspace,
+                Permission = options.Permission,
+                Format = options.Format,
+                AllowWrites = options.AllowWrites,
+                TimeoutSeconds = options.TimeoutSeconds,
+            };
+        }
         try
         {
             var code = await PrintCommand.RunAsync(options, connection.Environment!, connection.Gateway, stdout, permission, cts.Token);
