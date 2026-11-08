@@ -552,10 +552,10 @@ public sealed class HeadlessTests : IDisposable
         private readonly Task _run;
         private int _id;
 
-        public Ide(HeadlessEnvironment? env, PermissionMode permission = PermissionMode.Workspace, string unavailable = "")
+        public Ide(HeadlessEnvironment? env, PermissionMode permission = PermissionMode.Workspace, string unavailable = "", AcpSessionStore? store = null)
         {
             var server = new AcpServer(env, permission, new ChannelReaderText(_toServer.Reader), new ChannelWriterText(_fromServer.Writer),
-                version: "9.9.9", unavailable: unavailable);
+                version: "9.9.9", unavailable: unavailable, store: store);
             _run = server.RunAsync(CancellationToken.None);
         }
 
@@ -663,6 +663,112 @@ public sealed class HeadlessTests : IDisposable
         var firstAnswer = chunks.FindIndex(c => c.Kind == "agent_message_chunk");
         Assert.True(firstAnswer > 0);
         Assert.DoesNotContain(chunks.Skip(firstAnswer), c => c.Kind == "agent_thought_chunk");
+    }
+
+    // ---------- IDE 会话保存、列表、重新打开 ----------
+
+    [Fact]
+    public async Task AcpSessionsAreSavedListedAndReopened()
+    {
+        var store = new AcpSessionStore(Path.Combine(Path.GetTempPath(), "flyknit-ide-" + Guid.NewGuid().ToString("N")[..8]));
+        string sid;
+        await using (var ide = new Ide(Env(new Scripted(
+            new ChatTurn { ToolCalls = new[] { new ToolCall("t1", "write_file", JsonSerializer.Serialize(new { path = "a.txt", content = "1" })) } },
+            new ChatTurn { Content = "写好了" }), new ListAudit(), actor: "ide"), store: store))
+        {
+            var init = await ide.Request("initialize", new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject() });
+            Assert.True(init["result"]!["agentCapabilities"]!["loadSession"]!.GetValue<bool>());
+            Assert.NotNull(init["result"]!["agentCapabilities"]!["sessionCapabilities"]!["list"]);
+            sid = await NewSession(ide);
+            await ide.Request("session/prompt", Prompt(sid, "写 a.txt\n内容是 1"));
+
+            var list = (await ide.Request("session/list", new JsonObject { ["cwd"] = _dir }))["result"]!["sessions"]!.AsArray();
+            var row = Assert.Single(list)!;
+            Assert.Equal(sid, row["sessionId"]!.GetValue<string>());
+            Assert.Equal("写 a.txt 内容是 1", row["title"]!.GetValue<string>());
+            Assert.Equal(Path.GetFullPath(_dir), row["cwd"]!.GetValue<string>());
+            Assert.True(DateTimeOffset.TryParse(row["updatedAt"]!.GetValue<string>(), out _));
+            // 别的项目的会话不列
+            Assert.Empty((await ide.Request("session/list", new JsonObject { ["cwd"] = Path.GetTempPath() }))["result"]!["sessions"]!.AsArray());
+        }
+
+        // IDE 关掉重开：新进程从会话列表打开，历史推给 IDE 显示，接着聊时模型看得到之前的内容
+        var gateway = new Scripted(new ChatTurn { Content = "接着做完了" });
+        await using (var ide = new Ide(Env(gateway, new ListAudit(), actor: "ide"), store: store))
+        {
+            await ide.Request("initialize", new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject() });
+            var loaded = await ide.Request("session/load", new JsonObject { ["sessionId"] = sid, ["cwd"] = _dir, ["mcpServers"] = new JsonArray() });
+            Assert.Null(loaded["error"]);
+            var kinds = ide.Updates.Select(u => u["sessionUpdate"]!.GetValue<string>()).ToList();
+            Assert.Equal(new[] { "user_message_chunk", "tool_call", "agent_message_chunk" }, kinds);
+            Assert.Equal("t1", ide.Updates[1]["toolCallId"]!.GetValue<string>());
+            Assert.Equal("completed", ide.Updates[1]["status"]!.GetValue<string>());
+            Assert.Equal("写好了", ide.Updates[2]["content"]!["text"]!.GetValue<string>());
+
+            var done = await ide.Request("session/prompt", Prompt(sid, "再检查一下"));
+            Assert.Equal("end_turn", done["result"]!["stopReason"]!.GetValue<string>());
+            var sent = gateway.Requests.Single().Messages;
+            Assert.Contains(sent, m => m.Role == ChatRole.User && m.Content.StartsWith("写 a.txt"));
+            Assert.Contains(sent, m => m.Role == ChatRole.Tool && m.ToolCallId == "t1");
+            Assert.Equal("再检查一下", sent.Last(m => m.Role == ChatRole.User).Content);
+        }
+        var saved = store.Load(sid)!;
+        Assert.Equal("写 a.txt 内容是 1", saved.Title); // 标题还是第一句
+        Assert.Equal("接着做完了", saved.Messages.Last().Content);
+    }
+
+    [Fact]
+    public async Task AcpLoadRejectsUnknownOrBadSessionIds()
+    {
+        var store = new AcpSessionStore(Path.Combine(Path.GetTempPath(), "flyknit-ide-" + Guid.NewGuid().ToString("N")[..8]));
+        await using var ide = new Ide(Env(new Scripted(), new ListAudit(), actor: "ide"), store: store);
+        await ide.Request("initialize", new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject() });
+        foreach (var id in new[] { "acp-0123456789ab", "../../settings", "acp-../../x" })
+        {
+            var r = await ide.Request("session/load", new JsonObject { ["sessionId"] = id, ["cwd"] = _dir, ["mcpServers"] = new JsonArray() });
+            Assert.NotNull(r["error"]);
+        }
+        Assert.False(AcpSessionStore.IsValidId("acp-0123456789AB/.."));
+        Assert.Null(store.Load("../approval-rules"));
+    }
+
+    [Fact]
+    public async Task WithoutAStoreSessionListIsNotOffered()
+    {
+        await using var ide = new Ide(Env(new Scripted(), new ListAudit(), actor: "ide"));
+        var init = await ide.Request("initialize", new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject() });
+        Assert.Null(init["result"]!["agentCapabilities"]!["sessionCapabilities"]!["list"]);
+        Assert.NotNull((await ide.Request("session/list", new JsonObject()))["error"]);
+    }
+
+    [Fact]
+    public void RestoredHistoryGetsMissingToolResults()
+    {
+        // 上次在工具执行到一半时进程没了：发出的调用没有结果，直接接着聊会被模型服务拒绝
+        var session = new HeadlessSession(Env(new Scripted(), new ListAudit()), _dir, PermissionMode.Workspace, "acp-0123456789ab");
+        var call = new ToolCall("c9", "run_shell", "{}");
+        session.Restore(new[] { ChatMessage.User("跑测试"), ChatMessage.Assistant("", new[] { call }) }, Array.Empty<PlanItem>(), new[] { "grep" });
+        Assert.Equal(3, session.History.Count);
+        Assert.Equal("c9", session.History[2].ToolCallId);
+        Assert.Contains("grep", session.LoadedTools);
+    }
+
+    [Fact]
+    public void OldSessionsArePruned()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "flyknit-ide-" + Guid.NewGuid().ToString("N")[..8]);
+        var now = DateTimeOffset.Now;
+        var store = new AcpSessionStore(dir, () => now);
+        var old = new HeadlessSession(Env(new Scripted(), new ListAudit()), _dir, PermissionMode.Workspace, "acp-00000000000a");
+        old.Restore(new[] { ChatMessage.User("旧的") }, Array.Empty<PlanItem>(), Array.Empty<string>());
+        Assert.True(store.Save(old, "旧的", now));
+
+        now += AcpSessionStore.KeepFor + TimeSpan.FromDays(1);
+        var fresh = new HeadlessSession(Env(new Scripted(), new ListAudit()), _dir, PermissionMode.Workspace, "acp-00000000000b");
+        fresh.Restore(new[] { ChatMessage.User("新的") }, Array.Empty<PlanItem>(), Array.Empty<string>());
+        Assert.True(store.Save(fresh, "新的", now));
+
+        Assert.Equal(new[] { "acp-00000000000b" }, store.List().Select(s => s.Id));
     }
 
     [Fact]

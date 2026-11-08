@@ -91,6 +91,39 @@ public sealed class HeadlessSession
     public string Workspace { get; }
     public PermissionMode Permission { get; }
     public IReadOnlyList<ChatMessage> History => _history;
+    public IReadOnlyList<PlanItem> Plan => _plan;
+    public IReadOnlyCollection<string> LoadedTools => _loadedTools;
+
+    /// <summary>
+    /// 接着一个保存下来的会话聊（IDE 的 session/load）：历史、计划、加载过的工具原样放回。
+    /// 历史末尾要是停在半截（助手发了工具调用、结果没存下来），补上「没有执行」的结果，免得下一轮请求被上游拒绝。
+    /// </summary>
+    public void Restore(IEnumerable<ChatMessage> history, IEnumerable<PlanItem> plan, IEnumerable<string> loadedTools)
+    {
+        _history.Clear();
+        _history.AddRange(history.Where(m => m.Role != ChatRole.System));
+        var answered = _history.Where(m => m.Role == ChatRole.Tool && m.ToolCallId is not null).Select(m => m.ToolCallId!).ToHashSet(StringComparer.Ordinal);
+        for (var i = _history.Count - 1; i >= 0; i--)
+        {
+            if (_history[i].Role != ChatRole.Assistant)
+            {
+                continue;
+            }
+            var missing = _history[i].ToolCalls.Where(c => !answered.Contains(c.Id)).ToList();
+            var at = i + 1;
+            while (at < _history.Count && _history[at].Role == ChatRole.Tool)
+            {
+                at++;
+            }
+            foreach (var call in missing)
+            {
+                _history.Insert(at++, ChatMessage.ToolResult(call, "（这一步没有执行完：会话在这里中断了）"));
+            }
+        }
+        _plan = plan.ToList();
+        _loadedTools.Clear();
+        _loadedTools.UnionWith(loadedTools);
+    }
 
     private bool DeveloperToolsOn => _env.Security.On(SecuritySettings.DeveloperTools, fallback: false);
 

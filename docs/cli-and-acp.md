@@ -32,7 +32,9 @@
 
 没有的东西（都需要员工端界面或会碰员工个人数据）：长期记忆、浏览器、连接器（MCP）、子代理、向员工提问、派遣专家。
 IDE 在 `session/new` 里带来的 MCP 服务器**不接**：连接器只认 IT 在后台配的（不变量 6）。
-命令行和 IDE 的对话不进员工端的历史记录；IDE 会话的多轮历史只在 `flyknit acp` 进程内存里。
+命令行和 IDE 的对话不进员工端的历史记录。IDE 会话每一轮结束存到本机 `%APPDATA%\Flyknit\ide-sessions\<会话 ID>.json`
+（和员工端的对话记录一样只在这台电脑上、不上传；最多留 50 个、30 天），IDE 关掉以后能从会话列表打开接着聊。
+重新打开时权限档、安全设置按当时的配置，不从文件里读；`flyknit -p` 不保存。
 
 ## 3. flyknit -p
 
@@ -89,9 +91,12 @@ flyknit -p "跑一下测试并修复" -w D:\repo --allow-writes --timeout 1800
 
 ## 4. flyknit acp（IDE）
 
-实现的方法：`initialize`、`authenticate`（空操作）、`session/new`、`session/prompt`、`session/cancel`；
-推给 IDE 的更新：`agent_message_chunk`、`agent_thought_chunk`、`tool_call`、`tool_call_update`、`plan`；
-向 IDE 请求：`session/request_permission`。不支持 `session/load`（`loadSession: false`）、图片和音频输入。
+实现的方法：`initialize`、`authenticate`（空操作）、`session/new`、`session/prompt`、`session/cancel`、
+`session/list`（`agentCapabilities.sessionCapabilities.list`；可按 `cwd` 过滤，一页 50 个，`nextCursor` 翻页）、
+`session/load`（`loadSession: true`；先把历史推给 IDE——员工的话、回答、工具调用和结果，思考过程不重放——再回结果，
+工作区用保存时的，会话 ID 只认 `acp-` 加十六进制，不能拿来拼别的路径）；
+推给 IDE 的更新：`user_message_chunk`（只在重新打开时）、`agent_message_chunk`、`agent_thought_chunk`、`tool_call`、`tool_call_update`、`plan`；
+向 IDE 请求：`session/request_permission`。不支持图片和音频输入。
 标准输出只有协议消息，日志写标准错误。
 
 IDE 里的配置（以各 IDE 当前版本的文档为准，下面是写这份文档时的格式）：
