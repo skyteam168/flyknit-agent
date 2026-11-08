@@ -148,116 +148,19 @@ public static class DataProtection
     private static extern bool EncryptFileW(string filename);
 
     // ---------- 单值保护（DPAPI） ----------
-
-    private const string Marker = "dpapi:";
+    // 实现在 Core（Flyknit.Core.Security.LocalSecret）：命令行 flyknit.exe 读同一个 settings.json，两边共用一份
 
     /// <summary>
     /// 把一个字符串保护起来。绑在当前 Windows 账号上，换个账号拿到密文也解不开。
     /// 加密不可用时原样返回——功能不能因为加不了密就坏掉。
     /// </summary>
-    public static string Protect(string? plain)
-    {
-        if (string.IsNullOrEmpty(plain) || IsProtected(plain))
-        {
-            return plain ?? "";
-        }
-        if (!OperatingSystem.IsWindows())
-        {
-            return plain;
-        }
-        try
-        {
-            return Marker + Convert.ToBase64String(Dpapi(Encoding.UTF8.GetBytes(plain), protect: true));
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"保护敏感配置失败，将以明文保存：{ex.Message}");
-            return plain;
-        }
-    }
+    public static string Protect(string? plain) => Flyknit.Core.Security.LocalSecret.Protect(plain, m => Log.Warn(m));
 
     /// <summary>
     /// 还原。不带标记的按明文处理——老版本升上来时设置文件里就是明文，
-    /// 直接读出来用，下次保存时自然会被包上。
+    /// 直接读出来用，下次保存时自然会被包上。解不开时当没有，让用户重新注册一次。
     /// </summary>
-    public static string Unprotect(string? stored)
-    {
-        if (string.IsNullOrEmpty(stored) || !IsProtected(stored))
-        {
-            return stored ?? "";
-        }
-        if (!OperatingSystem.IsWindows())
-        {
-            return "";
-        }
-        try
-        {
-            var bytes = Convert.FromBase64String(stored[Marker.Length..]);
-            return Encoding.UTF8.GetString(Dpapi(bytes, protect: false));
-        }
-        catch (Exception ex)
-        {
-            // 换了 Windows 账号、或者配置文件是从别的机器拷来的：解不开就当没有，
-            // 让用户重新注册一次，总好过拿着一串乱码去请求服务端
-            Log.Warn($"无法还原敏感配置（可能来自其他 Windows 账号）：{ex.Message}");
-            return "";
-        }
-    }
+    public static string Unprotect(string? stored) => Flyknit.Core.Security.LocalSecret.Unprotect(stored, m => Log.Warn(m));
 
-    public static bool IsProtected(string? value) => value is not null && value.StartsWith(Marker, StringComparison.Ordinal);
-
-    /// <summary>
-    /// 直接调 crypt32 的 DPAPI。不用 System.Security.Cryptography.ProtectedData，
-    /// 是因为那在 .NET 8 里是单独的 NuGet 包，为了两个方法多带一个依赖不值得。
-    /// </summary>
-    private static byte[] Dpapi(byte[] data, bool protect)
-    {
-        var input = new DataBlob();
-        var output = new DataBlob();
-        var handle = GCHandle.Alloc(data, GCHandleType.Pinned);
-        try
-        {
-            input.cbData = data.Length;
-            input.pbData = handle.AddrOfPinnedObject();
-
-            var ok = protect
-                ? CryptProtectData(ref input, "Flyknit", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, ref output)
-                : CryptUnprotectData(ref input, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, ref output);
-            if (!ok)
-            {
-                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-            }
-
-            var result = new byte[output.cbData];
-            Marshal.Copy(output.pbData, result, 0, output.cbData);
-            return result;
-        }
-        finally
-        {
-            if (handle.IsAllocated) { handle.Free(); }
-            if (output.pbData != IntPtr.Zero) { LocalFree(output.pbData); }
-        }
-    }
-
-    private const int CRYPTPROTECT_UI_FORBIDDEN = 0x1;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DataBlob
-    {
-        public int cbData;
-        public IntPtr pbData;
-    }
-
-    [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CryptProtectData(ref DataBlob dataIn, string? description, IntPtr entropy,
-        IntPtr reserved, IntPtr prompt, int flags, ref DataBlob dataOut);
-
-    [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CryptUnprotectData(ref DataBlob dataIn, IntPtr description, IntPtr entropy,
-        IntPtr reserved, IntPtr prompt, int flags, ref DataBlob dataOut);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr LocalFree(IntPtr handle);
+    public static bool IsProtected(string? value) => Flyknit.Core.Security.LocalSecret.IsProtected(value);
 }

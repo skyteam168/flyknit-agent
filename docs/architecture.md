@@ -949,6 +949,15 @@ IT 在安全中心可以关掉 `keep_awake`（只能选关闭）或 `keep_screen
 浮窗：点别处关闭（钉住后不关），`Esc` 关闭，改原文后 `Enter` 重译，换目标语言立即重译并记住。
 「在主窗口继续」把原文和目标语言推给界面（`app.translate`），开一个新的翻译会话。
 
+## 命令行与 IDE 接入（flyknit.exe）
+
+`client/src/Flyknit.Cli` 是和员工端装在同一个文件夹的控制台程序（net8.0，不依赖 WPF），共用 Core：
+
+- `flyknit -p`：无界面跑一轮办事任务，输出 JSON；`flyknit acp`：ACP（协议版本 1）服务，JSON-RPC 走标准输入输出，给 Zed、JetBrains 用；
+- 逻辑都在 `Flyknit.Core/Headless`（`HeadlessSession`、`PrintCommand`、`AcpServer`、`NonInteractiveConfirm`、`CliHost`、`LocalProfile`），有单元测试；
+- 登录用员工端写的 `%APPDATA%\Flyknit\settings.json`（设备令牌 DPAPI，实现在 `Flyknit.Core.Security.LocalSecret`，员工端也用这一份）；
+- 总开关 `cli_access`（安全中心，默认关）；安全模型、退出码、IDE 配置见 `docs/cli-and-acp.md`。
+
 ## 客户端与 Web 界面的通信
 
 WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消息，宿主通过 `PostWebMessageAsJson` 推送事件。消息格式：

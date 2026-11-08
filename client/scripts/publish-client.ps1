@@ -7,7 +7,7 @@
   用法（在 client 目录或任意位置）：
     powershell -ExecutionPolicy Bypass -File scripts\publish-client.ps1 -Version 0.2.0
 
-  产物：client\dist\FlyknitBuddy-0.2.0.zip（里面是 FlyknitBuddy 文件夹，含员工端、更新器、运维代理和安装程序外壳）
+  产物：client\dist\FlyknitBuddy-0.2.0.zip（里面是 FlyknitBuddy 文件夹，含员工端、命令行 flyknit、更新器、运维代理和安装程序外壳）
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -62,6 +62,11 @@ Run "发布 FlyknitBuddy $Version" {
     dotnet publish (Join-Path $root "src\Flyknit.Client") -c Release -r win-x64 --self-contained $selfContained `
         "-p:Version=$Version" -o $publish
 }
+# 命令行 flyknit.exe（flyknit -p 和 IDE 用的 flyknit acp）和员工端共用 Flyknit.Core，放在同一个文件夹，安装时加进 PATH
+Run "发布命令行 flyknit $Version" {
+    dotnet publish (Join-Path $root "src\Flyknit.Cli") -c Release -r win-x64 --self-contained $selfContained `
+        "-p:Version=$Version" -o $publish
+}
 Run "发布 FlyknitUpdater $Version" {
     dotnet publish (Join-Path $root "src\Flyknit.Updater") -c Release -r win-x64 `
         "-p:Version=$Version" -o $publish
@@ -92,6 +97,7 @@ Get-ChildItem $publish -Recurse -Filter *.pdb | Remove-Item -Force
 $exe = Join-Path $publish "FlyknitBuddy.exe"
 if (-not (Test-Path $exe)) { throw "没有生成 FlyknitBuddy.exe" }
 if (-not (Test-Path (Join-Path $publish "FlyknitUpdater.exe"))) { throw "没有生成 FlyknitUpdater.exe（缺了它员工端装不上更新）" }
+if (-not (Test-Path (Join-Path $publish "flyknit.exe"))) { throw "没有生成 flyknit.exe（命令行 / IDE 接入）" }
 if (-not (Test-Path (Join-Path $publish "agent\FlyknitAgent.exe"))) { throw "没有生成 agent\FlyknitAgent.exe" }
 if (-not (Test-Path (Join-Path $publish "FlyknitSetup.exe"))) { throw "没有生成 FlyknitSetup.exe（后台就下载不了 exe 安装程序）" }
 $built = (Get-Item $exe).VersionInfo.ProductVersion -replace '\+.*$', ''

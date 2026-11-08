@@ -114,6 +114,8 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "developer_tools",
         # 客户端 SubAgentRunner.Enabled 读它：主助手有没有 spawn_agent
         "subagents",
+        # 命令行 flyknit.exe（HeadlessAccess.Problem）读它：关着时 flyknit -p 和 flyknit acp 都不执行任务
+        "cli_access",
         # 客户端 AgentHost.Sandbox 读这几项：能不能开沙箱、容器能不能上网、出口能不能带 CI 配置、资源上限
         "sandbox_tasks",
         "sandbox_network",

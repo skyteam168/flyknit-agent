@@ -29,6 +29,7 @@ flyknitbuddy/
 ├── client/
 │   ├── src/Flyknit.Core/   Agent、工具、安全、记忆、技能、MCP、预览…
 │   ├── src/Flyknit.Client/ WPF + WebBridge + AgentHost
+│   ├── src/Flyknit.Cli/    命令行 flyknit.exe（-p 无界面任务、acp 给 IDE 用），逻辑在 Core/Headless
 │   ├── src/Flyknit.Agent/  运维代理（托管安装与升级）
 │   ├── src/Flyknit.Setup/  安装外壳
 │   ├── src/Flyknit.Updater/
@@ -97,6 +98,7 @@ flyknitbuddy/
   浏览器：`browser_open` / `read` / `click` / `type` / `select` / `scroll` / `back`  
   Windows（Client 注册）：`open_app`  
   沙箱任务（安全中心 `sandbox_tasks`，还要开发者工具；见 `docs/sandbox-execution-design.md`）：同名的文件 / 命令 / git 工具换成在容器里执行的版本，`create_pull_request` 换成出口
+  命令行 / IDE 接入（安全中心 `cli_access`，默认关；`Flyknit.Core/Headless`，见 `docs/cli-and-acp.md`）：`flyknit -p` 需要确认的操作默认全拒，`--allow-writes` 只放行能记成规则的非高危操作；ACP 的确认交给 IDE，高危不给「总是允许」；没有完全权限、记忆、浏览器、连接器、子代理；审计 actor 记 `cli` / `ide`
   开发者工具（安全中心 `developer_tools`，默认关，任务走 `code` 场景）：`grep` `multi_edit` `git_status` `git_diff` `git_log` `git_commit`，PR：`create_pull_request` `pr_status` `watch_pull_request`（走员工电脑上的 `gh` 和员工自己的登录，令牌不经过服务端）
 - **新工具**：实现 `ITool` → 注册；`ToolResult.Outputs` 报产出；确认走 Policy，禁止私自绕过。
 - **新预览**：`IPreviewProvider`；UI 只认宿主返回的 `kind`。

@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Flyknit.Updater", "src\Flyk
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Flyknit.Setup", "src\Flyknit.Setup\Flyknit.Setup.csproj", "{27EEDF8D-CA20-498E-B9A7-66168111E0D4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Flyknit.Cli", "src\Flyknit.Cli\Flyknit.Cli.csproj", "{9DF7FA17-342C-468E-AC53-A581A515A781}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -49,6 +51,10 @@ Global
 		{27EEDF8D-CA20-498E-B9A7-66168111E0D4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{27EEDF8D-CA20-498E-B9A7-66168111E0D4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{27EEDF8D-CA20-498E-B9A7-66168111E0D4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9DF7FA17-342C-468E-AC53-A581A515A781}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9DF7FA17-342C-468E-AC53-A581A515A781}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9DF7FA17-342C-468E-AC53-A581A515A781}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9DF7FA17-342C-468E-AC53-A581A515A781}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -60,5 +66,6 @@ Global
 		{F5BC7D00-43E1-47C2-AACF-580B9277CC8C} = {7BFCF040-882C-4834-B8A9-0E2690B75B01}
 		{9C3A1E54-7B21-4D0F-9E3A-2F5B61C8D7A3} = {7BFCF040-882C-4834-B8A9-0E2690B75B01}
 		{27EEDF8D-CA20-498E-B9A7-66168111E0D4} = {7BFCF040-882C-4834-B8A9-0E2690B75B01}
+		{9DF7FA17-342C-468E-AC53-A581A515A781} = {7BFCF040-882C-4834-B8A9-0E2690B75B01}
 	EndGlobalSection
 EndGlobal

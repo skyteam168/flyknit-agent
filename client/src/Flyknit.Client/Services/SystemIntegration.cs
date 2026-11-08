@@ -85,41 +85,9 @@ public static class ProxyFactory
     public static HttpClient CreateHttpClient(AppSettings settings) => new(CreateHandler(settings));
 
     /// <summary>按代理设置建好的 handler。MCP 要在外面再包一层自己处理重定向，所以单独拿出来。</summary>
-    public static HttpClientHandler CreateHandler(AppSettings settings)
-    {
-        var handler = new HttpClientHandler();
-        switch ((settings.ProxyMode ?? System).ToLowerInvariant())
-        {
-            case Direct:
-                handler.UseProxy = false;
-                break;
-
-            case Manual:
-                if (Uri.TryCreate(settings.ProxyUrl, UriKind.Absolute, out var uri))
-                {
-                    var proxy = new WebProxy(uri);
-                    if (!string.IsNullOrWhiteSpace(settings.ProxyUser))
-                    {
-                        proxy.Credentials = new NetworkCredential(settings.ProxyUser, settings.ProxyPassword);
-                    }
-                    handler.Proxy = proxy;
-                    handler.UseProxy = true;
-                }
-                else
-                {
-                    Log.Warn($"代理地址无效，按直连处理：{settings.ProxyUrl}");
-                    handler.UseProxy = false;
-                }
-                break;
-
-            default: // system
-                handler.UseProxy = true;
-                handler.Proxy = WebRequest.GetSystemWebProxy();
-                handler.DefaultProxyCredentials = CredentialCache.DefaultCredentials;
-                break;
-        }
-        return handler;
-    }
+    public static HttpClientHandler CreateHandler(AppSettings settings) =>
+        // 规则在 Core（命令行 flyknit.exe 用同一份设置）
+        Flyknit.Core.Gateway.HttpProxy.CreateHandler(settings.ProxyMode, settings.ProxyUrl, settings.ProxyUser, settings.ProxyPassword, m => Log.Warn(m));
 
     /// <summary>网络检测用：按当前设置，访问 <paramref name="target"/> 实际走不走代理、走哪个。</summary>
     public static Flyknit.Core.Diagnostics.ProxyInfo Describe(AppSettings settings, Uri target)

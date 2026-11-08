@@ -58,7 +58,7 @@ public sealed class Installer(Action<string> say)
             var provision = ReadProvision(Path.Combine(root, ProvisionFile));
 
             say("正在关闭正在运行的 FlyknitBuddy…");
-            StopProcesses("FlyknitBuddy", "FlyknitUpdater");
+            StopProcesses("FlyknitBuddy", "FlyknitUpdater", "flyknit");
             StopAgent();
 
             var agentSource = Path.Combine(root, "agent", "FlyknitAgent.exe");
@@ -97,6 +97,11 @@ public sealed class Installer(Action<string> say)
             say("正在创建快捷方式…");
             CreateShortcuts(exe);
             RegisterUninstall(exe, withAgent);
+            if (File.Exists(Path.Combine(ClientDir, "flyknit.exe")))
+            {
+                // 命令行 flyknit：加进系统 PATH，在任何命令行窗口里都能直接敲 flyknit（新开的窗口才生效）
+                AddToPath();
+            }
             say("安装完成");
             return exe;
         }
@@ -294,7 +299,8 @@ public sealed class Installer(Action<string> say)
     public void Uninstall()
     {
         say("正在关闭 FlyknitBuddy…");
-        StopProcesses("FlyknitBuddy", "FlyknitUpdater");
+        StopProcesses("FlyknitBuddy", "FlyknitUpdater", "flyknit");
+        RemoveFromPath();
         if (Run("sc.exe", $"query {ServiceName}").ExitCode == 0)
         {
             StopAgent();
@@ -322,6 +328,74 @@ public sealed class Installer(Action<string> say)
         }
         say("卸载完成。员工的对话记录、记忆等个人数据保留在各自的 Windows 账号里（%APPDATA%\\Flyknit）");
     }
+
+    // ---------- 命令行 flyknit 的 PATH ----------
+
+    private const string EnvironmentKey = @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
+
+    /// <summary>把员工端目录加进系统 PATH（已经有了就不重复加）。读写原始值，不展开 %SystemRoot% 这类变量。</summary>
+    private void AddToPath()
+    {
+        try
+        {
+            using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64).OpenSubKey(EnvironmentKey, writable: true);
+            if (key is null)
+            {
+                return;
+            }
+            var current = key.GetValue("Path", "", RegistryValueOptions.DoNotExpandEnvironmentNames) as string ?? "";
+            var updated = PathList.Add(current, ClientDir);
+            if (updated != current)
+            {
+                key.SetValue("Path", updated, RegistryValueKind.ExpandString);
+                BroadcastEnvironmentChange();
+                say("已把 flyknit 命令行加入系统 PATH（新开的命令行窗口生效）");
+            }
+        }
+        catch (Exception ex)
+        {
+            say($"把 flyknit 加入 PATH 失败（不影响员工端）：{ex.Message}");
+        }
+    }
+
+    private void RemoveFromPath()
+    {
+        try
+        {
+            using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64).OpenSubKey(EnvironmentKey, writable: true);
+            if (key is null)
+            {
+                return;
+            }
+            var current = key.GetValue("Path", "", RegistryValueOptions.DoNotExpandEnvironmentNames) as string ?? "";
+            var updated = PathList.Remove(current, ClientDir);
+            if (updated != current)
+            {
+                key.SetValue("Path", updated, RegistryValueKind.ExpandString);
+                BroadcastEnvironmentChange();
+            }
+        }
+        catch (Exception ex)
+        {
+            say($"从 PATH 里去掉 flyknit 失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>通知已经开着的程序（资源管理器等）环境变量变了，从它们新开的命令行窗口就能用。</summary>
+    private static void BroadcastEnvironmentChange()
+    {
+        try
+        {
+            SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "Environment", 0x0002, 5000, out _);
+        }
+        catch (Exception)
+        {
+            // 广播失败只是要重新登录才生效，不影响安装
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
 
     // ---------- 工具 ----------
 
