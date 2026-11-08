@@ -66,6 +66,12 @@ flyknit -p "跑一下测试并修复" -w D:\repo --allow-writes --timeout 1800
 
 `decision`：auto（自动）/ remembered（员工的自动执行规则）/ approved（--allow-writes 放行）/ rejected（拒绝）/ blocked（被拦）。
 
+编码：
+- 直接显示在命令行窗口时，运行期间把窗口切到 UTF-8，中文原样显示，退出时切回原来的编码；
+- 输出被管道或重定向时（脚本、CI 读取），json / stream-json 里的非 ASCII 字符写成 `\uXXXX`，
+  中文 Windows 上 PowerShell 5 按 GBK 解码也不会乱码，`ConvertFrom-Json` 后就是原文；
+- `--format text` 被重定向时是 UTF-8，PowerShell 5 里要先 `[Console]::OutputEncoding = [Text.Encoding]::UTF8` 再读。
+
 退出码（脚本靠它判断，不改已有数字）：
 
 | 码 | 含义 |

@@ -30,6 +30,12 @@ public sealed class CliOptions
     /// <summary>超时秒数，0 表示不限。</summary>
     public int TimeoutSeconds { get; init; }
 
+    /// <summary>
+    /// JSON 里的非 ASCII 字符写成 \uXXXX。输出被管道 / 重定向时由程序打开：
+    /// 中文 Windows 上 PowerShell 5 按 GBK 解码程序输出，UTF-8 的中文会变乱码；转义后的 JSON 只有 ASCII，按什么编码读都一样。
+    /// </summary>
+    public bool AsciiJson { get; init; }
+
     public const string Usage = """
         用法：
           flyknit -p "要做的事" [选项]     无界面执行一次办事任务，结果输出到标准输出
@@ -168,11 +174,20 @@ public sealed class CliOptions
 /// </summary>
 public static class PrintCommand
 {
+    /// <summary>直接显示在命令行窗口：中文、越南文原样输出，人看得懂。</summary>
     private static readonly JsonSerializerOptions Json = new()
     {
-        // 中文、越南文原样输出，不转成 \uXXXX（脚本里直接读得懂）
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
+
+    /// <summary>给程序读（管道 / 重定向）：非 ASCII 转义，和对方用什么编码读无关。</summary>
+    private static readonly JsonSerializerOptions AsciiJson = new()
+    {
+        Encoder = JavaScriptEncoder.Default,
+    };
+
+    public static JsonSerializerOptions JsonFor(bool ascii, bool indent) =>
+        new(ascii ? AsciiJson : Json) { WriteIndented = indent };
 
     public static PermissionMode ResolvePermission(string option, string profileDefault) =>
         (option.Length > 0 ? option : profileDefault) == "readonly" ? PermissionMode.ReadOnly : PermissionMode.Workspace;
@@ -182,12 +197,12 @@ public static class PrintCommand
         var workspace = options.Workspace.Length > 0 ? options.Workspace : Directory.GetCurrentDirectory();
         if (!Directory.Exists(workspace))
         {
-            await WriteErrorAsync(stdout, options.Format, ExitCodes.Usage, $"工作区不存在：{workspace}");
+            await WriteErrorAsync(stdout, options.Format, ExitCodes.Usage, $"工作区不存在：{workspace}", options.AsciiJson);
             return ExitCodes.Usage;
         }
         var session = new HeadlessSession(env, workspace, permission);
         var confirm = new NonInteractiveConfirm(options.AllowWrites);
-        var observer = new PrintObserver(options.Format == "stream-json" ? stdout : null);
+        var observer = new PrintObserver(options.Format == "stream-json" ? stdout : null, JsonFor(options.AsciiJson, indent: false));
         var watch = Stopwatch.StartNew();
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -203,7 +218,7 @@ public static class PrintCommand
         catch (OperationCanceledException)
         {
             var code = ct.IsCancellationRequested ? ExitCodes.Interrupted : ExitCodes.Timeout;
-            await WriteErrorAsync(stdout, options.Format, code, code == ExitCodes.Timeout ? $"超过 {options.TimeoutSeconds} 秒，已停止" : "已中断");
+            await WriteErrorAsync(stdout, options.Format, code, code == ExitCodes.Timeout ? $"超过 {options.TimeoutSeconds} 秒，已停止" : "已中断", options.AsciiJson);
             return code;
         }
 
@@ -251,11 +266,11 @@ public static class PrintCommand
                 await stdout.WriteLineAsync(answer);
                 break;
             case "stream-json":
-                await stdout.WriteLineAsync(summary.ToJsonString(Json));
+                await stdout.WriteLineAsync(summary.ToJsonString(JsonFor(options.AsciiJson, indent: false)));
                 break;
             default:
                 summary.Remove("type");
-                await stdout.WriteLineAsync(summary.ToJsonString(new JsonSerializerOptions(Json) { WriteIndented = true }));
+                await stdout.WriteLineAsync(summary.ToJsonString(JsonFor(options.AsciiJson, indent: true)));
                 break;
         }
         await stdout.FlushAsync();
@@ -263,7 +278,7 @@ public static class PrintCommand
     }
 
     /// <summary>启动阶段就失败（没登录、开关没开、参数不对）时也按格式输出，脚本照样能解析。</summary>
-    public static async Task WriteErrorAsync(TextWriter stdout, string format, int code, string error)
+    public static async Task WriteErrorAsync(TextWriter stdout, string format, int code, string error, bool asciiJson = false)
     {
         if (format == "text")
         {
@@ -274,7 +289,7 @@ public static class PrintCommand
         {
             node["type"] = "result";
         }
-        await stdout.WriteLineAsync(node.ToJsonString(format == "json" ? new JsonSerializerOptions(Json) { WriteIndented = true } : Json));
+        await stdout.WriteLineAsync(node.ToJsonString(JsonFor(asciiJson, indent: format == "json")));
         await stdout.FlushAsync();
     }
 
@@ -312,9 +327,14 @@ public static class PrintCommand
     private sealed class PrintObserver : IAgentObserver
     {
         private readonly TextWriter? _stream;
+        private readonly JsonSerializerOptions _json;
         private readonly Dictionary<string, string> _summaries = new();
 
-        public PrintObserver(TextWriter? stream) => _stream = stream;
+        public PrintObserver(TextWriter? stream, JsonSerializerOptions json)
+        {
+            _stream = stream;
+            _json = json;
+        }
 
         public List<(string Name, string Summary, string Decision, bool Ok)> Calls { get; } = new();
 
@@ -326,7 +346,7 @@ public static class PrintCommand
             }
             lock (_stream)
             {
-                _stream.WriteLine(node.ToJsonString(Json));
+                _stream.WriteLine(node.ToJsonString(_json));
                 _stream.Flush();
             }
         }
