@@ -141,6 +141,21 @@ if ((Invoke-Step 'dotnet build src\Flyknit.Client -c Debug -v minimal') -ne 0) {
     Stop-Here '客户端编译失败' $null
 }
 
+# 命令行 flyknit.exe（flyknit -p / flyknit acp，见 docs\cli-and-acp.md）：编译到 client\bin\flyknit，
+# 并把这个目录加进当前 Windows 账号的 PATH（不用管理员；正式安装由 FlyknitSetup 加系统 PATH）。
+# 编译失败不影响启动员工端，只提示一下
+$cliDir = Join-Path $root 'bin\flyknit'
+if ((Invoke-Step "dotnet build src\Flyknit.Cli -c Debug -v minimal -o `"$cliDir`"") -ne 0) {
+    Write-Host '命令行 flyknit 编译失败（员工端照常启动），详情见 build.log' -ForegroundColor Yellow
+} else {
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $items = @($userPath -split ';' | Where-Object { $_ -ne '' })
+    if (-not ($items | Where-Object { $_.TrimEnd('\') -ieq $cliDir.TrimEnd('\') })) {
+        [Environment]::SetEnvironmentVariable('Path', (($items + $cliDir) -join ';'), 'User')
+        Write-Host "已把 $cliDir 加进你的 PATH：新开一个 PowerShell 窗口就能用 flyknit 命令" -ForegroundColor Green
+    }
+}
+
 Write-Host ''
 Write-Host '编译完成，正在启动 FlyknitBuddy，右下角会出现悬浮球。' -ForegroundColor Green
 Write-Host '这个窗口关掉程序也会退出。'
