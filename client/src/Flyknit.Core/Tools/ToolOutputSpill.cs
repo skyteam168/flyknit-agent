@@ -13,14 +13,25 @@ public static class ToolOutputSpill
     public static readonly TimeSpan KeepFor = TimeSpan.FromDays(7);
 
     /// <summary>
+    /// 能落盘时，交给模型的上限再收紧到这么多字：完整内容在文件里，要看随时能读，
+    /// 没必要把 1 万多字的命令输出留在上下文里、之后每一步都重发一遍。
+    /// </summary>
+    public const int SpillChars = 8000;
+
+    /// <summary>
     /// 超过 <paramref name="maxChars"/> 的结果：写进 <paramref name="dir"/>，返回开头 + 结尾 + 路径。
     /// 没给目录、写不进去时退回原来的截断。read_file 的结果本身就是从文件读的，按行号继续读原文件即可，不再另存。
     /// </summary>
     public static ToolResult Apply(ToolResult result, int maxChars, string? dir, string toolName, string callId)
     {
-        if (result.Output.Length <= maxChars || string.IsNullOrEmpty(dir) || toolName == "read_file")
+        if (string.IsNullOrEmpty(dir) || toolName == "read_file")
         {
             return result.Truncate(maxChars);
+        }
+        maxChars = Math.Min(maxChars, SpillChars);
+        if (result.Output.Length <= maxChars)
+        {
+            return result;
         }
         string path;
         try

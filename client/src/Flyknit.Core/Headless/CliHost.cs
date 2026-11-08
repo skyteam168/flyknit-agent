@@ -101,7 +101,8 @@ public sealed class BufferedAudit : IAuditSink
 /// </summary>
 public static class CliHost
 {
-    public static async Task<CliConnection> ConnectAsync(LocalProfile profile, string actor, HttpMessageHandler? handler, Action<string>? warn, CancellationToken ct)
+    /// <param name="think">让模型深度思考（命令行 --think）。不跟员工端的「深度思考」开关走，见 CliOptions.Think。</param>
+    public static async Task<CliConnection> ConnectAsync(LocalProfile profile, string actor, HttpMessageHandler? handler, Action<string>? warn, CancellationToken ct, bool think = false)
     {
         if (!profile.IsRegistered)
         {
@@ -152,7 +153,7 @@ public static class CliHost
             Audit = audit,
             Actor = actor,
             UiLanguage = profile.UiLanguage,
-            DeepThinking = profile.DeepThinking,
+            DeepThinking = think,
             Skills = LoadSkills(profile),
             ContextLength = agentScene?.ContextLength ?? 0,
             ToolOutputDir = Path.Combine(Path.GetTempPath(), "Flyknit", "tool-outputs"),

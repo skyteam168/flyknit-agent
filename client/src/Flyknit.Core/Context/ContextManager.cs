@@ -13,8 +13,16 @@ public sealed class ContextOptions
     /// <summary>为模型回答预留的 token。</summary>
     public int ReserveOutputTokens { get; init; } = 8192;
 
-    /// <summary>超过预算的这个比例时，先裁剪较早的工具输出（微压缩）。</summary>
-    public double PruneRatio { get; init; } = 0.35;
+    /// <summary>超过预算的这个比例时，开始裁剪较早的工具输出（微压缩）。</summary>
+    /// <remarks>以前是 35%：12.8 万上下文的模型要到 4 万多 token 才开始裁，读过的大文件每一步都原样重发。</remarks>
+    public double PruneRatio { get; init; } = 0.25;
+
+    /// <summary>
+    /// 攒够这么多（占预算的比例）可以省下的旧工具输出才裁一次，一次裁完。
+    /// 模型服务商的提示词缓存按前缀命中：以前每一步都把「倒数第 5 条」裁掉，裁剪点每步往后挪一格，
+    /// 从那条往后每一步都不命中缓存；攒一批再裁，两次裁剪之间历史前缀保持不变。
+    /// </summary>
+    public double PruneBatchRatio { get; init; } = 0.08;
 
     /// <summary>超过预算的这个比例时，把较早的对话压缩成摘要（自动压缩）。</summary>
     /// <remarks>
@@ -226,7 +234,12 @@ public sealed class ContextManager
             return null;
         }
 
-        PruneToolOutputs(history, _options.KeepRecentToolResults, _options.PrunedToolChars);
+        // 攒够一批才裁（见 PruneBatchRatio）；已经接近压缩线时不等，照裁
+        if (before > Budget * _options.CompactRatio
+            || PrunableTokens(history, _options.KeepRecentToolResults, _options.PrunedToolChars) * _calibration >= Budget * _options.PruneBatchRatio)
+        {
+            PruneToolOutputs(history, _options.KeepRecentToolResults, _options.PrunedToolChars);
+        }
         if (Measure(history) <= Budget * _options.CompactRatio)
         {
             _sessionMemory?.CheckAndTrigger(history, before);
@@ -268,6 +281,22 @@ public sealed class ContextManager
         // 成功、失败、没什么可压都记下来：下一次至少等对话再长一截
         _lastCompactAt = Measure(history);
         return info;
+    }
+
+    /// <summary>现在裁剪能省下多少 token（估算，未校准）。</summary>
+    public static int PrunableTokens(IReadOnlyList<ChatMessage> history, int keepRecent, int keepChars)
+    {
+        var toolIndexes = history.Select((m, i) => (m, i)).Where(x => x.m.Role == ChatRole.Tool).Select(x => x.i).ToList();
+        var saved = 0;
+        foreach (var i in toolIndexes.Take(Math.Max(0, toolIndexes.Count - keepRecent)))
+        {
+            var content = history[i].Content;
+            if (content.Length > keepChars + 200)
+            {
+                saved += TokenEstimator.Estimate(content.AsSpan(keepChars).ToString());
+            }
+        }
+        return saved;
     }
 
     /// <summary>微压缩：较早的大段工具输出只保留开头。</summary>

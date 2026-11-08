@@ -133,6 +133,22 @@ public sealed class ToolOutputSpillTests : IDisposable
     }
 
     [Fact]
+    public void SpilledResultsKeepLessInContext()
+    {
+        // 完整内容落了盘、随时能读：交给模型的不超过 SpillChars，哪怕调用方给的上限更大
+        var big = new string('x', 11000);
+        var spilled = ToolOutputSpill.Apply(ToolResult.Success(big), 12000, _dir, "run_shell", "c1");
+        Assert.True(spilled.Output.Length < ToolOutputSpill.SpillChars + 400, $"留了 {spilled.Output.Length} 字");
+        Assert.Contains("已保存到", spilled.Output);
+        var file = Directory.GetFiles(_dir, "*.txt", SearchOption.AllDirectories).Single();
+        Assert.Equal(big, File.ReadAllText(file));
+
+        // read_file 本身就是按行从文件读的，不另存，照旧按调用方的上限
+        var read = ToolOutputSpill.Apply(ToolResult.Success(big), 12000, _dir, "read_file", "c2");
+        Assert.Equal(big, read.Output);
+    }
+
+    [Fact]
     public void OldSavedResultsArePruned()
     {
         Directory.CreateDirectory(Path.Combine(_dir, "conv"));

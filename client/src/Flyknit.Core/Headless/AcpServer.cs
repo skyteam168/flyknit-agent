@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Flyknit.Core.Agent;
@@ -501,6 +502,17 @@ public sealed class AcpServer
         private Task _chain = Task.CompletedTask;
         private bool _streamed;
 
+        /// <summary>
+        /// 回答 / 思考的片段攒一会儿再发：模型每吐几个字就来一个片段，一条条发过去 IDE 每条都要重新渲染，
+        /// 思考一长界面就卡。攒 <see cref="BatchDelay"/> 或 <see cref="MaxBatchChars"/> 个字发一次，
+        /// 消息数少一两个数量级，看起来还是连续的。别的更新（工具调用、计划）发之前先把攒着的发掉，顺序不变。
+        /// </summary>
+        internal static TimeSpan BatchDelay { get; set; } = TimeSpan.FromMilliseconds(60);
+        private const int MaxBatchChars = 2000;
+        private string? _pendingKind;
+        private readonly StringBuilder _pending = new();
+        private Timer? _timer;
+
         public AcpObserver(AcpServer server, string sid)
         {
             _server = server;
@@ -511,8 +523,56 @@ public sealed class AcpServer
         {
             lock (_gate)
             {
-                _chain = _chain.ContinueWith(_ => _server.NotifyAsync(_sid, update), TaskScheduler.Default).Unwrap();
+                FlushPendingLocked();
+                EnqueueLocked(update);
             }
+        }
+
+        private void EnqueueLocked(JsonObject update) =>
+            _chain = _chain.ContinueWith(_ => _server.NotifyAsync(_sid, update), TaskScheduler.Default).Unwrap();
+
+        /// <summary>回答 / 思考的片段：和前面同一种就接着攒，换了种类先把攒着的发掉。</summary>
+        private void Append(string kind, string text)
+        {
+            if (text.Length == 0)
+            {
+                return;
+            }
+            lock (_gate)
+            {
+                if (_pendingKind is not null && _pendingKind != kind)
+                {
+                    FlushPendingLocked();
+                }
+                _pendingKind = kind;
+                _pending.Append(text);
+                if (_pending.Length >= MaxBatchChars)
+                {
+                    FlushPendingLocked();
+                }
+                else
+                {
+                    _timer ??= new Timer(_ =>
+                    {
+                        lock (_gate)
+                        {
+                            FlushPendingLocked();
+                        }
+                    }, null, BatchDelay, Timeout.InfiniteTimeSpan);
+                }
+            }
+        }
+
+        private void FlushPendingLocked()
+        {
+            _timer?.Dispose();
+            _timer = null;
+            if (_pendingKind is { } kind && _pending.Length > 0)
+            {
+                EnqueueLocked(Chunk(kind, _pending.ToString()));
+            }
+            _pending.Clear();
+            _pendingKind = null;
         }
 
         /// <summary>这一轮的更新都发出去了再回 session/prompt 的结果。</summary>
@@ -520,6 +580,7 @@ public sealed class AcpServer
         {
             lock (_gate)
             {
+                FlushPendingLocked();
                 return _chain;
             }
         }
@@ -527,10 +588,10 @@ public sealed class AcpServer
         public void OnContent(string delta)
         {
             _streamed = true;
-            Push(Chunk("agent_message_chunk", delta));
+            Append("agent_message_chunk", delta);
         }
 
-        public void OnReasoning(string delta) => Push(Chunk("agent_thought_chunk", delta));
+        public void OnReasoning(string delta) => Append("agent_thought_chunk", delta);
 
         public void OnAssistantMessage(ChatMessage message)
         {
