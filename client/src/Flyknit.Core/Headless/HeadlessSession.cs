@@ -91,6 +91,39 @@ public sealed class HeadlessSession
     public string Workspace { get; }
     public PermissionMode Permission { get; }
     public IReadOnlyList<ChatMessage> History => _history;
+    public IReadOnlyList<PlanItem> Plan => _plan;
+    public IReadOnlyCollection<string> LoadedTools => _loadedTools;
+
+    /// <summary>
+    /// 接着一个保存下来的会话聊（IDE 的 session/load）：历史、计划、加载过的工具原样放回。
+    /// 历史末尾要是停在半截（助手发了工具调用、结果没存下来），补上「没有执行」的结果，免得下一轮请求被上游拒绝。
+    /// </summary>
+    public void Restore(IEnumerable<ChatMessage> history, IEnumerable<PlanItem> plan, IEnumerable<string> loadedTools)
+    {
+        _history.Clear();
+        _history.AddRange(history.Where(m => m.Role != ChatRole.System));
+        var answered = _history.Where(m => m.Role == ChatRole.Tool && m.ToolCallId is not null).Select(m => m.ToolCallId!).ToHashSet(StringComparer.Ordinal);
+        for (var i = _history.Count - 1; i >= 0; i--)
+        {
+            if (_history[i].Role != ChatRole.Assistant)
+            {
+                continue;
+            }
+            var missing = _history[i].ToolCalls.Where(c => !answered.Contains(c.Id)).ToList();
+            var at = i + 1;
+            while (at < _history.Count && _history[at].Role == ChatRole.Tool)
+            {
+                at++;
+            }
+            foreach (var call in missing)
+            {
+                _history.Insert(at++, ChatMessage.ToolResult(call, "（这一步没有执行完：会话在这里中断了）"));
+            }
+        }
+        _plan = plan.ToList();
+        _loadedTools.Clear();
+        _loadedTools.UnionWith(loadedTools);
+    }
 
     private bool DeveloperToolsOn => _env.Security.On(SecuritySettings.DeveloperTools, fallback: false);
 
@@ -118,8 +151,19 @@ public sealed class HeadlessSession
     }
 
     /// <summary>系统提示词：和员工端同一个 PromptBuilder（安全规则、外部内容不是指令等都在里面），再说明这是无界面调用。</summary>
-    public string BuildPrompt(string query) =>
-        new PromptBuilder(memory: null, _env.Skills).Build(new PromptContext
+    public string BuildPrompt(string query)
+    {
+        var (system, turn) = BuildPromptParts(query);
+        return turn.Length == 0 ? system : system + "\n\n" + turn;
+    }
+
+    /// <summary>
+    /// 分成不变的系统提示词和本轮参考资料（按问题挑的技能、当前时间）：参考资料附在这一轮的用户消息上、跟着历史走，
+    /// 多轮时系统提示词和历史都不变，提示词缓存才命中（见 PromptBuilder.BuildSplit）。
+    /// </summary>
+    public (string System, string Turn) BuildPromptParts(string query)
+    {
+        var (system, turn) = new PromptBuilder(memory: null, _env.Skills).BuildSplit(new PromptContext
         {
             Mode = ConversationMode.Agent,
             UiLanguage = _env.UiLanguage,
@@ -128,7 +172,9 @@ public sealed class HeadlessSession
             Sandboxed = _env.Security.On(SecuritySettings.Sandbox),
             Query = query,
             DeveloperTools = DeveloperToolsOn,
-        }) + HeadlessGuide(_env.Actor);
+        });
+        return (system + HeadlessGuide(_env.Actor), turn);
+    }
 
     private static string HeadlessGuide(string actor) => $"""
 
@@ -145,9 +191,10 @@ public sealed class HeadlessSession
     public async Task<AgentRunResult> PromptAsync(string text, IConfirmationHandler confirm, IAgentObserver observer, CancellationToken ct)
     {
         var tools = BuildTools();
-        var prompt = BuildPrompt(text);
+        var (prompt, turnContext) = BuildPromptParts(text);
         var scene = DeveloperToolsOn ? Scenes.Code : Scenes.Agent;
         var user = ChatMessage.User(text);
+        user.TurnContext = turnContext.Length > 0 ? turnContext : null;
         var plan = TaskPlan.HasOpenSteps(_plan) ? _plan : new List<PlanItem>();
 
         var context = new ContextManager(_env.Gateway, prompt, null, _env.ContextLength) { Scene = scene, Plan = () => plan };

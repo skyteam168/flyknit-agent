@@ -101,7 +101,9 @@ public static class Program
             var input = new StreamReader(Console.OpenStandardInput(), utf8);
             var server = new AcpServer(connection.Environment, permission, input, stdout, Warn,
                 afterPrompt: connection.Ok ? () => connection.Audit!.FlushAsync(connection.Server!, Warn) : null,
-                version: Version, unavailable: connection.Error);
+                version: Version, unavailable: connection.Error,
+                // IDE 会话存在本机，关掉 IDE 以后能在会话列表里找回来
+                store: new AcpSessionStore(Path.Combine(profile.Root, "ide-sessions")));
             await server.RunAsync(cts.Token);
             return connection.Ok ? ExitCodes.Ok : connection.ExitCode;
         }

@@ -244,18 +244,40 @@ public sealed class PromptBuilder
     /// </summary>
     public IReadOnlyList<(string Key, string Text)> Sections { get; private set; } = Array.Empty<(string, string)>();
 
+    /// <summary>
+    /// 整段提示词（系统提示词 + 本轮参考资料拼在一起）。一次性的调用（定时任务预演等）用它就行；
+    /// 多轮对话用 <see cref="BuildSplit"/>，让系统提示词保持不变。
+    /// </summary>
     public string Build(PromptContext ctx)
+    {
+        if (ctx.Mode == ConversationMode.Translate)
+        {
+            return BuildSplit(ctx).System;
+        }
+        return BuildAssistant(ctx).Full;
+    }
+
+    /// <summary>
+    /// 分成两部分：
+    /// - System：同一个对话里基本不变的（身份、工作方式、工作区说明、连接器、各种说明），放系统提示词；
+    /// - Turn：按这次的问题挑的（相关技能、记忆、相似任务）和当前时间，附在这一轮的用户消息后面并跟着它保存
+    ///   （见 ChatMessage.TurnContext）。
+    /// 模型服务商的提示词缓存按前缀命中：以前这些放在系统提示词末尾，每一轮都变，排在后面的整段对话历史
+    /// 每一轮都要按全价重算；分开以后「系统提示词 + 历史」每一轮都是同一个前缀。
+    /// </summary>
+    public (string System, string Turn) BuildSplit(PromptContext ctx)
     {
         if (ctx.Mode == ConversationMode.Translate)
         {
             var text = BuildTranslate(ctx);
             Sections = new[] { ("base", text) };
-            return text;
+            return (text, "");
         }
-        return BuildAssistant(ctx);
+        var (system, turn, _) = BuildAssistant(ctx);
+        return (system, turn);
     }
 
-    private string BuildAssistant(PromptContext ctx)
+    private (string System, string Turn, string Full) BuildAssistant(PromptContext ctx)
     {
         var sb = new StringBuilder();
         var sections = new List<(string Key, string Text)>();
@@ -369,7 +391,8 @@ public sealed class PromptBuilder
             }
         }
 
-        // ---- 每轮都变的：按这次的问题挑出来的 ----
+        // ---- 每轮都变的：按这次的问题挑出来的（从这里往后放进本轮参考资料，不进系统提示词） ----
+        var turnStart = sb.Length;
         if (ctx.Mode == ConversationMode.Agent && _skills is not null)
         {
             // 语义分数里也有技能的（ID 以 skill: 开头），和记忆共用同一次向量化
@@ -409,7 +432,7 @@ public sealed class PromptBuilder
         sb.AppendLine($"当前时间：{DateTime.Now:yyyy-MM-dd HH:mm dddd}。");
         Mark("");
         Sections = sections;
-        return sb.ToString().TrimEnd();
+        return (sb.ToString(0, turnStart).TrimEnd(), sb.ToString(turnStart, sb.Length - turnStart).Trim(), sb.ToString().TrimEnd());
     }
 
     /// <summary>记忆区块前的使用说明（固定文字）。</summary>

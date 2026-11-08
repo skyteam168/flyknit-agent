@@ -19,6 +19,9 @@ namespace Flyknit.Core.Headless;
 ///   IDE 回了没给过的选项一律按拒绝处理。
 /// - IDE 在 session/new 里带来的 MCP 服务器不接：连接器只认 IT 在后台配的（员工不能自建，不变量 6）。
 /// - 标准输出只写协议消息；日志写标准错误。
+///
+/// 会话保存（给了 <see cref="AcpSessionStore"/> 时）：每一轮结束存到本机，IDE 关掉、插件重启后可以在会话列表里
+/// 找回来接着聊（session/list、session/load）。重新打开时权限档、安全设置按当时的配置来。
 /// </summary>
 public sealed class AcpServer
 {
@@ -32,6 +35,7 @@ public sealed class AcpServer
     private readonly Action<string> _log;
     private readonly Func<Task>? _afterPrompt;
     private readonly string _version;
+    private readonly AcpSessionStore? _store;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly ConcurrentDictionary<string, AcpSession> _sessions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonNode?>> _pending = new(StringComparer.Ordinal);
@@ -40,8 +44,10 @@ public sealed class AcpServer
 
     /// <param name="env">为空表示连不上（没登录、IT 没开开关等）：照样回 initialize，开会话时把 <paramref name="unavailable"/> 告诉 IDE</param>
     public AcpServer(HeadlessEnvironment? env, PermissionMode permission, TextReader input, TextWriter output,
-        Action<string>? log = null, Func<Task>? afterPrompt = null, string version = "0.1.0", string unavailable = "")
+        Action<string>? log = null, Func<Task>? afterPrompt = null, string version = "0.1.0", string unavailable = "",
+        AcpSessionStore? store = null)
     {
+        _store = store;
         _env = env;
         _unavailable = unavailable.Length > 0 ? unavailable : "FlyknitBuddy 没有准备好";
         _permission = permission == PermissionMode.Full ? PermissionMode.Workspace : permission;
@@ -143,6 +149,8 @@ public sealed class AcpServer
                 "authenticate" => new JsonObject(),
                 "session/new" => NewSession(p),
                 "session/prompt" => await PromptAsync(p, ct),
+                "session/list" => ListSessions(p),
+                "session/load" => await LoadSessionAsync(p),
                 _ => throw new AcpError(-32601, $"不支持的方法：{method}"),
             };
             await SendAsync(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result });
@@ -163,8 +171,10 @@ public sealed class AcpServer
         ["protocolVersion"] = ProtocolVersion,
         ["agentCapabilities"] = new JsonObject
         {
-            ["loadSession"] = false,
+            ["loadSession"] = _store is not null,
             ["promptCapabilities"] = new JsonObject { ["image"] = false, ["audio"] = false, ["embeddedContext"] = true },
+            // 会话列表（session/list）：IDE 侧边栏据此列出以前的会话
+            ["sessionCapabilities"] = _store is not null ? new JsonObject { ["list"] = new JsonObject() } : new JsonObject(),
         },
         ["authMethods"] = new JsonArray(),
         ["agentInfo"] = new JsonObject { ["name"] = "flyknit", ["title"] = "FlyknitBuddy", ["version"] = _version },
@@ -212,6 +222,7 @@ public sealed class AcpServer
         {
             var observer = new AcpObserver(this, sid);
             var confirm = new AcpConfirm(this, sid, observer.FlushAsync);
+            s.FirstPrompt ??= text;
             var result = await s.Session.PromptAsync(text, confirm, observer, cts.Token);
             await observer.FlushAsync();
             return new JsonObject { ["stopReason"] = StopReason(result.StopReason) };
@@ -222,6 +233,8 @@ public sealed class AcpServer
         }
         finally
         {
+            // 每一轮结束都存一次（被取消的也存：停下时已经给发出的调用补了结果）
+            _store?.Save(s.Session, s.FirstPrompt ?? text, s.CreatedAt, _log);
             s.End();
             if (_afterPrompt is not null)
             {
@@ -229,6 +242,117 @@ public sealed class AcpServer
             }
         }
     }
+
+    /// <summary>以前的会话（最近的在前）。给了 cwd 只列这个项目的；一页 <see cref="ListPageSize"/> 个，cursor 是下一页的起点。</summary>
+    private JsonObject ListSessions(JsonObject? p)
+    {
+        if (_store is null)
+        {
+            throw new AcpError(-32601, "不支持的方法：session/list");
+        }
+        var cwd = p?["cwd"] is JsonValue cv && cv.TryGetValue<string>(out var c) ? c : null;
+        var start = p?["cursor"] is JsonValue kv && kv.TryGetValue<string>(out var k) && int.TryParse(k, out var n) && n > 0 ? n : 0;
+        var all = _store.List(cwd);
+        var page = all.Skip(start).Take(ListPageSize).ToList();
+        var result = new JsonObject
+        {
+            ["sessions"] = new JsonArray(page.Select(s => (JsonNode)new JsonObject
+            {
+                ["sessionId"] = s.Id,
+                ["cwd"] = s.Cwd,
+                ["title"] = s.Title,
+                ["updatedAt"] = s.UpdatedAt.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture),
+            }).ToArray()),
+        };
+        if (start + page.Count < all.Count)
+        {
+            result["nextCursor"] = (start + page.Count).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+        return result;
+    }
+
+    public const int ListPageSize = 50;
+
+    /// <summary>
+    /// 打开一个以前的会话：把历史一条条推给 IDE 显示（session/update），再回结果；之后的 session/prompt 接着这段历史聊。
+    /// 工作区用保存时的；权限档、安全设置按现在的配置。
+    /// </summary>
+    private async Task<JsonObject> LoadSessionAsync(JsonObject? p)
+    {
+        if (_store is null)
+        {
+            throw new AcpError(-32601, "不支持的方法：session/load");
+        }
+        if (_env is null)
+        {
+            throw new AcpError(-32000, _unavailable);
+        }
+        var sid = p?["sessionId"] is JsonValue sv && sv.TryGetValue<string>(out var id) ? id : throw new AcpError(-32602, "缺少 sessionId");
+        if (_sessions.TryGetValue(sid, out var open) && open.Running)
+        {
+            throw new AcpError(-32603, "这个会话正在进行，等这一轮结束再打开");
+        }
+        var saved = _store.Load(sid) ?? throw new AcpError(-32602, $"没有这个会话：{sid}");
+        if (!Directory.Exists(saved.Cwd))
+        {
+            throw new AcpError(-32602, $"这个会话的工作目录已经不在了：{saved.Cwd}");
+        }
+        var session = new HeadlessSession(_env, saved.Cwd, _permission, saved.Id);
+        session.Restore(saved.Messages, saved.Plan, saved.LoadedTools);
+        _sessions[sid] = new AcpSession(session) { CreatedAt = saved.CreatedAt, FirstPrompt = saved.Title };
+        _log($"打开以前的会话 {sid}（{session.History.Count} 条消息），工作区 {session.Workspace}");
+        foreach (var update in Replay(session.History))
+        {
+            await NotifyAsync(sid, update);
+        }
+        return new JsonObject();
+    }
+
+    /// <summary>历史换成 IDE 能显示的更新：员工的话、回答、工具调用和结果（思考过程不重放）。</summary>
+    public static IEnumerable<JsonObject> Replay(IReadOnlyList<ChatMessage> history)
+    {
+        static JsonObject Chunk(string kind, string text) =>
+            new() { ["sessionUpdate"] = kind, ["content"] = new JsonObject { ["type"] = "text", ["text"] = text } };
+        var results = history.Where(m => m.Role == ChatRole.Tool && m.ToolCallId is not null)
+            .GroupBy(m => m.ToolCallId!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Last(), StringComparer.Ordinal);
+        foreach (var m in history)
+        {
+            switch (m.Role)
+            {
+                case ChatRole.User when m.Content.Length > 0:
+                    yield return Chunk("user_message_chunk", m.Content);
+                    break;
+                case ChatRole.Assistant:
+                    if (m.Content.Length > 0)
+                    {
+                        yield return Chunk("agent_message_chunk", m.Content);
+                    }
+                    foreach (var call in m.ToolCalls)
+                    {
+                        var update = new JsonObject
+                        {
+                            ["sessionUpdate"] = "tool_call",
+                            ["toolCallId"] = call.Id,
+                            ["title"] = call.Name,
+                            ["kind"] = ToolKind(call.Name),
+                            ["status"] = "completed",
+                            ["rawInput"] = RawInput(call.ArgumentsJson),
+                        };
+                        if (results.TryGetValue(call.Id, out var r))
+                        {
+                            var output = r.Content.Length > ReplayOutputChars ? r.Content[..ReplayOutputChars] + "\n…（只显示前一部分）" : r.Content;
+                            update["content"] = new JsonArray(Text(output));
+                        }
+                        yield return update;
+                    }
+                    break;
+            }
+        }
+    }
+
+    /// <summary>重放时每个工具结果给 IDE 看的长度（只是展示，模型那边是完整的）。</summary>
+    private const int ReplayOutputChars = 2000;
 
     /// <summary>IDE 发来的内容块拼成一段话：文字原样；引用的文件写成路径；带内容的文件附在后面（模型要读整文件可以自己用 read_file）。</summary>
     public static string PromptText(JsonArray? blocks)
@@ -350,6 +474,21 @@ public sealed class AcpServer
         public AcpSession(HeadlessSession session) => Session = session;
 
         public HeadlessSession Session { get; }
+
+        /// <summary>会话什么时候开的、第一句话是什么（保存时用作标题）。</summary>
+        public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
+        public string? FirstPrompt { get; set; }
+
+        public bool Running
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _current is not null;
+                }
+            }
+        }
 
         public bool Begin(CancellationTokenSource cts)
         {
