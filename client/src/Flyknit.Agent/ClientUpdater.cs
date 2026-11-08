@@ -142,7 +142,8 @@ public sealed class ClientUpdater(AgentConfig config, Func<ServerApi> api)
         {
             return;
         }
-        if (Process.GetProcessesByName("FlyknitBuddy").Length > 0)
+        // 命令行 flyknit.exe 也在这个文件夹里：IDE 开着的 flyknit acp 会一直占着，等它也退出再换
+        if (Process.GetProcessesByName("FlyknitBuddy").Length > 0 || Process.GetProcessesByName("flyknit").Length > 0)
         {
             if (_applyFailures >= FailuresBeforeGivingUp)
             {

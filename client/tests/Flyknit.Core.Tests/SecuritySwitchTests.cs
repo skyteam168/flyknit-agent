@@ -204,6 +204,8 @@ public class SecuritySwitchTests
             SecuritySettings.DeveloperTools,
             // AgentHost 读这一项（SubAgentRunner.Enabled）：关着（默认）时主助手没有 spawn_agent（见 SubAgentTests）
             SecuritySettings.SubAgents,
+            // HeadlessAccess.Problem 读这一项：关着（默认）时 flyknit -p 和 flyknit acp 都不执行任务（见 HeadlessTests）
+            SecuritySettings.CliAccess,
             // SandboxSettings.Enabled 读这一项（还要开发者工具）：关着（默认）时没有沙箱开关，AgentHost 不起容器（见 SandboxTests）
             SecuritySettings.SandboxTasks,
             // SandboxSettings.Options 读下面四项：容器联网、出口许不许改 CI 配置、CPU、内存

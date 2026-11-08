@@ -184,6 +184,15 @@ SETTINGS: tuple[Setting, ...] = (
              "只读子代理只能查看、不弹确认；能改东西的一次一个，每个操作照常要员工确认。不能再开子代理、不能向员工提问、不写长期记忆。"
              "一个任务最多开 8 个，会多用 token。默认关闭。",
     ),
+    Setting(
+        key="cli_access", kind="bool", default=False, locked=True,
+        title="命令行 / IDE 接入",
+        risk="打开后，这台电脑可以用 flyknit 命令行（flyknit -p \"要做的事\"，给脚本和 CI 用）和 ACP 服务（flyknit acp，"
+             "让 Zed、JetBrains 等开发工具把 FlyknitBuddy 当 AI 助手用）无界面地执行办事任务。"
+             "用的是员工端的登录和同一套安全设置：权限档、命令规则、IT 工具规则、额度、审计都一样，审计里来源记为 cli / ide。"
+             "命令行默认拒绝所有需要确认的操作（加 --allow-writes 只放行普通写入）；IDE 里需要确认的操作由 IDE 弹确认框；"
+             "删除、覆盖、改系统设置等高危操作只能逐次确认、不能设成自动。没有长期记忆、浏览器、连接器。只给写程序的同事打开。默认关闭。",
+    ),
     # ---- 沙箱任务（本机 Docker）：见 docs/sandbox-execution-design.md ----
     Setting(
         key="sandbox_tasks", kind="bool", default=False, locked=True,

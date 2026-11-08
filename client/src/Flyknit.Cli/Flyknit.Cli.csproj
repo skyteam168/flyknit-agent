@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    flyknit.exe：命令行（flyknit -p）和 ACP 服务（flyknit acp）。
+    和员工端（FlyknitBuddy.exe）共用 Flyknit.Core，发布到同一个文件夹，安装时一起装、一起升级。
+    不依赖 WPF（net8.0 而不是 net8.0-windows），所以 Linux 上也能编译和跑测试；DPAPI、回收站这些 Windows 能力在 Core 里按系统判断。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Flyknit.Cli</RootNamespace>
+    <AssemblyName>flyknit</AssemblyName>
+    <Product>FlyknitBuddy</Product>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Flyknit.Core\Flyknit.Core.csproj" />
+  </ItemGroup>
+
+</Project>

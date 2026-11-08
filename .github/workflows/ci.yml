@@ -56,8 +56,11 @@ jobs:
           dotnet build client/src/Flyknit.Setup -c Release
           dotnet build client/src/Flyknit.Agent -c Release
           dotnet build client/src/Flyknit.Updater -c Release
+          dotnet build client/src/Flyknit.Cli -c Release
       - name: Build Windows client
-        run: dotnet publish client/src/Flyknit.Client -c Release -r win-x64 --self-contained false -o artifacts/FlyknitBuddy
+        run: |
+          dotnet publish client/src/Flyknit.Client -c Release -r win-x64 --self-contained false -o artifacts/FlyknitBuddy
+          dotnet publish client/src/Flyknit.Cli -c Release -r win-x64 --self-contained false -o artifacts/FlyknitBuddy
       - uses: actions/upload-artifact@v4
         # 存储配额满时上传会失败：编译和测试已经过了，不让这一步把整个检查标红
         continue-on-error: true

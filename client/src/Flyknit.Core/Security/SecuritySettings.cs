@@ -85,6 +85,9 @@ public sealed class SecuritySettings
     /// <summary>子代理（spawn_agent，主助手按任务开分身去调研、干活）。默认关闭。</summary>
     public const string SubAgents = "subagents";
 
+    /// <summary>命令行 / IDE 接入（flyknit -p、flyknit acp）。默认关闭，IT 给写程序的同事打开；关着时 flyknit.exe 拒绝执行任务。</summary>
+    public const string CliAccess = "cli_access";
+
     /// <summary>沙箱任务（本机 Docker）：开发类任务在一次性容器里做、不弹确认，只能推任务分支建 PR。默认关闭。</summary>
     public const string SandboxTasks = "sandbox_tasks";
     public const string SandboxNetwork = "sandbox_network";

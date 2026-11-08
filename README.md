@@ -61,6 +61,7 @@ flyknit/
 │   ├── Flyknit.sln
 │   ├── src/Flyknit.Core/   客户端核心库（Agent 循环、工具、命令拦截、会话存储、记忆、技能）
 │   ├── src/Flyknit.Client/ WPF 外壳（悬浮球、托盘、系统通知、WebView2 主窗口）
+│   ├── src/Flyknit.Cli/    命令行 flyknit.exe（flyknit -p 给脚本和 CI，flyknit acp 给 Zed / JetBrains）
 │   ├── tests/              核心库单元测试
 │   ├── web/                聊天界面（Vue 3 + TypeScript，中 / 越 / 英三语）
 │   ├── run.bat             一键编译并启动（开发调试用），纯英文，只负责调起 run.ps1
@@ -597,6 +598,9 @@ zip 里必须有 `FlyknitBuddy.exe` 和 `FlyknitUpdater.exe`。缺了更新器�
 
 ## 员工怎么用
 
+- **命令行和开发工具（IT、程序员）**：IT 在安全中心打开「命令行 / IDE 接入」后，命令行窗口里可以直接用
+  `flyknit -p "要做的事"`（输出 JSON，给脚本、计划任务和 CI 用），Zed、JetBrains 里可以把 `flyknit acp` 配成 AI 助手。
+  用的是这台电脑上员工端的登录，权限、确认、额度、审计都一样；命令行默认不放行任何需要确认的操作。详见 `docs/cli-and-acp.md`
 - **长任务**：任务每做一步就存一次，中途程序被关、崩溃、电脑重启都不会丢；重新打开后侧栏「任务中心」和那个对话里会提示
   「上次没做完」，点「接着做」AI 会先核对做到哪了（没执行完的那一步会标出来）再继续。
   输入框下方的「长任务」开关：步数上限放宽到 300 步一轮，走到上限自动接着做（最多续 5 次），适合整理大量文件、批量处理表格这类要做很久的事；
