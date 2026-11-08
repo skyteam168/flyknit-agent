@@ -368,6 +368,8 @@ public sealed partial class AgentHost : IDisposable
         _ = Task.Run(ConfigWatchLoopAsync);
         // 盯着的 PR：每分钟看一眼有没有到点要查的（每个 PR 默认 50 分钟查一次）
         StartPrWatching();
+        // 对话删了、沙箱关了的容器：删掉，免得一直占磁盘
+        _ = Task.Run(CleanupSandboxesAsync);
     }
 
     /// <summary>启动时那一次拉配置。WhenAny 不会抛异常，只是等它结束。</summary>
@@ -809,13 +811,21 @@ public sealed partial class AgentHost : IDisposable
             {
                 prompt += "\n\n" + delegation.Prompt;
             }
+            // 沙箱任务：这个对话的开发工作在本机 Docker 的一次性容器里做（不弹确认，只能推任务分支建 PR）
+            var sandbox = conv.Mode == ConversationMode.Agent && conv.Sandbox && SandboxSwitchOn
+                ? await EnsureSandboxAsync(conv, events, cts.Token)
+                : null;
+            if (sandbox is not null)
+            {
+                prompt += Flyknit.Core.Sandbox.SandboxSettings.Guide(sandbox);
+            }
 
             var scene = conv.Mode switch
             {
                 ConversationMode.Translate => Scenes.Translate,
                 ConversationMode.Chat => Scenes.Chat,
                 // 后台没单独给 code 配模型时服务端回退到 agent，所以这里不用判断
-                _ when developerTools.Count > 0 => Scenes.Code,
+                _ when developerTools.Count > 0 || sandbox is not null => Scenes.Code,
                 _ => Scenes.Agent,
             };
 
@@ -958,6 +968,10 @@ public sealed partial class AgentHost : IDisposable
                 }
                 tools = perRun;
             }
+            if (sandbox is not null)
+            {
+                tools = SandboxRegistry(tools, sandbox);
+            }
             if (planMode)
             {
                 tools = Flyknit.Core.Agent.PlanMode.Filter(tools);
@@ -1057,7 +1071,12 @@ public sealed partial class AgentHost : IDisposable
         catch (Exception ex)
         {
             Log.Error($"对话 {id} 运行失败", ex);
-            events.Post(new { type = "chat.error", conversationId = id, message = ex is GatewayException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}" });
+            if (ex is Flyknit.Core.Sandbox.SandboxException)
+            {
+                // 沙箱没起来：界面别一直停在「正在准备」
+                PostSandbox(id, "idle", "");
+            }
+            events.Post(new { type = "chat.error", conversationId = id, message = ex is GatewayException or Flyknit.Core.Sandbox.SandboxException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}" });
             RunFinished?.Invoke(new RunFinishedInfo(id, Store.Get(id)?.Title ?? "", ex.Message, null));
         }
         finally

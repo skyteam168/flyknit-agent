@@ -395,11 +395,12 @@ public static class CliRunner
     public sealed record Result(int ExitCode, string Stdout, string Stderr);
 
     public static async Task<Result> RunAsync(string exe, string workingDirectory, IEnumerable<string> args,
-        IReadOnlyDictionary<string, string>? env, TimeSpan timeout, CancellationToken ct)
+        IReadOnlyDictionary<string, string>? env, TimeSpan timeout, CancellationToken ct, string? stdin = null)
     {
         var psi = new ProcessStartInfo(exe)
         {
             WorkingDirectory = workingDirectory,
+            RedirectStandardInput = stdin is not null,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -428,6 +429,14 @@ public static class CliRunner
         {
             var stdout = process.StandardOutput.ReadToEndAsync(ct);
             var stderr = process.StandardError.ReadToEndAsync(ct);
+            if (stdin is not null)
+            {
+                // 写文件内容走标准输入（UTF-8 不带 BOM），不经过命令行参数：不受长度限制，也没有转义问题
+                using (var writer = new StreamWriter(process.StandardInput.BaseStream, new UTF8Encoding(false)))
+                {
+                    await writer.WriteAsync(stdin.AsMemory(), ct);
+                }
+            }
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(timeout);
             try

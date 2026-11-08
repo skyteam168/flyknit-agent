@@ -961,6 +961,16 @@ WebView2 中的页面通过 `window.chrome.webview.postMessage` 发送 JSON 消�
 
 完整列表见 `client/web/src/bridge.ts` 与 `client/src/Flyknit.Client/Bridge/WebBridge.cs`，两边需保持一致。
 
+## 沙箱任务（本机 Docker）
+
+开了「开发者工具」和「沙箱任务」（安全中心，默认关）后，办事对话可以打开「沙箱」：
+仓库克隆进一次性的 Docker 容器，这个对话的文件、命令、git 工具换成在容器里执行的同名版本，不弹确认；
+唯一的出口是 `create_pull_request`（推 `flyknit/` 任务分支并建 PR，在员工电脑上用关了 hooks 的临时裸仓库完成，令牌不进容器）。
+
+- Core：`Flyknit.Core/Sandbox/`（`DockerSandbox`、`SandboxToolSet`、`SandboxCreatePullRequest`、`SandboxSettings`）
+- 宿主：`AgentHost.Sandbox.cs`；对话表 `sandbox` 列；桥接 `sandbox.status` / `sandbox.set`，事件 `sandbox.state`
+- 设计与第一期差异：`docs/sandbox-execution-design.md`
+
 ## 数据库升级
 
 服务端每次启动时自动对比模型定义和实际表结构（`app/migrate.py`）：缺失的表、字段、索引都会补上，

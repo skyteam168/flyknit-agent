@@ -290,5 +290,7 @@ REA、Craft Anything、Playwright MCP 由 IT 在后台配置成连接器。逆�
 | 阶段 3 | 代码完成，Linux 单测通过 | SKILL.md 的 mcp-servers / optional-mcp-servers；load_skill 按真实工具表报告连接器连没连上并列真实工具名；调了不存在的连接器工具时说明原因；技能安装预检提示依赖和降级；技能页面显示所需连接器 |
 | 阶段 4 | 代码完成，Linux 单测通过 | RunCheckpoint 每步落盘（本机 SQLite，未引入 Redis）：阶段、计划、计数、最后一个调用状态；「继续」时据此说明断点，执行中被关的那一步先核对再继续；中断任务显示「停在：阶段」 |
 | 阶段 5 | 代码完成，Linux 单测通过；REA / Craft Anything / Playwright 真实验收待 Windows 实机 | 连接器、浏览器、命令输出进模型上下文前打码（Cookie、Authorization、令牌、密码）；逆向与重建技能包 docs/skills/software-reverse-rebuild（合规边界、分阶段产出、只用真实工具名），IT 改好连接器 ID 后打包上传到技能库 |
+| 提示词注入防御 | 代码完成，Linux 单测通过 | PromptInjectionGuard 扫描工具结果、网页搜索、工作区说明文件；可疑内容中和后再进上下文；读到可疑内容后进入污染模式，之后所有非只读调用都要员工确认（不能「以后自动」） |
+| 沙箱任务第一期 | 代码完成，Linux 单测 + 真实 Docker 端到端通过，待 Windows + Docker Desktop 实机验证 | 见 docs/sandbox-execution-design.md §12：本机 Docker 容器里读写、命令、git 不弹确认；出口只推 flyknit/ 任务分支并建 PR、关 hooks、不强推、CI 配置默认不许改；安全中心 sandbox_* 五项（总开关默认关） |
 | 仓库与 PR | 代码完成，Linux 单测通过，待 Windows 实机验证 | 「文件」标签上方的仓库面板（仓库、分支、改动、领先落后；在 GitHub 打开、复制分支名、新建 / 切换分支，有未提交改动或任务进行中不让切）；create_pull_request（推送 + gh pr create，总要员工确认，不在默认分支上建）、pr_status、watch_pull_request；本机每 50 分钟查一次盯着的 PR（CI、冲突、评审、评论），有变化弹通知，开着自动修复时在原对话开一轮修复（每个 PR 最多 5 轮，操作照常确认），合并 / 关闭即停，14 天到期。容器里 gh 的 GraphQL 被屏蔽，gh 真实调用未在容器验证 |
 

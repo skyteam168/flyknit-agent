@@ -114,6 +114,12 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "developer_tools",
         # 客户端 SubAgentRunner.Enabled 读它：主助手有没有 spawn_agent
         "subagents",
+        # 客户端 AgentHost.Sandbox 读这几项：能不能开沙箱、容器能不能上网、出口能不能带 CI 配置、资源上限
+        "sandbox_tasks",
+        "sandbox_network",
+        "sandbox_allow_ci_changes",
+        "sandbox_cpus",
+        "sandbox_memory_gb",
         # 客户端读这几项决定能选哪些语气、能不能锁屏运行
         "persona_playful",
         "persona_custom",

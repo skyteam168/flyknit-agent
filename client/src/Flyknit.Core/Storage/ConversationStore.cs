@@ -42,6 +42,9 @@ public sealed class Conversation
     /// <summary>长任务模式：步数上限放宽，到上限时自动接着做而不是停下来等人说「继续」。</summary>
     public bool LongMode { get; set; }
 
+    /// <summary>沙箱任务：这个对话的开发工作在本机 Docker 的一次性容器里做（见 Sandbox/DockerSandbox）。</summary>
+    public bool Sandbox { get; set; }
+
     /// <summary>这个对话的任务开始运行的时间；结束时清掉。程序启动时还有值，说明上次没跑完就被关了。</summary>
     public DateTimeOffset? RunStartedAt { get; set; }
 
@@ -215,6 +218,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         AddColumn(c, "conversations", "run_started_at", "TEXT NULL");
         AddColumn(c, "conversations", "run_origin", "TEXT NULL");
         AddColumn(c, "conversations", "long_mode", "INTEGER NOT NULL DEFAULT 0");
+        // v0.12：沙箱任务（这个对话的开发工作在 Docker 容器里做）
+        AddColumn(c, "conversations", "sandbox", "INTEGER NOT NULL DEFAULT 0");
         // v0.11：运行中的断点（RunCheckpoint JSON：阶段、计划、计数、最后一个调用），任务结束时清掉
         AddColumn(c, "conversations", "run_state", "TEXT NULL");
 
@@ -621,6 +626,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
     public void SetPlan(string id, string? planJson) => Update(id, "plan = $v", (object?)planJson ?? DBNull.Value);
 
     public void SetLongMode(string id, bool on) => Update(id, "long_mode = $v", on ? 1 : 0);
+
+    public void SetSandbox(string id, bool on) => Update(id, "sandbox = $v", on ? 1 : 0);
 
     /// <summary>任务开始运行：记下时间和来源。正常结束时 <see cref="MarkRunEnded"/> 清掉。</summary>
     public void MarkRunStarted(string id, string origin)
@@ -1179,7 +1186,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
 
     private const string SelectConversation = """
         SELECT c.id, c.title, c.title_source, c.mode, c.pinned, c.translate_from, c.translate_to,
-               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan, c.expert_id, c.sort_order, c.long_mode, c.run_started_at
+               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan, c.expert_id, c.sort_order, c.long_mode, c.run_started_at, c.sandbox
         FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id AND m.role IN ('user','assistant')
         """;
 
@@ -1206,6 +1213,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         SortOrder = r.IsDBNull(18) ? null : r.GetDouble(18),
         LongMode = !r.IsDBNull(19) && r.GetInt64(19) != 0,
         RunStartedAt = r.IsDBNull(20) ? null : DateTimeOffset.Parse(r.GetString(20)),
+        Sandbox = !r.IsDBNull(21) && r.GetInt64(21) != 0,
     };
 
     private void Update(string id, string set, object value)

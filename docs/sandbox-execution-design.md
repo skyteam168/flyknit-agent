@@ -1,6 +1,11 @@
 # 隔离执行（沙箱任务）设计
 
-> 状态：**设计稿，待确认**。确认前不改代码。
+> 状态：**第一期（本机 Docker）已实现**，第二期（执行节点 + GitHub App）未开始。实现与本稿不同处见 §12。
+>
+> 已确认的决定：以 Docker Desktop 为准（WSL 里的 Docker / Podman 只要认 `docker` 命令也能用）；基础镜像用官方的
+> `mcr.microsoft.com/devcontainers/universal:2`（工具链齐全，可用环境变量 `FLYKNIT_SANDBOX_IMAGE` 换）；
+> 沙箱内网络不限制（`sandbox_network` 默认开，IT 可关成断网）；第二期用 GitHub App；
+> 改 CI 配置默认不许、IT 可开（`sandbox_allow_ci_changes`）；「先出方案」默认关。
 > 目标：像 Claude Code 云端版那样，长任务在隔离环境里全程不弹确认、无人值守地写代码、跑测试、建分支、提 PR；
 > 员工电脑和公司系统不会因此被改坏。
 
@@ -209,3 +214,34 @@ Claude Code 云端版能不弹窗，靠的不是「不在用户电脑上」，�
 | 员工电脑资源被占满 | 资源上限、同时只跑一个沙箱任务（可调） |
 | 无人值守任务烧 token | 长任务预算、每日限额、总时长上限 |
 | Docker Desktop 授权 | 公司按规模评估；也可以改用 WSL 里的开源 Docker / Podman |
+
+## 12. 第一期实现说明（与上文的差异如实列出）
+
+**做了什么**
+
+- `Flyknit.Core/Sandbox/DockerSandbox.cs`：宿主上 `git clone`（不带员工本机未提交的改动和未跟踪文件）→ `docker create`（带 `flyknit.sandbox` 等标签，
+  `--cpus` / `--memory` / `--pids-limit 4096` / `no-new-privileges`，不挂任何宿主目录、不挂 Docker socket）→ `docker cp` 进容器 →
+  在容器里切出任务分支 `flyknit/<日期-时间>-<6位>`。一个对话一个容器，程序重启后按标签找回；启动时清理没人用的容器。
+- `SandboxTools.cs`：`read_file` `list_dir` `search_files` `grep` `write_file` `edit_file` `multi_edit` `delete_path` `run_shell` `git_*`
+  同名替换成在容器里执行的版本，都实现 `ISandboxedTool`，不弹确认；`blocked_patterns` 照拦。本机终端、浏览器、连接器、`open_app` 这一轮不注册。
+- `SandboxEgress.cs`（出口）：从容器导出 bundle → 员工电脑临时裸仓库（`core.hooksPath` 指向空目录）→ 只认任务分支、不推默认分支、
+  refspec 不带 `+`（不强推）、改动文件 ≤ 2000、CI 配置默认拒绝 → 用员工本机的 git 凭证推送 → `gh pr create --repo` → 接上「盯 PR」。
+- 提示词注入：沙箱工具不受污染模式影响（反正只影响容器），出口在读到疑似注入后照样要员工确认。
+- 安全中心：`sandbox_tasks`（默认关、锁定）、`sandbox_network`（默认开）、`sandbox_allow_ci_changes`（默认关）、`sandbox_cpus`（4）、`sandbox_memory_gb`（8）。
+- 界面：输入框下方「沙箱」开关（IT 打开两个开关后才显示；关闭时确认，会删容器），「文件」标签的仓库面板显示沙箱状态和任务分支。
+
+**和设计稿不一样 / 还没做的**
+
+- 容器里以 root 运行（便于装依赖），没有做只读根文件系统和自定义 seccomp（用 Docker 默认配置）。
+- 网络按确认结果不限制，没有出站白名单代理（S3 的白名单部分不做；IT 可整体断网）。
+- 没有沙箱任务的总时长上限和单独的每日限额，沿用长任务预算和网关配额。
+- 出口只写本机日志，没有单独上报审计事件。
+- 基础镜像还不能在管理后台配置，只能用环境变量 `FLYKNIT_SANDBOX_IMAGE`。
+- 只支持 GitHub 远端。
+
+**验证**
+
+- Core 单测（出口规则、开关默认值、沙箱工具不确认、污染模式只拦出口、路径含点文件）。
+- 真实 Docker 端到端（`FLYKNIT_DOCKER_TESTS=1`，Linux 容器 + `alpine/git` 镜像）：克隆、读写中文、编辑、搜索、命令、提交、员工工作区不变、
+  按标签找回、出口推送到本地裸远端、仓库钩子没有执行、改 CI 被拒、容器删除。
+- **未验证**：Windows + Docker Desktop 实机；`gh pr create` 真实调用（开发容器里 GitHub GraphQL 被屏蔽）；默认镜像（约 10GB）的首次拉取耗时。

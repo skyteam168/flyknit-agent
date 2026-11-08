@@ -23,6 +23,7 @@ import {
   Play,
   Plug,
   Puzzle,
+  Box,
   RotateCcw,
   Sparkles,
   Timer,
@@ -43,6 +44,7 @@ import AskBar from './AskBar.vue'
 import CompactingCard from './CompactingCard.vue'
 import UsageWarning from './UsageWarning.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 import { bridge } from '../bridge'
 import {
   addPastedImage,
@@ -60,6 +62,7 @@ import {
   interruptedRun,
   resumeInterrupted,
   setLongMode,
+  setSandbox,
   setPlanMode,
   executePlan,
   togglePause,
@@ -110,6 +113,28 @@ const planReady = computed(() => {
 /** 长任务模式：当前对话的，或者还没建的新对话打算开的 */
 const longMode = computed(() => (current.value ? !!current.value.longMode : draftMode.longMode))
 const longAllowed = computed(() => state.app?.longTasks !== false)
+// 沙箱任务：IT 开了「开发者工具」和「沙箱任务」才显示；关掉会删容器（没推出去的改动就没了），先确认
+const sandboxAllowed = computed(() => !!state.app?.developerTools && !!state.app?.sandboxTasks)
+const sandboxOn = computed(() => (current.value ? !!current.value.sandbox : draftMode.sandbox))
+const confirmSandboxOff = ref(false)
+const sandboxBusy = ref(false)
+async function toggleSandbox() {
+  if (sandboxBusy.value) return
+  if (sandboxOn.value && current.value) {
+    confirmSandboxOff.value = true
+    return
+  }
+  await applySandbox(!sandboxOn.value)
+}
+async function applySandbox(on: boolean) {
+  confirmSandboxOff.value = false
+  sandboxBusy.value = true
+  try {
+    await setSandbox(on)
+  } finally {
+    sandboxBusy.value = false
+  }
+}
 /** 这个对话上次没做完（程序被关了），而且现在没在跑 */
 const interrupted = computed(() => (!busy.value && current.value ? interruptedRun(current.value.id) : null))
 const offline = computed(() => state.app !== null && !state.app.connected)
@@ -900,10 +925,31 @@ onBeforeUnmount(() => {
         >
           <Timer :size="13" /> {{ t('ui.longTask.label') }}
         </button>
+        <button
+          v-if="sandboxAllowed"
+          type="button"
+          class="long-btn"
+          :class="{ on: sandboxOn }"
+          :aria-pressed="sandboxOn"
+          :disabled="sandboxBusy || busy"
+          :title="sandboxOn ? t('ui.sandboxTask.on') : t('ui.sandboxTask.off')"
+          @click="toggleSandbox"
+        >
+          <Loader2 v-if="sandboxBusy" :size="13" class="spin" /><Box v-else :size="13" /> {{ t('ui.sandboxTask.label') }}
+        </button>
       </template>
       <span class="spacer" />
       <span class="ai-note">{{ t('ui.safety.other') }}</span>
     </div>
+    <ConfirmDialog
+      v-if="confirmSandboxOff"
+      :title="t('ui.sandboxTask.offTitle')"
+      :body="t('ui.sandboxTask.offBody')"
+      :ok="t('ui.sandboxTask.offOk')"
+      danger
+      @ok="applySandbox(false)"
+      @cancel="confirmSandboxOff = false"
+    />
   </div>
 </template>
 

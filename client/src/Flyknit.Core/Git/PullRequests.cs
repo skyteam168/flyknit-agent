@@ -68,9 +68,14 @@ public static class GhCli
     }
 
     /// <summary>建 PR，返回 PR 地址。</summary>
-    public static async Task<string> CreateAsync(string directory, string title, string body, string baseBranch, string head, bool draft, CancellationToken ct)
+    /// <param name="repo">owner/repo：不在那个仓库的工作副本里时指定（沙箱出口从临时目录建 PR）。</param>
+    public static async Task<string> CreateAsync(string directory, string title, string body, string baseBranch, string head, bool draft, CancellationToken ct, string? repo = null)
     {
         var args = new List<string> { "pr", "create", "--title", title, "--body", body, "--head", head };
+        if (!string.IsNullOrEmpty(repo))
+        {
+            args.AddRange(new[] { "--repo", repo });
+        }
         if (baseBranch.Length > 0)
         {
             args.AddRange(new[] { "--base", baseBranch });
