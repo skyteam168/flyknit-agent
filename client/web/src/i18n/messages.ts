@@ -500,6 +500,7 @@ const zh = {
     askPlaceholder: "询问关于此文件的问题",
   },
   ui: {
+    toolbarMore: '更多',
     common: {
       retry: '重试',
       loading: '正在加载…',
@@ -2158,6 +2159,7 @@ const vi: Messages = {
     askPlaceholder: "Hỏi về tệp này",
   },
   ui: {
+    toolbarMore: 'Thêm',
     common: {
       retry: 'Thử lại',
       loading: 'Đang tải…',
@@ -3821,6 +3823,7 @@ const en: Messages = {
     askPlaceholder: "Ask a question about this file",
   },
   ui: {
+    toolbarMore: 'More',
     common: {
       retry: 'Retry',
       loading: 'Loading…',

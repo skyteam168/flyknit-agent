@@ -24,6 +24,8 @@ import {
   Plug,
   Puzzle,
   Box,
+  MoreHorizontal,
+  Check as CheckIcon,
   RotateCcw,
   Sparkles,
   Timer,
@@ -45,6 +47,7 @@ import CompactingCard from './CompactingCard.vue'
 import UsageWarning from './UsageWarning.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import { useOverflow } from '../overflow'
 import { bridge } from '../bridge'
 import {
   addPastedImage,
@@ -82,7 +85,7 @@ import { shouldFold, snippet } from '../pasted'
 import { expandCommand, findCommand, parseSlash, templateParams } from '../slash'
 
 const props = defineProps<{ home?: boolean }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const text = ref('')
 const box = ref<HTMLTextAreaElement>()
 
@@ -555,6 +558,37 @@ onBeforeUnmount(() => {
   // 组件卸载时还在录，就别留着麦克风开着
   if (state.speech.phase !== 'idle') cancelSpeech()
 })
+
+// 输入框底部两行工具栏放不下时，次要按钮按顺序收进「…」，变宽再逐个放回来（不换行）
+const barEl = ref<HTMLElement>()
+const footEl = ref<HTMLElement>()
+const skillsPop = ref<InstanceType<typeof Popover>>()
+const mcpPop = ref<InstanceType<typeof Popover>>()
+// 顺序 = 越靠前越晚收：右边的附件、语音、润色、额度只在左边都收完还放不下时才收（窗口极窄、右侧面板很宽时）
+const barKeys = () => [
+  'attach',
+  ...(micReady.value ? ['mic'] : []),
+  ...(original.value === null && mode.value !== 'translate' ? ['enhance'] : []),
+  'quota',
+  ...(mode.value !== 'translate' ? ['deep'] : []),
+  ...(mode.value === 'chat' ? ['web'] : []),
+  ...(mode.value === 'agent' ? ['skills', 'mcp'] : []),
+]
+const footKeys = () =>
+  mode.value === 'agent'
+    ? ['plan', ...(longAllowed.value ? ['long'] : []), ...(sandboxAllowed.value ? ['sandbox'] : []), 'note']
+    : ['note']
+const barOv = useOverflow(barEl, barKeys, [() => state.app?.modelName, () => busy.value, () => connected.value.length])
+const footOv = useOverflow(footEl, footKeys, [() => state.app?.defaultWorkspace, () => current.value?.id])
+watch(locale, () => {
+  barOv.remeasure()
+  footOv.remeasure()
+})
+// 从「…」里点技能 / 连接器：关掉菜单，打开原来那个面板（收起时它就挂在「…」旁边）
+function openFromMore(which: 'skills' | 'mcp', close: () => void) {
+  close()
+  void nextTick(() => (which === 'skills' ? skillsPop : mcpPop).value?.show())
+}
 </script>
 
 <template>
@@ -680,7 +714,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div class="bar">
+      <div ref="barEl" class="bar">
         <!-- 专家对话：显示是哪位专家，不能切模式 -->
         <span v-if="expertMode && currentExpert" class="tool-btn expert-chip" :title="currentExpert.tagline">
           <ExpertAvatar :avatar="currentExpert.avatar" :name="currentExpert.name" :id="currentExpert.id" :size="18" />
@@ -709,14 +743,15 @@ onBeforeUnmount(() => {
         </Popover>
 
         <!-- 模型 -->
-        <ModelPicker :mode="mode" />
+        <ModelPicker :mode="mode" class="ov-shrink" data-ov-shrink="model" />
 
         <!-- 深度思考 / 联网：对齐手机端；火花图标仍是「增强提示词」 -->
         <button
           v-if="mode !== 'translate'"
           type="button"
           class="tool-btn"
-          :class="{ on: deepThinking }"
+          data-ov="deep"
+          :class="{ on: deepThinking, 'ov-hide': barOv.isHidden('deep') }"
           :title="t('input.deepThinking')"
           @click="toggleDeep"
         >
@@ -727,7 +762,8 @@ onBeforeUnmount(() => {
           v-if="mode === 'chat'"
           type="button"
           class="tool-btn"
-          :class="{ on: webSearchOn }"
+          data-ov="web"
+          :class="{ on: webSearchOn, 'ov-hide': barOv.isHidden('web') }"
           :title="webSearchAvailable ? t('input.webSearch') : t('input.webSearchOff')"
           @click="toggleWeb"
         >
@@ -736,7 +772,7 @@ onBeforeUnmount(() => {
         </button>
 
         <!-- 技能（办事模式） -->
-        <Popover v-if="mode === 'agent'" :width="300">
+        <Popover v-if="mode === 'agent'" ref="skillsPop" :width="300" data-ov="skills" :class="{ 'ov-hide': barOv.isHidden('skills') }">
           <template #trigger="{ toggle, open }">
             <button type="button" class="tool-btn" :class="{ open }" :title="t('ui.skills.button')" @click="toggle">
               <Puzzle :size="15" />
@@ -756,7 +792,7 @@ onBeforeUnmount(() => {
         </Popover>
 
         <!-- 连接器（办事模式）：和技能并列，但是两套东西 -->
-        <Popover v-if="mode === 'agent'" :width="320">
+        <Popover v-if="mode === 'agent'" ref="mcpPop" :width="320" data-ov="mcp" :class="{ 'ov-hide': barOv.isHidden('mcp') }">
           <template #trigger="{ toggle, open }">
             <button type="button" class="tool-btn" :class="{ open }" :title="t('ui.mcp.title')" @click="toggle">
               <Plug :size="15" />
@@ -797,8 +833,58 @@ onBeforeUnmount(() => {
           </template>
         </Popover>
 
+        <!-- 放不下的按钮收在这里，变宽后逐个放回去 -->
+        <Popover v-if="[...barOv.hidden].some((k) => k !== 'quota')" class="ov-more" :width="220">
+          <template #trigger="{ toggle, open }">
+            <button type="button" class="tool-btn icon-only" :class="{ open }" :title="t('ui.toolbarMore')" :aria-label="t('ui.toolbarMore')" @click="toggle">
+              <MoreHorizontal :size="17" />
+            </button>
+          </template>
+          <template #default="{ close }">
+            <button v-if="barOv.isHidden('deep')" type="button" class="pop-opt" @click="toggleDeep">
+              <Brain :size="16" class="ico" :class="{ on: deepThinking }" />
+              <span class="pop-text"><strong>{{ t('input.deepThinking') }}</strong></span>
+              <CheckIcon v-if="deepThinking" :size="15" class="tick" />
+            </button>
+            <button v-if="barOv.isHidden('web')" type="button" class="pop-opt" @click="toggleWeb">
+              <Globe :size="16" class="ico" :class="{ on: webSearchOn }" />
+              <span class="pop-text"><strong>{{ t('input.webSearch') }}</strong></span>
+              <CheckIcon v-if="webSearchOn" :size="15" class="tick" />
+            </button>
+            <button v-if="barOv.isHidden('skills')" type="button" class="pop-opt" @click="openFromMore('skills', close)">
+              <Puzzle :size="16" class="ico" />
+              <span class="pop-text"><strong>{{ t('ui.skills.button') }}</strong></span>
+              <ChevronRight :size="15" class="tick" />
+            </button>
+            <button v-if="barOv.isHidden('mcp')" type="button" class="pop-opt" @click="openFromMore('mcp', close)">
+              <Plug :size="16" class="ico" />
+              <span class="pop-text"><strong>{{ t('ui.mcp.title') }}</strong></span>
+              <em v-if="connected.length" class="count">{{ connected.length }}</em>
+              <ChevronRight :size="15" class="tick" />
+            </button>
+            <button v-if="barOv.isHidden('enhance')" type="button" class="pop-opt" :disabled="!canEnhance || enhancing" @click="close(); enhance()">
+              <Sparkles :size="16" class="ico" />
+              <span class="pop-text"><strong>{{ t('input.enhance') }}</strong></span>
+            </button>
+            <button v-if="barOv.isHidden('attach')" type="button" class="pop-opt" @click="close(); pickFiles()">
+              <Paperclip :size="16" class="ico" />
+              <span class="pop-text"><strong>{{ t('input.attach') }}</strong></span>
+            </button>
+            <button
+              v-if="barOv.isHidden('mic')"
+              type="button"
+              class="pop-opt"
+              :disabled="offline || speech.phase === 'working'"
+              @click="close(); speech.phase === 'idle' ? startSpeech() : cancelSpeech()"
+            >
+              <Mic :size="16" class="ico" :class="{ on: speech.phase !== 'idle' }" />
+              <span class="pop-text"><strong>{{ t(speech.phase === 'idle' ? 'ui.speech.start' : 'ui.speech.cancel') }}</strong></span>
+            </button>
+          </template>
+        </Popover>
+
         <!-- 翻译语言 -->
-        <div v-if="mode === 'translate'" class="langs">
+        <div v-if="mode === 'translate'" class="langs ov-shrink" data-ov-shrink="langs">
           <select :value="from" :aria-label="t('translate.from')" @change="setTranslate(($event.target as HTMLSelectElement).value, to)">
             <option value="auto">{{ t('translate.auto') }}</option>
             <option v-for="l in langs" :key="l" :value="l">{{ t(`translate.langs.${l}`) }}</option>
@@ -813,7 +899,7 @@ onBeforeUnmount(() => {
 
         <span class="spacer" />
         <!-- 今日额度圆环：后台设了每日上限才显示 -->
-        <QuotaRing />
+        <QuotaRing data-ov="quota" :class="{ 'ov-hide': barOv.isHidden('quota') }" />
         <button
           v-if="original !== null"
           type="button"
@@ -827,7 +913,8 @@ onBeforeUnmount(() => {
           v-else-if="mode !== 'translate'"
           type="button"
           class="tool-btn icon-only enhance"
-          :class="{ on: enhancing }"
+          data-ov="enhance"
+          :class="{ on: enhancing, 'ov-hide': barOv.isHidden('enhance') }"
           :disabled="!canEnhance || enhancing"
           :title="enhancing ? t('input.enhancing') : t('input.enhance')"
           @click="enhance"
@@ -835,14 +922,15 @@ onBeforeUnmount(() => {
           <Loader2 v-if="enhancing" :size="17" class="spin" />
           <Sparkles v-else :size="17" />
         </button>
-        <button type="button" class="tool-btn icon-only" :title="t('input.attach')" @click="pickFiles">
+        <button type="button" class="tool-btn icon-only" data-ov="attach" :class="{ 'ov-hide': barOv.isHidden('attach') }" :title="t('input.attach')" @click="pickFiles">
           <Paperclip :size="17" />
         </button>
         <button
           v-if="micReady"
           type="button"
           class="tool-btn icon-only"
-          :class="{ on: speech.phase !== 'idle' }"
+          data-ov="mic"
+          :class="{ on: speech.phase !== 'idle', 'ov-hide': barOv.isHidden('mic') }"
           :disabled="offline || speech.phase === 'working'"
           :title="t(speech.phase === 'idle' ? 'ui.speech.start' : 'ui.speech.cancel')"
           @click="speech.phase === 'idle' ? startSpeech() : cancelSpeech()"
@@ -900,14 +988,15 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
-    <div class="foot">
+    <div ref="footEl" class="foot">
       <template v-if="mode === 'agent'">
         <WorkspacePicker />
         <PermissionPicker v-if="!currentExpert?.readOnly" />
         <button
           type="button"
           class="long-btn"
-          :class="{ on: planMode }"
+          data-ov="plan"
+          :class="{ on: planMode, 'ov-hide': footOv.isHidden('plan') }"
           :aria-pressed="planMode"
           :title="planMode ? t('ui.planMode.on') : t('ui.planMode.off')"
           @click="setPlanMode(!planMode)"
@@ -918,7 +1007,8 @@ onBeforeUnmount(() => {
           v-if="longAllowed"
           type="button"
           class="long-btn"
-          :class="{ on: longMode }"
+          data-ov="long"
+          :class="{ on: longMode, 'ov-hide': footOv.isHidden('long') }"
           :aria-pressed="longMode"
           :title="longMode ? t('ui.longTask.on', { steps: 300, n: 5 }) : t('ui.longTask.off')"
           @click="setLongMode(!longMode)"
@@ -929,7 +1019,8 @@ onBeforeUnmount(() => {
           v-if="sandboxAllowed"
           type="button"
           class="long-btn"
-          :class="{ on: sandboxOn }"
+          data-ov="sandbox"
+          :class="{ on: sandboxOn, 'ov-hide': footOv.isHidden('sandbox') }"
           :aria-pressed="sandboxOn"
           :disabled="sandboxBusy || busy"
           :title="sandboxOn ? t('ui.sandboxTask.on') : t('ui.sandboxTask.off')"
@@ -937,9 +1028,39 @@ onBeforeUnmount(() => {
         >
           <Loader2 v-if="sandboxBusy" :size="13" class="spin" /><Box v-else :size="13" /> {{ t('ui.sandboxTask.label') }}
         </button>
+        <Popover v-if="[...footOv.hidden].some((k) => k !== 'note')" class="ov-more" :width="220">
+          <template #trigger="{ toggle, open }">
+            <button type="button" class="long-btn" :class="{ on: open }" :title="t('ui.toolbarMore')" :aria-label="t('ui.toolbarMore')" @click="toggle">
+              <MoreHorizontal :size="14" />
+            </button>
+          </template>
+          <template #default="{ close }">
+            <button v-if="footOv.isHidden('plan')" type="button" class="pop-opt" @click="setPlanMode(!planMode)">
+              <ClipboardList :size="16" class="ico" :class="{ on: planMode }" />
+              <span class="pop-text"><strong>{{ t('ui.planMode.label') }}</strong></span>
+              <CheckIcon v-if="planMode" :size="15" class="tick" />
+            </button>
+            <button v-if="footOv.isHidden('long')" type="button" class="pop-opt" @click="setLongMode(!longMode)">
+              <Timer :size="16" class="ico" :class="{ on: longMode }" />
+              <span class="pop-text"><strong>{{ t('ui.longTask.label') }}</strong></span>
+              <CheckIcon v-if="longMode" :size="15" class="tick" />
+            </button>
+            <button
+              v-if="footOv.isHidden('sandbox')"
+              type="button"
+              class="pop-opt"
+              :disabled="sandboxBusy || busy"
+              @click="close(); toggleSandbox()"
+            >
+              <Box :size="16" class="ico" :class="{ on: sandboxOn }" />
+              <span class="pop-text"><strong>{{ t('ui.sandboxTask.label') }}</strong></span>
+              <CheckIcon v-if="sandboxOn" :size="15" class="tick" />
+            </button>
+          </template>
+        </Popover>
       </template>
       <span class="spacer" />
-      <span class="ai-note">{{ t('ui.safety.other') }}</span>
+      <span class="ai-note" data-ov="note" :class="{ 'ov-hide': footOv.isHidden('note') }">{{ t('ui.safety.other') }}</span>
     </div>
     <ConfirmDialog
       v-if="confirmSandboxOff"
@@ -1291,8 +1412,39 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: wrap;
+  /* 不换行：放不下的按钮由 useOverflow 收进「…」 */
+  flex-wrap: nowrap;
+  min-width: 0;
   padding: 6px 10px 10px;
+}
+.bar > *,
+.foot > * {
+  flex-shrink: 0;
+}
+.bar > .spacer,
+.foot > .spacer {
+  flex-shrink: 1;
+}
+/* 窗口极窄、能收的都收了还放不下时，模型名缩成省略号，保证发送按钮看得见 */
+.bar > .ov-shrink {
+  display: flex;
+  flex-shrink: 1;
+  min-width: 40px;
+}
+.bar > .ov-shrink > :deep(.trigger) {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* 收起的按钮：不显示、不占位；技能 / 连接器的弹出面板还挂在原处，能从「…」打开 */
+.tool-btn.ov-hide,
+.quota.ov-hide,
+.long-btn.ov-hide,
+.ai-note.ov-hide,
+.ov-hide > .tool-btn {
+  display: none;
+}
+.pop-root.ov-hide {
+  margin-left: -4px;
 }
 .tool-btn {
   display: inline-flex;
@@ -1346,6 +1498,8 @@ textarea::placeholder {
   margin-left: 4px;
 }
 .langs select {
+  min-width: 0;
+  flex: 0 1 auto;
   height: 30px;
   padding: 0 6px;
   border-radius: 8px;
@@ -1542,6 +1696,8 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-wrap: nowrap;
+  min-width: 0;
   max-width: var(--column);
   min-height: 26px;
   margin: 6px auto 0;
