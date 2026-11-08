@@ -66,6 +66,7 @@ flyknit/
 │   ├── web/                聊天界面（Vue 3 + TypeScript，中 / 越 / 英三语）
 │   ├── run.bat             一键编译并启动（开发调试用），纯英文，只负责调起 run.ps1
 │   └── run.ps1             实际的编译步骤；任何一步失败都会停住并打印日志，日志写在 client\build.log
+├── site/                   帮助中心（VitePress），npm run build 输出到 server/app/static/help，服务端挂在 /help
 └── docs/                   架构与开发文档
 ```
 
@@ -151,7 +152,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ### 验证
 
 浏览器打开 `http://<服务器地址>:8000/healthz`，看到 `{"status":"ok",...}` 就成功了。
-接口文档在 `http://<服务器地址>:8000/docs`。
+接口文档在 `http://<服务器地址>:8000/docs`，给员工和 IT 看的帮助中心在 `http://<服务器地址>:8000/help/`（产品页导航里有「帮助文档」入口）。
+
+> 帮助中心的内容在 `site/`（Markdown）。改完在 `site` 目录 `npm ci && npm run build`，把 `server/app/static/help` 一起提交；
+> 内容只写产品怎么用，不写公司的服务器地址、账号和内部规则，以后对外公开也不用改。
 
 ---
 

@@ -1,0 +1,14 @@
+{
+  "name": "flyknit-docs",
+  "private": true,
+  "type": "module",
+  "description": "FlyknitBuddy 使用文档站（VitePress）。构建产物输出到 server/app/static/docs，由服务端挂在 /docs",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  }
+}

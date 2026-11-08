@@ -34,6 +34,20 @@ jobs:
         env:
           FLYKNIT_TEST_PG_URL: postgresql+asyncpg://postgres:ci@localhost:5432/flyknit_test
 
+  help:
+    # 帮助中心（site/，VitePress）：能编译、没有死链。产物提交在 server/app/static/help，服务端挂在 /help
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+
   client:
     runs-on: windows-latest
     steps:

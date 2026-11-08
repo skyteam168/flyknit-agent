@@ -92,3 +92,22 @@ async def test_landing_page_is_served_at_root(client):
     # 接口和后台不受影响
     assert (await client.get("/healthz")).status_code == 200
     assert (await client.get("/api/v1/public/release")).status_code == 200
+
+
+async def test_help_center_is_served_under_help(client):
+    """帮助中心（site/ 构建产物）挂在 /help：页面、搜索用的资源都能拿到；/docs 仍是接口文档，接口不受影响。"""
+    r = await client.get("/help/")
+    assert r.status_code == 200 and "FlyknitBuddy" in r.text
+    # 手敲的 /help（没有结尾斜杠）转到 /help/
+    redirect = await client.get("/help")
+    assert redirect.status_code in (301, 302, 307) and redirect.headers["location"].endswith("/help/")
+    # 资源路径都带 /help/ 前缀（VitePress base），不会和产品页、后台的路径混在一起
+    assert 'href="/help/' in r.text or 'src="/help/' in r.text
+    page = await client.get("/help/guide/introduction.html")
+    assert page.status_code == 200 and "介绍" in page.text
+    # 产品页导航里有入口
+    assert 'href="/help/"' in (await client.get("/")).text
+    # FastAPI 的接口文档还在 /docs，接口照常
+    assert (await client.get("/docs")).status_code == 200
+    assert (await client.get("/api/v1/public/release")).status_code == 200
+    assert (await client.get("/help/no-such-page.html")).status_code == 404
