@@ -949,6 +949,13 @@ IT 在安全中心可以关掉 `keep_awake`（只能选关闭）或 `keep_screen
 浮窗：点别处关闭（钉住后不关），`Esc` 关闭，改原文后 `Enter` 重译，换目标语言立即重译并记住。
 「在主窗口继续」把原文和目标语言推给界面（`app.translate`），开一个新的翻译会话。
 
+## 部门与隔离
+
+- 部门清单 `departments`：设备的部门（`devices.department`，存名字）、插件下发部门、条目使用范围都从清单里选；改名级联，在用的不能删（删掉范围里的最后一个部门会让范围变空 = 全公司）。
+- 使用范围：`skill_packages` / `experts` / `mcp_vendors` 的 `scope_departments` + `scope_devices`，两个都空（含升级前的 NULL）= 全公司。服务端在员工端列表、技能包下载、专家使用和派遣登记、连接器配置下发处过滤（`services/item_scope.py`，同时满足插件范围）。员工端同步时删掉不再下发的技能库技能（`Flyknit.Core.Skills.LibrarySkillScope`）。
+- 安全设置三层：全厂（settings）→ 部门（`department_policies`）→ 单台电脑（`device_policies`），后面的覆盖前面的（`services/device_security.py`）。
+- 管理端：`/api/v1/admin/departments`、`/departments/{id}/policy`、`/scopes`、`/scopes/{kind}/{id}`、`/devices/{id}/policy`、`/devices/{id}/access`。改部门、范围、部门安全设置都会 bump 配置版本，在线员工端几秒内重新同步。
+
 ## 命令行与 IDE 接入（flyknit.exe）
 
 `client/src/Flyknit.Cli` 是和员工端装在同一个文件夹的控制台程序（net8.0，不依赖 WPF），共用 Core：

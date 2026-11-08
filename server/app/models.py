@@ -169,6 +169,10 @@ class SkillPackage(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接导入。插件卸载时一起删
     plugin: Mapped[str] = mapped_column(String(40), default="")
+    #: 使用范围：哪些部门（departments.name）、哪些电脑（devices.id）能用。两个都空 = 全公司（老数据升级上来是 NULL，按空处理）。
+    #: 插件带来的条目还要同时在插件的下发范围里。范围在服务端算，见 services/item_scope.py
+    scope_departments: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    scope_devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -371,6 +375,39 @@ class AdminAccess(Base):
     target: Mapped[str] = mapped_column(String(200), default="")  # 会话 id 或设备
     detail: Mapped[str] = mapped_column(String(300), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Department(Base):
+    """
+    部门清单。设备的部门、技能 / 专家 / 连接器 / 插件的使用范围都从这里选，
+    避免「行政」「行政部」写法不一样导致隔离失效。设备上的部门仍然存名字（devices.department），
+    改名时一起改（见 services/department_store.py）。
+    """
+
+    __tablename__ = "departments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DepartmentPolicy(Base):
+    """
+    某个部门单独的安全设置（比如研发部默认打开开发者工具）。
+    优先级：这台机器 > 部门 > 全厂 > 代码默认值。只存和全厂不一样的项。
+    """
+
+    __tablename__ = "department_policies"
+
+    department_id: Mapped[int] = mapped_column(
+        ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True
+    )
+    overrides: Mapped[dict] = mapped_column(JSON, default=dict)
+    locks: Mapped[dict] = mapped_column(JSON, default=dict)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class DevicePolicy(Base):
@@ -614,6 +651,10 @@ class McpVendor(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接配置
     plugin: Mapped[str] = mapped_column(String(40), default="")
+    #: 使用范围：哪些部门（departments.name）、哪些电脑（devices.id）能用。两个都空 = 全公司（老数据升级上来是 NULL，按空处理）。
+    #: 插件带来的条目还要同时在插件的下发范围里。范围在服务端算，见 services/item_scope.py
+    scope_departments: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    scope_devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     #: 来源：global（管理员在「连接器」里建的）/ plugin（插件导入的）。老行升级后是 global
     source_type: Mapped[str] = mapped_column(String(10), default="global")
     #: 插件来源的细节（global 的都是空）：插件版本、清单文件、MCP 配置文件（包内相对路径）、插件里写的服务原名
@@ -678,6 +719,10 @@ class Expert(Base):
     published_by: Mapped[str] = mapped_column(String(100), default="")
     #: 由哪个插件装进来的（plugins.id）。空 = 管理员在后台建的
     plugin: Mapped[str] = mapped_column(String(40), default="")
+    #: 使用范围：哪些部门（departments.name）、哪些电脑（devices.id）能用。两个都空 = 全公司（老数据升级上来是 NULL，按空处理）。
+    #: 插件带来的条目还要同时在插件的下发范围里。范围在服务端算，见 services/item_scope.py
+    scope_departments: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    scope_devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     updated_by: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

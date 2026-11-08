@@ -32,7 +32,7 @@ from ..schemas import (
     MachineInfoIn,
     SceneInfo,
 )
-from ..services import config_events, device_identity, plugin_scope, legal_store, model_router, security_settings, settings_store, skill_library, usage_store, web_search
+from ..services import config_events, device_identity, device_security, item_scope, plugin_scope, legal_store, model_router, security_settings, settings_store, skill_library, usage_store, web_search
 from ..services.settings_store import get_policy
 
 from . import tool_rules
@@ -176,15 +176,8 @@ async def client_config(
             )
         except model_router.NoRouteError:
             scenes.append(SceneInfo(scene=scene, available=False))
-    # 安全中心：全厂默认叠加这台机器的单独设置
-    shared = await settings_store.get_security(session)
-    mine = await session.get(DevicePolicy, device.id)
-    security = security_settings.effective(
-        global_values=shared.get("values"),
-        device_values=mine.overrides if mine else None,
-        global_locks=shared.get("locks"),
-        device_locks=mine.locks if mine else None,
-    )
+    # 安全中心：全厂默认 → 所在部门 → 这台机器，后面的覆盖前面的
+    security = await device_security.effective_for(session, device)
     search_ready = web_search.is_ready(await web_search.get_config(session))
     return ClientConfigOut(
         server_version=__version__, scenes=scenes, policy=await get_policy(session), security=security,
@@ -300,17 +293,21 @@ async def client_usage(
 # ---------- 公司技能库 ----------
 @router.get("/client/skills", response_model=list[SkillOut])
 async def client_skills(device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
-    """客户端可以安装的技能；required 的会被客户端自动安装。插件带来的技能按插件的下发范围过滤。"""
+    """
+    这台电脑可以安装的技能；required 的会被客户端自动安装。
+    按使用范围（部门 / 电脑）和插件的下发范围过滤：范围外的不出现，员工端据此删掉之前装过的。
+    """
     rows = await session.scalars(select(SkillPackage).where(SkillPackage.enabled.is_(True)).order_by(SkillPackage.name))
     visible = await plugin_scope.visible_ids(session, device)
-    return [s for s in rows.all() if plugin_scope.allowed(s.plugin, visible)]
+    return [s for s in rows.all() if item_scope.visible(s, device, visible)]
 
 
 @router.get("/client/skills/{name}/download")
 async def download_skill(name: str, device: Device = Depends(require_device), session: AsyncSession = Depends(get_session)):
     skill = await session.get(SkillPackage, name)
-    if skill is None or not skill.enabled or not plugin_scope.allowed(
-            skill.plugin, await plugin_scope.visible_ids(session, device)):
+    # 范围外的和不存在的一样回 404：不让员工端靠猜名字下载别的部门的技能包
+    if skill is None or not skill.enabled or not item_scope.visible(
+            skill, device, await plugin_scope.visible_ids(session, device)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "技能不存在")
     path = skill_library.storage_dir(Path(get_settings().data_dir)) / f"{name}.zip"
     if not path.exists():

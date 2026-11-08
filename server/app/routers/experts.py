@@ -27,7 +27,7 @@ from ..schemas import (
     ExpertPublishIn,
     ExpertVersionOut,
 )
-from ..services import config_events, expert_registry, plugin_scope, security_settings, settings_store
+from ..services import config_events, expert_registry, item_scope, plugin_scope, security_settings, settings_store
 
 log = logging.getLogger("flyknit.experts")
 admin_router = APIRouter(prefix="/api/v1/admin/experts", tags=["experts"], dependencies=[Depends(require_admin)])
@@ -203,10 +203,11 @@ async def client_experts(device: Device = Depends(require_device), session: Asyn
     rows = await session.scalars(
         select(Expert).where(Expert.status == "published").order_by(Expert.sort_order, Expert.created_at))
     usage = await expert_registry.usage_totals(session)
-    visible = await plugin_scope.visible_ids(session, device)  # 插件带来的专家按插件的下发范围过滤
+    # 按使用范围（部门 / 电脑）和插件的下发范围过滤：不在列表里的员工端自己收起来
+    visible = await plugin_scope.visible_ids(session, device)
     out = []
     for e in rows.all():
-        if not plugin_scope.allowed(e.plugin, visible):
+        if not item_scope.visible(e, device, visible):
             continue
         snap = expert_registry.from_snapshot(e.published)
         uses, users = usage.get(e.id, (0, 0))
@@ -220,6 +221,7 @@ async def use_expert(expert_id: str, device: Device = Depends(require_device),
                      session: AsyncSession = Depends(get_session)):
     """员工向专家发了一句话（员工端每轮对话报一次），用来算「使用量」。下线、删掉的专家不记。"""
     e = await session.get(Expert, expert_id)
-    if e is None or e.status != "published":
+    if e is None or e.status != "published" or not item_scope.visible(
+            e, device, await plugin_scope.visible_ids(session, device)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "专家不存在或已下线")
     await expert_registry.record_use(session, expert_id, device.id)

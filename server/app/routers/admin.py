@@ -64,7 +64,7 @@ from ..schemas import (
     SmbOut,
     SyncResult,
 )
-from ..services import config_events, device_identity, expert_registry, legal_store, security_settings, settings_store, skill_author, skill_library, usage_store
+from ..services import config_events, department_store, device_identity, device_security, expert_registry, legal_store, security_settings, settings_store, skill_author, skill_library, usage_store
 from ..services.model_router import NON_CHAT_MODEL, Target, build_body, headers_for
 
 log = logging.getLogger("flyknit.admin")
@@ -600,11 +600,23 @@ async def update_device(device_id: int, data: DevicePatch, session: AsyncSession
         d.disabled = data.disabled
     if data.owner is not None:
         d.owner = data.owner.strip()[:200]
+    department_changed = False
     if data.department is not None:
-        d.department = data.department.strip()[:200]
+        wanted = department_store.clean(data.department)
+        if wanted:
+            # 部门只能从清单里选：「行政」「行政部」写法不一样，按部门的隔离就失效了
+            dept = await department_store.find(session, wanted)
+            if dept is None:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"部门「{wanted}」不在部门清单里，先在「部门」里添加")
+            wanted = dept.name
+        department_changed = wanted != d.department
+        d.department = wanted
     if data.note is not None:
         d.note = data.note.strip()[:500]
     await session.commit()
+    if department_changed:
+        # 部门决定这台电脑能用哪些技能、专家、连接器，以及部门的安全设置：让它马上重新同步
+        config_events.bump()
     return d
 
 
@@ -825,11 +837,9 @@ async def get_device_policy(device_id: int, session: AsyncSession = Depends(get_
         "overrides": mine.overrides if mine else {},
         "locks": mine.locks if mine else {},
         "note": mine.note if mine else "",
-        # 这台机器最终生效的样子，省得管理端自己再算一遍
-        "effective": security_settings.effective(
-            shared.get("values"), mine.overrides if mine else None,
-            shared.get("locks"), mine.locks if mine else None,
-        ),
+        # 这台机器最终生效的样子（全厂 → 部门 → 这台机器），省得管理端自己再算一遍
+        "effective": await device_security.effective_for(session, device),
+        "department": device.department,
     }
 
 

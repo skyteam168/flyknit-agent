@@ -85,6 +85,7 @@ flyknitbuddy/
 - 模型与表：`app/models.py`；`migrate.py` 只加不删——**非空字段必须有默认值**。
 - 错误：管理端中文 `detail`；网关 OpenAI 风格 `error.message` / `type`。
 - 安全中心多项默认 `locked`（沙箱、网络白名单等），员工不能自降安全线；改配置经 `config_events` 推客户端。
+- 按部门隔离在服务端执行：技能 / 专家 / 连接器的使用范围（`services/item_scope.py`，空 = 全公司）在员工端列表、下载、派遣、连接器下发处过滤；安全设置三层「全厂 → 部门 → 单台电脑」（`services/device_security.py`）。新增给员工端下发条目的接口必须过范围检查。
 - 测试：`server/tests/` + `conftest.py` 夹具；改安全/配额/网关/mobile/subtasks/专家必须补测。
 - 本地：`uvicorn app.main:app`；正式推荐 Docker Compose。
 

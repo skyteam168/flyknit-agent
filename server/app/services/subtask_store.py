@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import DevicePolicy, Subtask
+from ..models import Device, DevicePolicy, Subtask
 from . import chat_archive, security_settings, settings_store
 
 #: 同一设备同一次主任务最多派几次（失败、超时、取消的都算）
@@ -56,16 +56,16 @@ def clamp(value: int, bounds: tuple[int, int]) -> int:
     return max(bounds[0], min(bounds[1], int(value)))
 
 
-async def delegation_enabled(session: AsyncSession, device_id: int) -> bool:
-    """这台机器生效的 expert_delegation：全厂默认叠加这台机器的单独设置。"""
-    shared = await settings_store.get_security(session)
-    mine = await session.get(DevicePolicy, device_id)
-    merged = security_settings.effective(
-        global_values=shared.get("values"),
-        device_values=mine.overrides if mine else None,
-        global_locks=shared.get("locks"),
-        device_locks=mine.locks if mine else None,
-    )
+async def delegation_enabled(session: AsyncSession, device: Device | int) -> bool:
+    """这台机器生效的 expert_delegation：全厂默认 → 所在部门 → 这台机器。"""
+    from . import device_security
+
+    if isinstance(device, int):
+        found = await session.get(Device, device)
+        if found is None:
+            return False
+        device = found
+    merged = await device_security.effective_for(session, device)
     return bool(merged["expert_delegation"]["value"])
 
 

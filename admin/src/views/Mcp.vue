@@ -4,10 +4,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadRequestOptions } from 'element-plus'
 import { CircleCheckFilled, Delete, DocumentCopy, Edit, Plus, Refresh, Search, Connection, WarningFilled } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { McpDraft, McpField, McpTestResult, McpVendor, McpVendorIn } from '@/api/types'
+import type { ItemScope, McpDraft, McpField, McpTestResult, McpVendor, McpVendorIn } from '@/api/types'
 import { dateTime } from '@/utils/format'
 import McpRuntimePanel from '@/components/McpRuntimePanel.vue'
 import { toSquareDataUrl } from '@/utils/image'
+import ScopeTag from '@/components/ScopeTag.vue'
 
 /**
  * MCP 连接器：引入厂商的 MCP 服务，员工在客户端「连接器」里点一下就能用。
@@ -17,9 +18,21 @@ const vendors = ref<McpVendor[]>([])
 const loading = ref(false)
 const keyword = ref('')
 
+const KIND = 'mcp' as const
+// 使用范围（哪些部门 / 电脑能用），和列表一起拉
+const scopes = ref<Record<string, ItemScope>>({})
+async function loadScopes() {
+  try {
+    scopes.value = (await api.scopes())[KIND] ?? {}
+  } catch {
+    scopes.value = {}
+  }
+}
+
 async function load() {
   loading.value = true
   try {
+    void loadScopes()
     vendors.value = await api.mcpVendors()
   } finally {
     loading.value = false
@@ -363,6 +376,10 @@ async function runTest() {
             <el-tag v-if="v.examples.length" size="small" effect="plain" type="info">{{ v.examples.length }} 个示例</el-tag>
           </div>
           <div class="target">{{ v.transport === 'stdio' ? `${v.command} ${v.args.join(' ')}` : v.url }}</div>
+          <div class="scope-line">
+            <span class="muted">使用范围</span>
+            <ScopeTag kind="mcp" :item-id="v.id" :item-name="v.name" :scope="scopes[v.id]" @saved="(s) => (scopes[v.id] = s)" />
+          </div>
           <div class="foot">
             <span class="muted">{{ dateTime(v.updated_at) }}</span>
             <span class="actions">
@@ -771,5 +788,12 @@ async function runTest() {
 }
 .tool-list small {
   color: var(--ink-faint);
+}
+.scope-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
 }
 </style>

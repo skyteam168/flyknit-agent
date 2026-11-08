@@ -908,3 +908,44 @@ export interface PluginConnector {
   reason: string
   suggested_rename: string
 }
+
+// ---------- 部门与隔离 ----------
+
+/** 部门清单里的一项。 */
+export interface Department {
+  id: number
+  name: string
+  note: string
+  sort_order: number
+  /** 这个部门的电脑（不含已停用的） */
+  devices: number
+  /** 部门单独设置了几项安全设置 */
+  policy_items: number
+}
+
+/** 某一层（部门 / 单台电脑）单独的安全设置：只存和上一层不一样的项。 */
+export interface LayerPolicy {
+  overrides: Record<string, boolean | number>
+  locks: Record<string, boolean>
+  note: string
+  effective: Record<string, SecurityEffectiveItem>
+}
+
+/** 使用范围：部门名 + 电脑 id，两个都空 = 全公司。 */
+export interface ItemScope {
+  departments: string[]
+  devices: number[]
+}
+
+export type ScopeKind = 'skill' | 'expert' | 'mcp'
+
+/** 一台电脑现在能用什么、安全设置每项来自哪一层。 */
+export interface DeviceAccess {
+  department: string
+  department_known: boolean
+  skills: string[]
+  experts: { id: string; name: string }[]
+  mcp: { id: string; name: string }[]
+  security: Record<string, SecurityEffectiveItem>
+  security_sources: Record<string, 'device' | 'department' | 'global' | 'default'>
+}

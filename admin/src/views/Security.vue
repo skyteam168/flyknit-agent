@@ -107,7 +107,7 @@ async function save() {
         type="info"
         :closable="false"
         show-icon
-        title="这里改的是全厂默认值。需要给个别电脑单独放开某项，在「设备列表 - 详情」里按机器设置。"
+        title="这里改的是全厂默认值。需要给某个部门单独设置，在「部门 - 安全设置」里改；给个别电脑单独设置，在「设备列表 - 详情」里改。优先级：单台电脑 > 部门 > 全厂。"
         style="margin-bottom: 16px"
       />
 

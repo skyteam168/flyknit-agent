@@ -4,10 +4,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadRequestOptions } from 'element-plus'
 import { Clock, Delete, Edit, MagicStick, Plus, Promotion, Refresh, Search, SwitchButton } from '@element-plus/icons-vue'
 import { api } from '@/api'
-import type { Expert, ExpertFields, ExpertOptions, ExpertVersion, Subtask, SubtaskStatus } from '@/api/types'
+import type { Expert, ExpertFields, ExpertOptions, ExpertVersion, ItemScope, Subtask, SubtaskStatus } from '@/api/types'
 import { auth } from '@/store/auth'
 import { dateTime, num } from '@/utils/format'
 import { toSquareDataUrl } from '@/utils/image'
+import ScopeTag from '@/components/ScopeTag.vue'
 
 /**
  * 专家：在这里建好、发布，员工端「专家」里就能看到，点一下呼叫。
@@ -18,9 +19,21 @@ const options = ref<ExpertOptions>({ tools: [], skills: [], mcp: [], models: [] 
 const loading = ref(false)
 const keyword = ref('')
 
+const KIND = 'expert' as const
+// 使用范围（哪些部门 / 电脑能用），和列表一起拉
+const scopes = ref<Record<string, ItemScope>>({})
+async function loadScopes() {
+  try {
+    scopes.value = (await api.scopes())[KIND] ?? {}
+  } catch {
+    scopes.value = {}
+  }
+}
+
 async function load() {
   loading.value = true
   try {
+    void loadScopes()
     const [list, opts] = await Promise.all([api.experts(), api.expertOptions()])
     experts.value = list
     options.value = opts
@@ -410,6 +423,10 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
           <div class="usage">
             <span>使用 <strong>{{ e.uses.toLocaleString() }}</strong> 次</span>
             <span><strong>{{ e.users }}</strong> 台电脑用过</span>
+          </div>
+          <div class="scope-line">
+            <span class="muted">使用范围</span>
+            <ScopeTag kind="expert" :item-id="e.id" :item-name="e.name" :scope="scopes[e.id]" @saved="(s) => (scopes[e.id] = s)" />
           </div>
           <div class="foot">
             <span class="muted">{{ e.updated_at ? dateTime(e.updated_at) : '' }}<template v-if="e.updated_by"> · {{ e.updated_by }}</template></span>
@@ -922,5 +939,12 @@ const readOnlyBlocked = computed(() => (form.read_only ? WRITE_TOOLS.map(toolLab
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.scope-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
 }
 </style>

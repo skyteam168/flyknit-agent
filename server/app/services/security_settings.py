@@ -298,16 +298,19 @@ def sanitize_locks(values: dict | None) -> dict[str, bool]:
 def effective(global_values: dict | None = None,
               device_values: dict | None = None,
               global_locks: dict | None = None,
-              device_locks: dict | None = None) -> dict[str, dict[str, Any]]:
+              device_locks: dict | None = None,
+              department_values: dict | None = None,
+              department_locks: dict | None = None) -> dict[str, dict[str, Any]]:
     """
     算出这台机器最终看到的每一项：值是多少、能不能自己改。
 
-    优先级：这台机器的设置 > 全厂设置 > 代码里的默认值。锁也是同样的顺序，
-    所以「全厂锁住、这台放开」是能表达的——这正是按机器单独授权的用法。
+    优先级：这台机器的设置 > 所在部门的设置 > 全厂设置 > 代码里的默认值。锁也是同样的顺序，
+    所以「全厂锁住、研发部放开」「研发部放开、这台再锁住」都能表达。
     """
-    values = {**defaults(), **sanitize(global_values), **sanitize(device_values)}
+    values = {**defaults(), **sanitize(global_values), **sanitize(department_values), **sanitize(device_values)}
     locks = {s.key: s.locked for s in SETTINGS}
     locks.update(sanitize_locks(global_locks))
+    locks.update(sanitize_locks(department_locks))
     locks.update(sanitize_locks(device_locks))
 
     return {
