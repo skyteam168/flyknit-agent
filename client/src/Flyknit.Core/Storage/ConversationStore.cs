@@ -193,6 +193,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         AddColumn(c, "messages", "completion_tokens", "INTEGER NULL");
         AddColumn(c, "messages", "outputs", "TEXT NULL");
         AddColumn(c, "messages", "trace", "TEXT NULL");
+        AddColumn(c, "messages", "turn_context", "TEXT NULL");
         // v0.9：每一轮任务对文件的改动（改了哪些、能不能还原）
         using (var fc = c.CreateCommand())
         {
@@ -923,6 +924,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
             PromptTokens = m.PromptTokens,
             CompletionTokens = m.CompletionTokens,
             Outputs = m.Outputs.ToList(),
+            TurnContext = m.TurnContext,
         }));
         return Get(fork.Id);
     }
@@ -948,8 +950,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
             using var cmd = c.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO messages (id, conversation_id, seq, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, model, prompt_tokens, completion_tokens, outputs, trace)
-                VALUES ($id, $conv, $seq, $role, $content, $reasoning, $calls, $callId, $toolName, $attachments, $created, $model, $pt, $ct, $outputs, $trace)
+                INSERT INTO messages (id, conversation_id, seq, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, model, prompt_tokens, completion_tokens, outputs, trace, turn_context)
+                VALUES ($id, $conv, $seq, $role, $content, $reasoning, $calls, $callId, $toolName, $attachments, $created, $model, $pt, $ct, $outputs, $trace, $turnContext)
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
                     reasoning = excluded.reasoning,
@@ -958,7 +960,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
                     prompt_tokens = COALESCE(excluded.prompt_tokens, messages.prompt_tokens),
                     completion_tokens = COALESCE(excluded.completion_tokens, messages.completion_tokens),
                     outputs = COALESCE(excluded.outputs, messages.outputs),
-                    trace = COALESCE(excluded.trace, messages.trace)
+                    trace = COALESCE(excluded.trace, messages.trace),
+                    turn_context = COALESCE(excluded.turn_context, messages.turn_context)
                 """;
             cmd.Parameters.AddWithValue("$id", m.Id);
             cmd.Parameters.AddWithValue("$conv", conversationId);
@@ -973,6 +976,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
             cmd.Parameters.AddWithValue("$created", m.CreatedAt.ToString("O"));
             cmd.Parameters.AddWithValue("$outputs", m.Outputs.Count > 0 ? JsonSerializer.Serialize(m.Outputs, Json) : DBNull.Value);
             cmd.Parameters.AddWithValue("$trace", (object?)m.TraceJson ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$turnContext", (object?)m.TurnContext ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$model", (object?)m.ModelName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$pt", (object?)m.PromptTokens ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$ct", (object?)m.CompletionTokens ?? DBNull.Value);
@@ -1044,7 +1048,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
             SELECT id, role, content, reasoning, tool_calls, tool_call_id, tool_name, attachments, created_at, feedback,
-                   model, prompt_tokens, completion_tokens, outputs, trace
+                   model, prompt_tokens, completion_tokens, outputs, trace, turn_context
             FROM messages WHERE conversation_id = $id ORDER BY seq
             """;
         cmd.Parameters.AddWithValue("$id", conversationId);
@@ -1069,9 +1073,21 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
                 CompletionTokens = r.IsDBNull(12) ? null : (int)r.GetInt64(12),
                 Outputs = r.IsDBNull(13) ? new() : JsonSerializer.Deserialize<List<string>>(r.GetString(13), Json) ?? new(),
                 TraceJson = r.IsDBNull(14) ? null : r.GetString(14),
+                TurnContext = r.IsDBNull(15) ? null : r.GetString(15),
             });
         }
         return list;
+    }
+
+    /// <summary>给一条消息记下这一轮的参考资料（见 ChatMessage.TurnContext）。只在还没有的时候写：同一轮重试、续跑沿用第一次的，历史才不变。</summary>
+    public void SetTurnContext(string messageId, string context)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE messages SET turn_context = $ctx WHERE id = $id AND turn_context IS NULL";
+        cmd.Parameters.AddWithValue("$id", messageId);
+        cmd.Parameters.AddWithValue("$ctx", context);
+        cmd.ExecuteNonQuery();
     }
 
     /// <summary>清空会话内的消息，保留会话本身。</summary>

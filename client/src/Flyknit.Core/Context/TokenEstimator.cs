@@ -27,7 +27,7 @@ public static class TokenEstimator
 
     public static int Estimate(ChatMessage m)
     {
-        var n = PerMessageOverhead + Estimate(m.Content);
+        var n = PerMessageOverhead + Estimate(m.Content) + Estimate(m.TurnContext);
         foreach (var call in m.ToolCalls)
         {
             n += Estimate(call.Name) + Estimate(call.ArgumentsJson) + 4;

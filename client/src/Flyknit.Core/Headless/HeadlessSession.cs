@@ -151,8 +151,19 @@ public sealed class HeadlessSession
     }
 
     /// <summary>系统提示词：和员工端同一个 PromptBuilder（安全规则、外部内容不是指令等都在里面），再说明这是无界面调用。</summary>
-    public string BuildPrompt(string query) =>
-        new PromptBuilder(memory: null, _env.Skills).Build(new PromptContext
+    public string BuildPrompt(string query)
+    {
+        var (system, turn) = BuildPromptParts(query);
+        return turn.Length == 0 ? system : system + "\n\n" + turn;
+    }
+
+    /// <summary>
+    /// 分成不变的系统提示词和本轮参考资料（按问题挑的技能、当前时间）：参考资料附在这一轮的用户消息上、跟着历史走，
+    /// 多轮时系统提示词和历史都不变，提示词缓存才命中（见 PromptBuilder.BuildSplit）。
+    /// </summary>
+    public (string System, string Turn) BuildPromptParts(string query)
+    {
+        var (system, turn) = new PromptBuilder(memory: null, _env.Skills).BuildSplit(new PromptContext
         {
             Mode = ConversationMode.Agent,
             UiLanguage = _env.UiLanguage,
@@ -161,7 +172,9 @@ public sealed class HeadlessSession
             Sandboxed = _env.Security.On(SecuritySettings.Sandbox),
             Query = query,
             DeveloperTools = DeveloperToolsOn,
-        }) + HeadlessGuide(_env.Actor);
+        });
+        return (system + HeadlessGuide(_env.Actor), turn);
+    }
 
     private static string HeadlessGuide(string actor) => $"""
 
@@ -178,9 +191,10 @@ public sealed class HeadlessSession
     public async Task<AgentRunResult> PromptAsync(string text, IConfirmationHandler confirm, IAgentObserver observer, CancellationToken ct)
     {
         var tools = BuildTools();
-        var prompt = BuildPrompt(text);
+        var (prompt, turnContext) = BuildPromptParts(text);
         var scene = DeveloperToolsOn ? Scenes.Code : Scenes.Agent;
         var user = ChatMessage.User(text);
+        user.TurnContext = turnContext.Length > 0 ? turnContext : null;
         var plan = TaskPlan.HasOpenSteps(_plan) ? _plan : new List<PlanItem>();
 
         var context = new ContextManager(_env.Gateway, prompt, null, _env.ContextLength) { Scene = scene, Plan = () => plan };

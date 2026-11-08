@@ -146,6 +146,10 @@ public static class OpenAiSerializer
             var lines = files.Select(a => $"- {a.FileName}（{FormatSize(a.Size)}）：{a.LocalPath}");
             text += "\n\n[用户附加的文件]\n" + string.Join("\n", lines);
         }
+        if (!string.IsNullOrWhiteSpace(m.TurnContext))
+        {
+            text += "\n\n" + TurnContextBlock.Wrap(m.TurnContext);
+        }
 
         var images = m.Attachments.Where(a => a.IsImage && a.Size <= MaxInlineImageBytes && File.Exists(a.LocalPath)).ToList();
         if (images.Count == 0)

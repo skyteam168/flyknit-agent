@@ -783,7 +783,7 @@ public sealed partial class AgentHost : IDisposable
                 && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, shellTool));
             // 开发者工具：IT 打开了「开发者工具」时办事模式才有（grep、multi_edit、git_*），这一轮走 code 场景
             var developerTools = DeveloperToolsFor(conv, expert);
-            var prompt = promptBuilder.Build(new PromptContext
+            var (prompt, turnContext) = promptBuilder.BuildSplit(new PromptContext
             {
                 Tone = persona.Tone,
                 CallName = persona.CallName,
@@ -809,7 +809,15 @@ public sealed partial class AgentHost : IDisposable
             var delegation = DelegationFor(conv, expert, DelegationQuery(stored, text), semantic);
             if (delegation.Prompt.Length > 0)
             {
-                prompt += "\n\n" + delegation.Prompt;
+                // 候选专家按问题挑，每轮不同：和记忆、技能一样放本轮参考资料
+                turnContext = turnContext.Length > 0 ? turnContext + "\n\n" + delegation.Prompt : delegation.Prompt;
+            }
+            // 本轮参考资料跟着这条用户消息存下来（见 ChatMessage.TurnContext）。同一轮重试、续跑沿用第一次的，
+            // 历史不变，提示词缓存才命中。翻译不带历史，不需要
+            if (conv.Mode != ConversationMode.Translate && turnContext.Length > 0 && string.IsNullOrEmpty(user.TurnContext))
+            {
+                user.TurnContext = turnContext;
+                Store.SetTurnContext(user.Id, turnContext);
             }
             // 沙箱任务：这个对话的开发工作在本机 Docker 的一次性容器里做（不弹确认，只能推任务分支建 PR）
             var sandbox = conv.Mode == ConversationMode.Agent && conv.Sandbox && SandboxSwitchOn

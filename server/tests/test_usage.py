@@ -268,3 +268,18 @@ def test_purpose_is_whitelisted():
     assert usage_store.clean_purpose("session_memory") == "session_memory"
     assert usage_store.clean_purpose("x" * 500) == "other"
     assert usage_store.clean_purpose(["compact"]) == "other"
+
+
+def test_turn_context_is_not_archived_as_the_employees_words():
+    """客户端附在用户消息后面的本轮参考资料（记忆、技能、当前时间）不是员工说的话：存档、联网搜索只取原话。"""
+    from app.services import chat_archive, web_search
+
+    block = '<turn-context note="系统附上的参考资料">\n<相关记忆>员工的手机号是 138…</相关记忆>\n当前时间：2026-11-08\n</turn-context>'
+    text, _ = chat_archive.new_user_message([{"role": "user", "content": "把日报汇总一下\n\n" + block}])
+    assert text == "把日报汇总一下"
+    parts = [{"type": "text", "text": "查一下天气\n\n" + block}, {"type": "image_url", "image_url": {"url": "data:,"}}]
+    text, attachments = chat_archive.new_user_message([{"role": "user", "content": parts}])
+    assert (text, attachments) == ("查一下天气", 1)
+    assert web_search.last_user_query([{"role": "user", "content": "越南今天的汇率\n\n" + block}]) == "越南今天的汇率"
+    # 没有参考资料的消息原样不动
+    assert chat_archive.strip_turn_context("普通的一句话") == "普通的一句话"

@@ -433,6 +433,37 @@ public sealed class HeadlessTests : IDisposable
         Assert.False(json["tool_calls"]!.AsArray().Single()!["ok"]!.GetValue<bool>());
     }
 
+    /// <summary>请求发出时就把消息序列化下来（之后历史列表还会继续变）。</summary>
+    private sealed class Snapshotting : IChatGateway
+    {
+        public List<List<string>> Sent { get; } = new();
+
+        public Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct)
+        {
+            Sent.Add(OpenAiSerializer.ToMessages(request.Messages).Select(m => m!.ToJsonString()).ToList());
+            return Task.FromResult(new ChatTurn { Content = "好的" });
+        }
+    }
+
+    [Fact]
+    public async Task SecondTurnStartsWithExactlyWhatTheFirstTurnSent()
+    {
+        // 提示词缓存按前缀命中：第二轮请求的开头必须和第一轮发过的一字不差（系统提示词、第一句话连同它的参考资料）
+        var gateway = new Snapshotting();
+        var session = new HeadlessSession(new HeadlessEnvironment { Gateway = gateway, Security = Security(dev: false) }, _dir, PermissionMode.Workspace);
+        await session.PromptAsync("先看看目录", new NonInteractiveConfirm(false), new NullObserver(), CancellationToken.None);
+        await session.PromptAsync("再说说 README 写了什么，完全不同的问题", new NonInteractiveConfirm(false), new NullObserver(), CancellationToken.None);
+
+        var first = gateway.Sent[0];
+        var second = gateway.Sent[1];
+        Assert.Equal(first, second.Take(first.Count));
+        static string Text(string json) => JsonNode.Parse(json)!["content"]!.GetValue<string>();
+        Assert.DoesNotContain("当前时间", Text(first[0]));            // 系统提示词里没有每轮变的东西
+        Assert.Contains("<turn-context", Text(first[1]));              // 参考资料跟着第一句话
+        Assert.Contains("<turn-context", Text(second[^1]));            // 第二句话有自己的
+        Assert.Equal(2, session.History.Count(m => m.Role == ChatRole.User && m.TurnContext is not null));
+    }
+
     [Fact]
     public async Task DeveloperToolsSwitchTheScene()
     {

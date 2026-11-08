@@ -9,6 +9,8 @@ history.db 也绕不过去，而且离线时压根调不了模型，覆盖是完
 
 from __future__ import annotations
 
+import re
+
 import json
 import logging
 from dataclasses import dataclass, field
@@ -36,6 +38,18 @@ class Turn:
     @property
     def empty(self) -> bool:
         return not self.user_content and not self.assistant_content
+
+
+# 客户端把每轮按问题挑的参考资料（记忆、技能、相似任务、当前时间）附在用户消息后面（见客户端 TurnContextBlock），
+# 这不是员工说的话：存档、联网搜索取员工原话时去掉。员工的记忆也不该因此进管理后台的聊天记录
+_TURN_CONTEXT = re.compile(r"\s*<turn-context\b[^>]*>.*?</turn-context>\s*", re.DOTALL)
+
+
+def strip_turn_context(text: str) -> str:
+    """去掉客户端附在用户消息里的本轮参考资料，只留员工的原话。"""
+    if "<turn-context" not in text:
+        return text
+    return _TURN_CONTEXT.sub("\n\n", text).strip()
 
 
 def text_of(content: Any) -> tuple[str, int]:
@@ -88,7 +102,8 @@ def new_user_message(messages: list[Any]) -> tuple[str, int]:
     last = next((m for m in reversed(messages or []) if isinstance(m, dict)), None)
     if last is None or last.get("role") != "user":
         return "", 0
-    return text_of(last.get("content"))
+    text, attachments = text_of(last.get("content"))
+    return strip_turn_context(text), attachments
 
 
 def assistant_reply(payload: dict[str, Any]) -> str:

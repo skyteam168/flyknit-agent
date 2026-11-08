@@ -15,7 +15,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..crypto import decrypt, encrypt, mask
-from . import settings_store
+from . import chat_archive, settings_store
 
 log = logging.getLogger("flyknit.web_search")
 
@@ -102,7 +102,7 @@ def last_user_query(messages: list[dict]) -> str:
             continue
         content = m.get("content")
         if isinstance(content, str):
-            return content.strip()[:MAX_QUERY]
+            return chat_archive.strip_turn_context(content).strip()[:MAX_QUERY]
         if isinstance(content, list):
             parts: list[str] = []
             for part in content:
@@ -110,7 +110,7 @@ def last_user_query(messages: list[dict]) -> str:
                     t = str(part.get("text") or "").strip()
                     if t:
                         parts.append(t)
-            text = "\n".join(parts).strip()
+            text = chat_archive.strip_turn_context("\n".join(parts)).strip()
             if text:
                 return text[:MAX_QUERY]
     return ""
