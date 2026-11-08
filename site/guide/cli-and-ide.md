@@ -19,6 +19,7 @@ echo 总结一下这个目录 | flyknit -p - --format text
 | `--format json\|text\|stream-json` | 默认 json；text 只输出回答；stream-json 每行一个事件 |
 | `--allow-writes` | 放行那些在 FlyknitBuddy 里能设成「以后自动执行」的普通操作 |
 | `--timeout <秒>` | 超时停下 |
+| `--think` | 让 AI 每一步先深度思考，更慢、更费额度；默认关，不跟 FlyknitBuddy 里的「深度思考」开关走 |
 
 **需要确认的操作默认一律拒绝**，记在输出的 `declined` 里。删除、覆盖等高危操作加任何参数都不放行。
 
@@ -64,6 +65,8 @@ echo 总结一下这个目录 | flyknit -p - --format text
 `command` 建议写完整路径（VS Code 只在启动时读一次 PATH）。各插件的配置项名称以插件说明为准。
 
 在 IDE 里：工作区就是打开的项目文件夹；需要确认的操作由 IDE 弹确认框，高危操作只有「允许一次 / 拒绝」。
+
+IDE 里默认不开深度思考（一个任务常常要几十步，每步都先想一大段会慢很多）。确实需要时把 `args` 写成 `["acp", "--think"]`。
 
 ::: tip 升级
 IDE 开着 `flyknit acp` 时，FlyknitBuddy 的自动升级会等它退出。要升级时先在 IDE 里断开智能体，或关掉 IDE。

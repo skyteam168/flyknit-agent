@@ -97,6 +97,8 @@ async def chat_completions(
     # 谁发起的：定时任务、钉钉/企业微信、IT 指令。只影响用量统计里记成哪个场景，选模型照旧按 scene
     source = body.get("flyknit_source")
     usage_scene = source if source in USAGE_SOURCES else scene
+    # 这次调用干什么用：正常对话 / 压缩 / 复盘 / 标题……只用于按用途统计用量
+    purpose = usage_store.clean_purpose(body.get("flyknit_purpose"))
 
     # 配额：超出当天上限后直接拒绝，客户端会提示联系 IT
     quota = await usage_store.get_quota(session)
@@ -213,7 +215,8 @@ async def chat_completions(
         try:
             async with get_sessionmaker()() as s2:
                 await usage_store.record(s2, device_id, usage_scene, prompt, completion,
-                                         model_id=target.model_id, model_name=target.display_name, cached=cached)
+                                         model_id=target.model_id, model_name=target.display_name, cached=cached,
+                                         purpose=purpose)
         except Exception:  # noqa: BLE001  统计失败不能影响对话
             log.warning("记录用量失败 device=%s", device_id, exc_info=True)
 

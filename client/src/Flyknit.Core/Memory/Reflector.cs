@@ -258,6 +258,7 @@ public sealed class Reflector
             var turn = await _gateway.CompleteAsync(new ChatRequest
             {
                 Scene = Scene,
+                Purpose = Flyknit.Core.Gateway.Purposes.Reflect,
                 ModelId = ModelId,
                 Stream = true,
                 Temperature = 0.2,

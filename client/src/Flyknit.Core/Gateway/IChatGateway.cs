@@ -42,6 +42,33 @@ public sealed class ChatRequest
     /// 否则网关看到图片会把整个请求改走识图场景，那个模型未必会调工具。
     /// </summary>
     public bool InlineToolImages { get; init; }
+
+    /// <summary>
+    /// 这次调用是干什么的（<see cref="Purposes"/>）：服务端按用途分开记用量，后台看得出 token 花在正常对话上，
+    /// 还是花在压缩、复盘、标题这些后台调用上。为空 = 正常的对话 / 办事。只用于统计，不影响选模型和配额。
+    /// </summary>
+    public string? Purpose { get; init; }
+}
+
+/// <summary>模型调用的用途。和服务端 usage_store.PURPOSES 保持一致。</summary>
+public static class Purposes
+{
+    /// <summary>正常的对话 / 办事 / 翻译（不带用途时服务端也记成这个）。</summary>
+    public const string Turn = "turn";
+    /// <summary>上下文快满时把较早的对话压缩成摘要。</summary>
+    public const string Compact = "compact";
+    /// <summary>后台提前准备的会话摘要（默认已关）。</summary>
+    public const string SessionMemory = "session_memory";
+    /// <summary>办事任务结束后的复盘（提炼记忆、经验、技能）。</summary>
+    public const string Reflect = "reflect";
+    /// <summary>整理记忆：合并重复、聚类、找矛盾。</summary>
+    public const string Memory = "memory";
+    /// <summary>生成对话标题。</summary>
+    public const string Title = "title";
+    /// <summary>优化员工输入的提示词。</summary>
+    public const string Enhance = "enhance";
+    /// <summary>任务进行中的「顺便问一句」。</summary>
+    public const string SideChat = "sidechat";
 }
 
 public sealed class WebSource

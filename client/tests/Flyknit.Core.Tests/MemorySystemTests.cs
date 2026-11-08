@@ -244,6 +244,50 @@ public class MemorySystemTests : IDisposable
     }
 
     [Fact]
+    public async Task OldToolOutputsArePrunedInBatches()
+    {
+        // 每一步都裁「倒数第 5 条」的话，裁剪点每步往后挪，从那里往后都不命中提示词缓存。
+        // 现在攒够一批才裁、一次裁完，两次之间历史前缀不变
+        var manager = new ContextManager(new FakeGateway(_ => throw new InvalidOperationException("不应调用")), "系统提示",
+            contextLength: 100_000, options: new ContextOptions { ReserveOutputTokens = 0 });
+        var history = new List<ChatMessage> { ChatMessage.System("系统提示"), ChatMessage.User("读一下这些文件，背景如下：" + new string('问', 30000)) };
+        void AddRead(int i)
+        {
+            var call = new ToolCall($"c{i}", "read_file", "{}");
+            history.Add(ChatMessage.Assistant("", new[] { call }));
+            history.Add(ChatMessage.ToolResult(call, $"文件 {i}：" + new string('x', 6000)));
+        }
+        // 先读到刚过裁剪线：可裁的旧输出还不到一批，不动
+        var i = 0;
+        while (manager.Measure(history) <= manager.Budget * 0.25)
+        {
+            AddRead(i++);
+        }
+        Assert.True(ContextManager.PrunableTokens(history, 4, 1200) < manager.Budget * 0.08);
+        var before = history.Select(m => m.Content).ToList();
+        Assert.Null(await manager.PrepareAsync(history, CancellationToken.None));
+        Assert.Equal(before, history.Select(m => m.Content));
+
+        // 继续读，直到攒够一批：攒的过程中一条都不动，攒够的那一步一次裁完，只留最近 4 条原文
+        while (true)
+        {
+            AddRead(i++);
+            var snapshot = history.Select(m => m.Content).ToList();
+            var batchReady = ContextManager.PrunableTokens(history, 4, 1200) >= manager.Budget * 0.08;
+            await manager.PrepareAsync(history, CancellationToken.None);
+            if (batchReady)
+            {
+                break;
+            }
+            Assert.Equal(snapshot, history.Select(m => m.Content));
+        }
+        var tools = history.Where(m => m.Role == ChatRole.Tool).ToList();
+        Assert.All(tools.Take(tools.Count - 4), t => Assert.Contains("已省略", t.Content));
+        Assert.All(tools.TakeLast(4), t => Assert.DoesNotContain("已省略", t.Content));
+        Assert.Equal(0, ContextManager.PrunableTokens(history, 4, 1200));
+    }
+
+    [Fact]
     public async Task LongConversationIsCompactedIntoSummary()
     {
         var gateway = new FakeGateway(_ => new ChatTurn { Content = "<think>x</think>## 用户的目标与要求\n整理日报" });
@@ -342,7 +386,7 @@ public class MemorySystemTests : IDisposable
     {
         var gateway = new FakeGateway(_ => new ChatTurn { Content = "## 当前任务\n整理日报" });
         // 上下文很大：1.2 万 token 远没到压缩线，但已经过了后台摘要的起始阈值
-        var manager = new ContextManager(gateway, "系统提示", contextLength: 200_000);
+        var manager = new ContextManager(gateway, "系统提示", contextLength: 200_000, enableSessionMemory: true);
         var history = new List<ChatMessage> { ChatMessage.System("系统提示") };
         for (var i = 0; i < 12; i++)
         {
@@ -358,6 +402,41 @@ public class MemorySystemTests : IDisposable
         }
         Assert.NotEmpty(gateway.Requests);           // 后台摘要照常跑了
         Assert.True(manager.SessionMemory!.State.Initialized);
+    }
+
+    [Fact]
+    public async Task BackgroundSessionMemoryIsOffByDefault()
+    {
+        // 宿主每轮新建 ContextManager、不保存状态：默认开着的话，长对话每发一句都在后台把整段对话重新摘要一遍
+        var gateway = new FakeGateway(_ => throw new InvalidOperationException("不应调用"));
+        var manager = new ContextManager(gateway, "系统提示", contextLength: 200_000);
+        var history = new List<ChatMessage> { ChatMessage.System("系统提示") };
+        for (var i = 0; i < 12; i++)
+        {
+            history.Add(ChatMessage.User($"第 {i} 个问题 " + new string('问', 700)));
+            history.Add(ChatMessage.Assistant($"第 {i} 个回答 " + new string('答', 700)));
+        }
+        Assert.True(manager.Measure(history) >= SessionMemoryAgent.InitialThreshold);
+
+        Assert.Null(await manager.PrepareAsync(history, CancellationToken.None));
+        Assert.Null(manager.SessionMemory);
+        Assert.Empty(gateway.Requests);
+    }
+
+    [Fact]
+    public async Task CompactionIsTaggedForUsageStats()
+    {
+        var gateway = new FakeGateway(_ => new ChatTurn { Content = "## 进展\n读完了数据" });
+        var manager = new ContextManager(gateway, "系统提示", contextLength: 20000,
+            options: new ContextOptions { ReserveOutputTokens = 2000 }) { ToolTokens = 9000 };
+        var history = new List<ChatMessage> { ChatMessage.System("系统提示") };
+        for (var i = 0; i < 20; i++)
+        {
+            history.Add(ChatMessage.User($"第 {i} 步 " + new string('问', 300)));
+            history.Add(ChatMessage.Assistant($"第 {i} 步完成 " + new string('答', 300)));
+        }
+        Assert.NotNull(await manager.PrepareAsync(history, CancellationToken.None));
+        Assert.Equal(Purposes.Compact, Assert.Single(gateway.Requests).Purpose);
     }
 
     [Fact]

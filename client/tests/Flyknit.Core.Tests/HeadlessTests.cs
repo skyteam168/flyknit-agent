@@ -61,6 +61,25 @@ public sealed class HeadlessTests : IDisposable
         }
     }
 
+    /// <summary>像真的模型一样一个字一个字地吐：先思考、再回答。</summary>
+    private sealed class Dribbling : IChatGateway
+    {
+        public const int Pieces = 200;
+
+        public Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct)
+        {
+            for (var i = 0; i < Pieces; i++)
+            {
+                sink?.OnReasoning("想");
+            }
+            for (var i = 0; i < Pieces; i++)
+            {
+                sink?.OnContent("答");
+            }
+            return Task.FromResult(new ChatTurn { Content = new string('答', Pieces), Reasoning = new string('想', Pieces) });
+        }
+    }
+
     private sealed class Throwing : IChatGateway
     {
         private readonly GatewayException _error;
@@ -140,6 +159,17 @@ public sealed class HeadlessTests : IDisposable
         var (o, error) = CliOptions.Parse(args);
         Assert.Null(o);
         Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void ThinkingIsOffUnlessAsked()
+    {
+        // 不跟员工端的「深度思考」走：命令行 / IDE 一个任务几十步，每步先想一大段太慢
+        Assert.False(CliOptions.Parse(new[] { "-p", "x" }).Options!.Think);
+        Assert.True(CliOptions.Parse(new[] { "-p", "x", "--think" }).Options!.Think);
+        Assert.False(CliOptions.Parse(new[] { "acp" }).Options!.Think);
+        Assert.True(CliOptions.Parse(new[] { "acp", "--think" }).Options!.Think);
+        Assert.NotNull(CliOptions.Parse(new[] { "acp", "--think", "--bogus" }).Error);
     }
 
     [Fact]
@@ -611,6 +641,29 @@ public sealed class HeadlessTests : IDisposable
         ["sessionId"] = sid,
         ["prompt"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }),
     };
+
+    [Fact]
+    public async Task AcpBatchesStreamedChunks()
+    {
+        // 模型一个字一个字吐：以前每个字一条 session/update，IDE 每条都要重新渲染；现在攒一下再发，内容和顺序不变
+        await using var ide = new Ide(Env(new Dribbling(), new ListAudit(), actor: "ide"));
+        await ide.Request("initialize", new JsonObject { ["protocolVersion"] = 1, ["clientCapabilities"] = new JsonObject() });
+        var sid = await NewSession(ide);
+        var done = await ide.Request("session/prompt", Prompt(sid, "想一想再答"));
+        Assert.Equal("end_turn", done["result"]!["stopReason"]!.GetValue<string>());
+
+        var chunks = ide.Updates
+            .Where(u => u["sessionUpdate"]!.GetValue<string>() is "agent_thought_chunk" or "agent_message_chunk")
+            .Select(u => (Kind: u["sessionUpdate"]!.GetValue<string>(), Text: u["content"]!["text"]!.GetValue<string>()))
+            .ToList();
+        Assert.True(chunks.Count <= 6, $"发了 {chunks.Count} 条片段，没有合并");
+        Assert.Equal(new string('想', Dribbling.Pieces), string.Concat(chunks.Where(c => c.Kind == "agent_thought_chunk").Select(c => c.Text)));
+        Assert.Equal(new string('答', Dribbling.Pieces), string.Concat(chunks.Where(c => c.Kind == "agent_message_chunk").Select(c => c.Text)));
+        // 先思考后回答，不交错
+        var firstAnswer = chunks.FindIndex(c => c.Kind == "agent_message_chunk");
+        Assert.True(firstAnswer > 0);
+        Assert.DoesNotContain(chunks.Skip(firstAnswer), c => c.Kind == "agent_thought_chunk");
+    }
 
     [Fact]
     public async Task AcpInitializeAndPromptRoundTrip()

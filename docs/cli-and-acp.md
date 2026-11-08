@@ -49,6 +49,7 @@ flyknit -p "跑一下测试并修复" -w D:\repo --allow-writes --timeout 1800
 | `--format json\|text\|stream-json` | json（默认，一个对象）、text（只输出回答）、stream-json（每行一个事件，最后一行 `type=result`） |
 | `--allow-writes` | 见上表 |
 | `--timeout <秒>` | 超时停下，退出码 124 |
+| `--think` | 让模型每一步先深度思考。默认关，**不跟员工端的「深度思考」开关走**：命令行 / IDE 的任务常常几十步，每步都先想一大段会慢很多、也费 token |
 
 输出（json）：
 
@@ -106,6 +107,9 @@ IDE 里的配置（以各 IDE 当前版本的文档为准，下面是写这份�
   { "agent_servers": { "FlyknitBuddy": { "command": "C:\\Program Files\\FlyknitBuddy\\flyknit.exe", "args": ["acp"] } } }
   ```
 - **VS Code**：装支持 ACP 的插件后，按插件说明把命令填成 `flyknit acp`。
+- 要深度思考时参数写 `["acp", "--think"]`（默认关，理由同 `-p --think`）。
+- 回答和思考的片段攒约 60 毫秒（或 2000 字）发一条 `session/update`，不再每个字一条：IDE 每收到一条都要重新渲染，思考一长界面就卡。
+  工具调用、计划、确认请求发出之前会先把攒着的片段发掉，顺序不变。
 
 ## 5. 安装和升级
 

@@ -13,7 +13,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import ChatRecord, Device, UsageDaily, UsageModelDaily
+from ..models import ChatRecord, Device, UsageDaily, UsageModelDaily, UsagePurposeDaily
 from . import settings_store
 
 QUOTA_KEY = "quota"
@@ -30,6 +30,16 @@ DEFAULT_QUOTA = {
 SCENES = ("agent", "code", "chat", "translate", "vision", "title", "asr", "embedding",
           # 不是选模型用的场景：按发起方单独统计的用量（定时任务、钉钉/企业微信、IT 指令），见 gateway.USAGE_SOURCES
           "schedule", "channel", "instruction", "mobile")
+
+# 模型调用的用途（客户端 Gateway/Purposes.cs 同步）。认不出的记成 other，不带的记成 turn
+PURPOSES = ("turn", "compact", "session_memory", "reflect", "memory", "title", "enhance", "sidechat", "other")
+
+
+def clean_purpose(value: object) -> str:
+    """请求里的 flyknit_purpose：只认清单里的，免得客户端塞任意字符串进统计表。"""
+    if value in (None, ""):
+        return "turn"
+    return value if isinstance(value, str) and value in PURPOSES else "other"
 
 
 def resets_at(tz_offset_hours: int = 8) -> datetime:
@@ -81,9 +91,9 @@ async def used_today(session: AsyncSession, device_id: int, day: str | None = No
 
 async def record(
     session: AsyncSession, device_id: int, scene: str, prompt: int, completion: int,
-    model_id: int | None = None, model_name: str = "", cached: int = 0,
+    model_id: int | None = None, model_name: str = "", cached: int = 0, purpose: str = "turn",
 ) -> None:
-    """累加一次调用的用量。带上模型名的话，按模型的统计也记一笔。"""
+    """累加一次调用的用量。带上模型名的话，按模型的统计也记一笔；另外按用途记一笔（只统计，不算配额）。"""
     if prompt <= 0 and completion <= 0:
         return
     day = today()
@@ -93,6 +103,10 @@ async def record(
     if model_name:
         await _add_model_usage(session, day, model_id, model_name, scene, max(0, prompt), max(0, completion), 1,
                                cached=max(0, min(cached, prompt)))
+    await _bump(session, UsagePurposeDaily,
+                {"day": day, "purpose": clean_purpose(purpose), "scene": scene, "model_name": model_name.strip()[:200]},
+                {"prompt_tokens": max(0, prompt), "completion_tokens": max(0, completion),
+                 "cached_tokens": max(0, min(cached, prompt)), "requests": 1})
     await session.commit()
 
 

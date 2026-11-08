@@ -33,6 +33,7 @@ public sealed partial class AgentHost
                 var turn = await Server.CompleteAsync(new ChatRequest
                 {
                     Scene = Scenes.Chat,
+                    Purpose = Flyknit.Core.Gateway.Purposes.SideChat,
                     Messages = messages,
                     Stream = true,
                     ModelId = conv.ModelId,

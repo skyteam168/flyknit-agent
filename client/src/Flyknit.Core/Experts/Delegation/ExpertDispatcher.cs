@@ -598,6 +598,7 @@ internal sealed class SubtaskGateway : IChatGateway
             ConversationId = request.ConversationId,
             ExtraBody = request.ExtraBody,
             SubtaskId = _subtaskId,
+            Purpose = request.Purpose,
         }, null, ct); // 专家的回答不往主对话里流
     }
 }

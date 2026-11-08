@@ -292,6 +292,7 @@ public sealed class SessionMemoryAgent
         var turn = await _gateway.CompleteAsync(new ChatRequest
         {
             Scene = Scene,
+            Purpose = Flyknit.Core.Gateway.Purposes.SessionMemory,
             ModelId = ModelId,
             Stream = false,
             Temperature = 0.2,
@@ -329,6 +330,7 @@ public sealed class SessionMemoryAgent
         var turn = await _gateway.CompleteAsync(new ChatRequest
         {
             Scene = Scene,
+            Purpose = Flyknit.Core.Gateway.Purposes.SessionMemory,
             ModelId = ModelId,
             Stream = false,
             Temperature = 0.2,

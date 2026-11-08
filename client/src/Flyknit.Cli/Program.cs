@@ -88,7 +88,7 @@ public static class Program
 
         var profile = LocalProfile.Load(warn: Warn);
         var acp = options.Command == "acp";
-        var connection = await CliHost.ConnectAsync(profile, acp ? "ide" : "cli", handler: null, Warn, cts.Token);
+        var connection = await CliHost.ConnectAsync(profile, acp ? "ide" : "cli", handler: null, Warn, cts.Token, think: options.Think);
         var permission = PrintCommand.ResolvePermission(options.Permission, profile.DefaultPermission);
         var asciiJson = Console.IsOutputRedirected;
 

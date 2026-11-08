@@ -27,6 +27,12 @@ public sealed class CliOptions
     public string Format { get; init; } = "json";
     public bool AllowWrites { get; init; }
 
+    /// <summary>
+    /// 让模型先深度思考再动手（--think）。默认关，不跟员工端的「深度思考」走：命令行和 IDE 里一个任务常常要
+    /// 调几十次工具，每一步都先想一大段，慢得多、也费 token；需要时单独打开。
+    /// </summary>
+    public bool Think { get; init; }
+
     /// <summary>超时秒数，0 表示不限。</summary>
     public int TimeoutSeconds { get; init; }
 
@@ -40,7 +46,7 @@ public sealed class CliOptions
         用法：
           flyknit -p "要做的事" [选项]     无界面执行一次办事任务，结果输出到标准输出
           flyknit -p - [选项]              要做的事从标准输入读
-          flyknit acp                      作为 ACP（Agent Client Protocol）服务运行，给 Zed、JetBrains 等开发工具用
+          flyknit acp [--think]            作为 ACP（Agent Client Protocol）服务运行，给 Zed、JetBrains 等开发工具用
           flyknit --version
 
         选项（-p）：
@@ -49,6 +55,7 @@ public sealed class CliOptions
               --format <格式>              json（默认）、text（只输出回答）、stream-json（每行一个事件）
               --allow-writes               放行员工端能设成「以后自动执行」的普通写入；删除、覆盖等高危操作任何时候都不放行
               --timeout <秒>               超时就停下，退出码 124
+              --think                      让模型每一步先深度思考（更慢、更费 token）；默认关，不跟员工端的设置走
 
         退出码：0 完成；1 没做完；2 参数不对；3 没登录 / 登录失效；4 IT 没开「命令行 / IDE 接入」；
                5 今日额度用完；6 连不上公司服务器；124 超时；130 被中断
@@ -69,7 +76,16 @@ public sealed class CliOptions
         }
         if (args[0] == "acp")
         {
-            return args.Count == 1 ? (new CliOptions { Command = "acp" }, null) : (null, $"acp 不带参数：{args[1]}");
+            var acpThink = false;
+            foreach (var extra in args.Skip(1))
+            {
+                if (extra != "--think")
+                {
+                    return (null, $"acp 只认 --think：{extra}");
+                }
+                acpThink = true;
+            }
+            return (new CliOptions { Command = "acp", Think = acpThink }, null);
         }
 
         string? prompt = null;
@@ -78,6 +94,7 @@ public sealed class CliOptions
         var permission = "";
         var format = "json";
         var allowWrites = false;
+        var think = false;
         var timeout = 0;
         for (var i = 0; i < args.Count; i++)
         {
@@ -132,6 +149,9 @@ public sealed class CliOptions
                     case "--allow-writes":
                         allowWrites = true;
                         break;
+                    case "--think":
+                        think = true;
+                        break;
                     case "--timeout":
                         if (!int.TryParse(Next(), out timeout) || timeout < 0)
                         {
@@ -164,6 +184,7 @@ public sealed class CliOptions
             Permission = permission,
             Format = format,
             AllowWrites = allowWrites,
+            Think = think,
             TimeoutSeconds = timeout,
         }, null);
     }
