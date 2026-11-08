@@ -43,6 +43,11 @@ public sealed class AgentLoop
 
     public const string LeakRetryNotice = "模型返回的格式不对，正在重新生成回答…";
 
+    /// <summary>读到疑似提示词注入的内容时给员工的提示。</summary>
+    public const string InjectionNotice = "读到的内容里有像是在给 AI 下指令的文字（可能是提示词注入），这一轮接下来除了查看，每一步都会先请你确认。";
+
+    internal const string TaintReason = "这一轮读到的内容里有疑似提示词注入，为安全起见这一步需要你确认";
+
     public const string ChatModeFallback = "（AI 想执行操作，但对话模式下不能调用工具。需要它操作电脑的话，请切换到“办事”模式再问一次。）";
 
     public const string AgentModeFallback = "（模型返回的工具调用格式无法识别，没有执行。请再试一次，或者换一个模型。）";
@@ -245,6 +250,8 @@ public sealed class AgentLoop
         }
 
         var checkpoint = new RunCheckpoint { RunId = ctx.RunId };
+        // 提示词注入：这一轮读到过可疑的外部内容后，除了只读操作每一步都要员工确认（见 PromptInjectionGuard）
+        PromptInjectionGuard.Finding? taint = null;
         void SaveCheckpoint()
         {
             if (Checkpoint is null)
@@ -888,6 +895,13 @@ public sealed class AgentLoop
                 {
                     decision = rules.Apply(call.Name, call.ArgumentsJson, decision);
                 }
+                // 污染模式：读到过疑似注入的内容后，非只读操作一律请员工确认，「以后自动」「本次都允许」也跳过
+                if (taint is not null && decision.Level != RiskLevel.Blocked
+                    && !PromptInjectionGuard.StaysAutomaticWhenTainted(call.Name, decision, tool is Mcp.McpTool m ? m.Info.ReadOnly : PlanMode.Allows(tool)))
+                {
+                    decision = (decision.Level == RiskLevel.Auto ? PolicyDecision.Confirm(TaintReason) with { Effect = decision.Effect, Rule = decision.Rule } : decision with { Reason = TaintReason + "；" + decision.Reason })
+                        with { AlwaysAsk = true };
+                }
                 summary = tool.Describe(args);
             }
             catch (Exception ex)
@@ -1021,6 +1035,22 @@ public sealed class AgentLoop
             if (SecretRedactor.AppliesTo(call.Name) && raw.Output.Length > 0)
             {
                 raw = raw with { Output = SecretRedactor.Redact(raw.Output) };
+            }
+            // 外部内容：清掉看不见的字符和伪造的角色标记；像是在给 AI 下指令的，结果前加提醒，这一轮进入污染模式
+            if (PromptInjectionGuard.IsUntrusted(call.Name) && raw.Output.Length > 0)
+            {
+                var finding = PromptInjectionGuard.Scan(raw.Output);
+                raw = raw with { Output = PromptInjectionGuard.Neutralize(raw.Output) };
+                if (finding is not null)
+                {
+                    raw = raw with { Output = PromptInjectionGuard.Warning(finding) + raw.Output };
+                    if (taint is null)
+                    {
+                        taint = finding;
+                        step.Summary = (step.Summary ?? "") + "；疑似提示词注入，这一轮之后的操作都要确认";
+                        observer.OnNotice(InjectionNotice);
+                    }
+                }
             }
             // IT 的工具规则：结果打码、加一句公司规定（在落盘之前，存下来的也是打过码的）
             if (ctx.Rules is { IsEmpty: false } toolRules)
