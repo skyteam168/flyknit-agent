@@ -195,6 +195,12 @@ public sealed class SubtaskRecord
     [JsonPropertyName("files")] public List<string> Files { get; set; } = new();
     [JsonPropertyName("status")] public string Status { get; set; } = "running";
     [JsonPropertyName("summary")] public string Summary { get; set; } = "";
+
+    /// <summary>
+    /// 完整的文字结果：没用 submit_result、直接用文字交代结果时，就是它最后那段回答（和 Claude Code 的子代理一样，最后的回答就是结果）。
+    /// 交回主助手时整段给它，不再只给一句摘要——以前主助手拿不到专家写的内容，只好自己从头再做一遍。
+    /// </summary>
+    [JsonPropertyName("report")] public string Report { get; set; } = "";
     [JsonPropertyName("findings")] public List<SubtaskFinding> Findings { get; set; } = new();
     [JsonPropertyName("openQuestions")] public List<string> OpenQuestions { get; set; } = new();
     [JsonPropertyName("nextSuggestions")] public List<string> NextSuggestions { get; set; } = new();

@@ -61,6 +61,8 @@ const modelForm = reactive({
   supports_vision: false,
   context_length: 131072,
   enabled: true,
+  thinking_param: 'enable_thinking' as ModelConfig['thinking_param'],
+  reasoning_echo: 'auto' as ModelConfig['reasoning_echo'],
   extra: '{}',
 })
 function openModel(m?: ModelConfig) {
@@ -73,6 +75,8 @@ function openModel(m?: ModelConfig) {
     supports_vision: m?.supports_vision ?? false,
     context_length: m?.context_length ?? 131072,
     enabled: m?.enabled ?? true,
+    thinking_param: m?.thinking_param ?? 'enable_thinking',
+    reasoning_echo: m?.reasoning_echo ?? 'auto',
     extra: JSON.stringify(m?.extra_body ?? {}, null, 2),
   })
   modelDialog.value = true
@@ -323,6 +327,22 @@ async function syncModels(p: Provider) {
           <span class="hint" style="margin-left: 8px">token</span>
         </el-form-item>
         <el-form-item label="启用"><el-switch v-model="modelForm.enabled" /></el-form-item>
+        <el-form-item label="思考开关">
+          <el-select v-model="modelForm.thinking_param" style="width: 100%">
+            <el-option value="enable_thinking" label="enable_thinking（通义千问 / 百炼等，默认）" />
+            <el-option value="thinking" label='thinking: {"type": …}（DeepSeek、智谱 GLM、火山方舟等）' />
+            <el-option value="chat_template_kwargs" label="chat_template_kwargs（vLLM / SGLang 自建）" />
+            <el-option value="none" label="不传（模型没有思考开关）" />
+          </el-select>
+          <div class="hint">员工端的「深度思考」开关统一发 enable_thinking，网关按这里换成上游认的写法。员工没动开关时不传，按下面额外参数里的默认。</div>
+        </el-form-item>
+        <el-form-item label="思考回传">
+          <el-radio-group v-model="modelForm.reasoning_echo">
+            <el-radio value="auto">自动</el-radio>
+            <el-radio value="strip">不回传</el-radio>
+          </el-radio-group>
+          <div class="hint">推理模型连续调用工具时，员工端会把上一步的思考内容（reasoning_content）一起发回去，有的模型缺了它会报错。上游不认这个字段（报参数错误）时选「不回传」。</div>
+        </el-form-item>
         <el-form-item label="额外参数">
           <el-input v-model="modelForm.extra" type="textarea" :rows="4" class="mono" placeholder='透传给上游的参数，如 {"enable_thinking": false}' />
         </el-form-item>

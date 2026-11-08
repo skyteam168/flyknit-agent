@@ -30,6 +30,15 @@ public interface IHostEvents
 }
 
 /// <summary>
+/// 流式回答 / 思考的一小段字（chat.delta / chat.reasoning）。单独一个类型，界面桥可以把连着来的几段合成一条再推。
+/// 属性名故意用小写：序列化出来和原来的匿名对象 { type, conversationId, text } 完全一样，
+/// 按名字反射读事件的地方（ProgressTee）也照常能读。
+/// </summary>
+#pragma warning disable IDE1006 // 小写属性名是有意的
+public sealed record StreamDelta(string type, string conversationId, string text);
+#pragma warning restore IDE1006
+
+/// <summary>
 /// 客户端的核心编排：会话存储、Agent 循环、工具、策略、记忆、Skills、审计。
 /// 与界面无关，界面通过 WebBridge 调用这里。
 /// </summary>
@@ -357,6 +366,8 @@ public sealed partial class AgentHost : IDisposable
         _ = Task.Run(Mcp.StartAsync);
         // 长轮询监听配置变更，IT 一改安全中心/策略就近乎即时拉取生效
         _ = Task.Run(ConfigWatchLoopAsync);
+        // 盯着的 PR：每分钟看一眼有没有到点要查的（每个 PR 默认 50 分钟查一次）
+        StartPrWatching();
     }
 
     /// <summary>启动时那一次拉配置。WhenAny 不会抛异常，只是等它结束。</summary>
@@ -472,6 +483,7 @@ public sealed partial class AgentHost : IDisposable
                 ApplySecurity();
                 OnDelegationSwitchChanged();
             }
+            _sceneVision = config.Scenes.Where(s => s.Available).GroupBy(s => s.Scene).ToDictionary(g => g.Key, g => g.First().SupportsVision);
             var agent = config.Scenes.FirstOrDefault(s => s.Scene == Scenes.Agent);
             if (agent is { ContextLength: > 0 } && _contextLength == 0)
             {
@@ -587,6 +599,21 @@ public sealed partial class AgentHost : IDisposable
     }
 
     /// <summary>深度思考 / 联网：写进请求 ExtraBody，翻译不带思考，联网仅「对话」。</summary>
+    /// <summary>
+    /// 这一轮能用的开发者工具：办事模式、IT 打开了「开发者工具」，再按专家的 disallowed_tools 减掉（专家只做减法）。
+    /// 关着时返回空，工具、提示词、场景都和以前一样。
+    /// </summary>
+    private IReadOnlyList<ITool> DeveloperToolsFor(Conversation conv, Flyknit.Core.Experts.Expert? expert)
+    {
+        var tools = Flyknit.Core.Tools.DeveloperToolSet.For(Security, conv.Mode == ConversationMode.Agent,
+            t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t));
+        // 开发者工具开着时一并给 PR 工具（建 PR、查状态、盯 PR），同样按专家限制筛
+        return tools.Count == 0
+            ? tools
+            : tools.Concat(Flyknit.Core.Git.PullRequestToolSet.Create(PullRequests)
+                .Where(t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t))).ToList();
+    }
+
     private IReadOnlyDictionary<string, JsonNode?>? ChatExtraBody(Conversation conv)
     {
         var search = _settings.WebSearch && conv.Mode == ConversationMode.Chat && WebSearchEnabled;
@@ -752,6 +779,8 @@ public sealed partial class AgentHost : IDisposable
                 && Security.On(Flyknit.Core.Security.SecuritySettings.BackgroundCommands, fallback: false)
                 && Tools.Get("run_shell") is { } shellTool
                 && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, shellTool));
+            // 开发者工具：IT 打开了「开发者工具」时办事模式才有（grep、multi_edit、git_*），这一轮走 code 场景
+            var developerTools = DeveloperToolsFor(conv, expert);
             var prompt = promptBuilder.Build(new PromptContext
             {
                 Tone = persona.Tone,
@@ -770,6 +799,7 @@ public sealed partial class AgentHost : IDisposable
                 Expert = expert,
                 BrowserAvailable = browser is not null && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, Flyknit.Core.Browser.BrowserToolSet.All[0])),
                 BackgroundCommands = backgroundCommands,
+                DeveloperTools = developerTools.Count > 0,
                 PlanMode = planMode,
                 Rehearsal = rehearsal,
             });
@@ -784,6 +814,8 @@ public sealed partial class AgentHost : IDisposable
             {
                 ConversationMode.Translate => Scenes.Translate,
                 ConversationMode.Chat => Scenes.Chat,
+                // 后台没单独给 code 配模型时服务端回退到 agent，所以这里不用判断
+                _ when developerTools.Count > 0 => Scenes.Code,
                 _ => Scenes.Agent,
             };
 
@@ -903,6 +935,19 @@ public sealed partial class AgentHost : IDisposable
                 extra.AddRange(Flyknit.Core.Terminal.TerminalToolSet.All
                     .Where(t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t)));
             }
+            extra.AddRange(developerTools);
+            // 子代理：IT 打开了「子代理」时主助手能开分身（spawn_agent）。用这一轮最终的工具表，计划模式下只能只读
+            ToolRegistry? runTools = null;
+            if (Flyknit.Core.Agent.SubAgents.SubAgentRunner.Enabled(Security, conv.Mode == ConversationMode.Agent))
+            {
+                var runner = new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, confirm, () => AgentOptionsFor(conv), _auditSink, Approvals, Store, DelegationEvents)
+                    .WithTraceSerializer((trace, stop) => Bridge.TraceDto.Serialize(trace, stop));
+                var spawn = new Flyknit.Core.Agent.SubAgents.SpawnAgentTool(runner, () => runTools ?? tools, scene, modelId, ChatExtraBody(conv), forceReadOnly: planMode || rehearsal);
+                if (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, spawn))
+                {
+                    extra.Add(spawn);
+                }
+            }
             if (extra.Count > 0)
             {
                 // 共用的工具表不动（别的对话还在用），这一轮单独拷一份加上派遣、提问工具
@@ -917,11 +962,13 @@ public sealed partial class AgentHost : IDisposable
             {
                 tools = Flyknit.Core.Agent.PlanMode.Filter(tools);
             }
+            runTools = tools;
             var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(conv), Approvals)
             {
                 Interjections = InterjectionsFor(id),
                 Pause = PauseGateFor(id),
                 Persist = PersistFor(id),
+                Checkpoint = json => Store.SetRunState(id, json),
             };
             var extraBody = ChatExtraBody(conv);
             var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context, extraBody);
@@ -1062,8 +1109,26 @@ public sealed partial class AgentHost : IDisposable
     }
 
     /// <summary>Agent 循环的设置：步数上限来自本机设置，规划提醒、产出检查由 IT 在安全中心开关（没下发时默认开）。</summary>
+    /// <summary>服务端配置里各场景的主模型能不能识图（拉配置时刷新）。</summary>
+    private IReadOnlyDictionary<string, bool> _sceneVision = new Dictionary<string, bool>();
+
+    /// <summary>
+    /// 工具返回的图片要不要发给模型：这一轮场景的模型能识图、员工没在输入框另选模型时才发。
+    /// 不能识图时发了图，网关会把整个请求改走识图场景，那个模型未必会调工具，任务就断了。
+    /// </summary>
+    private bool InlineToolImagesFor(Conversation? conv)
+    {
+        if (conv is null || conv.ModelId is not null)
+        {
+            return false;
+        }
+        var scene = DeveloperToolsFor(conv, null).Count > 0 ? Scenes.Code : Scenes.Agent;
+        return _sceneVision.TryGetValue(scene, out var vision) && vision;
+    }
+
     private AgentOptions AgentOptionsFor(Conversation? conv = null) => new()
     {
+        InlineToolImages = InlineToolImagesFor(conv),
         MaxSteps = LongModeOn(conv) ? Math.Max(_settings.ResolveAgentMaxSteps(), LongModeSteps) : _settings.ResolveAgentMaxSteps(),
         MaxRunTokens = RunTokenLimit(LongModeOn(conv)),
         PlanGuidance = Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
@@ -1562,6 +1627,7 @@ public sealed partial class AgentHost : IDisposable
         }
         try { _configTimer.Dispose(); } catch (Exception) { /* 尽力而为 */ }
         try { _keepAwakeTimer?.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { _prTimer?.Dispose(); } catch (Exception) { /* 尽力而为 */ }
         try { _keepAwake.Dispose(); } catch (Exception) { /* 尽力而为 */ }
         try { Scheduler.Dispose(); } catch (Exception) { /* 尽力而为 */ }
         try { DisposeTerminal(); } catch (Exception) { /* 尽力而为 */ }
@@ -1709,9 +1775,9 @@ public sealed partial class AgentHost : IDisposable
             _host = host;
         }
 
-        public void OnContent(string delta) => _events.Post(new { type = "chat.delta", conversationId = _id, text = delta });
+        public void OnContent(string delta) => _events.Post(new StreamDelta("chat.delta", _id, delta));
 
-        public void OnReasoning(string delta) => _events.Post(new { type = "chat.reasoning", conversationId = _id, text = delta });
+        public void OnReasoning(string delta) => _events.Post(new StreamDelta("chat.reasoning", _id, delta));
 
         public void OnSources(IReadOnlyList<Flyknit.Core.Gateway.WebSource> sources) =>
             _events.Post(new

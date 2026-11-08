@@ -9,7 +9,7 @@ import type { OutputFile, UiMessage } from '../types'
 import ToolCard from './ToolCard.vue'
 import ExpertTaskCard from './ExpertTaskCard.vue'
 import SuggestionCard from './SuggestionCard.vue'
-import { AskExpertTool } from '../subtasks'
+import { AskExpertTool, SpawnAgentTool, isSubtaskTool } from '../subtasks'
 import OutputFiles from './OutputFiles.vue'
 import { snippet } from '../pasted'
 import { formatSize } from '../library'
@@ -40,7 +40,7 @@ const orphanTools = computed(() => {
 
 const waiting = computed(() => Object.values(s.value?.tools ?? {}).some((t) => t.state === 'waiting'))
 /** 专家正在跑：专家任务卡片自己有进度，不再另外显示三个点 */
-const expertRunning = computed(() => Object.values(s.value?.tools ?? {}).some((t) => t.name === AskExpertTool && t.state === 'running'))
+const expertRunning = computed(() => Object.values(s.value?.tools ?? {}).some((t) => isSubtaskTool(t.name) && t.state === 'running'))
 const busy = computed(() => s.value?.busy ?? false)
 const draftText = computed(() => stripToolMarkup(s.value?.draft?.content ?? ''))
 
@@ -142,7 +142,7 @@ const folds = computed(() => {
     const labels: string[] = []
     for (const c of calls) {
       if (c.name === 'update_plan' || c.name === 'memory_write' || c.name === 'suggest_task') continue
-      const l = c.name === AskExpertTool ? t('ui.fold.expert') : toolLabel(c.name)
+      const l = c.name === AskExpertTool ? t('ui.fold.expert') : c.name === SpawnAgentTool ? t('ui.fold.subagent') : toolLabel(c.name)
       if (!labels.includes(l)) labels.push(l)
     }
     const fold: Fold = {
@@ -408,7 +408,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
             <!-- AI 建议的新任务：卡片，员工点了才开始 -->
             <SuggestionCard v-if="c.name === 'suggest_task'" :call-id="c.id" :args="c.arguments" :conversation-id="current!.id" />
             <ExpertTaskCard
-              v-else-if="c.name === AskExpertTool"
+              v-else-if="isSubtaskTool(c.name)"
               :tool="s.tools[c.id] ?? { callId: c.id, name: c.name, summary: '', args: c.arguments, risk: 'auto', state: 'done' }"
               :conversation-id="current!.id"
             />
@@ -512,7 +512,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
         <div v-if="draftText" class="md" v-html="renderMarkdown(draftText, { streaming: true })" />
         <div v-else-if="!s.draft?.reasoning && !s.draft?.sources?.length && orphanTools.length === 0 && !waiting && !expertRunning" class="dots" aria-label="…"><i /><i /><i /></div>
         <template v-for="tool in orphanTools" :key="tool.callId">
-          <ExpertTaskCard v-if="tool.name === AskExpertTool" :tool="tool" :conversation-id="current!.id" />
+          <ExpertTaskCard v-if="isSubtaskTool(tool.name)" :tool="tool" :conversation-id="current!.id" />
           <ToolCard v-else :tool="tool" :conversation-id="current!.id" />
         </template>
       </div>

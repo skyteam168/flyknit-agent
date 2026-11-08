@@ -34,12 +34,15 @@ public sealed partial class AgentHost
         {
             if (_dispatcher is null)
             {
-                _delegationHost = new DelegationHost(this);
+                _delegationHost ??= new DelegationHost(this);
                 _dispatcher = new ExpertDispatcher(_delegationHost, Server, Store, _delegationHost, Experts.Get, DelegationEnabled);
             }
             return _dispatcher;
         }
     }
+
+    /// <summary>子任务进度推给界面（专家和子代理共用一种卡片）。</summary>
+    private IDelegationEvents DelegationEvents => _delegationHost ??= new DelegationHost(this);
 
     /// <summary>
     /// 这一轮给主助手的候选专家：只在普通的办事对话里、开关开着时才有（专家对话里不派遣别的专家）。
@@ -141,6 +144,7 @@ public sealed partial class AgentHost
         context = r.Context,
         status = r.Status,
         summary = r.Summary,
+        report = r.Report,
         findings = r.Findings.Select(f => new
         {
             id = f.Id,

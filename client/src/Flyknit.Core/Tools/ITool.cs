@@ -32,6 +32,13 @@ public sealed record ToolResult(bool Ok, string Output)
     /// <summary>执行记录里这一步换个样子记（派遣专家记成 subtask 步骤）。</summary>
     public ToolTraceNote? Trace { get; init; }
 
+    /// <summary>
+    /// 工具返回的图片（外部服务的截图、渲染结果）。Agent 循环存成文件、挂到这条工具结果上：
+    /// 员工在界面上能打开看；模型支持识图时，下一次请求把图片一起发给它（见 OpenAiSerializer）。
+    /// 文字里用 <see cref="ToolImage.Marker"/> 标出位置，存好后换成保存路径。
+    /// </summary>
+    public IReadOnlyList<ToolImage> Images { get; init; } = Array.Empty<ToolImage>();
+
     public static ToolResult Success(string output) => new(true, output);
     public static ToolResult Fail(string error) => new(false, error);
 
@@ -47,6 +54,9 @@ public sealed record ToolResult(bool Ok, string Output)
         return this with { Output = $"{head}\n\n…（已省略 {Output.Length - maxChars} 个字符）…\n\n{tail}" };
     }
 }
+
+/// <summary>工具返回的一张图片。Marker 是它在结果文字里的那句说明（存好文件后在后面补上路径）。</summary>
+public sealed record ToolImage(string Mime, byte[] Data, string Marker);
 
 /// <summary>执行记录里这一步的类型、名字和说明。</summary>
 public sealed record ToolTraceNote(string Kind, string Name, string Summary, string Detail);
@@ -248,6 +258,41 @@ public sealed class ToolContext
 
     /// <summary>这一轮已经建议了几件新任务（suggest_task 限制次数用）。</summary>
     public int SuggestionsMade { get; set; }
+
+    /// <summary>
+    /// 到这一步为止的对话（不含正在执行的这条带工具调用的回答），由 Agent 循环在执行工具前填上。
+    /// fork 子代理靠它继承主助手看到的全部上下文——前缀和主助手一样，上游的提示词缓存也能命中。
+    /// </summary>
+    public Func<IReadOnlyList<Chat.ChatMessage>>? ForkHistory { get; set; }
+
+    /// <summary>这一轮实际能用的全部工具名（含按需加载的连接器工具），由 Agent 循环填上。load_skill 据此核对技能依赖的连接器。</summary>
+    public Func<IReadOnlyCollection<string>>? ToolNames { get; set; }
+
+    /// <summary>
+    /// 给子代理用的上下文：权限取更严的、运行 ID 换成子任务的；不带浏览器（同一个窗口，几个子代理一起点会互相干扰）；
+    /// 改动照样记进这一轮（员工能看到、能一键还原）。
+    /// </summary>
+    public ToolContext ForChild(string runId, PermissionMode permission) => new()
+    {
+        Policy = Policy,
+        ConversationId = ConversationId,
+        Workspace = Workspace,
+        Permission = (PermissionMode)Math.Min((int)Permission, (int)permission),
+        GrantId = GrantId,
+        RunId = runId,
+        LoadedTools = new HashSet<string>(LoadedTools, StringComparer.Ordinal),
+        Rules = Rules,
+        WorkingDirectory = WorkingDirectory,
+        Memory = Memory,
+        UserRequest = UserRequest,
+        Episodes = Episodes,
+        Skills = Skills,
+        Deleter = Deleter,
+        Backup = Backup,
+        RecordChange = RecordChange,
+        Security = Security,
+        Terminal = Terminal,
+    };
 
     /// <summary>update_plan 工具写入的计划，Agent 循环会把变化通知界面。</summary>
     public List<PlanItem> Plan { get; } = new();

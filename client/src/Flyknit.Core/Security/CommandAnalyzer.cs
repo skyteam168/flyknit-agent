@@ -79,7 +79,6 @@ public static class CommandAnalyzer
     // 带子命令才算只读的程序：git status 只读，git push 不是
     private static readonly Dictionary<string, HashSet<string>> ReadSubCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["git"] = new(StringComparer.OrdinalIgnoreCase) { "status", "log", "diff", "show", "branch", "remote", "config", "describe", "blame", "ls-files", "rev-parse", "shortlog", "tag" },
         ["npm"] = new(StringComparer.OrdinalIgnoreCase) { "ls", "list", "view", "info", "outdated", "root", "prefix", "config", "ping", "whoami" },
         ["pip"] = new(StringComparer.OrdinalIgnoreCase) { "list", "show", "freeze", "check", "config" },
         ["dotnet"] = new(StringComparer.OrdinalIgnoreCase) { "--version", "--info", "--list-sdks", "--list-runtimes" },
@@ -116,8 +115,6 @@ public static class CommandAnalyzer
     // 带子命令才算高危的程序（只保留真正危险的：会丢数据、破坏历史、改系统）
     private static readonly Dictionary<string, HashSet<string>> DestructiveSubCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        // git: 只有会丢失本地修改或破坏历史的才算高危
-        ["git"] = new(StringComparer.OrdinalIgnoreCase) { "reset", "clean", "filter-branch", "gc", "prune", "rm" },
         ["npm"] = new(StringComparer.OrdinalIgnoreCase) { "uninstall", "publish", "unpublish", "link", "adduser", "login" },
         ["pip"] = new(StringComparer.OrdinalIgnoreCase) { "uninstall" },
         ["docker"] = new(StringComparer.OrdinalIgnoreCase) { "rm", "rmi", "prune", "kill", "stop", "system" },
@@ -137,8 +134,6 @@ public static class CommandAnalyzer
 
     private static readonly Dictionary<string, HashSet<string>> WriteSubCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        // git: push/checkout/switch/stash/rebase 等日常操作放到 Write，确认一次后可生成规则
-        ["git"] = new(StringComparer.OrdinalIgnoreCase) { "add", "commit", "init", "clone", "fetch", "pull", "merge", "apply", "cherry-pick", "push", "checkout", "switch", "stash", "rebase", "restore" },
         ["npm"] = new(StringComparer.OrdinalIgnoreCase) { "install", "i", "ci", "run", "run-script", "build", "test", "start", "exec" },
         ["pip"] = new(StringComparer.OrdinalIgnoreCase) { "install", "download", "wheel" },
         ["dotnet"] = new(StringComparer.OrdinalIgnoreCase) { "build", "restore", "publish", "test", "run", "new", "pack", "clean" },
@@ -294,6 +289,13 @@ public static class CommandAnalyzer
         // 重定向写文件：无论什么命令，都至少算「写」
         var redirects = written.Count > 0 && RedirectTarget.IsMatch(segment);
 
+        // git / gh 按子命令加关键参数定级（push --force、branch -D、checkout -- 这类），见 DevCommandRules
+        if (exe.Equals("git", StringComparison.OrdinalIgnoreCase) || exe.Equals("gh", StringComparison.OrdinalIgnoreCase))
+        {
+            var tokens = DevCommandRules.Tokens(args);
+            var (effect, reason) = exe.Equals("git", StringComparison.OrdinalIgnoreCase) ? DevCommandRules.Git(tokens) : DevCommandRules.Gh(tokens);
+            return new CommandSegment(segment, exe, args, redirects && effect == CommandEffect.Read ? CommandEffect.Write : effect, reason);
+        }
         if (DestructiveSubCommands.TryGetValue(exe, out var dsub) && dsub.Contains(FirstToken(args)))
         {
             return new CommandSegment(segment, exe, args, CommandEffect.Destructive, $"{exe} {FirstToken(args)} 会改动或丢失已有内容");

@@ -3,6 +3,7 @@ import { bridge } from './bridge'
 import { forHost, isTextAttachment, utf8Base64 } from './pasted'
 import { applyLanguage, i18n } from './i18n'
 import type {
+  PrWatchView,
   SlashCommand,
   AppInfo,
   AttachmentRef,
@@ -41,6 +42,8 @@ import type {
 import { SubtaskFinal } from './types'
 
 interface ConversationState {
+  /** 点了「停止」、宿主还没回这一轮结束：按钮显示「正在停止」，不再像点了没反应 */
+  stopping?: boolean
   messages: UiMessage[]
   loaded: boolean
   /** 打开对话时消息没加载出来的原因（界面上显示重试） */
@@ -63,6 +66,15 @@ interface ConversationState {
   paused?: boolean
 }
 
+/** 读一个对话盯着的 PR */
+export async function loadPrs(conversationId: string) {
+  try {
+    state.prs[conversationId] = await bridge.prList(conversationId)
+  } catch {
+    // 宿主没有这个功能（旧版本）或开发者工具关着：不显示
+  }
+}
+
 export const state = reactive({
   app: null as AppInfo | null,
   conversations: [] as Conversation[],
@@ -72,6 +84,8 @@ export const state = reactive({
   currentId: null as string | null,
   byId: {} as Record<string, ConversationState>,
   pending: [] as AttachmentRef[],
+  /** 每个对话盯着的 PR（开发者工具开着时，「文件」标签上方显示） */
+  prs: {} as Record<string, PrWatchView[]>,
   /** 自动更新：有新版本时界面上挂一条，点了才装；不点退出时也会装 */
   update: null as UpdateInfo | null,
   toast: '' as string,
@@ -138,6 +152,8 @@ export const state = reactive({
   usageDismissedAt: 0,
   /** 在客户端里查看全文的文本附件（粘贴的文本、txt / md 等） */
   textView: null as AttachmentRef | null,
+  /** 大图查看器（首页输入框里的图片、窄窗口时点图片） */
+  imageView: null as { src: string; name: string; path: string } | null,
   /** 右侧分屏预览 */
   preview: null as { file: OutputFile; doc: PreviewDoc | null; loading: boolean; error: string } | null,
   /** 分屏宽度（像素），拖拽后记住 */
@@ -1210,6 +1226,7 @@ export async function quickReply(text: string) {
  * 输入框要把文字放回去，免得用户辛苦打的字丢了。
  */
 export async function send(text: string): Promise<boolean> {
+  await waitPastes() // 粘贴的图片还在后台保存：等它存好再发，不然附件没有路径
   const body = text.trim()
   if (!body && state.pending.length === 0) return false
   let id = state.currentId
@@ -1333,6 +1350,7 @@ export async function withdrawPending(item: PendingInput): Promise<string | null
 
 function beginRun(s: ConversationState) {
   s.busy = true
+  s.stopping = false
   s.notice = null
   s.notices = []
   s.draft = { content: '', reasoning: '' }
@@ -1446,7 +1464,20 @@ export async function setNotificationSound(sound: string) {
 }
 
 export async function stop() {
-  if (state.currentId) await bridge.stop(state.currentId).catch(fail)
+  const id = state.currentId
+  if (!id) return
+  const s = convState(id)
+  s.stopping = true
+  // 宿主取消后要等这一步收尾（模型请求断开、工具退出）才发结束事件。万一迟迟不来，
+  // 8 秒后把按钮恢复成可点，员工可以再点一次（再发一次取消）
+  const at = Date.now()
+  setTimeout(() => {
+    if (s.stopping && s.busy && Date.now() - at >= 8000) s.stopping = false
+  }, 8000)
+  await bridge.stop(id).catch((e) => {
+    s.stopping = false
+    fail(e)
+  })
 }
 
 export async function answerConfirm(conversationId: string, callId: string, choice: ConfirmChoice) {
@@ -1574,17 +1605,39 @@ export async function pickFiles() {
 }
 
 /** 粘贴截图：没有文件路径，交给宿主保存为临时文件 */
-export async function addPastedImage(blob: Blob) {
-  const dataUrl = await readAsDataUrl(blob)
+/** 还在后台保存的粘贴图片：发送前要等它们存好（见 send） */
+const savingPastes = new Set<Promise<void>>()
+
+/**
+ * 粘贴图片：先在输入框里显示缩略图，再在后台存成文件。
+ * 任务跑着的时候宿主的界面线程很忙，原来要等它存完才显示，看起来像卡住了。
+ */
+export function addPastedImage(blob: Blob) {
   const ext = blob.type.split('/')[1] || 'png'
   const name = `screenshot-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`
-  try {
-    const ref = await bridge.saveBlob(name, blob.type, dataUrl.split(',')[1])
-    ref.preview = dataUrl
-    state.pending.push(ref)
-  } catch (e) {
-    fail(e)
-  }
+  const shown = URL.createObjectURL(blob)
+  state.pending.push({ fileName: name, localPath: '', mime: blob.type, size: blob.size, preview: shown, saving: true })
+  const item = state.pending[state.pending.length - 1] // 响应式的那一份，存好后就地更新
+  const job = (async () => {
+    try {
+      const dataUrl = await readAsDataUrl(blob)
+      const ref = await bridge.saveBlob(name, blob.type, dataUrl.split(',')[1])
+      Object.assign(item, ref, { preview: dataUrl, saving: false })
+    } catch (e) {
+      const i = state.pending.indexOf(item)
+      if (i >= 0) state.pending.splice(i, 1)
+      fail(e)
+    } finally {
+      URL.revokeObjectURL(shown)
+    }
+  })()
+  savingPastes.add(job)
+  void job.finally(() => savingPastes.delete(job))
+}
+
+/** 等粘贴的图片都存好（发送前调用）；存失败的已经从待发送里拿掉了 */
+export async function waitPastes() {
+  while (savingPastes.size > 0) await Promise.allSettled([...savingPastes])
 }
 
 /** 粘贴的长文本存成 .txt 附件，界面上折叠成卡片 */
@@ -1597,10 +1650,33 @@ export async function addPastedText(text: string) {
   }
 }
 
-/** 点消息里的附件：文本在客户端里看全文，其他的交给系统程序打开 */
+// 宿主能在右侧分屏里预览的格式（和 OutputFiles 的 previewable 同一套判断，这里只能按扩展名猜）
+const PreviewableExt = new Set(['md', 'txt', 'csv', 'json', 'log', 'xlsx', 'xls', 'docx', 'pptx', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'html', 'htm'])
+
+export function asOutputFile(a: { path: string; name: string; exists: boolean }): OutputFile {
+  const extension = (/\.([^.\\/]+)$/.exec(a.name || a.path)?.[1] ?? '').toLowerCase()
+  return { path: a.path, name: a.name, extension, size: 0, modifiedAt: '', previewable: PreviewableExt.has(extension), exists: a.exists }
+}
+
+/**
+ * 点附件（输入框里待发送的、消息里已发送的）：按类型在客户端里打开。
+ * - 粘贴的长文本、纯文本：文本查看器看全文；
+ * - 对话里：图片、PDF、Office、表格、网页等在右侧分屏预览（和点 AI 产出的文件一样）；
+ * - 还没有对话（首页输入框）或窗口太窄没有分屏：图片在大图查看器里看，其余用系统默认程序打开。
+ * 原来除了文本都是在资源管理器里定位文件，看不到内容。
+ */
 export function openAttachment(a: AttachmentRef) {
-  if (isTextAttachment(a)) state.textView = a
-  else void openPath(a.localPath)
+  if (a.saving) return
+  if (isTextAttachment(a)) {
+    state.textView = a
+    return
+  }
+  const isImage = a.mime.startsWith('image/')
+  const f = asOutputFile({ path: a.localPath, name: a.fileName, exists: !!a.localPath })
+  const split = state.view === 'chat' && !!state.currentId && window.innerWidth >= 760
+  if (split && f.previewable && a.localPath) void openPreview(f)
+  else if (isImage && a.preview) state.imageView = { src: a.preview, name: a.fileName, path: a.localPath }
+  else if (a.localPath) void launchFile(f)
 }
 
 function readAsDataUrl(blob: Blob): Promise<string> {
@@ -1630,6 +1706,7 @@ function markRunning(conversationId: string): ConversationState {
 /** 一轮结束（正常结束或出错）：还在跑、还在等确认的工具卡片都算失败，收起压缩进度，刷新列表和用量 */
 function finishRun(s: ConversationState, conversationId: string) {
   s.busy = false
+  s.stopping = false
   s.paused = false
   void loadChanges(conversationId)
   s.draft = null
@@ -1793,6 +1870,7 @@ function onHostEvent(e: HostEvent) {
         if (e.keepScreenAllowed !== undefined) state.app.keepScreenAllowed = e.keepScreenAllowed
         if (e.contextDetails !== undefined) state.app.contextDetails = e.contextDetails
         if (e.longTasks !== undefined) state.app.longTasks = e.longTasks
+        if (e.developerTools !== undefined) state.app.developerTools = e.developerTools
         if (e.webSearchEnabled !== undefined) state.app.webSearchEnabled = e.webSearchEnabled
         if (e.deepThinking !== undefined) state.app.deepThinking = e.deepThinking
         if (e.webSearch !== undefined) state.app.webSearch = e.webSearch
@@ -1874,6 +1952,14 @@ function onHostEvent(e: HostEvent) {
     case 'chat.paused':
       convState(e.conversationId).paused = e.paused
       break
+    case 'pr.updated': {
+      const list = state.prs[e.conversationId] ?? []
+      const i = list.findIndex((w) => w.id === e.watch.id)
+      if (i >= 0) list.splice(i, 1, e.watch)
+      else list.unshift(e.watch)
+      state.prs[e.conversationId] = list
+      break
+    }
     case 'chat.pending':
       convState(e.conversationId).inputs = e.items
       break

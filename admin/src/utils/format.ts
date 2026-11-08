@@ -49,6 +49,7 @@ export function change(today: number, yesterday: number): number | null {
 export const SCENE_LABELS: Record<string, string> = {
   chat: '对话',
   agent: '任务',
+  code: '编程任务',
   translate: '翻译',
   title: '标题生成',
   vision: '识图',

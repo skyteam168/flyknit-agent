@@ -38,6 +38,8 @@ export interface ModelConfig {
   context_length: number
   extra_body: Record<string, unknown>
   enabled: boolean
+  thinking_param: 'enable_thinking' | 'thinking' | 'chat_template_kwargs' | 'none'
+  reasoning_echo: 'auto' | 'strip'
 }
 
 export interface RouteRule {

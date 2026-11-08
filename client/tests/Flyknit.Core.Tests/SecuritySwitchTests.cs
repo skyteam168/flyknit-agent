@@ -200,6 +200,10 @@ public class SecuritySwitchTests
             SecuritySettings.BrowserTools,
             // AgentHost 读这一项决定这一轮有没有 shell_output / shell_stop 和提示词；RunShellTool 执行 background=true 前再看（见 TerminalTests）
             SecuritySettings.BackgroundCommands,
+            // AgentHost.DeveloperToolsFor → DeveloperToolSet.For 读这一项：关着（默认）时没有 grep / multi_edit / git_*，场景仍是 agent（见 DeveloperToolsTests）
+            SecuritySettings.DeveloperTools,
+            // AgentHost 读这一项（SubAgentRunner.Enabled）：关着（默认）时主助手没有 spawn_agent（见 SubAgentTests）
+            SecuritySettings.SubAgents,
             // AgentHost.RunTokenLimit 读这一项填 AgentOptions.MaxRunTokens（长任务 ×5）；撞到 token 上限时长任务自动接着做
             SecuritySettings.RunTokenBudget,
         };

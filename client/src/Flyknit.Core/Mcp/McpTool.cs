@@ -14,7 +14,7 @@ namespace Flyknit.Core.Mcp;
 /// 对方声明了只读（readOnlyHint）的直接执行；声明了不会破坏数据的（destructiveHint=false）
 /// 可以选「以后自动执行」；其余每次都问——我们不知道它会对对方系统做什么。
 /// </summary>
-public sealed class McpTool : ITool
+public sealed class McpTool : ITool, IParallelTool
 {
     private readonly Func<string, JsonNode?, CancellationToken, Task<McpCallResult>> _call;
 
@@ -36,6 +36,15 @@ public sealed class McpTool : ITool
     public string Name { get; }
     public string Description { get; }
     public JsonObject Parameters => Info.InputSchema;
+
+    /// <summary>对方声明只读的可以和相邻的只读调用同时跑（查几个页面、读几个文件）；会改东西的照旧一个一个来。</summary>
+    public bool CanRunInParallel(JsonElement args) => Info.ReadOnly;
+
+    /// <summary>一次结果里最多收几张图片（再多的只在文字里说明）。</summary>
+    public const int MaxImages = 4;
+
+    /// <summary>单张图片超过这么大就不收（模型接口一般也不收）。</summary>
+    public const int MaxImageBytes = 8 * 1024 * 1024;
 
     public PolicyDecision Assess(JsonElement args, ToolContext ctx)
     {
@@ -97,11 +106,34 @@ public sealed class McpTool : ITool
         try
         {
             var result = await _call(Info.Name, arguments, ct);
-            return result.IsError ? ToolResult.Fail(result.Text) : ToolResult.Success(result.Text);
+            var tool = result.IsError ? ToolResult.Fail(result.Text) : ToolResult.Success(result.Text);
+            return result.Images is { Count: > 0 } images ? tool with { Images = Decode(images) } : tool;
         }
         catch (McpException ex)
         {
             return ToolResult.Fail($"{ServerName} 调用失败：{ex.Message}");
         }
+    }
+
+    private static List<ToolImage> Decode(IReadOnlyList<McpImage> images)
+    {
+        var list = new List<ToolImage>();
+        for (var i = 0; i < images.Count && list.Count < MaxImages; i++)
+        {
+            var img = images[i];
+            if (!img.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) || img.ApproxBytes > MaxImageBytes)
+            {
+                continue;
+            }
+            try
+            {
+                list.Add(new ToolImage(img.MimeType, Convert.FromBase64String(img.Base64), McpClient.ImagePlaceholder(i, img)));
+            }
+            catch (FormatException)
+            {
+                // base64 坏了：文字里那句说明还在，图片丢掉
+            }
+        }
+        return list;
     }
 }

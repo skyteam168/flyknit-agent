@@ -105,6 +105,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             keepScreenAllowed = _host.KeepScreenOnAllowed,
             contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
             longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
+            developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
             webSearchEnabled = _host.WebSearchEnabled,
             deepThinking = _settings.DeepThinking,
             webSearch = _settings.WebSearch,
@@ -134,6 +135,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 title = r.Title,
                 startedAt = r.StartedAt.ToString("O"),
                 origin = r.Origin,
+                stage = r.Stage,
             }).ToList(),
             recent = recent.Select(r => new
             {
@@ -204,22 +206,70 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
     // ---------- 宿主 → 页面 ----------
 
-    public void Post(object evt) => Send(new { kind = "event", @event = evt });
-
-    private void Send(object message)
+    public void Post(object evt)
     {
-        var json = JsonSerializer.Serialize(message, Json);
-        _dispatcher.BeginInvoke(() =>
+        if (evt is StreamDelta delta)
+        {
+            Enqueue(delta); // 字块先放着：同一段连着来的合成一条再发
+            return;
+        }
+        Send(new { kind = "event", @event = evt });
+    }
+
+    private void Send(object message) => Enqueue(JsonSerializer.Serialize(message, Json));
+
+    // ---------- 发件箱 ----------
+    // 原来每条消息一个 BeginInvoke（Normal 优先级，比鼠标键盘输入高）。深度思考时模型几个字一条，
+    // 界面线程的队列被推送塞满，点「停止」要排很久才轮到——看起来就是点了没反应。
+    // 现在所有消息进同一个队列（顺序不变），只排一个 Background 优先级的任务一次推完：
+    // 输入、重绘、界面发来的请求先处理；连着的同类字块合成一条，推送次数少几十倍。
+    private readonly object _outboxGate = new();
+    private readonly List<object> _outbox = new(); // 序列化好的 json，或者还在攒的 StreamDelta
+    private bool _flushScheduled;
+
+    private void Enqueue(object item)
+    {
+        lock (_outboxGate)
+        {
+            if (item is StreamDelta d && _outbox.Count > 0 && _outbox[^1] is StreamDelta last
+                && last.type == d.type && last.conversationId == d.conversationId)
+            {
+                _outbox[^1] = last with { text = last.text + d.text };
+            }
+            else
+            {
+                _outbox.Add(item);
+            }
+            if (_flushScheduled)
+            {
+                return;
+            }
+            _flushScheduled = true;
+        }
+        _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(Flush));
+    }
+
+    private void Flush()
+    {
+        object[] items;
+        lock (_outboxGate)
+        {
+            items = _outbox.ToArray();
+            _outbox.Clear();
+            _flushScheduled = false;
+        }
+        foreach (var item in items)
         {
             try
             {
+                var json = item as string ?? JsonSerializer.Serialize(new { kind = "event", @event = item }, Json);
                 _web.PostWebMessageAsJson(json);
             }
             catch (Exception ex)
             {
                 Log.Warn("PostWebMessage 失败", ex);
             }
-        });
+        }
     }
 
     // ---------- 确认 ----------
@@ -453,6 +503,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     keepScreenAllowed = _host.KeepScreenOnAllowed,
                     contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
                     longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
+                    developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
                     webSearchEnabled = _host.WebSearchEnabled,
                     deepThinking = _settings.DeepThinking,
                     webSearch = _settings.WebSearch,
@@ -1489,6 +1540,17 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "mcp.disconnect":
                 return await _host.Mcp.DisconnectAsync(Str("id"), Bool("forget"));
 
+            case "mcp.openLog":
+            {
+                // 连接器自己的日志（打过码），用系统默认的文本编辑器打开
+                if (_host.Mcp.LogPath(Str("id")) is not { } logPath)
+                {
+                    return false;
+                }
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(logPath) { UseShellExecute = true });
+                return true;
+            }
+
             case "skills.list":
                 _host.SkillManager.Refresh();
                 return SkillList();
@@ -1807,6 +1869,75 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 return new { ok = items is not null, items = (object?)items ?? Array.Empty<object>() };
             }
 
+            // ---------- 仓库和 PR（开发者工具开着时）：「文件」标签上方的仓库信息、分支、盯着的 PR ----------
+            case "repo.info":
+            {
+                var info = await _host.RepoInfoAsync(Str("conversationId"));
+                return info is null ? null : new
+                {
+                    root = info.Root,
+                    name = info.DisplayName,
+                    branch = info.Branch,
+                    detached = info.Detached,
+                    remoteUrl = info.RemoteUrl,
+                    webUrl = info.WebUrl,
+                    branchUrl = info.BranchUrl,
+                    host = info.Host,
+                    isGitHub = info.IsGitHub,
+                    defaultBranch = info.DefaultBranch,
+                    changed = info.Changed,
+                    ahead = info.Ahead,
+                    behind = info.Behind,
+                };
+            }
+
+            case "repo.branches":
+                return await _host.BranchesAsync(Str("conversationId"));
+
+            case "repo.branch":
+            {
+                // 员工在界面上新建或切换分支（create=true 新建并切过去）
+                var (ok, message) = await _host.ChangeBranchAsync(Str("conversationId"), Str("name"), Bool("create"));
+                return new { ok, message };
+            }
+
+            case "repo.open":
+            {
+                // 只打开宿主自己算出来的地址（仓库、分支、PR），不接受界面传任意网址
+                var conv = Str("conversationId");
+                string url = "";
+                switch (Str("what"))
+                {
+                    case "repo":
+                        url = (await _host.RepoInfoAsync(conv))?.WebUrl ?? "";
+                        break;
+                    case "branch":
+                        url = (await _host.RepoInfoAsync(conv))?.BranchUrl ?? "";
+                        break;
+                    case "pr":
+                        url = _host.PrWatchesOf(conv).FirstOrDefault(w => w.Id == Str("id"))?.Url ?? "";
+                        break;
+                }
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var target) || target.Scheme != Uri.UriSchemeHttps)
+                {
+                    return false;
+                }
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target.ToString()) { UseShellExecute = true });
+                return true;
+            }
+
+            case "pr.list":
+                return _host.PrWatchesOf(Str("conversationId")).Select(AgentHost.PrDto).ToList();
+
+            case "pr.check":
+                return await _host.CheckPrNowAsync(Str("id")) is { } checkedWatch ? AgentHost.PrDto(checkedWatch) : null;
+
+            case "pr.stop":
+                return _host.StopPrWatch(Str("id")) is { } stopped ? AgentHost.PrDto(stopped) : null;
+
+            case "pr.autoFix":
+                return _host.SetPrAutoFix(Str("id"), Bool("on")) is { } changed ? AgentHost.PrDto(changed) : null;
+
             // ---------- 工作区文件：右侧「文件」标签浏览、搜索（只读、只在工作区里） ----------
             case "workspace.list":
             {
@@ -2050,13 +2181,20 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "files.saveBlob":
             {
-                // 每次一个子目录：同名的「粘贴文本.txt」连粘几段也不会互相覆盖
-                var dir = Path.Combine(PasteDir, Guid.NewGuid().ToString("N")[..12]);
-                Directory.CreateDirectory(dir);
-                var name = string.Join("_", Str("fileName").Split(Path.GetInvalidFileNameChars()));
-                var path = Path.Combine(dir, string.IsNullOrWhiteSpace(name) ? $"paste-{Guid.NewGuid():N}.png" : name);
-                await File.WriteAllBytesAsync(path, Convert.FromBase64String(Str("base64")));
-                return AttachmentDto.FromPath(path);
+                var fileName = Str("fileName");
+                var base64 = Str("base64");
+                // 解码、写盘放到后台线程：粘贴一张截图是几 MB 的 base64，任务跑着时界面线程本来就忙，
+                // 在这里解码会让界面（和后面排队的请求）一起卡住
+                return await Task.Run(async () =>
+                {
+                    // 每次一个子目录：同名的「粘贴文本.txt」连粘几段也不会互相覆盖
+                    var dir = Path.Combine(PasteDir, Guid.NewGuid().ToString("N")[..12]);
+                    Directory.CreateDirectory(dir);
+                    var name = string.Join("_", fileName.Split(Path.GetInvalidFileNameChars()));
+                    var path = Path.Combine(dir, string.IsNullOrWhiteSpace(name) ? $"paste-{Guid.NewGuid():N}.png" : name);
+                    await File.WriteAllBytesAsync(path, Convert.FromBase64String(base64));
+                    return AttachmentDto.FromPath(path);
+                });
             }
 
             // ---------- 资料库 ----------
@@ -2368,6 +2506,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
         name = s.Name,
         description = s.Description,
         version = s.Version,
+        mcpServers = s.RequiredMcp,
         author = s.Author,
         license = s.License,
         homepage = s.Homepage,

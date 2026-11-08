@@ -13,7 +13,14 @@ public sealed record McpToolInfo(
     bool Destructive);
 
 /// <summary>工具调用结果，已经整理成给模型看的文字。</summary>
-public sealed record McpCallResult(bool IsError, string Text);
+/// <param name="Images">工具返回的图片（截图、渲染结果）。文字里留了一句说明，图片本身交给调用方决定存哪、给不给模型看。</param>
+public sealed record McpCallResult(bool IsError, string Text, IReadOnlyList<McpImage>? Images = null);
+
+/// <summary>MCP 工具返回的一张图片（base64，和协议里一样）。</summary>
+public sealed record McpImage(string MimeType, string Base64)
+{
+    public int ApproxBytes => Base64.Length * 3 / 4;
+}
 
 /// <summary>
 /// 一个 MCP 会话：握手、列工具、调工具。传输方式由外面选好传进来。
@@ -137,12 +144,42 @@ public sealed class McpClient : IAsyncDisposable
 
     public async Task<McpCallResult> CallToolAsync(string name, JsonNode? arguments, CancellationToken ct)
     {
-        var result = await _transport.RequestAsync("tools/call", new JsonObject
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        try
         {
-            ["name"] = name,
-            ["arguments"] = arguments?.DeepClone() ?? new JsonObject(),
-        }, _timeout, ct) as JsonObject ?? new JsonObject();
-        return Render(result);
+            var result = await _transport.RequestAsync("tools/call", new JsonObject
+            {
+                ["name"] = name,
+                ["arguments"] = arguments?.DeepClone() ?? new JsonObject(),
+            }, _timeout, ct) as JsonObject ?? new JsonObject();
+            var rendered = Render(result);
+            // 只记工具名、耗时、大小；参数和返回内容可能有业务数据，不进日志
+            _transport.Log?.Write($"调用 {name}：{(rendered.IsError ? "工具报错" : "成功")}，{watch.ElapsedMilliseconds} ms，{rendered.Text.Length} 字" +
+                (rendered.Images is { Count: > 0 } imgs ? $"，{imgs.Count} 张图片" : ""));
+            return rendered;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _transport.Log?.Write($"调用 {name} 失败（{watch.ElapsedMilliseconds} ms）：{ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>正在等回应的请求数（健康检查在有调用没回来时不 ping）。</summary>
+    public int PendingCount => _transport.PendingCount;
+
+    /// <summary>MCP 的 ping：对方还活着就返回往返耗时。对方不认 ping（回 Method not found）也算活着——它回话了。</summary>
+    public async Task<TimeSpan> PingAsync(TimeSpan timeout, CancellationToken ct)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            await _transport.RequestAsync("ping", null, timeout, ct);
+        }
+        catch (McpRpcException)
+        {
+        }
+        return watch.Elapsed;
     }
 
     /// <summary>把工具结果里的各种内容整理成文字。图片、音频模型这边接不住，只说明有这么个东西。</summary>
@@ -150,6 +187,7 @@ public sealed class McpClient : IAsyncDisposable
     {
         var isError = result["isError"] is JsonValue e && e.TryGetValue<bool>(out var err) && err;
         var sb = new StringBuilder();
+        var images = new List<McpImage>();
         foreach (var node in result["content"] as JsonArray ?? new JsonArray())
         {
             if (node is not JsonObject item)
@@ -164,6 +202,11 @@ public sealed class McpClient : IAsyncDisposable
             {
                 case "text":
                     sb.Append(item["text"]?.ToString());
+                    break;
+                case "image" when item["data"]?.ToString() is { Length: > 0 } data:
+                    images.Add(new McpImage(item["mimeType"]?.ToString() is { Length: > 0 } mime ? mime : "image/png", data));
+                    // 调用方存好文件后会在这句后面补上保存位置
+                    sb.Append(ImagePlaceholder(images.Count - 1, images[^1]));
                     break;
                 case "image":
                 case "audio":
@@ -193,8 +236,12 @@ public sealed class McpClient : IAsyncDisposable
         {
             sb.Append(isError ? "工具执行失败，对方没有给出原因" : "（执行成功，没有返回内容）");
         }
-        return new McpCallResult(isError, sb.ToString());
+        return new McpCallResult(isError, sb.ToString(), images.Count > 0 ? images : null);
     }
+
+    /// <summary>第 i 张图片在文字里的说明，McpTool 存好文件后把它换成带路径的版本。</summary>
+    public static string ImagePlaceholder(int index, McpImage image) =>
+        $"[图片 {index + 1}：{image.MimeType}，约 {Math.Max(1, image.ApproxBytes / 1024)} KB]";
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
 

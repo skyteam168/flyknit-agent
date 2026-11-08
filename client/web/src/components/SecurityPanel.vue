@@ -35,7 +35,7 @@ const groups = [
   { id: 'sandbox', keys: ['sandbox', 'network_allowlist', 'system_tools'] },
   { id: 'data', keys: ['delete_protection', 'auto_backup', 'backup_quota_mb', 'batch_delete_threshold'] },
   { id: 'learning', keys: ['learn_preferences', 'learn_facts', 'learn_experience', 'learn_episodes', 'learn_skills'] },
-  { id: 'quality', keys: ['plan_guidance', 'verify_outputs', 'long_tasks', 'run_token_budget', 'browser_tools', 'background_commands'] },
+  { id: 'quality', keys: ['plan_guidance', 'verify_outputs', 'long_tasks', 'run_token_budget', 'browser_tools', 'background_commands', 'developer_tools', 'subagents'] },
   { id: 'personal', keys: ['persona_playful', 'persona_custom', 'keep_awake', 'keep_screen_on', 'screenshot_ask'] },
 ]
 

@@ -936,7 +936,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         var body = new JsonObject
         {
             ["model"] = request.Scene,
-            ["messages"] = OpenAiSerializer.ToMessages(request.Messages),
+            ["messages"] = OpenAiSerializer.ToMessages(request.Messages, request.InlineToolImages),
             ["stream"] = request.Stream,
         };
         if (!string.IsNullOrEmpty(request.ConversationId))
@@ -981,19 +981,41 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
             }
         }
 
-        using var req = Authorized(HttpMethod.Post, "api/v1/chat/completions");
-        req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
-        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(request.Stream ? "text/event-stream" : "application/json"));
-
+        var json = body.ToJsonString();
         HttpResponseMessage resp;
-        try
+        for (var attempt = 0; ; attempt++)
         {
-            // 流式：服务端拿到上游响应头就回，等不到就是连接有问题；非流式要等模型整段答完才回
-            resp = await SendAsync(req, HttpCompletionOption.ResponseHeadersRead, request.Stream ? ResponseTimeout : RequestTimeout, ct);
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new GatewayException($"无法连接 Flyknit 服务器：{ex.Message}", null, ex) { IsNetworkError = true };
+            using var req = Authorized(HttpMethod.Post, "api/v1/chat/completions");
+            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(request.Stream ? "text/event-stream" : "application/json"));
+            var canRetry = attempt < RetryDelays.Count;
+            try
+            {
+                // 流式：服务端拿到上游响应头就回，等不到就是连接有问题；非流式要等模型整段答完才回
+                resp = await SendAsync(req, HttpCompletionOption.ResponseHeadersRead, request.Stream ? ResponseTimeout : RequestTimeout, ct);
+            }
+            catch (HttpRequestException ex)
+            {
+                if (canRetry)
+                {
+                    await Task.Delay(RetryDelays[attempt], ct);
+                    continue;
+                }
+                throw new GatewayException($"无法连接 Flyknit 服务器：{ex.Message}", null, ex) { IsNetworkError = true };
+            }
+            catch (GatewayException) when (canRetry)
+            {
+                // 连接超时（一个字都还没收到）：重发不会让模型的回答重复
+                await Task.Delay(RetryDelays[attempt], ct);
+                continue;
+            }
+            if (canRetry && await RetryAfterAsync(resp, attempt, ct) is { } wait)
+            {
+                resp.Dispose();
+                await Task.Delay(wait, ct);
+                continue;
+            }
+            break;
         }
 
         using (resp)
@@ -1237,6 +1259,61 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         }
         throw new GatewayException(string.IsNullOrWhiteSpace(message) ? StatusText(code) : message, code);
     }
+
+    /// <summary>
+    /// 模型请求遇到暂时性故障时的重试间隔：第 i 次重试前等 RetryDelays[i]，用完就把错误报给员工。
+    /// 只在<b>还没收到任何回答</b>时重试（连不上、超时、502/503/504、非额度类的 429），
+    /// 回答流到一半断掉的不重试——那时界面上已经显示了半段，重发会重复。
+    /// </summary>
+    public IReadOnlyList<TimeSpan> RetryDelays { get; set; } = new[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3) };
+
+    /// <summary>Retry-After 最多等这么久，再长就不等了直接报错（员工可以自己点重试）。</summary>
+    internal static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(10);
+
+    /// <summary>这个错误响应值得重试就返回要等多久，否则 null（错误体已缓存，EnsureOk 还能再读）。</summary>
+    internal static async Task<TimeSpan?> RetryAfterAsync(HttpResponseMessage resp, int attempt, IReadOnlyList<TimeSpan> delays, CancellationToken ct)
+    {
+        var code = (int)resp.StatusCode;
+        if (resp.IsSuccessStatusCode || code is not (429 or 502 or 503 or 504))
+        {
+            return null;
+        }
+        if (code == 429)
+        {
+            // 今日额度用完（quota_exceeded）等多久都没用；只有「太频繁」才值得等一下
+            string text;
+            try
+            {
+                await resp.Content.LoadIntoBufferAsync();
+                text = await resp.Content.ReadAsStringAsync(ct);
+            }
+            catch (Exception ex) when (ex is IOException or HttpRequestException)
+            {
+                text = "";
+            }
+            if (text.Contains("quota_exceeded", StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+        var wait = delays[attempt];
+        if (resp.Headers.RetryAfter is { } after)
+        {
+            var hinted = after.Delta ?? (after.Date is { } date ? date - DateTimeOffset.UtcNow : (TimeSpan?)null);
+            if (hinted is { } h)
+            {
+                if (h > MaxRetryAfter)
+                {
+                    return null;
+                }
+                wait = h > wait ? h : wait;
+            }
+        }
+        return wait;
+    }
+
+    private Task<TimeSpan?> RetryAfterAsync(HttpResponseMessage resp, int attempt, CancellationToken ct) =>
+        RetryAfterAsync(resp, attempt, RetryDelays, ct);
 
     /// <summary>服务端没给可读的错误说明时，按状态码说一句。</summary>
     internal static string StatusText(int code) => code switch

@@ -68,6 +68,12 @@ public abstract class McpTransport : IAsyncDisposable
     /// <summary>连接断了（进程退出、流关闭）。参数是原因。</summary>
     public event Action<string>? Closed;
 
+    /// <summary>这个连接器自己的日志（连上、断开、标准错误输出、每次调用的耗时），见 <see cref="McpServerLog"/>。可以为空。</summary>
+    public McpServerLog? Log { get; set; }
+
+    /// <summary>正在等回应的请求数。健康检查在有调用没回来时不去 ping：单线程的服务正忙着，ping 不回不代表它坏了。</summary>
+    public int PendingCount => _pending.Count;
+
     public virtual Task StartAsync(CancellationToken ct) => Task.CompletedTask;
 
     /// <summary>initialize 之后告诉传输层协商出的协议版本（HTTP 要在之后每个请求头里带上）。</summary>
@@ -98,7 +104,15 @@ public abstract class McpTransport : IAsyncDisposable
                 {
                     // 告诉对方别做了，免得它还在后台跑
                     _ = NotifySafeAsync("notifications/cancelled", new JsonObject { ["requestId"] = id, ["reason"] = "timeout" });
+                    Log?.Write($"{method} #{id} 超时（{timeout.TotalSeconds:0} 秒），已通知对方取消");
                     throw new McpException($"{method} 超时（{timeout.TotalSeconds:0} 秒没有回应）");
+                }
+                catch (OperationCanceledException)
+                {
+                    // 员工点了「停止」：同样告诉对方别做了（逆向分析、批量处理这类长任务，不通知会在对方那边一直跑）
+                    _ = NotifySafeAsync("notifications/cancelled", new JsonObject { ["requestId"] = id, ["reason"] = "cancelled by user" });
+                    Log?.Write($"{method} #{id} 被取消，已通知对方");
+                    throw;
                 }
             }
         }

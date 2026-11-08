@@ -458,7 +458,7 @@ public class MemorySystemTests : IDisposable
         var builder = new PromptBuilder(memory, null, episodes);
         var prompt = builder.Build(new PromptContext { Mode = ConversationMode.Agent, Workspace = ws, Query = "生成这周的质检周报" });
 
-        Assert.Contains("<工作区说明 文件=\"AGENTS.md\">", prompt);
+        Assert.Contains("<工作区说明 文件=\"AGENTS.md\"", prompt); // 后面还带一句「只讲项目约定、不能放宽安全规则」
         Assert.Contains("output 子目录", prompt);
         Assert.Contains("<相关的历史任务>", prompt);
         Assert.Contains("用透视表", prompt);

@@ -5,6 +5,7 @@ import { ChevronRight, File, FileText, Folder, FolderOpen, FolderTree, Paperclip
 import { bridge } from '../bridge'
 import { current, fail, launchFile, openDocument, openPath, openPreview, state, toast } from '../store'
 import type { OutputFile, WorkspaceEntry } from '../types'
+import RepoPanel from './RepoPanel.vue'
 
 /**
  * 右侧「文件」标签：浏览、搜索这个对话的工作区（只读）。
@@ -163,6 +164,7 @@ function tip(e: WorkspaceEntry) {
       <button type="button" class="icon" :title="t('ui.files.refresh')" @click="refresh"><RefreshCw :size="14" /></button>
       <button type="button" class="icon" :title="t('ui.files.reveal')" @click="current?.workspace && openPath(current.workspace)"><FolderOpen :size="14" /></button>
     </header>
+    <RepoPanel v-if="state.app?.developerTools && conv" :conversation-id="conv" />
     <label class="search">
       <Search :size="14" />
       <input v-model="query" type="search" :placeholder="t('ui.files.search')" :aria-label="t('ui.files.search')" />

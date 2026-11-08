@@ -146,8 +146,11 @@ public sealed class DelegationLimits
     /// <summary>专家最多走几步。</summary>
     public int MaxSteps { get; init; } = 40;
 
-    /// <summary>交回主助手的结果最多这么多字，完整内容在子任务记录里。</summary>
+    /// <summary>交回主助手的结构化结果最多这么多字，完整内容在子任务记录里。</summary>
     public int MaxResultChars { get; init; } = 6000;
+
+    /// <summary>交回主助手的文字报告最多这么多字（专家、子代理最后那段回答）。</summary>
+    public int MaxReportChars { get; init; } = 16000;
 
     /// <summary>多久看一次派遣开关有没有被关掉。</summary>
     public TimeSpan SwitchPoll { get; init; } = TimeSpan.FromSeconds(2);

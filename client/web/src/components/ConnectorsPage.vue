@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, ChevronDown, Eye, KeyRound, Lightbulb, Link2, Loader2, Plug, Plus, RefreshCw, Search, TriangleAlert, Unplug, X } from '@lucide/vue'
+import { Check, ChevronDown, Eye, FileText, KeyRound, Lightbulb, Link2, Loader2, Plug, Plus, RefreshCw, Search, TriangleAlert, Unplug, X } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { loadMcp, state, toast } from '../store'
 import { renderMarkdown } from '../markdown'
@@ -124,6 +124,10 @@ function useExample(text: string) {
 
 const detailHtml = computed(() => (current.value?.detail ? renderMarkdown(current.value.detail) : ''))
 const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
+// 连接器自己的日志（连上、断开、报错、每次调用耗时，已打码），用系统的文本编辑器打开
+async function openLog(v: McpVendor) {
+  if (!(await bridge.openMcpLog(v.id))) toast(t('ui.mcp.noLog'))
+}
 </script>
 
 <template>
@@ -254,6 +258,7 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
           </template>
           <template v-else-if="connected(current)">
             <span class="ok-pill"><Check :size="14" /> {{ t('ui.mcp.connectedN', { n: current.tools.length }) }}</span>
+            <span v-if="current.latencyMs != null" class="latency" :title="t('ui.mcp.latencyHint')">{{ t('ui.mcp.latency', { ms: current.latencyMs }) }}</span>
             <button type="button" class="btn" @click="disconnect(current, false)"><Unplug :size="14" /> {{ t('ui.mcp.disconnect') }}</button>
           </template>
           <template v-else>
@@ -267,6 +272,7 @@ const statusText = (v: McpVendor) => t(`ui.mcp.status.${v.status}`)
         </div>
         <p v-if="current.auth === 'oauth' && !connected(current) && !busy(current)" class="note">{{ t('ui.mcp.oauthNote') }}</p>
         <p v-if="message || (current.error && !connected(current))" class="error"><TriangleAlert :size="14" /> {{ message || current.error }}</p>
+        <button v-if="current.hasLog" type="button" class="link-btn" @click="openLog(current)"><FileText :size="13" /> {{ t('ui.mcp.openLog') }}</button>
 
         <!-- 工具 -->
         <div v-if="connected(current) && current.tools.length" class="tools">
@@ -825,5 +831,23 @@ h2 {
   .detail-body {
     padding: 0 18px 18px;
   }
+}
+.latency {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+  align-self: center;
+}
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 2px 0;
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+}
+.link-btn:hover {
+  color: var(--thread);
+  text-decoration: underline;
 }
 </style>

@@ -59,7 +59,8 @@ public sealed record RecentRun(string ConversationId, string Title, string StopR
 
 /// <summary>上次没跑完就被关掉（程序退出、崩溃、电脑重启）的任务。</summary>
 /// <param name="Origin">ui 员工在界面上发起 / remote 钉钉、企业微信、手机 / headless 定时任务、后台指令。</param>
-public sealed record InterruptedRun(string ConversationId, string Title, DateTimeOffset StartedAt, string Origin);
+/// <param name="Stage">断点里记的当前阶段（计划里进行中的那一步），没有为空。</param>
+public sealed record InterruptedRun(string ConversationId, string Title, DateTimeOffset StartedAt, string Origin, string Stage = "");
 
 /// <summary>一条安全记录：被阻止的危险命令，或用户放行过的操作。</summary>
 public sealed class SecurityEvent
@@ -118,6 +119,11 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
     private Security.TaskGrantStore? _grants;
 
     public Security.TaskGrantStore Grants => _grants ??= new Security.TaskGrantStore(Open);
+
+    private Git.PrWatchStore? _prWatches;
+
+    /// <summary>盯着的 PR。</summary>
+    public Git.PrWatchStore PrWatches => _prWatches ??= new Git.PrWatchStore(Open);
 
     private Scheduling.ScheduledTaskStore? _schedules;
 
@@ -209,6 +215,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         AddColumn(c, "conversations", "run_started_at", "TEXT NULL");
         AddColumn(c, "conversations", "run_origin", "TEXT NULL");
         AddColumn(c, "conversations", "long_mode", "INTEGER NOT NULL DEFAULT 0");
+        // v0.11：运行中的断点（RunCheckpoint JSON：阶段、计划、计数、最后一个调用），任务结束时清掉
+        AddColumn(c, "conversations", "run_state", "TEXT NULL");
 
         // v0.5：安全记录（危险命令拦截与放行）
         using var sec = c.CreateCommand();
@@ -231,6 +239,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         Scheduling.ScheduledTaskStore.Migrate(c);
         // 任务授权记录（远程 / 定时 / 事件任务的「谁让做、做到哪」，只插入）
         Security.TaskGrantStore.Migrate(c);
+        // 盯着的 PR（定时查 CI、冲突、评审）
+        Git.PrWatchStore.Migrate(c);
 
         // v0.7：每轮任务的结果（任务效果统计：完成率、步数、产出文件问题，打开/关闭规划提醒和产出检查前后对比用）
         using var runs = c.CreateCommand();
@@ -617,7 +627,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "UPDATE conversations SET run_started_at = $at, run_origin = $o WHERE id = $id";
+        cmd.CommandText = "UPDATE conversations SET run_started_at = $at, run_origin = $o, run_state = NULL WHERE id = $id";
         cmd.Parameters.AddWithValue("$at", DateTimeOffset.Now.ToString("O"));
         cmd.Parameters.AddWithValue("$o", origin);
         cmd.Parameters.AddWithValue("$id", id);
@@ -629,9 +639,21 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "UPDATE conversations SET run_started_at = NULL, run_origin = NULL WHERE id = $id";
+        cmd.CommandText = "UPDATE conversations SET run_started_at = NULL, run_origin = NULL, run_state = NULL WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>运行中的断点（见 <see cref="Agent.RunCheckpoint"/>）。</summary>
+    public void SetRunState(string id, string json) => Update(id, "run_state = $v", json);
+
+    public string? GetRunState(string id)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT run_state FROM conversations WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        return cmd.ExecuteScalar() as string;
     }
 
     public void AddFileChange(string conversationId, string turnId, Tools.FileChange change)
@@ -726,7 +748,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            SELECT id, title, run_started_at, COALESCE(run_origin, 'ui') FROM conversations
+            SELECT id, title, run_started_at, COALESCE(run_origin, 'ui'), run_state FROM conversations
             WHERE run_started_at IS NOT NULL AND deleted_at IS NULL
             ORDER BY run_started_at DESC
             """;
@@ -734,7 +756,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         var list = new List<InterruptedRun>();
         while (r.Read())
         {
-            list.Add(new InterruptedRun(r.GetString(0), r.GetString(1), DateTimeOffset.Parse(r.GetString(2)), r.GetString(3)));
+            var stage = Agent.RunCheckpoint.Parse(r.IsDBNull(4) ? null : r.GetString(4))?.Stage ?? "";
+            list.Add(new InterruptedRun(r.GetString(0), r.GetString(1), DateTimeOffset.Parse(r.GetString(2)), r.GetString(3), stage));
         }
         return list;
     }

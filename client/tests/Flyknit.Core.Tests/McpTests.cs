@@ -121,7 +121,8 @@ public class McpTests
             """)!.AsObject());
         Assert.False(r.IsError);
         Assert.Contains("第一段", r.Text);
-        Assert.Contains("[图片：image/png", r.Text);
+        Assert.Contains("[图片 1：image/png", r.Text);
+        Assert.Equal("image/png", Assert.Single(r.Images!).MimeType); // 图片本身交给调用方存文件、决定给不给模型看
         Assert.Contains("资源正文", r.Text);
         Assert.Contains("[周报](https://docs.qq.com/1)", r.Text);
 

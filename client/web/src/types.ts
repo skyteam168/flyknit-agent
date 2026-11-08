@@ -400,6 +400,8 @@ export interface SkillInfo {
   name: string
   description: string
   version: string
+  /** 要用到的 MCP 连接器 ID（SKILL.md 的 mcp-servers） */
+  mcpServers?: string[]
   author: string
   license: string
   homepage: string
@@ -481,6 +483,10 @@ export interface McpVendor {
   serverName: string
   transportUsed: string
   connectedAt: string | null
+  /** 最近一次健康检查的往返耗时（毫秒） */
+  latencyMs?: number | null
+  /** 有这个连接器的日志 */
+  hasLog?: boolean
   tools: McpTool[]
 }
 
@@ -558,6 +564,8 @@ export interface AttachmentRef {
   preview?: string
   /** 员工粘贴的长文本：界面上是卡片，发给模型时整段放进消息 */
   pasted?: boolean
+  /** 粘贴的图片还在后台存成文件（界面先显示缩略图，存好之前不能发送、不能打开） */
+  saving?: boolean
   /** 粘贴的全文，只在本机界面里用（编辑、查看），不发给宿主；从历史加载的消息没有，要看时向宿主读 */
   pasteText?: string
 }
@@ -650,6 +658,8 @@ export interface AppInfo {
   sandboxed: boolean
   /** IT 允不允许开长任务模式 */
   longTasks?: boolean
+  /** IT 打开了「开发者工具」：办事模式有 grep / git 工具，输入框能用 /init */
+  developerTools?: boolean
   /** 后台联网搜索已就绪 */
   webSearchEnabled?: boolean
   /** 本地偏好：深度思考 */
@@ -676,6 +686,8 @@ export interface InterruptedRunInfo {
   title: string
   startedAt: string
   origin: string
+  /** 断点里的当前阶段（计划里进行中的那一步） */
+  stage?: string
 }
 
 /** 最近跑完的一轮 */
@@ -838,6 +850,8 @@ export interface SubtaskDto {
   context: string
   status: SubtaskStatus
   summary: string
+  /** 完整的文字结果（专家、子代理最后那段回答） */
+  report?: string
   findings: SubtaskFinding[]
   openQuestions: string[]
   nextSuggestions: string[]
@@ -935,6 +949,7 @@ export type HostEvent =
   | { type: 'speech.autoStop' }
   | { type: 'chat.notice'; conversationId: string; text: string }
   | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
+  | { type: 'pr.updated'; conversationId: string; watch: PrWatchView }
   | { type: 'chat.paused'; conversationId: string; paused: boolean }
   | { type: 'runs.changed' }
   | { type: 'browser.state'; active: boolean; url: string; title: string; action?: string; shot?: string }
@@ -985,7 +1000,7 @@ export type HostEvent =
   | { type: 'shell.request'; action: 'ask' | 'summarize' | 'translate' | 'workspace'; attachments?: AttachmentRef[]; path?: string }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
-      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
+      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'developerTools' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
     >)
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }
@@ -1187,6 +1202,53 @@ export interface DocumentSaveResult {
 }
 
 /** 右侧「文件」标签里工作区的一项（宿主 workspace.list / workspace.search） */
+/** 工作区所在的 git 仓库（开发者工具开着时） */
+export interface RepoInfo {
+  root: string
+  /** owner/repo，没有远端时是目录名 */
+  name: string
+  branch: string
+  detached: boolean
+  remoteUrl: string
+  webUrl: string
+  branchUrl: string
+  host: string
+  isGitHub: boolean
+  defaultBranch: string
+  /** 未提交的改动有几处 */
+  changed: number
+  ahead: number
+  behind: number
+}
+
+export type PrCheckState = 'pass' | 'fail' | 'pending' | 'skip'
+
+/** 盯着的一个 PR */
+export interface PrWatchView {
+  id: string
+  conversationId: string
+  number: number
+  title: string
+  url: string
+  state: 'OPEN' | 'MERGED' | 'CLOSED'
+  draft: boolean
+  ci: 'none' | 'pending' | 'success' | 'failure'
+  checks: { name: string; state: PrCheckState; url: string }[]
+  mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
+  review: '' | 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED'
+  head: string
+  base: string
+  autoFix: boolean
+  autoFixes: number
+  maxAutoFixes: number
+  intervalMinutes: number
+  nextCheckAt: string | null
+  lastCheckedAt: string | null
+  lastError: string
+  active: boolean
+  endedReason: string
+}
+
 export interface WorkspaceEntry {
   name: string
   /** 工作区里的相对路径（展开文件夹时传回去） */

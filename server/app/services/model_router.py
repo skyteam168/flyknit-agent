@@ -36,6 +36,8 @@ class Target:
     extra_body: dict
     supports_vision: bool
     context_length: int = 131072
+    thinking_param: str = "enable_thinking"
+    reasoning_echo: str = "auto"
 
 
 class NoRouteError(Exception):
@@ -59,6 +61,8 @@ def _to_target(m: ModelConfig) -> Target | None:
         extra_body=dict(m.extra_body or {}),
         supports_vision=m.supports_vision,
         context_length=m.context_length or 131072,
+        thinking_param=m.thinking_param or "enable_thinking",
+        reasoning_echo=m.reasoning_echo or "auto",
     )
 
 
@@ -134,7 +138,9 @@ async def resolve(session: AsyncSession, scene: str, model_id: int | None = None
         order.append("chat")
     if scene == "chat":
         order.append("agent")
-    if scene == "agent":
+    if scene == "code":
+        order.append("agent")
+    if scene in ("agent", "code"):
         order.append("chat")
 
     for s in order:
@@ -151,9 +157,35 @@ async def resolve(session: AsyncSession, scene: str, model_id: int | None = None
     raise NoRouteError(f"场景 {scene} 尚未配置可用模型，请在管理后台配置路由")
 
 
+def adapt_thinking(out: dict, style: str) -> None:
+    """把客户端统一发的 enable_thinking 换成这个模型认的写法（就地修改）。客户端没发就不动，按模型的 extra_body 默认。"""
+    if "enable_thinking" not in out or style == "enable_thinking":
+        return
+    on = bool(out.pop("enable_thinking"))
+    if style == "thinking":
+        out["thinking"] = {"type": "enabled" if on else "disabled"}
+    elif style == "chat_template_kwargs":
+        kwargs = out.get("chat_template_kwargs")
+        out["chat_template_kwargs"] = {**(kwargs if isinstance(kwargs, dict) else {}), "enable_thinking": on}
+    # none：去掉就行
+
+
+def strip_reasoning(messages):
+    """去掉历史消息里的 reasoning_content（返回新列表，不改调用方的原始请求——归档还要用）。"""
+    if not isinstance(messages, list):
+        return messages
+    return [
+        {k: v for k, v in m.items() if k != "reasoning_content"} if isinstance(m, dict) and "reasoning_content" in m else m
+        for m in messages
+    ]
+
+
 def build_body(body: dict, target: Target) -> dict:
     # flyknit_* 都是给网关自己看的（选模型、子任务 ID……），上游不认，有的还会因为多出来的字段报 400
     out = {k: v for k, v in body.items() if k != "scene" and not k.startswith("flyknit_")}
+    adapt_thinking(out, target.thinking_param)
+    if target.reasoning_echo == "strip" and "messages" in out:
+        out["messages"] = strip_reasoning(out["messages"])
     for k, v in target.extra_body.items():
         out.setdefault(k, v)
     out["model"] = target.upstream_model

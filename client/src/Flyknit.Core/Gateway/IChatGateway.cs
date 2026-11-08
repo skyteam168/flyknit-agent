@@ -8,6 +8,9 @@ public static class Scenes
 {
     public const string Chat = "chat";
     public const string Agent = "agent";
+
+    /// <summary>开了「开发者工具」的办事任务。后台没单独配置时服务端回退到 agent。</summary>
+    public const string Code = "code";
     public const string Translate = "translate";
     public const string Title = "title";
     public const string Vision = "vision";
@@ -33,6 +36,12 @@ public sealed class ChatRequest
 
     /// <summary>专家执行子任务时的子任务 ID：服务端据此检查子任务还能不能继续、累计用量、卡预算。</summary>
     public string? SubtaskId { get; init; }
+
+    /// <summary>
+    /// 把工具返回的图片（截图等）发给模型。只有这个场景的模型支持识图时才开：
+    /// 否则网关看到图片会把整个请求改走识图场景，那个模型未必会调工具。
+    /// </summary>
+    public bool InlineToolImages { get; init; }
 }
 
 public sealed class WebSource

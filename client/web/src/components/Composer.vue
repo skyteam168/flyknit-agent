@@ -72,7 +72,7 @@ import {
   startSpeech,
   state,
   stop,
-  toast, openConnectors,
+  toast, openConnectors, openAttachment,
 } from '../store'
 import type { InterjectMode, Mode, PendingInput, SlashCommand } from '../types'
 import { shouldFold, snippet } from '../pasted'
@@ -98,6 +98,7 @@ const from = computed(() => current.value?.translateFrom ?? draftMode.translateF
 const to = computed(() => current.value?.translateTo ?? draftMode.translateTo)
 const busy = computed(() => currentState.value?.busy ?? false)
 const paused = computed(() => !!currentState.value?.paused)
+const stopping = computed(() => !!currentState.value?.stopping)
 /** 计划模式（先出方案）：当前对话的，或者新对话打算开的 */
 const planMode = computed(() => (current.value ? !!state.planMode[current.value.id] : draftMode.planMode))
 /** 方案好了：计划模式下这一轮跑完、最后一条是 AI 的回答 */
@@ -150,6 +151,10 @@ async function submit(how?: InterjectMode) {
   let outgoing = value
   const slash = parseSlash(value)
   const cmd = slash ? findCommand(slash.name, state.commands.mine, state.commands.it) : null
+  // /init：开发者工具打开时，让 AI 摸清工作区后写一份项目说明 FLYKNIT.md（员工或公司自己有同名指令时用他们的）
+  if (slash && !cmd && slash.name.toLowerCase() === 'init' && initAvailable.value) {
+    outgoing = t('ui.slash.initPrompt') + (slash.rest ? `\n\n${slash.rest}` : '')
+  }
   if (slash && cmd) {
     const r = expandCommand(cmd, slash.rest)
     if (r.missing.length) {
@@ -258,6 +263,7 @@ async function editInput(item: PendingInput) {
 
 // ---------- 快捷指令选择：输入框里只有「/」加几个字时列出来 ----------
 interface SlashItem { name: string; title: string; template: string; source: 'builtin' | 'it' | 'mine' }
+const initAvailable = computed(() => !!state.app?.developerTools && mode.value === 'agent')
 const slashIndex = ref(0)
 const slashDismissed = ref('')
 const slashItems = computed<SlashItem[]>(() => {
@@ -268,6 +274,7 @@ const slashItems = computed<SlashItem[]>(() => {
     ...state.commands.mine.map((c) => ({ ...c, source: 'mine' as const })),
     ...state.commands.it.filter((c) => !state.commands.mine.some((x) => x.name.toLowerCase() === c.name.toLowerCase())).map((c) => ({ ...c, source: 'it' as const })),
     { name: 'btw', title: t('ui.slash.btw'), template: '', source: 'builtin' as const },
+    ...(initAvailable.value ? [{ name: 'init', title: t('ui.slash.init'), template: '', source: 'builtin' as const }] : []),
   ]
   return all.filter((c) => !q || c.name.toLowerCase().includes(q) || c.title.toLowerCase().includes(q)).slice(0, 8)
 })
@@ -534,7 +541,7 @@ onBeforeUnmount(() => {
     <div class="card" :class="{ busy }">
       <!-- 上次没做完：已经做过的步骤都存着，可以接着做 -->
       <div v-if="interrupted && !props.home" class="paused-bar interrupted-bar">
-        <span>{{ t('ui.longTask.interruptedBar') }}</span>
+        <span>{{ t('ui.longTask.interruptedBar') }}<template v-if="interrupted.stage"> {{ t('ui.tasks.stoppedAt', { stage: interrupted.stage }) }}</template></span>
         <button type="button" class="paused-go ghost" @click="dismissInterrupted(interrupted.conversationId)">{{ t('ui.tasks.dismiss') }}</button>
         <button type="button" class="paused-go" @click="resumeInterrupted(interrupted.conversationId)"><Play :size="13" /> {{ t('ui.tasks.resume') }}</button>
       </div>
@@ -573,10 +580,22 @@ onBeforeUnmount(() => {
             <button type="button" class="paste-edit" :title="t('ui.paste.expand')" :aria-label="t('ui.paste.expand')" @click="expandPaste(i)"><Pencil :size="13" /></button>
           </div>
         </div>
-        <div v-else class="chip" :title="a.localPath">
-          <img v-if="a.preview" :src="a.preview" alt="" />
-          <component :is="a.mime.startsWith('image/') ? ImageIcon : FileText" v-else :size="15" />
-          <span>{{ a.fileName }}</span>
+        <div v-else class="chip" :class="{ saving: a.saving }" :title="a.saving ? t('ui.attach.saving') : a.localPath">
+          <!-- 点开看：图片、PDF、Office 等按类型在客户端里打开（见 openAttachment） -->
+          <span
+            class="chip-open"
+            role="button"
+            :tabindex="a.saving ? -1 : 0"
+            :aria-disabled="a.saving"
+            :aria-label="t('ui.attach.open', { name: a.fileName })"
+            @click="openAttachment(a)"
+            @keydown.enter.prevent="openAttachment(a)"
+          >
+            <img v-if="a.preview" :src="a.preview" alt="" />
+            <component :is="a.mime.startsWith('image/') ? ImageIcon : FileText" v-else :size="15" />
+            <span class="chip-name">{{ a.fileName }}</span>
+            <Loader2 v-if="a.saving" :size="13" class="spin" />
+          </span>
           <button type="button" :aria-label="t('menu.delete')" @click="state.pending.splice(i, 1)"><X :size="13" /></button>
         </div>
         </template>
@@ -838,8 +857,17 @@ onBeforeUnmount(() => {
           <button type="button" class="tool-btn icon-only" :class="{ on: paused }" :title="t(paused ? 'ui.pause.resume' : 'ui.pause.pause')" @click="togglePause">
             <component :is="paused ? Play : Pause" :size="16" />
           </button>
-          <button type="button" class="send stop" :title="t('input.stop')" @click="stop">
-            <Square :size="13" fill="currentColor" />
+          <button
+            type="button"
+            class="send stop"
+            :class="{ stopping }"
+            :disabled="stopping"
+            :title="t(stopping ? 'input.stopping' : 'input.stop')"
+            :aria-label="t(stopping ? 'input.stopping' : 'input.stop')"
+            @click="stop"
+          >
+            <Loader2 v-if="stopping" :size="15" class="spin" />
+            <Square v-else :size="13" fill="currentColor" />
           </button>
         </template>
         <button v-else type="button" class="send" :disabled="!canSend" :title="t('input.send')" @click="submit()">
@@ -1090,7 +1118,25 @@ onBeforeUnmount(() => {
   object-fit: cover;
   border-radius: 4px;
 }
-.chip span {
+.chip-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  cursor: pointer;
+}
+.chip-open:hover .chip-name {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.chip.saving .chip-open {
+  cursor: progress;
+}
+.chip.saving img {
+  opacity: 0.6;
+}
+.chip-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

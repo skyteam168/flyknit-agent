@@ -18,6 +18,7 @@ import RightPanel from './components/RightPanel.vue'
 import TraceDialog from './components/TraceDialog.vue'
 import ExpertTaskDialog from './components/ExpertTaskDialog.vue'
 import TextViewDialog from './components/TextViewDialog.vue'
+import ImageViewer from './components/ImageViewer.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
@@ -135,7 +136,8 @@ function wireShortcuts() {
   registerShortcut('conversation.prev', () => moveConversation(-1))
   registerShortcut('conversation.next', () => moveConversation(1))
   registerShortcut('chat.stop', () => {
-    if (convFiles.viewing) closeFilesViewer()
+    if (state.imageView) state.imageView = null
+    else if (convFiles.viewing) closeFilesViewer()
     else if (state.settingsOpen) state.settingsOpen = false
     else if (state.trace) backTrace()
     else if (state.subtaskDetail) state.subtaskDetail = null
@@ -343,6 +345,7 @@ onBeforeUnmount(() => {
     <!-- 专家任务详情在链路弹窗下面：从详情里点「查看执行记录」时链路盖在上面 -->
     <ExpertTaskDialog v-if="state.subtaskDetail" />
     <TextViewDialog v-if="state.textView" :key="state.textView.localPath" />
+    <ImageViewer />
     <ChangesDialog v-if="state.changesView" />
     <TraceDialog v-if="state.trace" />
     <SettingsDialog v-if="state.settingsOpen" />

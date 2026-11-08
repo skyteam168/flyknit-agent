@@ -9,6 +9,8 @@
  */
 import type { DocModel } from './documents'
 import type {
+  RepoInfo,
+  PrWatchView,
   SlashCommand,
   PluginInfo,
   WorkspaceEntry,
@@ -245,6 +247,7 @@ class Bridge {
     this.call<{ ok: boolean; message: string; vendor: McpVendor | null }>('mcp.connect', { id, values }, undefined, 6 * 60_000)
   cancelMcp = (id: string) => this.call<void>('mcp.cancel', { id })
   disconnectMcp = (id: string, forget: boolean) => this.call<McpVendor | null>('mcp.disconnect', { id, forget })
+  openMcpLog = (id: string) => this.call<boolean>('mcp.openLog', { id })
   // 从技能库下载安装，宿主最多等 3 分钟
   installSkillFromLibrary = (name: string) => this.call<SkillInstallOutcome>('skills.installFromLibrary', { name }, undefined, 200_000)
 
@@ -344,6 +347,16 @@ class Bridge {
   saveCommands = (items: SlashCommand[]) => this.call<{ ok: boolean; message: string }>('commands.save', { items })
   /** 右侧「文件」标签：列工作区里的一个文件夹（path 是相对工作区的路径，空 = 工作区本身） */
   listWorkspace = (conversationId: string, path: string) => this.call<WorkspaceListing>('workspace.list', { conversationId, path })
+  // 仓库和 PR（开发者工具开着时）
+  repoInfo = (conversationId: string) => this.call<RepoInfo | null>('repo.info', { conversationId })
+  repoBranches = (conversationId: string) => this.call<string[]>('repo.branches', { conversationId })
+  repoBranch = (conversationId: string, name: string, create: boolean) =>
+    this.call<{ ok: boolean; message: string }>('repo.branch', { conversationId, name, create }, undefined, 60_000)
+  repoOpen = (conversationId: string, what: 'repo' | 'branch' | 'pr', id = '') => this.call<boolean>('repo.open', { conversationId, what, id })
+  prList = (conversationId: string) => this.call<PrWatchView[]>('pr.list', { conversationId })
+  prCheck = (id: string) => this.call<PrWatchView | null>('pr.check', { id }, undefined, 120_000)
+  prStop = (id: string) => this.call<PrWatchView | null>('pr.stop', { id })
+  prAutoFix = (id: string, on: boolean) => this.call<PrWatchView | null>('pr.autoFix', { id, on })
   searchWorkspace = (conversationId: string, query: string) =>
     this.call<{ truncated: boolean; entries: WorkspaceEntry[] }>('workspace.search', { conversationId, query }, undefined, 30_000)
   /** 工作区里的文件加进输入框（成为附件） */

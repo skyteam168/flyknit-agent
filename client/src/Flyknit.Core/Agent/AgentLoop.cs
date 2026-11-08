@@ -43,6 +43,11 @@ public sealed class AgentLoop
 
     public const string LeakRetryNotice = "模型返回的格式不对，正在重新生成回答…";
 
+    /// <summary>读到疑似提示词注入的内容时给员工的提示。</summary>
+    public const string InjectionNotice = "读到的内容里有像是在给 AI 下指令的文字（可能是提示词注入），这一轮接下来除了查看，每一步都会先请你确认。";
+
+    internal const string TaintReason = "这一轮读到的内容里有疑似提示词注入，为安全起见这一步需要你确认";
+
     public const string ChatModeFallback = "（AI 想执行操作，但对话模式下不能调用工具。需要它操作电脑的话，请切换到“办事”模式再问一次。）";
 
     public const string AgentModeFallback = "（模型返回的工具调用格式无法识别，没有执行。请再试一次，或者换一个模型。）";
@@ -175,6 +180,12 @@ public sealed class AgentLoop
     /// </summary>
     public Action<ChatMessage>? Persist { get; init; }
 
+    /// <summary>
+    /// 断点（<see cref="RunCheckpoint"/> 的 JSON）：每执行一个工具、改一次计划、请员工确认一次就给一份，宿主存起来。
+    /// 程序被关后「继续」时据此说清做到哪一步、最后那个操作有没有执行完。保存失败不影响运行。
+    /// </summary>
+    public Action<string>? Checkpoint { get; init; }
+
     public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
@@ -228,6 +239,7 @@ public sealed class AgentLoop
         var outputProblemsAtEnd = 0;
         var budget = new RunBudget { MaxTokens = _options.MaxRunTokens };
         ctx.Budget = budget; // 派遣专家时据此预留额度，专家用掉的再记回来
+        ctx.ToolNames = () => _tools.All.Select(t => t.Name).ToList();
         var endRequested = false; // 专家交卷：本次运行到此为止
         var guardNudges = 0;
         // 工具定义每次请求都要整份发过去（几十个工具能占好几万 token），压缩上下文时要算上
@@ -237,7 +249,31 @@ public sealed class AgentLoop
             context.ToolTokens = toolTokens;
         }
 
-        void PlanChanged(IReadOnlyList<PlanItem> plan) => observer.OnPlanUpdated(plan);
+        var checkpoint = new RunCheckpoint { RunId = ctx.RunId };
+        // 提示词注入：这一轮读到过可疑的外部内容后，除了只读操作每一步都要员工确认（见 PromptInjectionGuard）
+        PromptInjectionGuard.Finding? taint = null;
+        void SaveCheckpoint()
+        {
+            if (Checkpoint is null)
+            {
+                return;
+            }
+            checkpoint.Steps = steps;
+            try
+            {
+                Checkpoint(checkpoint.ToJson());
+            }
+            catch (Exception)
+            {
+                // 断点存不下来不影响任务本身
+            }
+        }
+        void PlanChanged(IReadOnlyList<PlanItem> plan)
+        {
+            observer.OnPlanUpdated(plan);
+            checkpoint.PlanUpdated(plan);
+            SaveCheckpoint();
+        }
         ctx.PlanChanged += PlanChanged;
         try
         {
@@ -325,6 +361,7 @@ public sealed class AgentLoop
                             ModelId = modelId,
                             ConversationId = ctx.ConversationId,
                             ExtraBody = extraBody,
+                            InlineToolImages = _options.InlineToolImages,
                         },
                         observer,
                         ct);
@@ -403,6 +440,9 @@ public sealed class AgentLoop
                     }
                 }
 
+                // fork 子代理继承到这里为止的对话（不含这条带调用的回答：它的工具结果还没有）
+                var forkPoint = history.Count;
+                ctx.ForkHistory = () => history.Take(forkPoint).ToList();
                 var assistant = ChatMessage.Assistant(content, turn.ToolCalls, turn.Reasoning.Length > 0 ? turn.Reasoning : null);
                 assistant.ModelName = turn.ModelName;
                 assistant.PromptTokens = turn.Usage?.PromptTokens;
@@ -746,9 +786,13 @@ public sealed class AgentLoop
 
         ToolCall? MapLeakedCall(LeakedToolCall c) => MapLeaked(c, _tools);
 
-        void AppendTool(ToolCall call, string content)
+        void AppendTool(ToolCall call, string content, List<Attachment>? attachments = null)
         {
             var m = ChatMessage.ToolResult(call, content);
+            if (attachments is { Count: > 0 })
+            {
+                m.Attachments.AddRange(attachments);
+            }
             Append(m);
             observer.OnToolMessage(m);
         }
@@ -823,7 +867,7 @@ public sealed class AgentLoop
             var tool = _tools.Get(call.Name);
             if (tool is null)
             {
-                AppendTool(call, $"错误：不存在名为 {call.Name} 的工具");
+                AppendTool(call, MissingToolText(call.Name, _tools));
                 step.Dispose();
                 return PreparedCall.Done(call, false);
             }
@@ -850,6 +894,13 @@ public sealed class AgentLoop
                 if (context.Rules is { IsEmpty: false } rules)
                 {
                     decision = rules.Apply(call.Name, call.ArgumentsJson, decision);
+                }
+                // 污染模式：读到过疑似注入的内容后，非只读操作一律请员工确认，「以后自动」「本次都允许」也跳过
+                if (taint is not null && decision.Level != RiskLevel.Blocked
+                    && !PromptInjectionGuard.StaysAutomaticWhenTainted(call.Name, decision, tool is Mcp.McpTool m ? m.Info.ReadOnly : PlanMode.Allows(tool)))
+                {
+                    decision = (decision.Level == RiskLevel.Auto ? PolicyDecision.Confirm(TaintReason) with { Effect = decision.Effect, Rule = decision.Rule } : decision with { Reason = TaintReason + "；" + decision.Reason })
+                        with { AlwaysAsk = true };
                 }
                 summary = tool.Describe(args);
             }
@@ -908,6 +959,8 @@ public sealed class AgentLoop
                         Decision = decision,
                         Rationale = rationale,
                     }, token);
+                    checkpoint.Asked(choice == ConfirmChoice.Reject);
+                    SaveCheckpoint();
 
                     if (choice == ConfirmChoice.Reject)
                     {
@@ -944,6 +997,17 @@ public sealed class AgentLoop
             try
             {
                 context.CurrentCallId = p.Call.Id;
+                string summary;
+                try
+                {
+                    summary = p.Tool.Describe(p.Args);
+                }
+                catch (Exception)
+                {
+                    summary = p.Call.Name;
+                }
+                checkpoint.ToolStarted(p.Call.Id, p.Call.Name, summary);
+                SaveCheckpoint();
                 return await p.Tool.ExecuteAsync(p.Args, context, timeout.Token);
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
@@ -967,12 +1031,35 @@ public sealed class AgentLoop
             var call = p.Call;
             // 太长的结果存成文件，模型拿到开头、结尾和路径（见 ToolOutputSpill）
             var raw = executed ?? ToolResult.Fail("执行失败");
+            // 连接器、浏览器、命令输出里的 Cookie / 令牌 / 密码：进模型上下文、存进对话和审计之前先打码
+            if (SecretRedactor.AppliesTo(call.Name) && raw.Output.Length > 0)
+            {
+                raw = raw with { Output = SecretRedactor.Redact(raw.Output) };
+            }
+            // 外部内容：清掉看不见的字符和伪造的角色标记；像是在给 AI 下指令的，结果前加提醒，这一轮进入污染模式
+            if (PromptInjectionGuard.IsUntrusted(call.Name) && raw.Output.Length > 0)
+            {
+                var finding = PromptInjectionGuard.Scan(raw.Output);
+                raw = raw with { Output = PromptInjectionGuard.Neutralize(raw.Output) };
+                if (finding is not null)
+                {
+                    raw = raw with { Output = PromptInjectionGuard.Warning(finding) + raw.Output };
+                    if (taint is null)
+                    {
+                        taint = finding;
+                        step.Summary = (step.Summary ?? "") + "；疑似提示词注入，这一轮之后的操作都要确认";
+                        observer.OnNotice(InjectionNotice);
+                    }
+                }
+            }
             // IT 的工具规则：结果打码、加一句公司规定（在落盘之前，存下来的也是打过码的）
             if (ctx.Rules is { IsEmpty: false } toolRules)
             {
                 raw = raw with { Output = toolRules.Annotate(call.Name, call.ArgumentsJson, raw.Output) };
             }
-            var result = ToolOutputSpill.Apply(raw, _options.MaxToolOutputChars, _options.ToolOutputDir, call.Name, call.Id);
+            // 工具返回的图片先存成文件（结果里补上路径、算进产出、挂成附件），再按长度落盘
+            var (withImages, images) = ToolImageStore.Save(raw, _options.ToolOutputDir, call.Name, call.Id);
+            var result = ToolOutputSpill.Apply(withImages, _options.MaxToolOutputChars, _options.ToolOutputDir, call.Name, call.Id);
             if (result.Usage is { } toolUsage)
             {
                 // 派遣出去的专家用掉的 token：算进这次运行的用量和预算
@@ -1031,7 +1118,9 @@ public sealed class AgentLoop
                     }
                 }
             }
-            AppendTool(call, text);
+            AppendTool(call, text, images);
+            checkpoint.ToolFinished(call.Id, result.Ok);
+            SaveCheckpoint();
             return result.Ok;
         }
 
@@ -1097,5 +1186,25 @@ public sealed class AgentLoop
         public Trace.StepTimer? Step { get; }
         public bool Ready { get; }
         public bool Ok { get; }
+    }
+
+    /// <summary>
+    /// 模型调了一个不存在的工具。连接器工具（mcp__x__y）说清楚是哪种情况：连接器没连上，还是连上了但没有这个工具——
+    /// 并列出那个连接器真实的工具名，免得它接着猜。
+    /// </summary>
+    internal static string MissingToolText(string name, ToolRegistry tools)
+    {
+        if (!Mcp.McpNames.IsMcp(name))
+        {
+            return $"错误：不存在名为 {name} 的工具";
+        }
+        var rest = name[Mcp.McpNames.Prefix.Length..];
+        var cut = rest.IndexOf("__", StringComparison.Ordinal);
+        var server = cut > 0 ? rest[..cut] : rest;
+        var prefix = Mcp.McpNames.Prefix + server + "__";
+        var real = tools.All.Select(t => t.Name).Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(n => n).ToList();
+        return real.Count == 0
+            ? $"错误：没有 {name} 这个工具——连接器「{server}」现在没有连上（或者不存在）。不要再猜它的工具名；告诉员工这一步需要先在「连接器」里连接「{server}」，没有的话请 IT 上架。"
+            : $"错误：连接器「{server}」没有 {name} 这个工具。它真实的工具有：{string.Join("、", real.Take(40))}{(real.Count > 40 ? " 等" : "")}。只能用这些名字。";
     }
 }
