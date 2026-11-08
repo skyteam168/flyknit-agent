@@ -153,6 +153,30 @@ class UsageModelDaily(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class UsagePurposeDaily(Base):
+    """
+    Token 用量按用途分：每天、每个用途、每个场景、每个模型一行。
+
+    场景只说明走的哪套模型配置；同样走「办事」场景的，可能是员工的正常任务，也可能是客户端在后台做的
+    压缩上下文、复盘、整理记忆、生成标题。客户端在请求里带 flyknit_purpose，这里分开记，后台才看得出
+    token 花在哪。不带的（正常对话、旧版客户端）记成 turn。只用于统计，不参与配额。
+    """
+
+    __tablename__ = "usage_purpose_daily"
+    __table_args__ = (UniqueConstraint("day", "purpose", "scene", "model_name", name="uq_usage_purpose_day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[str] = mapped_column(String(10), index=True)  # YYYY-MM-DD（本地时区）
+    purpose: Mapped[str] = mapped_column(String(20), default="turn")
+    scene: Mapped[str] = mapped_column(String(20), default="chat")
+    model_name: Mapped[str] = mapped_column(String(200), default="")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    requests: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class SkillPackage(Base):
     """公司技能库里的一个技能包（zip 存在磁盘上，这里只存元数据）。"""
 

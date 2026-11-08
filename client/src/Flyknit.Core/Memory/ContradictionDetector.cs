@@ -192,6 +192,7 @@ public sealed class ContradictionDetector
             var turn = await _gateway.CompleteAsync(new ChatRequest
             {
                 Scene = Scene,
+                Purpose = Flyknit.Core.Gateway.Purposes.Memory,
                 Stream = false,
                 Temperature = 0.1,
                 MaxTokens = 512,

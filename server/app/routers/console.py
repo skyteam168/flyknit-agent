@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import require_admin
-from ..models import Device, ModelConfig, RouteRule, UsageDaily, UsageModelDaily
+from ..models import Device, ModelConfig, RouteRule, UsageDaily, UsageModelDaily, UsagePurposeDaily
 from ..services import asr, model_router, settings_store, usage_store
 from .speech import build_target
 
@@ -171,6 +171,28 @@ async def dashboard(
             "data": [sum(per_model_day.get(n, {}).get(d, 0) for n in rest) for d in day_list],
         })
 
+    # ---------- 按用途：正常对话 / 压缩 / 复盘 / 标题……（看 token 是不是花在后台调用上） ----------
+    purpose_rows = (
+        await session.execute(
+            select(
+                UsagePurposeDaily.day, UsagePurposeDaily.purpose, UsagePurposeDaily.prompt_tokens,
+                UsagePurposeDaily.completion_tokens, UsagePurposeDaily.cached_tokens, UsagePurposeDaily.requests,
+            ).where(UsagePurposeDaily.day >= start)
+        )
+    ).all()
+    per_purpose: dict[str, dict] = {}
+    for day, purpose, prompt, completion, cached, requests in purpose_rows:
+        p = per_purpose.setdefault(purpose, {"tokens": 0, "prompt": 0, "completion": 0, "cached": 0, "requests": 0,
+                                             "today_tokens": 0})
+        p["tokens"] += prompt + completion
+        p["prompt"] += prompt
+        p["completion"] += completion
+        p["cached"] += cached or 0
+        p["requests"] += requests
+        if day == today:
+            p["today_tokens"] += prompt + completion
+    purposes = sorted(({"purpose": k, **v} for k, v in per_purpose.items()), key=lambda x: x["tokens"], reverse=True)
+
     quota = await usage_store.get_quota(session)
     return {
         "generated_at": now,
@@ -193,6 +215,7 @@ async def dashboard(
         "scenes": scene_list(scenes_range),
         "models": models,
         "model_series": model_series,
+        "purposes": purposes,
         "online": [
             {"device_id": d.id, "machine_name": d.machine_name, "user_name": d.user_name,
              "client_version": d.client_version, "last_seen": _aware(d.last_seen)}

@@ -38,6 +38,7 @@ public sealed class PromptEnhancer
         var turn = await _gateway.CompleteAsync(new ChatRequest
         {
             Scene = Scenes.Chat,
+            Purpose = Flyknit.Core.Gateway.Purposes.Enhance,
             Stream = false,
             MaxTokens = 1200,
             Temperature = 0.3,

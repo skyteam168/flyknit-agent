@@ -113,10 +113,15 @@ public sealed class ContextManager
     /// <summary>压缩过程中的进度（界面上的进度条）。</summary>
     public event Action<CompactionProgress>? Progress;
 
-    /// <param name="enableSessionMemory">是否启用后台 Session Memory（渐进式更新）。</param>
+    /// <param name="enableSessionMemory">
+    /// 是否启用后台 Session Memory（渐进式更新）。默认关：宿主每轮都新建 ContextManager、状态没有存下来，
+    /// 结果对话一过 1 万 token，员工每发一句就在后台把整段对话重新摘要一遍（还要再合并一次），
+    /// 而摘要只有同一轮刚好要压缩时才用得上，绝大多数被丢掉。压缩时照常同步生成摘要。
+    /// 要重新打开，得先把状态跟对话一起保存（sessionMemoryState）。
+    /// </param>
     /// <param name="sessionMemoryState">已有的 Session Memory 状态（从上次会话恢复）。</param>
     public ContextManager(IChatGateway gateway, string baseSystemPrompt, string? existingSummary = null, int contextLength = 0, 
-        ContextOptions? options = null, bool enableSessionMemory = true, SessionMemoryState? sessionMemoryState = null)
+        ContextOptions? options = null, bool enableSessionMemory = false, SessionMemoryState? sessionMemoryState = null)
     {
         _gateway = gateway;
         _options = options ?? new ContextOptions();
@@ -440,6 +445,7 @@ public sealed class ContextManager
         var turn = await _gateway.CompleteAsync(new ChatRequest
         {
             Scene = Scene,
+            Purpose = Flyknit.Core.Gateway.Purposes.Compact,
             ModelId = ModelId,
             Stream = true,
             Temperature = 0.2,

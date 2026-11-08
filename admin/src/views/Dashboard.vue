@@ -211,6 +211,22 @@ const modelShare = (tokens: number) => (modelTotal.value ? Math.round((tokens / 
 const modelScenes = (scenes: { scene: string; tokens: number }[]) =>
   scenes.map((s) => `${sceneLabel(s.scene)} ${short(s.tokens)}`).join(' · ')
 
+// 用途：客户端 Gateway/Purposes.cs、服务端 usage_store.PURPOSES
+const PURPOSES: Record<string, { title: string; hint: string }> = {
+  turn: { title: '正常对话 / 办事', hint: '员工发起的对话、办事、翻译（含旧版客户端的全部调用）' },
+  compact: { title: '压缩上下文', hint: '对话快满时把较早的内容压缩成摘要' },
+  session_memory: { title: '后台会话摘要', hint: '提前准备的摘要，新版默认已关闭' },
+  reflect: { title: '任务复盘', hint: '办事结束后提炼记忆、经验和技能' },
+  memory: { title: '整理记忆', hint: '合并重复、归类、找矛盾' },
+  title: { title: '生成标题', hint: '给新对话起标题' },
+  enhance: { title: '优化提示词', hint: '员工点「优化」改写输入' },
+  sidechat: { title: '顺便问一句', hint: '任务进行中的旁路提问' },
+  other: { title: '其他', hint: '客户端报了认不出的用途' },
+}
+const purposeLabel = (p: string) => PURPOSES[p] ?? { title: p, hint: '' }
+const purposeTotal = computed(() => (data.value?.purposes ?? []).reduce((a, p) => a + p.tokens, 0))
+const purposeShare = (tokens: number) => (purposeTotal.value ? Math.round((tokens / purposeTotal.value) * 1000) / 10 : 0)
+
 const userShare = (tokens: number) => (rangeTotal.value ? Math.round((tokens / rangeTotal.value) * 1000) / 10 : 0)
 </script>
 
@@ -366,6 +382,40 @@ const userShare = (tokens: number) => (rangeTotal.value ? Math.round((tokens / r
             </li>
           </ul>
         </section>
+
+        <section class="panel span-3">
+          <div class="panel-title">
+            <h3>按用途 <small>近 {{ days }} 天。正常对话以外的都是客户端在后台发起的调用，同样计入员工的额度</small></h3>
+          </div>
+          <el-table :data="data.purposes ?? []" size="default" empty-text="还没有按用途的数据（新版客户端和服务端才会记）">
+            <el-table-column label="用途" min-width="220">
+              <template #default="{ row }">
+                <div class="who">
+                  <strong>{{ purposeLabel(row.purpose).title }}</strong>
+                  <small>{{ purposeLabel(row.purpose).hint }}</small>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="占比" min-width="160">
+              <template #default="{ row }"><el-progress :percentage="purposeShare(row.tokens)" :stroke-width="6" /></template>
+            </el-table-column>
+            <el-table-column :label="`近 ${days} 天`" width="110" align="right">
+              <template #default="{ row }">{{ short(row.tokens) }}</template>
+            </el-table-column>
+            <el-table-column label="今日" width="100" align="right">
+              <template #default="{ row }">{{ short(row.today_tokens) }}</template>
+            </el-table-column>
+            <el-table-column label="请求" width="90" align="right">
+              <template #default="{ row }">{{ num(row.requests) }}</template>
+            </el-table-column>
+            <el-table-column label="输入 / 输出" width="140" align="right">
+              <template #default="{ row }">{{ short(row.prompt) }} / {{ short(row.completion) }}</template>
+            </el-table-column>
+            <el-table-column label="缓存命中" width="100" align="right">
+              <template #default="{ row }">{{ row.prompt ? Math.round((row.cached / row.prompt) * 100) + '%' : '—' }}</template>
+            </el-table-column>
+          </el-table>
+        </section>
       </div>
     </template>
   </div>
@@ -381,6 +431,9 @@ const userShare = (tokens: number) => (rangeTotal.value ? Math.round((tokens / r
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+}
+.span-3 {
+  grid-column: 1 / -1;
 }
 .span-2 {
   grid-column: span 2;

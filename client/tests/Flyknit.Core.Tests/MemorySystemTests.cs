@@ -342,7 +342,7 @@ public class MemorySystemTests : IDisposable
     {
         var gateway = new FakeGateway(_ => new ChatTurn { Content = "## 当前任务\n整理日报" });
         // 上下文很大：1.2 万 token 远没到压缩线，但已经过了后台摘要的起始阈值
-        var manager = new ContextManager(gateway, "系统提示", contextLength: 200_000);
+        var manager = new ContextManager(gateway, "系统提示", contextLength: 200_000, enableSessionMemory: true);
         var history = new List<ChatMessage> { ChatMessage.System("系统提示") };
         for (var i = 0; i < 12; i++)
         {
@@ -358,6 +358,41 @@ public class MemorySystemTests : IDisposable
         }
         Assert.NotEmpty(gateway.Requests);           // 后台摘要照常跑了
         Assert.True(manager.SessionMemory!.State.Initialized);
+    }
+
+    [Fact]
+    public async Task BackgroundSessionMemoryIsOffByDefault()
+    {
+        // 宿主每轮新建 ContextManager、不保存状态：默认开着的话，长对话每发一句都在后台把整段对话重新摘要一遍
+        var gateway = new FakeGateway(_ => throw new InvalidOperationException("不应调用"));
+        var manager = new ContextManager(gateway, "系统提示", contextLength: 200_000);
+        var history = new List<ChatMessage> { ChatMessage.System("系统提示") };
+        for (var i = 0; i < 12; i++)
+        {
+            history.Add(ChatMessage.User($"第 {i} 个问题 " + new string('问', 700)));
+            history.Add(ChatMessage.Assistant($"第 {i} 个回答 " + new string('答', 700)));
+        }
+        Assert.True(manager.Measure(history) >= SessionMemoryAgent.InitialThreshold);
+
+        Assert.Null(await manager.PrepareAsync(history, CancellationToken.None));
+        Assert.Null(manager.SessionMemory);
+        Assert.Empty(gateway.Requests);
+    }
+
+    [Fact]
+    public async Task CompactionIsTaggedForUsageStats()
+    {
+        var gateway = new FakeGateway(_ => new ChatTurn { Content = "## 进展\n读完了数据" });
+        var manager = new ContextManager(gateway, "系统提示", contextLength: 20000,
+            options: new ContextOptions { ReserveOutputTokens = 2000 }) { ToolTokens = 9000 };
+        var history = new List<ChatMessage> { ChatMessage.System("系统提示") };
+        for (var i = 0; i < 20; i++)
+        {
+            history.Add(ChatMessage.User($"第 {i} 步 " + new string('问', 300)));
+            history.Add(ChatMessage.Assistant($"第 {i} 步完成 " + new string('答', 300)));
+        }
+        Assert.NotNull(await manager.PrepareAsync(history, CancellationToken.None));
+        Assert.Equal(Purposes.Compact, Assert.Single(gateway.Requests).Purpose);
     }
 
     [Fact]

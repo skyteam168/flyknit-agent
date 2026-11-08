@@ -232,3 +232,39 @@ async def test_usage_tells_when_the_daily_quota_resets(client, device_headers):
     assert timedelta(0) < at - datetime.now(timezone.utc) <= timedelta(days=1)
     # 和服务端的「今天」对得上
     assert local.date() - timedelta(days=1) == datetime.fromisoformat(usage["day"]).date()
+
+
+@respx.mock
+async def test_usage_is_split_by_purpose(client, device_headers):
+    """客户端标明用途（压缩、复盘、标题……）：按用途分开统计；不带的算正常对话，认不出的算 other。
+    只是统计：场景统计、配额照旧，上游也收不到这个字段。"""
+    await setup_models(client)
+    route = respx.post("http://primary.local/v1/chat/completions").mock(
+        return_value=httpx.Response(200, content=STREAM, headers={"content-type": "text/event-stream"})
+    )
+    for purpose in (None, "compact", "reflect", "reflect", "<script>"):
+        body = {"scene": "agent", "stream": True, "messages": [{"role": "user", "content": "hi"}]}
+        if purpose:
+            body["flyknit_purpose"] = purpose
+        r = await client.post("/api/v1/chat/completions", headers=device_headers, json=body)
+        assert r.status_code == 200
+        await r.aread()
+    assert all("flyknit_purpose" not in json.loads(c.request.content) for c in route.calls)
+
+    usage = (await client.get("/api/v1/client/usage", headers=device_headers)).json()
+    assert {s["scene"]: s["total"] for s in usage["by_scene"]} == {"agent": 7500}
+
+    dashboard = (await client.get("/api/v1/admin/dashboard", headers=ADMIN)).json()
+    by_purpose = {p["purpose"]: p for p in dashboard["purposes"]}
+    assert {k: v["tokens"] for k, v in by_purpose.items()} == {"turn": 1500, "compact": 1500, "reflect": 3000, "other": 1500}
+    assert by_purpose["reflect"]["requests"] == 2
+    assert by_purpose["reflect"]["today_tokens"] == 3000
+    assert dashboard["purposes"][0]["purpose"] == "reflect"  # 按用量从大到小
+
+
+def test_purpose_is_whitelisted():
+    assert usage_store.clean_purpose(None) == "turn"
+    assert usage_store.clean_purpose("") == "turn"
+    assert usage_store.clean_purpose("session_memory") == "session_memory"
+    assert usage_store.clean_purpose("x" * 500) == "other"
+    assert usage_store.clean_purpose(["compact"]) == "other"

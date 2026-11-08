@@ -163,6 +163,7 @@ public sealed class MemoryClusterManager
             var turn = await _gateway.CompleteAsync(new ChatRequest
             {
                 Scene = Scene,
+                Purpose = Flyknit.Core.Gateway.Purposes.Memory,
                 Stream = false,
                 Temperature = 0.2,
                 MaxTokens = 256,

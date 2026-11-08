@@ -24,6 +24,7 @@ public sealed class TitleGenerator
             var turn = await _gateway.CompleteAsync(new ChatRequest
             {
                 Scene = Scenes.Title,
+                Purpose = Flyknit.Core.Gateway.Purposes.Title,
                 Stream = false,
                 MaxTokens = 40,
                 Temperature = 0.3,

@@ -153,6 +153,7 @@ public sealed class MemoryConsolidator
         var turn = await _gateway.CompleteAsync(new ChatRequest
         {
             Scene = Scene,
+            Purpose = Flyknit.Core.Gateway.Purposes.Memory,
             ModelId = ModelId,
             Stream = true,
             Temperature = 0.1,
