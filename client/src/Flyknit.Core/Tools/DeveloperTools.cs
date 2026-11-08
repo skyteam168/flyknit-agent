@@ -368,7 +368,36 @@ public static class GitRunner
 
     public static async Task<Result> RunAsync(string workingDirectory, IEnumerable<string> args, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo("git")
+        var all = new[] { "--no-pager", "-c", "core.quotepath=false", "-c", "color.ui=never", "-c", "i18n.logOutputEncoding=UTF-8" }.Concat(args);
+        var env = new Dictionary<string, string>
+        {
+            ["GIT_TERMINAL_PROMPT"] = "0", // 要密码时直接失败，不卡住等输入
+            ["GIT_PAGER"] = "cat",
+            ["LC_ALL"] = "C.UTF-8",
+        };
+        try
+        {
+            var r = await CliRunner.RunAsync("git", workingDirectory, all, env, Timeout, ct);
+            return new Result(r.ExitCode, r.Stdout, r.Stderr);
+        }
+        catch (CliMissingException)
+        {
+            throw new GitMissingException();
+        }
+    }
+}
+
+/// <summary>
+/// 按参数列表启动一个命令行程序（不经过 Shell，没有拼接注入），收齐输出；超时结束整棵进程树。git、gh 共用。
+/// </summary>
+public static class CliRunner
+{
+    public sealed record Result(int ExitCode, string Stdout, string Stderr);
+
+    public static async Task<Result> RunAsync(string exe, string workingDirectory, IEnumerable<string> args,
+        IReadOnlyDictionary<string, string>? env, TimeSpan timeout, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo(exe)
         {
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
@@ -378,33 +407,29 @@ public static class GitRunner
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
-        foreach (var a in new[] { "--no-pager", "-c", "core.quotepath=false", "-c", "color.ui=never", "-c", "i18n.logOutputEncoding=UTF-8" })
-        {
-            psi.ArgumentList.Add(a);
-        }
         foreach (var a in args)
         {
             psi.ArgumentList.Add(a);
         }
-        psi.Environment["GIT_TERMINAL_PROMPT"] = "0"; // 要密码时直接失败，不卡住等输入
-        psi.Environment["GIT_PAGER"] = "cat";
-        psi.Environment["LC_ALL"] = "C.UTF-8";
-
+        foreach (var (k, v) in env ?? new Dictionary<string, string>())
+        {
+            psi.Environment[k] = v;
+        }
         Process process;
         try
         {
-            process = Process.Start(psi) ?? throw new InvalidOperationException("git 没有启动");
+            process = Process.Start(psi) ?? throw new InvalidOperationException($"{exe} 没有启动");
         }
         catch (System.ComponentModel.Win32Exception)
         {
-            throw new GitMissingException();
+            throw new CliMissingException(exe);
         }
         using (process)
         {
             var stdout = process.StandardOutput.ReadToEndAsync(ct);
             var stderr = process.StandardError.ReadToEndAsync(ct);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(Timeout);
+            cts.CancelAfter(timeout);
             try
             {
                 await process.WaitForExitAsync(cts.Token);
@@ -422,11 +447,17 @@ public static class GitRunner
                 {
                     throw;
                 }
-                return new Result(-1, "", $"git 超过 {Timeout.TotalSeconds:0} 秒没有结束，已停止");
+                return new Result(-1, "", $"{exe} 超过 {timeout.TotalSeconds:0} 秒没有结束，已停止");
             }
             return new Result(process.ExitCode, await stdout, await stderr);
         }
     }
+}
+
+public sealed class CliMissingException : Exception
+{
+    public CliMissingException(string exe) : base($"找不到 {exe}") => Exe = exe;
+    public string Exe { get; }
 }
 
 public sealed class GitMissingException : Exception

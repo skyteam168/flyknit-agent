@@ -120,6 +120,11 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
 
     public Security.TaskGrantStore Grants => _grants ??= new Security.TaskGrantStore(Open);
 
+    private Git.PrWatchStore? _prWatches;
+
+    /// <summary>盯着的 PR。</summary>
+    public Git.PrWatchStore PrWatches => _prWatches ??= new Git.PrWatchStore(Open);
+
     private Scheduling.ScheduledTaskStore? _schedules;
 
     private SqliteConnection Open()
@@ -234,6 +239,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         Scheduling.ScheduledTaskStore.Migrate(c);
         // 任务授权记录（远程 / 定时 / 事件任务的「谁让做、做到哪」，只插入）
         Security.TaskGrantStore.Migrate(c);
+        // 盯着的 PR（定时查 CI、冲突、评审）
+        Git.PrWatchStore.Migrate(c);
 
         // v0.7：每轮任务的结果（任务效果统计：完成率、步数、产出文件问题，打开/关闭规划提醒和产出检查前后对比用）
         using var runs = c.CreateCommand();

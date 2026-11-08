@@ -3,6 +3,7 @@ import { bridge } from './bridge'
 import { forHost, isTextAttachment, utf8Base64 } from './pasted'
 import { applyLanguage, i18n } from './i18n'
 import type {
+  PrWatchView,
   SlashCommand,
   AppInfo,
   AttachmentRef,
@@ -65,6 +66,15 @@ interface ConversationState {
   paused?: boolean
 }
 
+/** 读一个对话盯着的 PR */
+export async function loadPrs(conversationId: string) {
+  try {
+    state.prs[conversationId] = await bridge.prList(conversationId)
+  } catch {
+    // 宿主没有这个功能（旧版本）或开发者工具关着：不显示
+  }
+}
+
 export const state = reactive({
   app: null as AppInfo | null,
   conversations: [] as Conversation[],
@@ -74,6 +84,8 @@ export const state = reactive({
   currentId: null as string | null,
   byId: {} as Record<string, ConversationState>,
   pending: [] as AttachmentRef[],
+  /** 每个对话盯着的 PR（开发者工具开着时，「文件」标签上方显示） */
+  prs: {} as Record<string, PrWatchView[]>,
   /** 自动更新：有新版本时界面上挂一条，点了才装；不点退出时也会装 */
   update: null as UpdateInfo | null,
   toast: '' as string,
@@ -1940,6 +1952,14 @@ function onHostEvent(e: HostEvent) {
     case 'chat.paused':
       convState(e.conversationId).paused = e.paused
       break
+    case 'pr.updated': {
+      const list = state.prs[e.conversationId] ?? []
+      const i = list.findIndex((w) => w.id === e.watch.id)
+      if (i >= 0) list.splice(i, 1, e.watch)
+      else list.unshift(e.watch)
+      state.prs[e.conversationId] = list
+      break
+    }
     case 'chat.pending':
       convState(e.conversationId).inputs = e.items
       break

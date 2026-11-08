@@ -1153,6 +1153,7 @@ export function createMockHost(): HostTransport {
           serverUrl: 'http://10.0.0.5:8000',
           micAvailable: true,
           sandboxed: true,
+          developerTools: true,
           notificationSound: 'none',
           fontScale: 1,
           autoStart: false,
@@ -1981,6 +1982,38 @@ export function createMockHost(): HostTransport {
         mockMyCommands.splice(0, mockMyCommands.length, ...items.map((c) => ({ ...c, name: c.name.trim().replace(/^\//, '') })))
         return { ok: true, message: '' }
       }
+      // 仓库和盯着的 PR（开发者工具）
+      case 'repo.info':
+        return {
+          root: 'C:\\Users\\yangxiaowei\\Documents\\Flyknit', name: 'skyteam168/flyknit-agent', branch: 'claude/trusting-cannon-qmkq7q',
+          detached: false, remoteUrl: 'https://github.com/skyteam168/flyknit-agent.git', webUrl: 'https://github.com/skyteam168/flyknit-agent',
+          branchUrl: 'https://github.com/skyteam168/flyknit-agent/tree/claude/trusting-cannon-qmkq7q', host: 'github.com', isGitHub: true,
+          defaultBranch: 'main', changed: 3, ahead: 1, behind: 0,
+        }
+      case 'repo.branches':
+        return ['claude/trusting-cannon-qmkq7q', 'main', 'feature/quota-ring']
+      case 'repo.branch':
+        await sleep(300)
+        return { ok: true, message: '' }
+      case 'repo.open':
+        return true
+      case 'pr.list': {
+        const base = {
+          conversationId: p.conversationId, draft: false, head: 'claude/trusting-cannon-qmkq7q', base: 'main', autoFix: true, autoFixes: 1,
+          maxAutoFixes: 5, intervalMinutes: 50, lastCheckedAt: now(), lastError: '', active: true, endedReason: '',
+          nextCheckAt: new Date(Date.now() + 50 * 60_000).toISOString(), review: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE',
+        }
+        return [
+          { ...base, id: 'pw1', number: 93, title: '软件工程与逆向重建能力：阶段 0–5', url: 'https://github.com/skyteam168/flyknit-agent/pull/93', state: 'OPEN', ci: 'failure',
+            checks: [{ name: 'client', state: 'fail', url: '' }, { name: 'server', state: 'pass', url: '' }] },
+          { ...base, id: 'pw0', number: 92, title: '技能 / 连接器页面铺满整宽', url: 'https://github.com/skyteam168/flyknit-agent/pull/92', state: 'MERGED', ci: 'success',
+            checks: [], active: false, endedReason: 'merged', nextCheckAt: null },
+        ]
+      }
+      case 'pr.check':
+      case 'pr.stop':
+      case 'pr.autoFix':
+        return null
       case 'workspace.list': {
         await sleep(120)
         const tree: Record<string, [string, boolean, number][]> = {

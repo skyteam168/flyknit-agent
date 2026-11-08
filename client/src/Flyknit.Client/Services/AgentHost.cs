@@ -366,6 +366,8 @@ public sealed partial class AgentHost : IDisposable
         _ = Task.Run(Mcp.StartAsync);
         // 长轮询监听配置变更，IT 一改安全中心/策略就近乎即时拉取生效
         _ = Task.Run(ConfigWatchLoopAsync);
+        // 盯着的 PR：每分钟看一眼有没有到点要查的（每个 PR 默认 50 分钟查一次）
+        StartPrWatching();
     }
 
     /// <summary>启动时那一次拉配置。WhenAny 不会抛异常，只是等它结束。</summary>
@@ -601,9 +603,16 @@ public sealed partial class AgentHost : IDisposable
     /// 这一轮能用的开发者工具：办事模式、IT 打开了「开发者工具」，再按专家的 disallowed_tools 减掉（专家只做减法）。
     /// 关着时返回空，工具、提示词、场景都和以前一样。
     /// </summary>
-    private IReadOnlyList<ITool> DeveloperToolsFor(Conversation conv, Flyknit.Core.Experts.Expert? expert) =>
-        Flyknit.Core.Tools.DeveloperToolSet.For(Security, conv.Mode == ConversationMode.Agent,
+    private IReadOnlyList<ITool> DeveloperToolsFor(Conversation conv, Flyknit.Core.Experts.Expert? expert)
+    {
+        var tools = Flyknit.Core.Tools.DeveloperToolSet.For(Security, conv.Mode == ConversationMode.Agent,
             t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t));
+        // 开发者工具开着时一并给 PR 工具（建 PR、查状态、盯 PR），同样按专家限制筛
+        return tools.Count == 0
+            ? tools
+            : tools.Concat(Flyknit.Core.Git.PullRequestToolSet.Create(PullRequests)
+                .Where(t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t))).ToList();
+    }
 
     private IReadOnlyDictionary<string, JsonNode?>? ChatExtraBody(Conversation conv)
     {
@@ -1618,6 +1627,7 @@ public sealed partial class AgentHost : IDisposable
         }
         try { _configTimer.Dispose(); } catch (Exception) { /* 尽力而为 */ }
         try { _keepAwakeTimer?.Dispose(); } catch (Exception) { /* 尽力而为 */ }
+        try { _prTimer?.Dispose(); } catch (Exception) { /* 尽力而为 */ }
         try { _keepAwake.Dispose(); } catch (Exception) { /* 尽力而为 */ }
         try { Scheduler.Dispose(); } catch (Exception) { /* 尽力而为 */ }
         try { DisposeTerminal(); } catch (Exception) { /* 尽力而为 */ }

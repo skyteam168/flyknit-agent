@@ -95,7 +95,7 @@ flyknitbuddy/
   交互 / 派遣：`ask_user` `ask_expert` `submit_result` `spawn_agent`（子代理，安全中心 `subagents`，默认关）  
   浏览器：`browser_open` / `read` / `click` / `type` / `select` / `scroll` / `back`  
   Windows（Client 注册）：`open_app`  
-  开发者工具（安全中心 `developer_tools`，默认关，任务走 `code` 场景）：`grep` `multi_edit` `git_status` `git_diff` `git_log` `git_commit`
+  开发者工具（安全中心 `developer_tools`，默认关，任务走 `code` 场景）：`grep` `multi_edit` `git_status` `git_diff` `git_log` `git_commit`，PR：`create_pull_request` `pr_status` `watch_pull_request`（走员工电脑上的 `gh` 和员工自己的登录，令牌不经过服务端）
 - **新工具**：实现 `ITool` → 注册；`ToolResult.Outputs` 报产出；确认走 Policy，禁止私自绕过。
 - **新预览**：`IPreviewProvider`；UI 只认宿主返回的 `kind`。
 - **新快捷键**：`Settings/Shortcuts.cs` + handler + 三语文案。

@@ -14,7 +14,7 @@ public static class PlanMode
     /// <summary>计划模式下去掉的内置工具。</summary>
     public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal)
     {
-        "write_file", "edit_file", "multi_edit", "delete_path", "open_app", "git_commit",
+        "write_file", "edit_file", "multi_edit", "delete_path", "open_app", "git_commit", "create_pull_request",
         "browser_click", "browser_type", "browser_select",
     };
 

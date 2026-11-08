@@ -1869,6 +1869,75 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 return new { ok = items is not null, items = (object?)items ?? Array.Empty<object>() };
             }
 
+            // ---------- 仓库和 PR（开发者工具开着时）：「文件」标签上方的仓库信息、分支、盯着的 PR ----------
+            case "repo.info":
+            {
+                var info = await _host.RepoInfoAsync(Str("conversationId"));
+                return info is null ? null : new
+                {
+                    root = info.Root,
+                    name = info.DisplayName,
+                    branch = info.Branch,
+                    detached = info.Detached,
+                    remoteUrl = info.RemoteUrl,
+                    webUrl = info.WebUrl,
+                    branchUrl = info.BranchUrl,
+                    host = info.Host,
+                    isGitHub = info.IsGitHub,
+                    defaultBranch = info.DefaultBranch,
+                    changed = info.Changed,
+                    ahead = info.Ahead,
+                    behind = info.Behind,
+                };
+            }
+
+            case "repo.branches":
+                return await _host.BranchesAsync(Str("conversationId"));
+
+            case "repo.branch":
+            {
+                // 员工在界面上新建或切换分支（create=true 新建并切过去）
+                var (ok, message) = await _host.ChangeBranchAsync(Str("conversationId"), Str("name"), Bool("create"));
+                return new { ok, message };
+            }
+
+            case "repo.open":
+            {
+                // 只打开宿主自己算出来的地址（仓库、分支、PR），不接受界面传任意网址
+                var conv = Str("conversationId");
+                string url = "";
+                switch (Str("what"))
+                {
+                    case "repo":
+                        url = (await _host.RepoInfoAsync(conv))?.WebUrl ?? "";
+                        break;
+                    case "branch":
+                        url = (await _host.RepoInfoAsync(conv))?.BranchUrl ?? "";
+                        break;
+                    case "pr":
+                        url = _host.PrWatchesOf(conv).FirstOrDefault(w => w.Id == Str("id"))?.Url ?? "";
+                        break;
+                }
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var target) || target.Scheme != Uri.UriSchemeHttps)
+                {
+                    return false;
+                }
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target.ToString()) { UseShellExecute = true });
+                return true;
+            }
+
+            case "pr.list":
+                return _host.PrWatchesOf(Str("conversationId")).Select(AgentHost.PrDto).ToList();
+
+            case "pr.check":
+                return await _host.CheckPrNowAsync(Str("id")) is { } checkedWatch ? AgentHost.PrDto(checkedWatch) : null;
+
+            case "pr.stop":
+                return _host.StopPrWatch(Str("id")) is { } stopped ? AgentHost.PrDto(stopped) : null;
+
+            case "pr.autoFix":
+                return _host.SetPrAutoFix(Str("id"), Bool("on")) is { } changed ? AgentHost.PrDto(changed) : null;
+
             // ---------- 工作区文件：右侧「文件」标签浏览、搜索（只读、只在工作区里） ----------
             case "workspace.list":
             {

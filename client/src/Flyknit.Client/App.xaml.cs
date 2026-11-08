@@ -274,6 +274,14 @@ public partial class App : Application
         // 监听运维代理投递的通知，弹给当前登录的员工（“IT 正在为你的电脑执行：xxx”）
         _noticeWatcher = new NoticeWatcher(_notifications, action => Dispatcher.BeginInvoke(action));
         _noticeWatcher.Start();
+        // 盯着的 PR 有情况（CI 失败、有冲突、合并了……）：弹通知，点开回到那个对话
+        _host.PrNotice += (title, body, _) => Dispatcher.BeginInvoke(() =>
+        {
+            if (_settings.EnableNotifications)
+            {
+                _notifications?.ShowNotice(title, body);
+            }
+        });
         _host.RunFinished += info => Dispatcher.BeginInvoke(() =>
         {
             // 用户正看着这个任务时不打扰；被用户停止的任务不通知

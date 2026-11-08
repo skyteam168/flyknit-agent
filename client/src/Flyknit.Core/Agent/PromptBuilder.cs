@@ -156,6 +156,8 @@ public sealed class PromptBuilder
         - 改代码优先 edit_file / multi_edit（只动要改的地方），不要用 write_file 整个重写已有文件。
         - git 用 git_status / git_diff / git_log 查看，用 git_commit 提交；提交前先看 diff 确认只包含这次要改的，说明写清改了什么、为什么。
         - 没有员工明确要求，不要推送、不要改写历史（push --force、reset --hard、rebase 已推送的分支），不要删分支。
+        - 员工要提 PR 时：确认改动已提交、不在 main/master 上（不在就先 git switch -c 新分支），再用 create_pull_request（会推送并建 PR，默认开始盯 CI）；
+          PR 的说明写清为什么改、改了什么、怎么验证的。查 PR 用 pr_status，盯已有的 PR 用 watch_pull_request。
         - 改完跑一下项目自己的构建、测试或检查命令确认没坏；跑不了要如实说，不要声称「已通过」。
         - 不要把密码、令牌、Cookie 写进代码、提交说明或回答里。
         </写代码>

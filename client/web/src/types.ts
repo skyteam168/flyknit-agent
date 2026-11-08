@@ -949,6 +949,7 @@ export type HostEvent =
   | { type: 'speech.autoStop' }
   | { type: 'chat.notice'; conversationId: string; text: string }
   | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
+  | { type: 'pr.updated'; conversationId: string; watch: PrWatchView }
   | { type: 'chat.paused'; conversationId: string; paused: boolean }
   | { type: 'runs.changed' }
   | { type: 'browser.state'; active: boolean; url: string; title: string; action?: string; shot?: string }
@@ -1201,6 +1202,53 @@ export interface DocumentSaveResult {
 }
 
 /** 右侧「文件」标签里工作区的一项（宿主 workspace.list / workspace.search） */
+/** 工作区所在的 git 仓库（开发者工具开着时） */
+export interface RepoInfo {
+  root: string
+  /** owner/repo，没有远端时是目录名 */
+  name: string
+  branch: string
+  detached: boolean
+  remoteUrl: string
+  webUrl: string
+  branchUrl: string
+  host: string
+  isGitHub: boolean
+  defaultBranch: string
+  /** 未提交的改动有几处 */
+  changed: number
+  ahead: number
+  behind: number
+}
+
+export type PrCheckState = 'pass' | 'fail' | 'pending' | 'skip'
+
+/** 盯着的一个 PR */
+export interface PrWatchView {
+  id: string
+  conversationId: string
+  number: number
+  title: string
+  url: string
+  state: 'OPEN' | 'MERGED' | 'CLOSED'
+  draft: boolean
+  ci: 'none' | 'pending' | 'success' | 'failure'
+  checks: { name: string; state: PrCheckState; url: string }[]
+  mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
+  review: '' | 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED'
+  head: string
+  base: string
+  autoFix: boolean
+  autoFixes: number
+  maxAutoFixes: number
+  intervalMinutes: number
+  nextCheckAt: string | null
+  lastCheckedAt: string | null
+  lastError: string
+  active: boolean
+  endedReason: string
+}
+
 export interface WorkspaceEntry {
   name: string
   /** 工作区里的相对路径（展开文件夹时传回去） */
