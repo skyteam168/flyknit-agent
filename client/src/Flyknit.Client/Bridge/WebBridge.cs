@@ -1928,6 +1928,27 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 return true;
             }
 
+            case "repo.card":
+            {
+                // 聊天里 PR / Issue 链接的悬停卡片；宿主只认 PR / Issue 格式的 https 地址，只读查询
+                var card = await _host.RefCardAsync(Str("url"));
+                return card is null ? null : new
+                {
+                    kind = card.Kind,
+                    state = card.State,
+                    repo = card.Repo,
+                    number = card.Number,
+                    title = card.Title,
+                    author = card.Author,
+                    url = card.Url,
+                    at = card.At,
+                    additions = card.Additions,
+                    deletions = card.Deletions,
+                    files = card.Files,
+                    comments = card.Comments,
+                };
+            }
+
             case "pr.list":
                 return _host.PrWatchesOf(Str("conversationId")).Select(AgentHost.PrDto).ToList();
 

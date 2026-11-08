@@ -172,6 +172,31 @@ public sealed partial class AgentHost
         endedReason = w.EndedReason,
     };
 
+    // ---------- 聊天里 PR / Issue 链接的悬停卡片 ----------
+
+    private RefCardCache? _refCards;
+
+    /// <summary>
+    /// 鼠标停在聊天里的 PR / Issue 链接上时查卡片内容。和盯 PR 一样走员工电脑上的 gh 和员工自己的登录；
+    /// 开发者工具没开、网址不是 PR / Issue、主机不在网络白名单、gh 查不到时返回 null（界面就只显示普通链接）。
+    /// </summary>
+    public async Task<RefCard?> RefCardAsync(string url)
+    {
+        if (!DeveloperToolsOn || RefLink.Parse(url) is not { } link || !_policy.Network.IsAllowed(link.Host))
+        {
+            return null;
+        }
+        _refCards ??= new RefCardCache(GhCli.CardAsync);
+        try
+        {
+            return await _refCards.GetAsync(link, _watchCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
     // ---------- 仓库 ----------
 
     /// <summary>这个对话工作区所在的仓库；不是仓库、没装 git 返回 null。</summary>

@@ -10,6 +10,7 @@
 import type { DocModel } from './documents'
 import type {
   RepoInfo,
+  RefCard,
   PrWatchView,
   SandboxStatus,
   SlashCommand,
@@ -353,6 +354,8 @@ class Bridge {
   repoBranches = (conversationId: string) => this.call<string[]>('repo.branches', { conversationId })
   repoBranch = (conversationId: string, name: string, create: boolean) =>
     this.call<{ ok: boolean; message: string }>('repo.branch', { conversationId, name, create }, undefined, 60_000)
+  /** 聊天里 PR / Issue 链接的悬停卡片；开发者工具没开、gh 查不到时返回 null */
+  refCard = (url: string) => this.call<RefCard | null>('repo.card', { url }, undefined, 30_000)
   repoOpen = (conversationId: string, what: 'repo' | 'branch' | 'pr', id = '') => this.call<boolean>('repo.open', { conversationId, what, id })
   // 沙箱任务（本机 Docker）
   sandboxStatus = (conversationId: string) => this.call<SandboxStatus>('sandbox.status', { conversationId }, undefined, 30_000)

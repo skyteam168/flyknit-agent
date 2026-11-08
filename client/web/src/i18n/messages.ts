@@ -555,6 +555,7 @@ const zh = {
     },
     nav: { more: '更多', experts: '专家', library: '资料库', connectors: '连接器', plugins: '插件', skills: '技能', memory: '记忆', schedules: '定时任务', usage: '用量', trash: '回收站', tasks: '任务', taskCenter: '任务中心' },
     filter: { all: '全部', agent: '办事', chat: '对话', translate: '翻译' },
+    refCard: { state: { open: '开放', draft: '草稿', merged: '已合并', closed: '已关闭' }, files: '{n} 个文件', comments: '{n} 条评论' },
     time: { now: '刚刚', minutes: '{n} 分钟前', hours: '{n} 小时前', days: '{n} 天前' },
     status: { running: '进行中', waiting: '待确认' },
     home: {
@@ -2214,6 +2215,7 @@ const vi: Messages = {
     },
     nav: { more: 'Thêm', experts: 'Chuyên gia', library: 'Thư viện', connectors: 'Kết nối', plugins: 'Plugin', skills: 'Kỹ năng', memory: 'Ghi nhớ', schedules: 'Định kỳ', usage: 'Sử dụng', trash: 'Thùng rác', tasks: 'Nhiệm vụ', taskCenter: 'Trung tâm công việc' },
     filter: { all: 'Tất cả', agent: 'Làm việc', chat: 'Trò chuyện', translate: 'Dịch' },
+    refCard: { state: { open: 'Đang mở', draft: 'Nháp', merged: 'Đã hợp nhất', closed: 'Đã đóng' }, files: '{n} tệp', comments: '{n} bình luận' },
     time: { now: 'Vừa xong', minutes: '{n} phút trước', hours: '{n} giờ trước', days: '{n} ngày trước' },
     status: { running: 'Đang chạy', waiting: 'Chờ xác nhận' },
     home: {
@@ -3878,6 +3880,7 @@ const en: Messages = {
     },
     nav: { more: 'More', experts: 'Experts', library: 'Library', connectors: 'Connectors', plugins: 'Plugins', skills: 'Skills', memory: 'Memory', schedules: 'Scheduled', usage: 'Usage', trash: 'Trash', tasks: 'Tasks', taskCenter: 'Task center' },
     filter: { all: 'All', agent: 'Tasks', chat: 'Chat', translate: 'Translate' },
+    refCard: { state: { open: 'Open', draft: 'Draft', merged: 'Merged', closed: 'Closed' }, files: '{n} files', comments: '{n} comments' },
     time: { now: 'Just now', minutes: '{n} min ago', hours: '{n} h ago', days: '{n} d ago' },
     status: { running: 'Running', waiting: 'Needs approval' },
     home: {

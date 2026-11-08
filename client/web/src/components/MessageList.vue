@@ -6,6 +6,7 @@ import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
 import { changesForAnswer, current, currentState, editAndResend, forkConversation, mcpToolLabel, openChanges, openAttachment, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
 import type { OutputFile, UiMessage } from '../types'
+import RefHoverCard from './RefHoverCard.vue'
 import ToolCard from './ToolCard.vue'
 import ExpertTaskCard from './ExpertTaskCard.vue'
 import SuggestionCard from './SuggestionCard.vue'
@@ -541,6 +542,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
         <ArrowDown class="arrow" :size="18" :stroke-width="2.2" />
       </button>
     </div>
+    <RefHoverCard />
   </div>
 </template>
 
