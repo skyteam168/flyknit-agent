@@ -47,6 +47,7 @@ flyknitbuddy/
 1. **密钥边界**：客户端不得新增「直接调用上游模型 / 嵌入模型 Key」的路径；一律经 `/api/v1/chat/completions`（及 embeddings / speech 等已有网关）。设备 Token 落盘须 DPAPI。
 2. **安全闸门顺序**：`blocked_patterns` → `CommandAnalyzer` 副作用分级 → `PermissionMode` + 工作区 → `ApprovalStore` 前缀规则。不得绕过 `CommandAnalyzer` / `CommandPolicy` / `Permissions`。复合命令按**最危险段**定级。
 3. **Destructive 永不自动放行**：删除、覆盖、改注册表/服务/账号、装卸软件等；规则只能放行 `Write` / `Unknown`；解释器与间接执行（`iex`、管道下载、`-EncodedCommand` 等）`CanBeAutomatic=false`，不得记成自动规则。
+   **唯一例外是沙箱任务**（`Flyknit.Core/Sandbox`，安全中心 `sandbox_tasks` 默认关）：工具在一次性 Docker 容器里执行、碰不到员工电脑，所以容器内操作不确认（`blocked_patterns` 照拦）；能离开容器的只有出口 `SandboxCreatePullRequest`（只推 `flyknit/` 任务分支、不强推、不推默认分支、CI 配置默认不许改、导入推送关 hooks、令牌不进容器）。出口不实现 `ISandboxedTool`，读到疑似注入后照样要确认。新增沙箱工具必须在容器里执行，不得借这个例外在宿主上做事。
 4. **对话模式无工具**：`chat` 模式 `useTools=false`；办事模式才注册工具。停止任务须给已发出的 tool call **补合法结果**，保证下次请求上下文完整。
 5. **专家只做减法**：`disallowed_tools` / `mcp_servers` / `read_only` 只能收紧；安全与确认不受专家身份影响。
 6. **MCP**：工具名 `mcp__<连接器>__<工具>`；员工不能自建；占位符只认填写项、**不读本机环境变量**；外部写操作默认确认，`destructiveHint` 不可「以后自动」。
@@ -95,6 +96,7 @@ flyknitbuddy/
   交互 / 派遣：`ask_user` `ask_expert` `submit_result` `spawn_agent`（子代理，安全中心 `subagents`，默认关）  
   浏览器：`browser_open` / `read` / `click` / `type` / `select` / `scroll` / `back`  
   Windows（Client 注册）：`open_app`  
+  沙箱任务（安全中心 `sandbox_tasks`，还要开发者工具；见 `docs/sandbox-execution-design.md`）：同名的文件 / 命令 / git 工具换成在容器里执行的版本，`create_pull_request` 换成出口
   开发者工具（安全中心 `developer_tools`，默认关，任务走 `code` 场景）：`grep` `multi_edit` `git_status` `git_diff` `git_log` `git_commit`，PR：`create_pull_request` `pr_status` `watch_pull_request`（走员工电脑上的 `gh` 和员工自己的登录，令牌不经过服务端）
 - **新工具**：实现 `ITool` → 注册；`ToolResult.Outputs` 报产出；确认走 Policy，禁止私自绕过。
 - **新预览**：`IPreviewProvider`；UI 只认宿主返回的 `kind`。

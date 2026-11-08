@@ -1154,6 +1154,7 @@ export function createMockHost(): HostTransport {
           micAvailable: true,
           sandboxed: true,
           developerTools: true,
+          sandboxTasks: true,
           notificationSound: 'none',
           fontScale: 1,
           autoStart: false,
@@ -1980,6 +1981,25 @@ export function createMockHost(): HostTransport {
         const bad = items.find((c) => !/^[\w\-\u4e00-\u9fff]{1,20}$/.test(c.name.trim().replace(/^\//, '')))
         if (bad) return { ok: false, message: `指令名「${bad.name}」只能用中文、字母、数字、- 和 _，不超过 20 个字，不能有空格` }
         mockMyCommands.splice(0, mockMyCommands.length, ...items.map((c) => ({ ...c, name: c.name.trim().replace(/^\//, '') })))
+        return { ok: true, message: '' }
+      }
+      // 沙箱任务：开了先 idle，模拟准备两秒后 ready
+      case 'sandbox.status': {
+        const c = conversations.get(p.conversationId)
+        const on = !!c?.sandbox
+        return { available: true, problem: '', on, state: on ? 'ready' : 'off', container: on ? 'flyknit-sbx-1a2b3c' : '', branch: on ? 'flyknit/20261108-0930-1a2b3c' : '', base: on ? 'main' : '' }
+      }
+      case 'sandbox.set': {
+        const c = conversations.get(p.conversationId)
+        if (!c) return { ok: false, message: '对话不存在' }
+        c.sandbox = !!p.on
+        const id = c.id
+        if (p.on) {
+          emit({ type: 'sandbox.state', conversationId: id, state: 'preparing', message: '复制仓库到容器…', container: '', branch: '', base: '' })
+          setTimeout(() => emit({ type: 'sandbox.state', conversationId: id, state: 'ready', message: '', container: 'flyknit-sbx-1a2b3c', branch: 'flyknit/20261108-0930-1a2b3c', base: 'main' }), 2000)
+        } else {
+          await sleep(400)
+        }
         return { ok: true, message: '' }
       }
       // 仓库和盯着的 PR（开发者工具）

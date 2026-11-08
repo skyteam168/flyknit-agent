@@ -85,6 +85,13 @@ public sealed class SecuritySettings
     /// <summary>子代理（spawn_agent，主助手按任务开分身去调研、干活）。默认关闭。</summary>
     public const string SubAgents = "subagents";
 
+    /// <summary>沙箱任务（本机 Docker）：开发类任务在一次性容器里做、不弹确认，只能推任务分支建 PR。默认关闭。</summary>
+    public const string SandboxTasks = "sandbox_tasks";
+    public const string SandboxNetwork = "sandbox_network";
+    public const string SandboxAllowCiChanges = "sandbox_allow_ci_changes";
+    public const string SandboxCpus = "sandbox_cpus";
+    public const string SandboxMemoryGb = "sandbox_memory_gb";
+
     /// <summary>单次任务 token 上限，单位万 tokens。0 表示不限；长任务模式按 5 倍算。</summary>
     public const string RunTokenBudget = "run_token_budget";
     public const string VerifyOutputs = "verify_outputs";

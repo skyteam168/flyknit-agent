@@ -11,6 +11,7 @@ import type { DocModel } from './documents'
 import type {
   RepoInfo,
   PrWatchView,
+  SandboxStatus,
   SlashCommand,
   PluginInfo,
   WorkspaceEntry,
@@ -353,6 +354,11 @@ class Bridge {
   repoBranch = (conversationId: string, name: string, create: boolean) =>
     this.call<{ ok: boolean; message: string }>('repo.branch', { conversationId, name, create }, undefined, 60_000)
   repoOpen = (conversationId: string, what: 'repo' | 'branch' | 'pr', id = '') => this.call<boolean>('repo.open', { conversationId, what, id })
+  // 沙箱任务（本机 Docker）
+  sandboxStatus = (conversationId: string) => this.call<SandboxStatus>('sandbox.status', { conversationId }, undefined, 30_000)
+  /** 关的时候要删容器，可能要几秒 */
+  setSandbox = (conversationId: string, on: boolean) =>
+    this.call<{ ok: boolean; message: string }>('sandbox.set', { conversationId, on }, undefined, 60_000)
   prList = (conversationId: string) => this.call<PrWatchView[]>('pr.list', { conversationId })
   prCheck = (id: string) => this.call<PrWatchView | null>('pr.check', { id }, undefined, 120_000)
   prStop = (id: string) => this.call<PrWatchView | null>('pr.stop', { id })

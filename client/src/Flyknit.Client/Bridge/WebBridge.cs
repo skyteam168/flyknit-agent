@@ -106,6 +106,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
             longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
             developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
+            sandboxTasks = _host.SandboxSwitchOn,
             webSearchEnabled = _host.WebSearchEnabled,
             deepThinking = _settings.DeepThinking,
             webSearch = _settings.WebSearch,
@@ -504,6 +505,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
                     longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
                     developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
+                    sandboxTasks = _host.SandboxSwitchOn,
                     webSearchEnabled = _host.WebSearchEnabled,
                     deepThinking = _settings.DeepThinking,
                     webSearch = _settings.WebSearch,
@@ -2100,6 +2102,21 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "conversation.setPlanMode":
                 _host.SetPlanMode(Str("id"), p.TryGetProperty("on", out var pm) && pm.ValueKind == JsonValueKind.True);
                 return true;
+
+            // ---------- 沙箱任务（本机 Docker） ----------
+            case "sandbox.status":
+                return await _host.SandboxStatusAsync(Str("conversationId"));
+
+            case "sandbox.set":
+            {
+                var conv = Str("conversationId");
+                var (ok, message) = await _host.SetSandboxAsync(conv, Bool("on"));
+                if (ok && _host.Store.Get(conv) is { } updated)
+                {
+                    Post(new { type = "conversation.updated", conversation = ConversationDto.From(updated) });
+                }
+                return new { ok, message };
+            }
 
             case "conversation.setLongMode":
                 return _host.SetLongMode(Str("id"), p.TryGetProperty("on", out var lm) && lm.ValueKind == JsonValueKind.True);

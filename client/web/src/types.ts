@@ -29,6 +29,26 @@ export interface Conversation {
   sortOrder?: number | null
   /** 长任务模式：步数上限放宽，走到上限自动接着做 */
   longMode?: boolean
+  /** 沙箱任务：读写、命令、git 都在本机 Docker 容器里做，不弹确认；只有推分支建 PR 能带出容器 */
+  sandbox?: boolean
+}
+
+/** 一个对话的沙箱状态。off 没开；idle 开了还没起容器（第一次发话时起）；preparing 正在起；ready 容器在 */
+export type SandboxState = 'off' | 'idle' | 'preparing' | 'ready'
+
+export interface SandboxStatus {
+  /** 这台电脑能不能开（IT 开关、Docker） */
+  available?: boolean
+  /** 不能开的原因 */
+  problem?: string
+  on?: boolean
+  state: SandboxState
+  /** 正在准备时的进度说明 */
+  message?: string
+  container: string
+  /** 任务分支（flyknit/…） */
+  branch: string
+  base: string
 }
 
 /** 管理员发布的专家（界面只拿展示用的部分） */
@@ -660,6 +680,8 @@ export interface AppInfo {
   longTasks?: boolean
   /** IT 打开了「开发者工具」：办事模式有 grep / git 工具，输入框能用 /init */
   developerTools?: boolean
+  /** IT 打开了「沙箱任务」（还要开发者工具）：输入框显示「沙箱」开关 */
+  sandboxTasks?: boolean
   /** 后台联网搜索已就绪 */
   webSearchEnabled?: boolean
   /** 本地偏好：深度思考 */
@@ -950,6 +972,7 @@ export type HostEvent =
   | { type: 'chat.notice'; conversationId: string; text: string }
   | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
   | { type: 'pr.updated'; conversationId: string; watch: PrWatchView }
+  | { type: 'sandbox.state'; conversationId: string; state: SandboxState; message: string; container: string; branch: string; base: string }
   | { type: 'chat.paused'; conversationId: string; paused: boolean }
   | { type: 'runs.changed' }
   | { type: 'browser.state'; active: boolean; url: string; title: string; action?: string; shot?: string }
@@ -1000,7 +1023,7 @@ export type HostEvent =
   | { type: 'shell.request'; action: 'ask' | 'summarize' | 'translate' | 'workspace'; attachments?: AttachmentRef[]; path?: string }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
-      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'developerTools' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
+      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'developerTools' | 'sandboxTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
     >)
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }

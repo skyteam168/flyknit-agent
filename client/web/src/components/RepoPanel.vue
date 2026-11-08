@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   BookMarked,
+  Box,
   Check,
   ChevronDown,
   CircleCheck,
@@ -20,10 +21,11 @@ import {
   X,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
-import { fail, loadPrs, state, toast } from '../store'
+import { fail, loadPrs, loadSandbox, state, toast } from '../store'
 import type { PrWatchView, RepoInfo } from '../types'
 import Popover from './Popover.vue'
 import PromptDialog from './PromptDialog.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 /**
  * 「文件」标签上方的仓库信息（同 Claude Code 的环境面板）：仓库、当前分支，在 GitHub 打开、复制分支名、切换和新建分支；
@@ -41,6 +43,24 @@ const checking = ref('')
 const prs = computed(() => state.prs[props.conversationId] ?? [])
 const activePrs = computed(() => prs.value.filter((w) => w.active))
 const endedPrs = computed(() => prs.value.filter((w) => !w.active).slice(0, 3))
+// 沙箱任务：开着时显示状态和任务分支；结束沙箱会删容器，先确认
+const sandbox = computed(() => state.sandbox[props.conversationId])
+const endingSandbox = ref(false)
+async function endSandbox() {
+  endingSandbox.value = false
+  const id = props.conversationId
+  try {
+    const r = await bridge.setSandbox(id, false)
+    if (!r.ok) toast(r.message)
+    else {
+      const c = state.conversations.find((x) => x.id === id)
+      if (c) c.sandbox = false
+      void loadSandbox(id)
+    }
+  } catch (e) {
+    fail(e)
+  }
+}
 
 async function load() {
   const id = props.conversationId
@@ -52,6 +72,7 @@ async function load() {
     repo.value = null
   }
   void loadPrs(id)
+  if (state.app?.sandboxTasks) void loadSandbox(id)
 }
 
 watch(() => props.conversationId, load, { immediate: true })
@@ -206,6 +227,20 @@ const status = (w: PrWatchView) =>
       </template>
     </Popover>
 
+    <!-- 沙箱任务 -->
+    <div v-if="sandbox?.on" class="sandbox" :class="sandbox.state">
+      <Box :size="15" class="ico" />
+      <div class="body">
+        <span class="name">{{ t(`ui.sandboxTask.state.${sandbox.state}`) }}</span>
+        <small v-if="sandbox.state === 'preparing' && sandbox.message">{{ sandbox.message }}</small>
+        <small v-else-if="sandbox.branch" class="mono" :title="t('ui.sandboxTask.branchHint', { base: sandbox.base })">{{ sandbox.branch }}</small>
+      </div>
+      <LoaderCircle v-if="sandbox.state === 'preparing'" :size="13" class="spin" />
+      <button v-else type="button" class="icon" :title="t('ui.sandboxTask.end')" :disabled="!!state.byId[conversationId]?.busy" @click="endingSandbox = true">
+        <X :size="13" />
+      </button>
+    </div>
+
     <!-- 盯着的 PR -->
     <div v-if="activePrs.length || endedPrs.length" class="prs">
       <p class="group"><GitPullRequest :size="13" /> {{ t('ui.repo.prs') }}</p>
@@ -235,6 +270,15 @@ const status = (w: PrWatchView) =>
       </div>
     </div>
 
+    <ConfirmDialog
+      v-if="endingSandbox"
+      :title="t('ui.sandboxTask.offTitle')"
+      :body="t('ui.sandboxTask.offBody')"
+      :ok="t('ui.sandboxTask.offOk')"
+      danger
+      @ok="endSandbox"
+      @cancel="endingSandbox = false"
+    />
     <PromptDialog
       v-if="naming"
       :title="t('ui.repo.newBranch')"
@@ -291,6 +335,31 @@ const status = (w: PrWatchView) =>
   background: var(--cloth-sunk);
   color: var(--ink-soft);
   font-size: var(--t-xs);
+}
+.sandbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--indigo-wash);
+  color: var(--ink);
+}
+.sandbox .ico {
+  color: var(--indigo);
+}
+.sandbox .body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.sandbox small {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chev {
   flex: none;

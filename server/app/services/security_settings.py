@@ -184,6 +184,34 @@ SETTINGS: tuple[Setting, ...] = (
              "只读子代理只能查看、不弹确认；能改东西的一次一个，每个操作照常要员工确认。不能再开子代理、不能向员工提问、不写长期记忆。"
              "一个任务最多开 8 个，会多用 token。默认关闭。",
     ),
+    # ---- 沙箱任务（本机 Docker）：见 docs/sandbox-execution-design.md ----
+    Setting(
+        key="sandbox_tasks", kind="bool", default=False, locked=True,
+        title="沙箱任务（本机 Docker）",
+        risk="打开后，开了开发者工具、装了 Docker Desktop 的电脑可以把写代码的任务交给沙箱：AI 在一次性的 Docker 容器里拉代码、改代码、"
+             "装依赖、跑测试，全程不弹确认（影响出不了容器，员工的工作副本不会被碰）；做完只能把任务分支（flyknit/…）推到 GitHub 并建 PR，"
+             "不能推 main、不能强推，PR 由人审核合并。容器里没有 GitHub 令牌，推送用员工自己的登录在容器外完成。默认关闭。",
+    ),
+    Setting(
+        key="sandbox_network", kind="bool", default=True, locked=True,
+        title="沙箱可以上网",
+        risk="沙箱容器能不能访问网络（装依赖、拉代码都要）。关掉后容器完全断网，大多数开发任务做不了。",
+    ),
+    Setting(
+        key="sandbox_allow_ci_changes", kind="bool", default=False, locked=True,
+        title="沙箱可以改 CI 配置",
+        risk="打开后，沙箱任务推出去的分支可以包含 .github/workflows 等 CI 配置的改动。CI 配置能拿到仓库的密钥，默认不允许。",
+    ),
+    Setting(
+        key="sandbox_cpus", kind="int", default=4, locked=True, minimum=1, maximum=32,
+        title="沙箱 CPU 核数",
+        risk="每个沙箱容器最多用几个 CPU 核。",
+    ),
+    Setting(
+        key="sandbox_memory_gb", kind="int", default=8, locked=True, minimum=1, maximum=128,
+        title="沙箱内存（GB）",
+        risk="每个沙箱容器最多用多少内存。",
+    ),
     # ---- 个性化：员工可以在设置里选回复语气、给 AI 起名字。这两项决定哪些能选 ----
     Setting(
         key="persona_playful", kind="bool", default=True, locked=True,

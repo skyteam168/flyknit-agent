@@ -4,6 +4,7 @@ import { forHost, isTextAttachment, utf8Base64 } from './pasted'
 import { applyLanguage, i18n } from './i18n'
 import type {
   PrWatchView,
+  SandboxStatus,
   SlashCommand,
   AppInfo,
   AttachmentRef,
@@ -75,6 +76,36 @@ export async function loadPrs(conversationId: string) {
   }
 }
 
+export async function loadSandbox(conversationId: string) {
+  try {
+    state.sandbox[conversationId] = await bridge.sandboxStatus(conversationId)
+  } catch {
+    // 旧宿主没有沙箱：不显示
+  }
+}
+
+/** 打开 / 关闭当前对话的沙箱。新对话还没建时先记下，建好后再打开 */
+export async function setSandbox(on: boolean) {
+  const c = current.value
+  if (!c) {
+    draftMode.sandbox = on
+    return true
+  }
+  try {
+    const r = await bridge.setSandbox(c.id, on)
+    if (!r.ok) {
+      toast(r.message)
+      return false
+    }
+    c.sandbox = on
+    void loadSandbox(c.id)
+    return true
+  } catch (e) {
+    fail(e)
+    return false
+  }
+}
+
 export const state = reactive({
   app: null as AppInfo | null,
   conversations: [] as Conversation[],
@@ -86,6 +117,8 @@ export const state = reactive({
   pending: [] as AttachmentRef[],
   /** 每个对话盯着的 PR（开发者工具开着时，「文件」标签上方显示） */
   prs: {} as Record<string, PrWatchView[]>,
+  /** 每个对话的沙箱状态（宿主推 sandbox.state，面板打开时拉一次） */
+  sandbox: {} as Record<string, SandboxStatus>,
   /** 自动更新：有新版本时界面上挂一条，点了才装；不点退出时也会装 */
   update: null as UpdateInfo | null,
   toast: '' as string,
@@ -996,6 +1029,8 @@ export const draftMode = reactive({
   longMode: false,
   /** 新对话先出方案（计划模式） */
   planMode: false,
+  /** 新对话开沙箱 */
+  sandbox: false,
 })
 
 // ---------- 工作区与权限 ----------
@@ -1246,6 +1281,11 @@ export async function send(text: string): Promise<boolean> {
       }
       if (draftMode.longMode && c.mode === 'agent' && (await bridge.setLongMode(c.id, true).catch(() => false))) c.longMode = true
       if (draftMode.planMode && c.mode === 'agent' && (await bridge.setPlanMode(c.id, true).catch(() => false))) state.planMode[c.id] = true
+      if (draftMode.sandbox && c.mode === 'agent') {
+        const r = await bridge.setSandbox(c.id, true).catch(() => ({ ok: false, message: '' }))
+        if (r.ok) c.sandbox = true
+        else if (r.message) toast(r.message)
+      }
       state.conversations.unshift(c)
       id = c.id
       state.currentId = id
@@ -1871,6 +1911,7 @@ function onHostEvent(e: HostEvent) {
         if (e.contextDetails !== undefined) state.app.contextDetails = e.contextDetails
         if (e.longTasks !== undefined) state.app.longTasks = e.longTasks
         if (e.developerTools !== undefined) state.app.developerTools = e.developerTools
+        if (e.sandboxTasks !== undefined) state.app.sandboxTasks = e.sandboxTasks
         if (e.webSearchEnabled !== undefined) state.app.webSearchEnabled = e.webSearchEnabled
         if (e.deepThinking !== undefined) state.app.deepThinking = e.deepThinking
         if (e.webSearch !== undefined) state.app.webSearch = e.webSearch
@@ -1958,6 +1999,11 @@ function onHostEvent(e: HostEvent) {
       if (i >= 0) list.splice(i, 1, e.watch)
       else list.unshift(e.watch)
       state.prs[e.conversationId] = list
+      break
+    }
+    case 'sandbox.state': {
+      const prev = state.sandbox[e.conversationId]
+      state.sandbox[e.conversationId] = { ...prev, ...e, on: e.state !== 'off' }
       break
     }
     case 'chat.pending':

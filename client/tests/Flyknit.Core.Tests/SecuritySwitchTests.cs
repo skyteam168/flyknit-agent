@@ -204,6 +204,13 @@ public class SecuritySwitchTests
             SecuritySettings.DeveloperTools,
             // AgentHost 读这一项（SubAgentRunner.Enabled）：关着（默认）时主助手没有 spawn_agent（见 SubAgentTests）
             SecuritySettings.SubAgents,
+            // SandboxSettings.Enabled 读这一项（还要开发者工具）：关着（默认）时没有沙箱开关，AgentHost 不起容器（见 SandboxTests）
+            SecuritySettings.SandboxTasks,
+            // SandboxSettings.Options 读下面四项：容器联网、出口许不许改 CI 配置、CPU、内存
+            SecuritySettings.SandboxNetwork,
+            SecuritySettings.SandboxAllowCiChanges,
+            SecuritySettings.SandboxCpus,
+            SecuritySettings.SandboxMemoryGb,
             // AgentHost.RunTokenLimit 读这一项填 AgentOptions.MaxRunTokens（长任务 ×5）；撞到 token 上限时长任务自动接着做
             SecuritySettings.RunTokenBudget,
         };
