@@ -248,6 +248,36 @@ public sealed class InteractiveShellTests : IDisposable
     }
 
     [Fact]
+    public async Task PlaceholderShowsUntilTheFirstKey()
+    {
+        // 真终端里：「> 」后面先显示灰色提示；第一个按键单独读出来、擦掉提示，和后面读到的拼成一整行
+        var keys = new Queue<ConsoleKeyInfo?>(new ConsoleKeyInfo?[]
+        {
+            new ConsoleKeyInfo('看', ConsoleKey.NoName, false, false, false),
+            new ConsoleKeyInfo('\r', ConsoleKey.Enter, false, false, false),     // 直接回车：空行，跳过
+            new ConsoleKeyInfo('/', ConsoleKey.Oem2, false, false, false),
+        });
+        var gateway = new Scripted(new ChatTurn { Content = "好" });
+        var output = new StringWriter();
+        var shell = new InteractiveShell(Env(gateway), _dir, PermissionMode.Workspace, new StringReader("看目录\nexit\n"), output,
+            style: new ConsoleStyle(true), store: Store(), readKey: _ => Task.FromResult(keys.Count > 0 ? keys.Dequeue() : null));
+        await shell.RunAsync(null, null, CancellationToken.None);
+
+        Assert.Equal("看看目录", gateway.Requests.Single().Messages.Last(m => m.Role == ChatRole.User).Content);
+        var text = output.ToString();
+        Assert.Contains(InteractiveShell.Placeholder, text);
+        Assert.Contains("\u001b[K", text, StringComparison.Ordinal);   // 提示被擦掉
+        Assert.Contains("再见", text);                                   // 「/」+「exit」= /exit
+    }
+
+    [Fact]
+    public async Task NoPlaceholderWithoutColors()
+    {
+        var (output, _) = await Run(new Scripted(), "/exit\n");
+        Assert.DoesNotContain(InteractiveShell.Placeholder, output);
+    }
+
+    [Fact]
     public void IdleCtrlCAsksBeforeExiting()
     {
         var now = DateTimeOffset.Parse("2026-11-09T10:00:00Z");

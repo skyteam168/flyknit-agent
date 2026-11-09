@@ -59,6 +59,12 @@ public sealed class InteractiveShell
     private readonly object _gate = new();
     private readonly int _terminalWidth;
 
+    /// <summary>读一个按键（不回显）。真终端里才有：用来在输入行显示灰色提示、敲第一个字时擦掉。</summary>
+    private readonly Func<CancellationToken, Task<ConsoleKeyInfo?>>? _readKey;
+
+    /// <summary>输入行空着时显示的灰色提示（同 Codex 的「Ask Codex to do anything」）。</summary>
+    public const string Placeholder = "告诉 FlyknitBuddy 要做什么（/help 看命令）";
+
     private HeadlessSession _session;
     private DateTimeOffset _createdAt;
     private string? _firstPrompt;
@@ -72,8 +78,10 @@ public sealed class InteractiveShell
 
     public InteractiveShell(HeadlessEnvironment env, string workspace, PermissionMode permission, TextReader input, TextWriter output,
         ConsoleStyle? style = null, AcpSessionStore? store = null, bool showThinking = false, string version = "0.1.0",
-        Func<Task>? afterTurn = null, Func<DateTimeOffset>? now = null, int terminalWidth = 0)
+        Func<Task>? afterTurn = null, Func<DateTimeOffset>? now = null, int terminalWidth = 0,
+        Func<CancellationToken, Task<ConsoleKeyInfo?>>? readKey = null)
     {
+        _readKey = readKey;
         _terminalWidth = terminalWidth;
         _env = env;
         _permission = permission == PermissionMode.Full ? PermissionMode.Workspace : permission;
@@ -172,7 +180,7 @@ public sealed class InteractiveShell
     private async Task<string?> ReadPromptAsync(CancellationToken ct)
     {
         Write(_style.Bold(_style.Cyan("> ")));
-        var first = await ReadLineAsync(ct);
+        var first = await ReadFirstLineAsync(ct);
         if (first is null)
         {
             return null;
@@ -202,6 +210,46 @@ public sealed class InteractiveShell
         }
         lines.Add(current);
         return string.Join("\n", lines).Trim();
+    }
+
+    /// <summary>
+    /// 读输入的第一行。真终端里先在光标后面显示灰色提示、光标退回行首：控制台的 ReadLine 没法在敲字时擦掉别的字，
+    /// 所以先单独读第一个按键，擦掉提示、把这个字回显出来，剩下的照常交给 ReadLine（中文输入法、粘贴都正常）。
+    /// </summary>
+    private async Task<string?> ReadFirstLineAsync(CancellationToken ct)
+    {
+        if (_readKey is null || !_style.Enabled)
+        {
+            return await ReadLineAsync(ct);
+        }
+        var width = ConsoleBanner.DisplayWidth(Placeholder);
+        Write(_style.Dim(Placeholder) + $"\u001b[{width}D");
+        ConsoleKeyInfo? key;
+        try
+        {
+            key = await _readKey(ct);
+        }
+        finally
+        {
+            Write("\u001b[K"); // 擦掉提示
+        }
+        if (key is not { } k)
+        {
+            return await ReadLineAsync(ct);
+        }
+        if (k.Key == ConsoleKey.Enter)
+        {
+            Write("\n");
+            return "";
+        }
+        // 方向键、退格这类没有字符的按键：不回显，照常读这一行
+        if (k.KeyChar == '\0' || char.IsControl(k.KeyChar))
+        {
+            return await ReadLineAsync(ct);
+        }
+        Write(k.KeyChar.ToString());
+        var rest = await ReadLineAsync(ct);
+        return rest is null ? k.KeyChar.ToString() : k.KeyChar + rest;
     }
 
     private async Task<string?> ReadLineAsync(CancellationToken ct)
