@@ -148,6 +148,39 @@ public sealed class HeadlessTests : IDisposable
         Assert.DoesNotContain("目录里只有 a.txt", shown);   // 回答不重复打在进度里
     }
 
+    [Fact]
+    public async Task PrintExplainsDeclinedConfirmationsOnTheTerminal()
+    {
+        // 截图里的情况：-p 里要运行脚本，没人可问被拒绝了。终端上要说清楚为什么、怎么办，不用去 JSON 里找
+        var (options, _) = CliOptions.Parse(new[] { "-p", "跑脚本", "-w", _dir });
+        var recording = new RecordingGateway(new Scripted(Call("run_shell", new { command = "touch made.txt" }), new ChatTurn { Content = "没跑成" }));
+        var stdout = new StringWriter();
+        var progress = new StringWriter();
+        await PrintCommand.RunAsync(options!, Env(recording), recording, stdout, PermissionMode.Workspace, CancellationToken.None,
+            progress: progress, style: ConsoleStyle.Plain);
+
+        var shown = progress.ToString();
+        Assert.Contains("有 1 个操作需要确认", shown);
+        Assert.Contains("touch made.txt", shown);
+        Assert.Contains("直接输入 flyknit", shown);
+        Assert.Contains("--allow-writes", shown);   // touch 是普通写入，加 --allow-writes 真能放行
+        Assert.Single(JsonNode.Parse(stdout.ToString())!["declined"]!.AsArray());  // JSON 不变
+    }
+
+    [Fact]
+    public void DeclinedHintOnlyMentionsAllowWritesWhenItWouldHelp()
+    {
+        var notHelpful = new List<(string, string, string)>
+        {
+            ("run_shell", "python merge.py", "这类操作（运行脚本、访问网络等）不能自动放行，只能由员工确认：在员工端或 flyknit 对话模式里做"),
+        };
+        var hint = PrintCommand.DeclinedHint(notHelpful, allowWrites: false, ConsoleStyle.Plain);
+        Assert.Contains("python merge.py", hint);
+        Assert.Contains("直接输入 flyknit", hint);
+        Assert.DoesNotContain("--allow-writes", hint);
+        Assert.Equal("", PrintCommand.DeclinedHint(new List<(string, string, string)>(), false, ConsoleStyle.Plain));
+    }
+
     // ---------- 参数 ----------
 
     [Theory]

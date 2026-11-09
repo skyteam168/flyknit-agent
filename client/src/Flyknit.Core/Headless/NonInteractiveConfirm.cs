@@ -35,10 +35,11 @@ public sealed class NonInteractiveConfirm : IConfirmationHandler
                 Approved.Add((request.Call.Name, request.Summary));
                 return Task.FromResult(ConfirmChoice.AllowOnce);
             }
-            var reason = !_allowWrites ? "命令行默认不放行需要确认的操作（可加 --allow-writes 放行普通写入）"
-                : request.Decision.Effect == CommandEffect.Destructive ? "高危操作（删除、覆盖、改系统设置等）只能在员工端由员工确认"
-                : request.Decision.AlwaysAsk ? "IT 要求这类操作每次都由员工确认"
-                : "这类操作不能自动放行，只能在员工端由员工确认";
+            // 只有 --allow-writes 真能放行的才提它；运行脚本、访问网络这类加了也不放行，提了反而误导
+            var reason = request.Decision.Effect == CommandEffect.Destructive ? "高危操作（删除、覆盖、改系统设置等）只能由员工确认：在员工端或 flyknit 对话模式里做"
+                : request.Decision.AlwaysAsk ? "IT 要求这类操作每次都由员工确认：在员工端或 flyknit 对话模式里做"
+                : !_allowWrites && CanAutoApprove(request.Decision) ? "命令行默认不放行需要确认的操作（可加 --allow-writes 放行这类普通写入）"
+                : "这类操作（运行脚本、访问网络等）不能自动放行，只能由员工确认：在员工端或 flyknit 对话模式里做";
             Declined.Add((request.Call.Name, request.Summary, reason));
             // AllowOnce 以外一律 Reject：命令行从不写「以后自动执行」规则，也不做本次会话授权
             return Task.FromResult(ConfirmChoice.Reject);
