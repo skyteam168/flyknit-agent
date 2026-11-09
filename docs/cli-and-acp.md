@@ -1,7 +1,8 @@
-# 命令行与 IDE 接入（flyknit -p / flyknit acp）
+# 命令行与 IDE 接入（flyknit / flyknit -p / flyknit acp）
 
 第四批对外接口。`flyknit.exe` 是和员工端（FlyknitBuddy.exe）装在同一个文件夹里的控制台程序，共用 `Flyknit.Core`：
 
+- **`flyknit`**：在命令行里和 FlyknitBuddy 对话（同 Codex CLI / Claude Code 的终端体验），确认在终端里问；
 - **`flyknit -p "要做的事"`**：无界面执行一次办事任务，结果输出 JSON，给脚本、计划任务和 CI 用；
 - **`flyknit acp`**：ACP（Agent Client Protocol，协议版本 1）服务，JSON-RPC 走标准输入输出，
   让 Zed、JetBrains（以及装了 ACP 插件的 VS Code）直接把 FlyknitBuddy 当 AI 助手用。
@@ -21,13 +22,13 @@
 和员工端是同一套东西：同一个设备令牌、同一份服务端配置，闸门一个不少
 （`blocked_patterns` → `CommandAnalyzer` 定级 → 权限档 + 工作区 → 员工确认过的「以后自动执行」规则）。
 
-| | 命令行 `-p` | IDE（ACP） |
+| | 命令行 `-p` | IDE（ACP）；终端对话 `flyknit` 同 IDE |
 | --- | --- | --- |
 | 需要确认的操作 | **默认一律拒绝**，写进输出的 `declined`。加 `--allow-writes` 只放行员工端也能设成「以后自动执行」的那一类（有可记规则、非高危、IT 没要求每次确认），放行一次、不写规则 | 发 `session/request_permission`，IDE 弹自己的确认框 |
 | 高危操作（删除、覆盖、改注册表 / 服务 / 账号、装卸软件、解释器和间接执行） | 任何参数都不放行 | 只给「允许一次 / 拒绝」，没有「总是允许」；IDE 回了没给过的选项按拒绝 |
 | 权限档 | `readonly` 或 `workspace`，**没有完全权限** | 员工端设置里的默认权限（同样没有完全权限） |
 | 工作区 | `-w` 指定，默认当前目录 | IDE 给的 `cwd`（必须是存在的绝对路径） |
-| 审计 | 照常上报，来源 `actor = cli` | 来源 `actor = ide` |
+| 审计 | 照常上报，来源 `actor = cli` | 来源 `actor = ide`（终端对话是 `cli`） |
 | 额度 | 照常计入这台设备，超额退出码 5 | 同左，超额时把原因作为回答发给 IDE |
 
 没有的东西（都需要员工端界面或会碰员工个人数据）：长期记忆、浏览器、连接器（MCP）、子代理、向员工提问、派遣专家。
@@ -36,7 +37,45 @@ IDE 在 `session/new` 里带来的 MCP 服务器**不接**：连接器只认 IT 
 （和员工端的对话记录一样只在这台电脑上、不上传；最多留 50 个、30 天），IDE 关掉以后能从会话列表打开接着聊。
 重新打开时权限档、安全设置按当时的配置，不从文件里读；`flyknit -p` 不保存。
 
-## 3. flyknit -p
+## 3. flyknit（终端对话）
+
+```
+PS D:\project> flyknit
+FlyknitBuddy 0.1.0  命令行对话
+工作区 D:\project · 权限：工作区内修改 · 开发者工具：开 · 深度思考：关
+> 把 utils.py 里的两个 TODO 修掉
+  ▸ 读取 utils.py
+    ✓ 共 120 行
+  ▸ 修改 utils.py
+  ⚠ 需要确认：修改 D:\project\utils.py
+    [y] 允许一次  [a] 以后自动  [n] 拒绝 > y
+    已允许这一次
+    ✓ 已修改 2 处
+两个 TODO 都改好了：……
+· 2 次工具 · 3.1k tokens · 8.4 秒
+```
+
+| 用法 | 说明 |
+| --- | --- |
+| `flyknit` / `flyknit "第一句话"` | 进入对话；工作区默认当前目录（`-w` 指定），`--permission`、`--think` 同 `-p` |
+| `flyknit -c` | 接着这个工作区最近的一次对话 |
+| `flyknit --resume [会话 ID]` | 列出以前的对话选一个；带 ID 直接打开 |
+
+- **输出**：回答边生成边打印；工具调用一行一个（`▸` 开始，`✓` / `✗` 结束，带结果第一行）；计划更新时列出来；
+  等模型回复时行首显示「… 思考中」，第一个字出来就擦掉；每轮结束一行页脚（工具次数、token、耗时，没做完时写原因）。
+  思考过程只有 `--think` 时显示。输出被重定向、设了 `NO_COLOR` 或终端不支持时不用颜色、不写占位。
+- **确认**：在终端里问。普通写入是 `[y] 允许一次 [a] 以后自动 [n] 拒绝`（「以后自动」记成和员工端共用的规则）；
+  高危操作只有 `[y] [n]`，输入 `a` 会再问一次；直接回车、输入结束都按拒绝。并行的工具同时要确认时一个一个问。
+- **命令**：`/new` 新会话、`/resume [序号]` 打开以前的、`/plan` 看计划、`/usage` 本会话 token、`/clear` 清屏、`/help`、`/exit`。
+- **输入**：回车发送；行尾 `\` 接着下一行；单独一行 `"""` 开始多行输入，再一行 `"""` 结束。
+- **Ctrl+C**：任务进行中停下这一轮（已发出的工具调用照常补结果、审计照常上报），回到输入；空闲时第一次只提示，两秒内再按一次退出。
+- **会话**：每轮结束存到本机（和 IDE 的会话同一个目录、同一个列表，见第 5 节），所以 IDE 里的对话也能在终端里 `/resume` 接着聊，反过来也一样。
+- **编码和颜色**：对话期间把控制台输入输出切到 UTF-8、退出时切回；老的控制台窗口自动打开「虚拟终端处理」才用颜色。
+
+实现：`Flyknit.Core/Headless/InteractiveShell.cs`（`InteractiveShell`、`ConsoleObserver`、`ConsoleConfirm`、`ConsoleStyle`），
+入口和 Ctrl+C 在 `Flyknit.Cli/Program.cs`，测试 `InteractiveShellTests`。
+
+## 3.1 flyknit -p
 
 ```
 flyknit -p "把 docs 目录里的 md 文件列出来" --format json
