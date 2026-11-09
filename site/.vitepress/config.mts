@@ -17,6 +17,7 @@ export default defineConfig({
     nav: [
       { text: '使用指南', link: '/guide/introduction', activeMatch: '/guide/' },
       { text: '管理员', link: '/admin/deploy', activeMatch: '/admin/' },
+      { text: '最近更新', link: '/guide/whats-new' },
       { text: '常见问题', link: '/faq' },
     ],
     sidebar: {
@@ -26,6 +27,7 @@ export default defineConfig({
           items: [
             { text: '介绍', link: '/guide/introduction' },
             { text: '安装与登录', link: '/guide/install' },
+            { text: '最近更新', link: '/guide/whats-new' },
           ],
         },
         {
@@ -51,7 +53,9 @@ export default defineConfig({
           items: [
             { text: '开发者工具与 PR', link: '/guide/developer' },
             { text: '沙箱任务', link: '/guide/sandbox' },
-            { text: '命令行与 IDE', link: '/guide/cli-and-ide' },
+            { text: '终端对话', link: '/guide/terminal' },
+            { text: '在 IDE 里用', link: '/guide/ide' },
+            { text: '命令行脚本与 CI', link: '/guide/cli-and-ide' },
           ],
         },
       ],

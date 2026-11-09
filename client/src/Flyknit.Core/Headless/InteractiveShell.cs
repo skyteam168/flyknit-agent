@@ -493,6 +493,7 @@ internal sealed class ConsoleObserver : IAgentObserver
     private readonly TextWriter _out;
     private readonly ConsoleStyle _style;
     private readonly bool _showThinking;
+    private readonly bool _showContent;
     private bool _midLine;
     private bool _thinking;
     private bool _streamed;
@@ -500,11 +501,16 @@ internal sealed class ConsoleObserver : IAgentObserver
     /// <summary>行首正显示着「…」占位（等模型回复时）。有颜色的终端才显示，下一次输出前擦掉。</summary>
     private bool _waiting;
 
-    public ConsoleObserver(TextWriter output, ConsoleStyle style, bool showThinking)
+    /// <param name="showContent">
+    /// false：只显示过程（工具调用、计划、思考中），回答本身不打——flyknit -p 在终端里跑时用，
+    /// 进度写到标准错误，回答最后照常写到标准输出，不重复。
+    /// </param>
+    public ConsoleObserver(TextWriter output, ConsoleStyle style, bool showThinking, bool showContent = true)
     {
         _out = output;
         _style = style;
         _showThinking = showThinking;
+        _showContent = showContent;
     }
 
     private void Write(string text)
@@ -585,7 +591,7 @@ internal sealed class ConsoleObserver : IAgentObserver
 
     public void OnContent(string delta)
     {
-        if (delta.Length == 0)
+        if (delta.Length == 0 || !_showContent)
         {
             return;
         }
@@ -600,7 +606,7 @@ internal sealed class ConsoleObserver : IAgentObserver
     public void OnAssistantMessage(ChatMessage message)
     {
         // 正常的回答已经一段段打过了；模型服务出错时的说明不走流式，这里补上
-        if (!_streamed && message.Content.Trim().Length > 0)
+        if (_showContent && !_streamed && message.Content.Trim().Length > 0)
         {
             EndLine();
             Write(message.Content.Trim());

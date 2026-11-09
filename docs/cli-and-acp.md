@@ -77,6 +77,11 @@ FlyknitBuddy 0.1.0  命令行对话
 
 ## 3.1 flyknit -p
 
+在终端里直接运行（标准错误没有被重定向）时，**边做边把进度打到标准错误**：每一步操作一行、等模型时「… 思考中」、
+最后一行页脚；回答不在进度里重复。回答 / JSON 照常最后写到标准输出，所以 `flyknit -p ... > out.json`、脚本和 CI 拿到的内容不变；
+`2>$null` 或被程序调用时标准错误不是终端，就不打进度。`--format stream-json` 本来就边做边输出，不另打进度。
+
+
 ```
 flyknit -p "把 docs 目录里的 md 文件列出来" --format json
 flyknit -p - < task.txt                      # 要做的事从标准输入读

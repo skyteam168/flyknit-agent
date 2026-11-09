@@ -126,6 +126,28 @@ public sealed class HeadlessTests : IDisposable
         return (code, JsonNode.Parse(output.ToString())!.AsObject());
     }
 
+    [Fact]
+    public async Task PrintShowsProgressOnTheTerminalWithoutChangingTheOutput()
+    {
+        // 在终端里直接跑 -p：进度打到标准错误（每一步操作、页脚），回答和 JSON 照常最后写到标准输出
+        File.WriteAllText(Path.Combine(_dir, "a.txt"), "x");
+        var (options, _) = CliOptions.Parse(new[] { "-p", "看看目录", "-w", _dir });
+        var recording = new RecordingGateway(new Scripted(Call("list_dir", new { path = "." }), new ChatTurn { Content = "目录里只有 a.txt" }));
+        var stdout = new StringWriter();
+        var progress = new StringWriter();
+        var code = await PrintCommand.RunAsync(options!, Env(recording), recording, stdout, PermissionMode.Workspace, CancellationToken.None,
+            progress: progress, style: ConsoleStyle.Plain);
+
+        Assert.Equal(ExitCodes.Ok, code);
+        var json = JsonNode.Parse(stdout.ToString())!.AsObject();
+        Assert.Equal("目录里只有 a.txt", json["answer"]!.GetValue<string>());
+        var shown = progress.ToString();
+        Assert.Contains("▸", shown);
+        Assert.Contains("✓", shown);
+        Assert.Contains("1 次工具", shown);
+        Assert.DoesNotContain("目录里只有 a.txt", shown);   // 回答不重复打在进度里
+    }
+
     // ---------- 参数 ----------
 
     [Theory]

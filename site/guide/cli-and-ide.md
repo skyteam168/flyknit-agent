@@ -1,27 +1,18 @@
-# 命令行与 IDE
+# 命令行脚本与 CI
 
-IT 在安全中心打开「**命令行 / IDE 接入**」后，可以在脚本、CI 和开发工具里调用 FlyknitBuddy。`flyknit.exe` 和 FlyknitBuddy 装在一起，用的是这台电脑上的登录，权限、确认、额度、审计都一样。
+IT 在安全中心打开「**命令行 / IDE 接入**」后，`flyknit.exe` 有三种用法，用的都是这台电脑上 FlyknitBuddy 的登录，权限、确认、额度、审计都一样：
 
-## 在命令行里对话
-
-在 PowerShell 或 Windows Terminal 里进入项目文件夹，直接输入 `flyknit`，就可以像聊天窗口一样一句一句地交代：
-
-```powershell
-cd D:\repo
-flyknit                      # 进入对话
-flyknit "看看这个项目是做什么的"   # 带着第一句话进入
-flyknit -c                   # 接着上次在这个文件夹里的对话
-flyknit --resume             # 列出以前的对话，选一个接着聊
-```
-
-- 回答边生成边显示，每一步操作显示成一行（`▸` 开始、`✓` 成功、`✗` 失败）。
-- 需要确认的操作直接在命令行里问：输入 `y` 允许一次、`a` 以后自动（和 FlyknitBuddy 里的规则共用）、`n` 拒绝；删除、覆盖这类高危操作只有 `y` / `n`。
-- 常用命令：`/new` 新对话、`/resume` 打开以前的对话、`/plan` 看计划、`/usage` 看用了多少 token、`/exit` 退出。
-- 任务进行中按 **Ctrl+C** 停下当前这一轮；空闲时连按两次 Ctrl+C 退出。
-- 要粘贴多行内容：先单独输入一行 `"""`，粘贴，再输入一行 `"""`。
-- 命令行里的对话和 IDE 里的对话存在同一个地方，可以互相接着聊。
+| 用法 | 适合 | 说明 |
+| --- | --- | --- |
+| `flyknit` | 自己在命令行里来回交代、需要确认 | 见 [终端对话](/guide/terminal) |
+| `flyknit -p "……"` | 脚本、计划任务、CI：跑一次拿结果 | 本页 |
+| `flyknit acp` | VS Code、Zed、JetBrains 里当 AI 助手 | 见 [在 IDE 里用](/guide/ide) |
 
 ## flyknit -p
+
+跑一次就结束：结果默认是 JSON，写到标准输出，方便脚本读取。
+
+在命令行里直接运行时，会边做边显示每一步在做什么（`▸` 开始、`✓` 成功、`✗` 失败、`… 思考中`），最后输出结果；被脚本调用、或输出重定向到文件时只输出结果，内容不变。
 
 在 PowerShell 或命令提示符里：
 
@@ -57,42 +48,17 @@ echo 总结一下这个目录 | flyknit -p - --format text
 
 输出被脚本读取时，JSON 里的中文会写成 `\uXXXX` 转义，PowerShell 的 `ConvertFrom-Json` 读出来就是原文。
 
-## 在 IDE 里用（ACP）
-
-`flyknit acp` 是 ACP（Agent Client Protocol）服务，Zed、JetBrains 原生支持，VS Code 要装 ACP 插件。
-
-**Zed**（`settings.json`）：
-
-```json
-"agent_servers": {
-  "FlyknitBuddy": { "type": "custom", "command": "flyknit", "args": ["acp"] }
-}
-```
-
-**VS Code**：装一个 ACP 客户端插件（如「ACP Client」或「ACP — Agent Client Protocol」），在用户设置里加：
-
-```json
-"agent_servers": {
-  "FlyknitBuddy": {
-    "command": "C:\\Program Files\\FlyknitBuddy\\flyknit.exe",
-    "args": ["acp"],
-    "cwd": "${workspaceFolder}"
-  }
-}
-```
-
-`command` 建议写完整路径（VS Code 只在启动时读一次 PATH）。各插件的配置项名称以插件说明为准。
-
-在 IDE 里：工作区就是打开的项目文件夹；需要确认的操作由 IDE 弹确认框，高危操作只有「允许一次 / 拒绝」。
-
-IDE 里的会话会存在这台电脑上（最多 50 个、30 天，不上传），关掉 IDE 以后可以在插件的会话列表里找回来接着聊。
-
-IDE 里默认不开深度思考（一个任务常常要几十步，每步都先想一大段会慢很多）。确实需要时把 `args` 写成 `["acp", "--think"]`。
-
-::: tip 升级
-IDE 开着 `flyknit acp` 时，FlyknitBuddy 的自动升级会等它退出。要升级时先在 IDE 里断开智能体，或关掉 IDE。
-:::
-
 ## 不提供的能力
 
-长期记忆、浏览器、连接器、子代理、向你提问——这些需要 FlyknitBuddy 的界面。IDE 带来的 MCP 服务器也不会接入（连接器只认 IT 配置的）。
+长期记忆、浏览器、连接器、子代理、向你提问——这些需要 FlyknitBuddy 的界面。
+
+## 放进计划任务的例子
+
+每天早上 8 点汇总日报（Windows「任务计划程序」里新建任务，操作填）：
+
+```bat
+"C:\Program Files\FlyknitBuddy\flyknit.exe" -p "把今天的日报汇总成一张表，存成 汇总-今天日期.xlsx" -w D:\日报 --allow-writes --format text --timeout 1800
+```
+
+- `--allow-writes` 只放行普通写入（新建、修改文件这类能设成「以后自动执行」的操作）；删除、覆盖等高危操作任何时候都不放行。
+- 退出码不是 0 时可以在任务计划程序的历史里看到，用 `--format json` 能看到具体原因。
