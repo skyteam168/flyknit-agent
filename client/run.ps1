@@ -154,6 +154,13 @@ if ((Invoke-Step "dotnet build src\Flyknit.Cli -c Debug -v minimal -o `"$cliDir`
         [Environment]::SetEnvironmentVariable('Path', (($items + $cliDir) -join ';'), 'User')
         Write-Host "已把 $cliDir 加进你的 PATH：新开一个 PowerShell 窗口就能用 flyknit 命令" -ForegroundColor Green
     }
+    # 装过正式版时，系统 PATH 里的 C:\Program Files\FlyknitBuddy 排在用户 PATH 前面，敲 flyknit 跑的是那个旧版
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $shadow = @($machinePath -split ';' | Where-Object { $_ -ne '' -and (Test-Path -LiteralPath ($_.TrimEnd('\') + '\flyknit.exe') -ErrorAction SilentlyContinue) }) | Select-Object -First 1
+    if ($shadow -and ($shadow.TrimEnd('\') -ine $cliDir.TrimEnd('\'))) {
+        Write-Host "注意：系统 PATH 里的 $shadow\flyknit.exe 会先被找到（正式安装的版本）。" -ForegroundColor Yellow
+        Write-Host "      要用刚编译的版本，请直接运行 `"$cliDir\flyknit.exe`"，或在命令行里用 where flyknit 确认用的是哪个。" -ForegroundColor Yellow
+    }
 }
 
 Write-Host ''

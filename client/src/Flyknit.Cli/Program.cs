@@ -220,7 +220,12 @@ public static class Program
         }
         try
         {
-            var code = await PrintCommand.RunAsync(options, connection.Environment!, connection.Gateway, stdout, permission, cts.Token);
+            // 标准错误还在终端上：边做边把进度打出来（回答和 JSON 照常最后写到标准输出）
+            var progressStyle = new ConsoleStyle(!Console.IsErrorRedirected
+                && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR"))
+                && Terminal.EnableColors());
+            var code = await PrintCommand.RunAsync(options, connection.Environment!, connection.Gateway, stdout, permission, cts.Token,
+                progress: Console.IsErrorRedirected ? null : stderr, style: progressStyle);
             if (code != ExitCodes.Ok && options.Format == "text")
             {
                 Warn($"任务没有完成（退出码 {code}），用 --format json 可以看到原因");

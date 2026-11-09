@@ -266,7 +266,13 @@ public static class PrintCommand
     public static PermissionMode ResolvePermission(string option, string profileDefault) =>
         (option.Length > 0 ? option : profileDefault) == "readonly" ? PermissionMode.ReadOnly : PermissionMode.Workspace;
 
-    public static async Task<int> RunAsync(CliOptions options, HeadlessEnvironment env, RecordingGateway? gateway, TextWriter stdout, PermissionMode permission, CancellationToken ct)
+    /// <param name="progress">
+    /// 在终端里直接运行时（标准错误没有被重定向）传标准错误：边做边把进度（每一步操作、思考中）打出来，
+    /// 不然要等整个任务做完才有输出，几分钟里屏幕上什么都没有，像卡住了。回答和 JSON 照常最后写到标准输出，
+    /// 脚本、CI 拿到的内容不变。stream-json 本来就是边做边输出，不再另打进度。
+    /// </param>
+    public static async Task<int> RunAsync(CliOptions options, HeadlessEnvironment env, RecordingGateway? gateway, TextWriter stdout, PermissionMode permission, CancellationToken ct,
+        TextWriter? progress = null, ConsoleStyle? style = null)
     {
         var workspace = options.Workspace.Length > 0 ? options.Workspace : Directory.GetCurrentDirectory();
         if (!Directory.Exists(workspace))
@@ -277,7 +283,16 @@ public static class PrintCommand
         var session = new HeadlessSession(env, workspace, permission);
         var confirm = new NonInteractiveConfirm(options.AllowWrites);
         var observer = new PrintObserver(options.Format == "stream-json" ? stdout : null, JsonFor(options.AsciiJson, indent: false));
+        var console = progress is not null && options.Format != "stream-json"
+            ? new ConsoleObserver(progress, style ?? ConsoleStyle.Plain, showThinking: env.DeepThinking, showContent: false)
+            : null;
+        IAgentObserver watcher = console is null ? observer : new BothObservers(observer, console);
         var watch = Stopwatch.StartNew();
+        if (console is not null)
+        {
+            progress!.Write((style ?? ConsoleStyle.Plain).Dim($"FlyknitBuddy · 工作区 {Path.GetFullPath(workspace)} · 需要确认的操作{(options.AllowWrites ? "只放行普通写入" : "一律拒绝")}") + "\n");
+            console.ShowWaiting();
+        }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         if (options.TimeoutSeconds > 0)
@@ -287,10 +302,11 @@ public static class PrintCommand
         AgentRunResult result;
         try
         {
-            result = await session.PromptAsync(options.Prompt, confirm, observer, timeout.Token);
+            result = await session.PromptAsync(options.Prompt, confirm, watcher, timeout.Token);
         }
         catch (OperationCanceledException)
         {
+            console?.EndLine();
             var code = ct.IsCancellationRequested ? ExitCodes.Interrupted : ExitCodes.Timeout;
             await WriteErrorAsync(stdout, options.Format, code, code == ExitCodes.Timeout ? $"超过 {options.TimeoutSeconds} 秒，已停止" : "已中断", options.AsciiJson);
             return code;
@@ -304,6 +320,12 @@ public static class PrintCommand
             AgentStopReason.Failed when gateway?.LastError is { } error => ExitCodes.ForGatewayError(error),
             _ => ExitCodes.NotCompleted,
         };
+        if (console is not null)
+        {
+            console.EndLine();
+            progress!.Write((style ?? ConsoleStyle.Plain).Dim(InteractiveShell.Footer(result, false, watch.Elapsed)) + "\n");
+            progress.Flush();
+        }
         var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
         var summary = new JsonObject
         {
@@ -396,6 +418,29 @@ public static class PrintCommand
             _ => "任务没有完成",
         },
     };
+
+    /// <summary>同时交给两个观察者：收集结果的和打进度的。</summary>
+    private sealed class BothObservers : IAgentObserver
+    {
+        private readonly IAgentObserver _a;
+        private readonly IAgentObserver _b;
+
+        public BothObservers(IAgentObserver a, IAgentObserver b)
+        {
+            _a = a;
+            _b = b;
+        }
+
+        public void OnContent(string delta) { _a.OnContent(delta); _b.OnContent(delta); }
+        public void OnReasoning(string delta) { _a.OnReasoning(delta); _b.OnReasoning(delta); }
+        public void OnAssistantMessage(ChatMessage message) { _a.OnAssistantMessage(message); _b.OnAssistantMessage(message); }
+        public void OnToolStarted(ToolCall call, string summary, PolicyDecision decision) { _a.OnToolStarted(call, summary, decision); _b.OnToolStarted(call, summary, decision); }
+        public void OnToolFinished(ToolCall call, ToolResult result, string decision) { _a.OnToolFinished(call, result, decision); _b.OnToolFinished(call, result, decision); }
+        public void OnToolMessage(ChatMessage message) { _a.OnToolMessage(message); _b.OnToolMessage(message); }
+        public void OnPlanUpdated(IReadOnlyList<PlanItem> plan) { _a.OnPlanUpdated(plan); _b.OnPlanUpdated(plan); }
+        public void OnContextCompacted(Context.CompactionInfo info) { _a.OnContextCompacted(info); _b.OnContextCompacted(info); }
+        public void OnNotice(string text) { _a.OnNotice(text); _b.OnNotice(text); }
+    }
 
     /// <summary>收集工具调用；stream-json 时每个事件写一行。</summary>
     private sealed class PrintObserver : IAgentObserver

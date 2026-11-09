@@ -23,6 +23,8 @@ flyknit --resume             # 列出以前的对话，选一个接着聊
 
 ## flyknit -p
 
+在命令行里直接运行时，会边做边显示每一步在做什么，做完再输出结果；被脚本调用时只输出结果。
+
 在 PowerShell 或命令提示符里：
 
 ```powershell
