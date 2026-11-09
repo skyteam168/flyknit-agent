@@ -29,6 +29,9 @@ public sealed class ConsoleStyle
     public string Cyan(string t) => Wrap("36", t);
     public string Magenta(string t) => Wrap("35", t);
 
+    /// <summary>24 位真彩色（Windows Terminal、Win10 以后的控制台都支持）。</summary>
+    public string Rgb((int R, int G, int B) c, string t) => Wrap($"38;2;{c.R};{c.G};{c.B}", t);
+
     /// <summary>清屏并把光标移到左上角。没有颜色时（重定向）什么都不做。</summary>
     public string Clear => Enabled ? "\u001b[2J\u001b[H" : "";
 }
@@ -54,6 +57,7 @@ public sealed class InteractiveShell
     private readonly Func<Task>? _afterTurn;
     private readonly Func<DateTimeOffset> _now;
     private readonly object _gate = new();
+    private readonly int _terminalWidth;
 
     private HeadlessSession _session;
     private DateTimeOffset _createdAt;
@@ -68,8 +72,9 @@ public sealed class InteractiveShell
 
     public InteractiveShell(HeadlessEnvironment env, string workspace, PermissionMode permission, TextReader input, TextWriter output,
         ConsoleStyle? style = null, AcpSessionStore? store = null, bool showThinking = false, string version = "0.1.0",
-        Func<Task>? afterTurn = null, Func<DateTimeOffset>? now = null)
+        Func<Task>? afterTurn = null, Func<DateTimeOffset>? now = null, int terminalWidth = 0)
     {
+        _terminalWidth = terminalWidth;
         _env = env;
         _permission = permission == PermissionMode.Full ? PermissionMode.Workspace : permission;
         _input = input;
@@ -459,9 +464,14 @@ public sealed class InteractiveShell
     private void Banner()
     {
         var dev = _env.Security.On(SecuritySettings.DeveloperTools, fallback: false);
-        Write(_style.Bold($"FlyknitBuddy {_version}") + _style.Dim("  命令行对话") + "\n");
-        Write(_style.Dim($"工作区 {_session.Workspace} · 权限：{PermissionLabel(_permission)} · 开发者工具：{(dev ? "开" : "关")} · 深度思考：{(_env.DeepThinking ? "开" : "关")}") + "\n");
-        Write(_style.Dim("输入要做的事，回车发送；/help 看命令；任务进行中按 Ctrl+C 停下") + "\n\n");
+        var info = new[]
+        {
+            $"工作区 {_session.Workspace}",
+            // 框里不用「·」「…」这类宽度不确定的字符（有的字体占一列、有的占两列），框线会歪
+            $"权限：{PermissionLabel(_permission)}    开发者工具：{(dev ? "开" : "关")}    深度思考：{(_env.DeepThinking ? "开" : "关")}",
+        };
+        Write(ConsoleBanner.Render(_style, _terminalWidth, _version, info,
+            "输入要做的事，回车发送；/help 看命令；任务进行中按 Ctrl+C 停下"));
     }
 
     private static string PermissionLabel(PermissionMode mode) => mode switch

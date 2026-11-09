@@ -132,7 +132,8 @@ public static class Program
             var shell = new InteractiveShell(connection.Environment!, workspace, permission, Console.In, stdout, style,
                 store: new AcpSessionStore(Path.Combine(profile.Root, "ide-sessions")),
                 showThinking: options.Think, version: Version,
-                afterTurn: () => connection.Audit!.FlushAsync(connection.Server!, Warn));
+                afterTurn: () => connection.Audit!.FlushAsync(connection.Server!, Warn),
+                terminalWidth: Terminal.Width());
             interactiveCtrlC = shell.Interrupt;
             try
             {

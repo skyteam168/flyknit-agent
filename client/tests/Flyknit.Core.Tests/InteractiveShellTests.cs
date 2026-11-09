@@ -221,6 +221,33 @@ public sealed class InteractiveShellTests : IDisposable
     }
 
     [Fact]
+    public void BannerDrawsTheWordmarkWhenTheTerminalIsWideEnough()
+    {
+        var info = new[] { "工作区 D:\\日报", "权限：工作区内修改    开发者工具：关    深度思考：关" };
+        var wide = ConsoleBanner.Render(new ConsoleStyle(true), 120, "9.9.9", info, "提示");
+        Assert.Contains("\u001b[38;2;", wide, StringComparison.Ordinal);     // 真彩色渐变
+        var plainText = System.Text.RegularExpressions.Regex.Replace(wide, "\u001b\\[[0-9;]*m", "");
+        Assert.Contains("███████╗", plainText);                              // 大字
+        Assert.Contains(">_ FlyknitBuddy (9.9.9)", plainText);
+        Assert.True(ConsoleBanner.ArtWidth <= 110, $"字标太宽：{ConsoleBanner.ArtWidth}");
+        // 框的每一行一样宽（中文按两列算），框线才是直的
+        var boxRows = plainText.Split('\n').Where(l => l.TrimStart().StartsWith('│')).Select(ConsoleBanner.DisplayWidth).Distinct();
+        Assert.Single(boxRows);
+
+        // 终端窄：不画大字，框也不超出终端
+        var narrow = ConsoleBanner.Render(new ConsoleStyle(true), 60, "9.9.9", new[] { "工作区 " + new string('长', 80) }, "提示");
+        var narrowText = System.Text.RegularExpressions.Regex.Replace(narrow, "\u001b\\[[0-9;]*m", "");
+        Assert.DoesNotContain("███████╗", narrowText);
+        Assert.All(narrowText.Split('\n'), l => Assert.True(ConsoleBanner.DisplayWidth(l) <= 60, l));
+
+        // 没有颜色（重定向）：不画大字，信息照常
+        var plain = ConsoleBanner.Render(ConsoleStyle.Plain, 120, "9.9.9", info, "提示");
+        Assert.DoesNotContain("█", plain);
+        Assert.Contains("FlyknitBuddy 9.9.9", plain);
+        Assert.Contains("工作区 D:\\日报", plain);
+    }
+
+    [Fact]
     public void IdleCtrlCAsksBeforeExiting()
     {
         var now = DateTimeOffset.Parse("2026-11-09T10:00:00Z");
