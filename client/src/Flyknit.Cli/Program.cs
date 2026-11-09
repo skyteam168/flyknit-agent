@@ -132,7 +132,10 @@ public static class Program
             var shell = new InteractiveShell(connection.Environment!, workspace, permission, Console.In, stdout, style,
                 store: new AcpSessionStore(Path.Combine(profile.Root, "ide-sessions")),
                 showThinking: options.Think, version: Version,
-                afterTurn: () => connection.Audit!.FlushAsync(connection.Server!, Warn));
+                afterTurn: () => connection.Audit!.FlushAsync(connection.Server!, Warn),
+                terminalWidth: Terminal.Width(),
+                // 输入行的灰色提示：真的在终端里打字时才用（敲第一个字时擦掉）
+                readKey: Console.IsInputRedirected ? null : _ => Task.Run(() => (ConsoleKeyInfo?)Console.ReadKey(intercept: true)));
             interactiveCtrlC = shell.Interrupt;
             try
             {

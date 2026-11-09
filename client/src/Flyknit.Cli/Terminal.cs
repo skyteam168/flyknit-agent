@@ -41,4 +41,17 @@ internal static class Terminal
             return false;
         }
     }
+
+    /// <summary>终端有多宽（列）；拿不到（重定向等）返回 0。</summary>
+    public static int Width()
+    {
+        try
+        {
+            return Console.IsOutputRedirected ? 0 : Console.WindowWidth;
+        }
+        catch (Exception ex) when (ex is IOException or PlatformNotSupportedException)
+        {
+            return 0;
+        }
+    }
 }

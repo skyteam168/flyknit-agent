@@ -221,6 +221,63 @@ public sealed class InteractiveShellTests : IDisposable
     }
 
     [Fact]
+    public void BannerDrawsTheWordmarkWhenTheTerminalIsWideEnough()
+    {
+        var info = new[] { "工作区 D:\\日报", "权限：工作区内修改    开发者工具：关    深度思考：关" };
+        var wide = ConsoleBanner.Render(new ConsoleStyle(true), 120, "9.9.9", info, "提示");
+        Assert.Contains("\u001b[38;2;", wide, StringComparison.Ordinal);     // 真彩色渐变
+        var plainText = System.Text.RegularExpressions.Regex.Replace(wide, "\u001b\\[[0-9;]*m", "");
+        Assert.Contains("███████╗", plainText);                              // 大字
+        Assert.Contains(">_ FlyknitBuddy (9.9.9)", plainText);
+        Assert.True(ConsoleBanner.ArtWidth <= 110, $"字标太宽：{ConsoleBanner.ArtWidth}");
+        // 框的每一行一样宽（中文按两列算），框线才是直的
+        var boxRows = plainText.Split('\n').Where(l => l.TrimStart().StartsWith('│')).Select(ConsoleBanner.DisplayWidth).Distinct();
+        Assert.Single(boxRows);
+
+        // 终端窄：不画大字，框也不超出终端
+        var narrow = ConsoleBanner.Render(new ConsoleStyle(true), 60, "9.9.9", new[] { "工作区 " + new string('长', 80) }, "提示");
+        var narrowText = System.Text.RegularExpressions.Regex.Replace(narrow, "\u001b\\[[0-9;]*m", "");
+        Assert.DoesNotContain("███████╗", narrowText);
+        Assert.All(narrowText.Split('\n'), l => Assert.True(ConsoleBanner.DisplayWidth(l) <= 60, l));
+
+        // 没有颜色（重定向）：不画大字，信息照常
+        var plain = ConsoleBanner.Render(ConsoleStyle.Plain, 120, "9.9.9", info, "提示");
+        Assert.DoesNotContain("█", plain);
+        Assert.Contains("FlyknitBuddy 9.9.9", plain);
+        Assert.Contains("工作区 D:\\日报", plain);
+    }
+
+    [Fact]
+    public async Task PlaceholderShowsUntilTheFirstKey()
+    {
+        // 真终端里：「> 」后面先显示灰色提示；第一个按键单独读出来、擦掉提示，和后面读到的拼成一整行
+        var keys = new Queue<ConsoleKeyInfo?>(new ConsoleKeyInfo?[]
+        {
+            new ConsoleKeyInfo('看', ConsoleKey.NoName, false, false, false),
+            new ConsoleKeyInfo('\r', ConsoleKey.Enter, false, false, false),     // 直接回车：空行，跳过
+            new ConsoleKeyInfo('/', ConsoleKey.Oem2, false, false, false),
+        });
+        var gateway = new Scripted(new ChatTurn { Content = "好" });
+        var output = new StringWriter();
+        var shell = new InteractiveShell(Env(gateway), _dir, PermissionMode.Workspace, new StringReader("看目录\nexit\n"), output,
+            style: new ConsoleStyle(true), store: Store(), readKey: _ => Task.FromResult(keys.Count > 0 ? keys.Dequeue() : null));
+        await shell.RunAsync(null, null, CancellationToken.None);
+
+        Assert.Equal("看看目录", gateway.Requests.Single().Messages.Last(m => m.Role == ChatRole.User).Content);
+        var text = output.ToString();
+        Assert.Contains(InteractiveShell.Placeholder, text);
+        Assert.Contains("\u001b[K", text, StringComparison.Ordinal);   // 提示被擦掉
+        Assert.Contains("再见", text);                                   // 「/」+「exit」= /exit
+    }
+
+    [Fact]
+    public async Task NoPlaceholderWithoutColors()
+    {
+        var (output, _) = await Run(new Scripted(), "/exit\n");
+        Assert.DoesNotContain(InteractiveShell.Placeholder, output);
+    }
+
+    [Fact]
     public void IdleCtrlCAsksBeforeExiting()
     {
         var now = DateTimeOffset.Parse("2026-11-09T10:00:00Z");
