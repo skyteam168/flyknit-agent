@@ -12,7 +12,7 @@ namespace Flyknit.Core.Headless;
 /// <summary>flyknit 命令行解析后的参数。</summary>
 public sealed class CliOptions
 {
-    /// <summary>print（-p）、acp、help、version。</summary>
+    /// <summary>chat（交互对话，默认）、print（-p）、acp、help、version。</summary>
     public string Command { get; init; } = "help";
     public string Prompt { get; init; } = "";
 
@@ -33,6 +33,9 @@ public sealed class CliOptions
     /// </summary>
     public bool Think { get; init; }
 
+    /// <summary>交互模式打开以前的会话：continue（-c，这个工作区最近的一个）、list（--resume 不带 ID，列出来选）、会话 ID。</summary>
+    public string? Resume { get; init; }
+
     /// <summary>超时秒数，0 表示不限。</summary>
     public int TimeoutSeconds { get; init; }
 
@@ -44,18 +47,26 @@ public sealed class CliOptions
 
     public const string Usage = """
         用法：
+          flyknit                          在命令行里和 FlyknitBuddy 对话（输入 /help 看命令）
+          flyknit "第一句话"               带着第一句话进入对话
+          flyknit -c                       接着这个工作区最近的一次对话
+          flyknit --resume [会话 ID]       列出以前的对话选一个接着聊（和 IDE 里的会话共用）
           flyknit -p "要做的事" [选项]     无界面执行一次办事任务，结果输出到标准输出
           flyknit -p - [选项]              要做的事从标准输入读
           flyknit acp [--think]            作为 ACP（Agent Client Protocol）服务运行，给 Zed、JetBrains 等开发工具用
           flyknit --version
 
-        选项（-p）：
+        通用选项：
           -w, --workspace <目录>           工作区，默认当前目录
               --permission <档位>          readonly（只读）或 workspace（工作区内修改），默认按员工端设置
+              --think                      让模型每一步先深度思考（更慢、更费 token）；默认关，不跟员工端的设置走
+
+        只用于 -p：
               --format <格式>              json（默认）、text（只输出回答）、stream-json（每行一个事件）
               --allow-writes               放行员工端能设成「以后自动执行」的普通写入；删除、覆盖等高危操作任何时候都不放行
               --timeout <秒>               超时就停下，退出码 124
-              --think                      让模型每一步先深度思考（更慢、更费 token）；默认关，不跟员工端的设置走
+
+        对话里需要确认的操作在终端里问你；-p 没人可问，默认一律拒绝。
 
         退出码：0 完成；1 没做完；2 参数不对；3 没登录 / 登录失效；4 IT 没开「命令行 / IDE 接入」；
                5 今日额度用完；6 连不上公司服务器；124 超时；130 被中断
@@ -66,7 +77,11 @@ public sealed class CliOptions
     /// <summary>解析参数。出错时 Error 不为空。</summary>
     public static (CliOptions? Options, string? Error) Parse(IReadOnlyList<string> args)
     {
-        if (args.Count == 0 || args[0] is "-h" or "--help" or "help" or "/?")
+        if (args.Count == 0)
+        {
+            return (new CliOptions { Command = "chat" }, null);
+        }
+        if (args[0] is "-h" or "--help" or "help" or "/?")
         {
             return (new CliOptions { Command = "help" }, null);
         }
@@ -96,6 +111,9 @@ public sealed class CliOptions
         var allowWrites = false;
         var think = false;
         var timeout = 0;
+        string? resume = null;
+        var positional = new List<string>();
+        var printOnly = new List<string>();
         for (var i = 0; i < args.Count; i++)
         {
             var a = args[i];
@@ -140,6 +158,7 @@ public sealed class CliOptions
                         }
                         break;
                     case "--format" or "--output-format":
+                        printOnly.Add(a);
                         format = Next().ToLowerInvariant();
                         if (format is not ("json" or "text" or "stream-json"))
                         {
@@ -147,19 +166,32 @@ public sealed class CliOptions
                         }
                         break;
                     case "--allow-writes":
+                        printOnly.Add(a);
                         allowWrites = true;
+                        break;
+                    case "-c" or "--continue":
+                        resume = "continue";
+                        break;
+                    case "--resume" or "-r":
+                        resume = i + 1 < args.Count && !args[i + 1].StartsWith('-') ? args[++i] : "list";
                         break;
                     case "--think":
                         think = true;
                         break;
                     case "--timeout":
+                        printOnly.Add(a);
                         if (!int.TryParse(Next(), out timeout) || timeout < 0)
                         {
                             return (null, "--timeout 要写秒数（非负整数）");
                         }
                         break;
                     default:
-                        return (null, $"不认识的参数：{a}");
+                        if (a.StartsWith('-'))
+                        {
+                            return (null, $"不认识的参数：{a}");
+                        }
+                        positional.Add(a);
+                        break;
                 }
             }
             catch (ArgumentException ex)
@@ -169,7 +201,28 @@ public sealed class CliOptions
         }
         if (prompt is null && !fromStdin)
         {
-            return (null, "要用 -p 给出要做的事");
+            // 没有 -p：进入交互对话（flyknit "第一句话" 带着第一句话进去）
+            if (printOnly.Count > 0)
+            {
+                return (null, $"{string.Join("、", printOnly.Distinct())} 只能和 -p 一起用");
+            }
+            return (new CliOptions
+            {
+                Command = "chat",
+                Prompt = string.Join(" ", positional),
+                Workspace = workspace,
+                Permission = permission,
+                Think = think,
+                Resume = resume,
+            }, null);
+        }
+        if (positional.Count > 0)
+        {
+            return (null, $"-p 之外不认识的参数：{positional[0]}（要做的事写在 -p 后面，有空格要加引号）");
+        }
+        if (resume is not null)
+        {
+            return (null, "-c / --resume 只用于对话模式，不能和 -p 一起用");
         }
         if (prompt is not null && prompt.Trim().Length == 0)
         {

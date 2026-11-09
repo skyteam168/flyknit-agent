@@ -5,7 +5,7 @@ using Flyknit.Core.Headless;
 namespace Flyknit.Cli;
 
 /// <summary>
-/// flyknit.exe 入口：flyknit -p（无界面执行一次任务，输出 JSON）和 flyknit acp（给 IDE 用的 ACP 服务）。
+/// flyknit.exe 入口：flyknit（命令行里对话）、flyknit -p（无界面执行一次任务，输出 JSON）和 flyknit acp（给 IDE 用的 ACP 服务）。
 /// 逻辑都在 Flyknit.Core.Headless（有单元测试），这里只接标准输入输出、Ctrl+C 和退出码。
 /// </summary>
 public static class Program
@@ -75,8 +75,15 @@ public static class Program
         }
 
         using var cts = new CancellationTokenSource();
+        Func<bool>? interactiveCtrlC = null;
         Console.CancelKeyPress += (_, e) =>
         {
+            // 对话模式：任务进行中停下这一轮；空闲时第一次只提示，再按一次才退出（见 InteractiveShell.Interrupt）
+            if (interactiveCtrlC is { } handle)
+            {
+                e.Cancel = handle();
+                return;
+            }
             // 第一次 Ctrl+C：停下这一轮（给发出的工具调用补结果、上报审计）再退出；第二次直接退出
             if (!cts.IsCancellationRequested)
             {
@@ -91,6 +98,62 @@ public static class Program
         var connection = await CliHost.ConnectAsync(profile, acp ? "ide" : "cli", handler: null, Warn, cts.Token, think: options.Think);
         var permission = PrintCommand.ResolvePermission(options.Permission, profile.DefaultPermission);
         var asciiJson = Console.IsOutputRedirected;
+
+        if (options.Command == "chat")
+        {
+            if (!connection.Ok)
+            {
+                Warn(connection.Error);
+                return connection.ExitCode;
+            }
+            var workspace = Path.GetFullPath(options.Workspace.Length > 0 ? options.Workspace : Environment.CurrentDirectory);
+            if (!Directory.Exists(workspace))
+            {
+                Warn($"工作区不存在：{workspace}");
+                return ExitCodes.Usage;
+            }
+            // 中文 Windows 的控制台默认按 GBK 读输入：对话期间切到 UTF-8，退出时切回去
+            Encoding? previousInput = null;
+            if (OperatingSystem.IsWindows() && !Console.IsInputRedirected)
+            {
+                try
+                {
+                    previousInput = Console.InputEncoding;
+                    Console.InputEncoding = utf8;
+                }
+                catch (IOException)
+                {
+                    previousInput = null;
+                }
+            }
+            var style = new ConsoleStyle(!Console.IsOutputRedirected
+                && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR"))
+                && Terminal.EnableColors());
+            var shell = new InteractiveShell(connection.Environment!, workspace, permission, Console.In, stdout, style,
+                store: new AcpSessionStore(Path.Combine(profile.Root, "ide-sessions")),
+                showThinking: options.Think, version: Version,
+                afterTurn: () => connection.Audit!.FlushAsync(connection.Server!, Warn));
+            interactiveCtrlC = shell.Interrupt;
+            try
+            {
+                return await shell.RunAsync(options.Prompt, options.Resume, CancellationToken.None);
+            }
+            finally
+            {
+                interactiveCtrlC = null;
+                await connection.Audit!.FlushAsync(connection.Server!, Warn);
+                if (previousInput is not null)
+                {
+                    try
+                    {
+                        Console.InputEncoding = previousInput;
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+            }
+        }
 
         if (acp)
         {

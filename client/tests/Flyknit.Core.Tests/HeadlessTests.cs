@@ -134,7 +134,9 @@ public sealed class HeadlessTests : IDisposable
     [InlineData(new[] { "--print" }, "print", "", true)]
     [InlineData(new[] { "acp" }, "acp", "", false)]
     [InlineData(new[] { "--version" }, "version", "", false)]
-    [InlineData(new string[0], "help", "", false)]
+    [InlineData(new string[0], "chat", "", false)]
+    [InlineData(new[] { "--help" }, "help", "", false)]
+    [InlineData(new[] { "帮我看看这个目录" }, "chat", "帮我看看这个目录", false)]
     public void ParsesCommands(string[] args, string command, string prompt, bool stdin)
     {
         var (o, error) = CliOptions.Parse(args);
