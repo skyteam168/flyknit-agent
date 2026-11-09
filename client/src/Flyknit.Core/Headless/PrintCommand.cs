@@ -323,7 +323,9 @@ public static class PrintCommand
         if (console is not null)
         {
             console.EndLine();
-            progress!.Write((style ?? ConsoleStyle.Plain).Dim(InteractiveShell.Footer(result, false, watch.Elapsed)) + "\n");
+            var look = style ?? ConsoleStyle.Plain;
+            progress!.Write(look.Dim(InteractiveShell.Footer(result, false, watch.Elapsed)) + "\n");
+            progress.Write(DeclinedHint(confirm.Declined, options.AllowWrites, look));
             progress.Flush();
         }
         var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";
@@ -418,6 +420,34 @@ public static class PrintCommand
             _ => "任务没有完成",
         },
     };
+
+    /// <summary>
+    /// -p 在终端里跑完、有操作因为要确认被拒绝时，告诉员工为什么、怎么办（不然只能去 JSON 的 declined 里找）。
+    /// 没有被拒绝的操作时返回空串。
+    /// </summary>
+    public static string DeclinedHint(IReadOnlyList<(string Tool, string Summary, string Reason)> declined, bool allowWrites, ConsoleStyle style)
+    {
+        if (declined.Count == 0)
+        {
+            return "";
+        }
+        var sb = new System.Text.StringBuilder();
+        sb.Append(style.Yellow($"⚠ 有 {declined.Count} 个操作需要确认，-p 没有人可以问，已拒绝：")).Append('\n');
+        foreach (var d in declined.Take(5))
+        {
+            sb.Append("    · ").Append(InteractiveShell.Clip(d.Summary.Length > 0 ? d.Summary : d.Tool, 100)).Append('\n');
+        }
+        if (declined.Count > 5)
+        {
+            sb.Append(style.Dim($"    …还有 {declined.Count - 5} 个")).Append('\n');
+        }
+        sb.Append(style.Yellow("  需要当场确认的话，去掉 -p 用对话模式：直接输入 flyknit，执行到这一步时会问你 [y] / [n]。")).Append('\n');
+        if (!allowWrites && declined.Any(d => d.Reason.Contains("--allow-writes", StringComparison.Ordinal)))
+        {
+            sb.Append(style.Dim("  （放进脚本里自动跑的话，加 --allow-writes 可以放行新建、修改文件这类普通写入；运行脚本、访问网络、删除等仍然不放行）")).Append('\n');
+        }
+        return sb.ToString();
+    }
 
     /// <summary>同时交给两个观察者：收集结果的和打进度的。</summary>
     private sealed class BothObservers : IAgentObserver
