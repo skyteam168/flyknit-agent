@@ -45,7 +45,7 @@
 | 开发者工具 | grep、批量修改、git、建 PR，见 [开发者工具](/guide/developer) |
 | 子代理 | AI 开分身并行调研 |
 | 允许主助手派遣专家 | 见 [专家](/guide/experts) |
-| 命令行 / IDE 接入 | `flyknit -p` 和 IDE 插件，见 [命令行与 IDE](/guide/cli-and-ide) |
+| 命令行 / IDE 接入 | 终端对话 `flyknit`、脚本 `flyknit -p`、IDE 插件，见 [终端对话](/guide/terminal)、[在 IDE 里用](/guide/ide)、[命令行脚本与 CI](/guide/cli-and-ide) |
 | 沙箱任务 | 本机 Docker 容器里无人值守写代码，见 [沙箱任务](/guide/sandbox)；另有能否上网、能否改 CI 配置、CPU、内存四项 |
 
 ## 记忆与个性化

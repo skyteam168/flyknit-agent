@@ -41,4 +41,8 @@ features:
     title: 给写程序的同事
     details: 开发者工具、仓库与 PR、Docker 沙箱里无人值守干活，还能在命令行和 IDE 里直接调用。
     link: /guide/developer
+  - icon: ⌨️
+    title: 在终端里对话
+    details: 打开 cmd 或 PowerShell 输入 flyknit，像 Codex CLI 一样一句一句地交代，确认、停止、接着上次聊都在命令行里完成。
+    link: /guide/terminal
 ---
