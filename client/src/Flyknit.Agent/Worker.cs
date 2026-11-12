@@ -9,12 +9,16 @@ namespace Flyknit.Agent;
 public sealed class Worker : BackgroundService
 {
     private readonly AgentConfig _config;
+    private readonly IHostApplicationLifetime _lifetime;
+    private readonly SelfUpdater _selfUpdater;
     private ServerApi _api;
     private TaskRunner _runner;
 
-    public Worker()
+    public Worker(IHostApplicationLifetime lifetime)
     {
+        _lifetime = lifetime;
         _config = AgentConfig.Load();
+        _selfUpdater = new SelfUpdater(_config);
         _api = new ServerApi(_config);
         _runner = new TaskRunner(_api);
     }
@@ -34,6 +38,8 @@ public sealed class Worker : BackgroundService
         // 员工端由安装程序装在 Program Files 时，它的升级由这里负责（员工账号写不了那个目录）
         var clientUpdater = new ClientUpdater(_config, () => _api);
         _ = Task.Run(() => clientUpdater.RunAsync(stoppingToken), stoppingToken);
+        // 命令行功能之前装的电脑：员工端早就升上来了，PATH 里却没有员工端目录。每次启动补一次（已经有了就什么都不做）
+        PathFixer.Ensure(_config.EffectiveClientDir);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -57,10 +63,21 @@ public sealed class Worker : BackgroundService
                     continue;
                 }
 
+                // 连上服务器了：如果这是刚换上的新版本，告诉更新助手「能用」，它就不回滚了
+                SelfUpdater.MarkHealthy();
+
                 foreach (var run in outcome.Runs)
                 {
                     if (stoppingToken.IsCancellationRequested) break;
                     await ProcessRun(run, stoppingToken);
+                }
+
+                // 自升级：IT 在安全中心打开了、手上没有任务、员工端也没有等着换的版本，才换自己
+                if (outcome.SelfUpdate && outcome.Runs.Count == 0 && clientUpdater.Idle
+                    && _selfUpdater.AvailableVersion() is { } next && _selfUpdater.Begin(next))
+                {
+                    _lifetime.StopApplication();   // 正常停止服务，更新助手换完文件再把它启动起来
+                    break;
                 }
 
                 await Delay(outcome.Runs.Count > 0 ? 2 : outcome.PollAfterSeconds, stoppingToken);
@@ -114,6 +131,7 @@ public sealed class Worker : BackgroundService
         var ok = await _api.RegisterAsync(ct);
         if (ok)
         {
+            SelfUpdater.MarkHealthy();
             RebuildApi();
         }
         return ok;

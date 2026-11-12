@@ -219,6 +219,10 @@ export interface MachineAgent {
   created_at: string
   last_seen: string | null
   inventory_at: string | null
+  /** 比已发布的最新员工端版本旧（员工端包里带的代理和员工端同一个版本号） */
+  outdated?: boolean
+  /** 自升级失败、已回滚时那个版本 */
+  self_update_failed?: string
 }
 
 export interface MachineAgentDetail extends MachineAgent {

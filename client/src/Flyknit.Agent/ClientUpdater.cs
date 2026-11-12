@@ -37,6 +37,9 @@ public sealed class ClientUpdater(AgentConfig config, Func<ServerApi> api)
 
     private string ClientExe => Path.Combine(ClientDir, "FlyknitBuddy.exe");
 
+    /// <summary>没有下好等着换的员工端版本：代理自升级要等员工端先换完，免得两件事搅在一起。</summary>
+    public bool Idle => _ready is null;
+
     private bool Managed => File.Exists(Path.Combine(ClientDir, ManagedMarker)) && File.Exists(ClientExe);
 
     /// <summary>已经下好、校验过、解开的新版本，等员工端退出就换上。</summary>
@@ -198,6 +201,8 @@ public sealed class ClientUpdater(AgentConfig config, Func<ServerApi> api)
         try { Swap.Delete(backup); }
         catch (Exception ex) { AgentLog.Warn("清理旧版本目录失败", ex); }
         UpdateUninstallVersion(ready.Version);
+        // 新版本里有命令行 flyknit：老电脑的 PATH 里没有员工端目录，补上
+        PathFixer.Ensure(ClientDir);
         WriteStatus(ready.Version, "", "installed");
         AgentLog.Info($"员工端已升级到 {ready.Version}");
     }

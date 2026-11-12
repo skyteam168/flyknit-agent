@@ -24,6 +24,8 @@
     <!-- 升级时顺带装 WebView2 运行时：和安装程序同一份逻辑 -->
     <Compile Include="..\Flyknit.Setup\RuntimeCheck.cs" Link="Setup\RuntimeCheck.cs" />
     <Compile Include="..\Flyknit.Setup\WebViewSetup.cs" Link="Setup\WebViewSetup.cs" />
+    <!-- 员工端升级后补 PATH：和安装程序同一份 -->
+    <Compile Include="..\Flyknit.Setup\PathList.cs" Link="Setup\PathList.cs" />
   </ItemGroup>
 
   <ItemGroup>

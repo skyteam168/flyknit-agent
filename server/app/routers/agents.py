@@ -28,8 +28,8 @@ from ..config import get_settings
 from ..crypto import hash_token, new_token
 from ..db import get_session
 from ..deps import require_admin, require_agent, require_dispatcher
-from ..models import AdminUser, AgentJob, AgentRun, EnrollmentTicket, MachineAgent, SoftwarePackage
-from ..services import agent_tasks
+from ..models import AdminUser, AgentJob, AgentRun, AuditLog, Device, EnrollmentTicket, MachineAgent, SoftwarePackage
+from ..services import agent_tasks, device_security, security_settings, settings_store, versions
 
 log = logging.getLogger("flyknit.agents")
 router = APIRouter(prefix="/api/v1", tags=["agents"])
@@ -78,6 +78,8 @@ class AgentPollIn(BaseModel):
     machine_name: str = Field(default="", max_length=200)
     os_version: str = Field(default="", max_length=200)
     agent_version: str = Field(default="", max_length=50)
+    #: 自升级失败、已回滚到原版本时，失败的那个版本号（见 docs/agent-self-update.md）
+    self_update_failed: str = Field(default="", max_length=50)
 
 
 class AgentRunOut(BaseModel):
@@ -92,6 +94,9 @@ class AgentPollOut(BaseModel):
     runs: list[AgentRunOut]
     #: 下次多久后再来领（秒）
     poll_after: int = 30
+    #: 允许代理把自己换成员工端安装包里更新的版本（安全中心「运维代理自动升级」，按部门 / 单台电脑生效）。
+    #: 老代理不认这个字段；老服务端不发时代理按 false 处理
+    self_update: bool = False
 
 
 class AgentFinishIn(BaseModel):
@@ -138,11 +143,17 @@ async def poll(
     agent: MachineAgent = Depends(require_agent),
     session: AsyncSession = Depends(get_session),
 ):
-    """领任务。顺带更新一下电脑名、系统版本、代理版本。"""
+    """领任务。顺带更新一下电脑名、系统版本、代理版本，告诉代理能不能自升级。"""
+    if data.agent_version and agent.agent_version and data.agent_version != agent.agent_version:
+        await _audit_version_change(session, agent, agent.agent_version, data.agent_version)
     for field in ("machine_name", "os_version", "agent_version"):
         value = getattr(data, field)
         if value:
             setattr(agent, field, value)
+    if data.self_update_failed != agent.self_update_failed:
+        if data.self_update_failed:
+            log.warning("运维代理自升级失败已回滚 agent=%s machine=%s 版本=%s", agent.id, agent.machine_name, data.self_update_failed)
+        agent.self_update_failed = data.self_update_failed
     await session.execute(
         update(AgentRun)
         .where(AgentRun.agent_id == agent.id, AgentRun.status == "pending", AgentRun.created_at < _now() - PENDING_TTL)
@@ -157,10 +168,45 @@ async def poll(
             .limit(10)
         )
     ).all()
+    self_update = await _self_update_allowed(session, agent)
     await session.commit()
     return AgentPollOut(
-        runs=[AgentRunOut(run_id=r.id, job_id=j.id, kind=j.kind, title=j.title, params=j.params) for r, j in rows]
+        runs=[AgentRunOut(run_id=r.id, job_id=j.id, kind=j.kind, title=j.title, params=j.params) for r, j in rows],
+        self_update=self_update,
     )
+
+
+async def _self_update_allowed(session: AsyncSession, agent: MachineAgent) -> bool:
+    """
+    这台电脑的「运维代理自动升级」：按全厂 → 部门 → 单台电脑算（和员工端看到的同一套）。
+    代理和员工端靠 machine_guid 对上；一台电脑有多条员工端记录时，用最近在线的那条（它的部门、单台设置）。
+    还没有员工端记录的，只看全厂设置。
+    """
+    device = await session.scalar(
+        select(Device)
+        .where(Device.machine_guid == agent.machine_guid, Device.signed_out_at.is_(None))
+        .order_by(Device.last_seen.desc().nulls_last(), Device.id.desc())
+        .limit(1)
+    )
+    if device is not None:
+        settings = await device_security.effective_for(session, device)
+    else:
+        shared = await settings_store.get_security(session)
+        settings = security_settings.effective(global_values=shared.get("values"), global_locks=shared.get("locks"))
+    return bool(settings["agent_self_update"]["value"])
+
+
+async def _audit_version_change(session: AsyncSession, agent: MachineAgent, old: str, new: str) -> None:
+    """代理版本变了（自升级、搭桥安装、IT 现场重装）：记一条审计，后台「审计日志」里能查到。"""
+    direction = "升级" if versions.is_newer(new, old) else "降级" if versions.is_newer(old, new) else "变更"
+    summary = f"运维代理{direction}：{old} → {new}"
+    session.add(AuditLog(
+        machine_name=agent.machine_name, tool_name="agent_version", arguments=f"{old} -> {new}",
+        scene="ops", risk="auto", decision="auto", status="ok", summary=summary,
+        # 摘要、参数在审计列表里按员工内容处理（没有查看聊天权限的账号看不到）；版本号不是员工内容，放在人人可见的 actor 里
+        actor=f"agent:{new}"[:60],
+    ))
+    log.info("%s agent=%s machine=%s", summary, agent.id, agent.machine_name)
 
 
 async def _own_run(session: AsyncSession, agent: MachineAgent, run_id: int) -> AgentRun:
@@ -246,6 +292,9 @@ class AgentOut(BaseModel):
     created_at: datetime
     last_seen: datetime | None
     inventory_at: datetime | None
+    #: 比已发布的最新员工端版本旧（员工端包里带的代理和员工端同一个版本号）
+    outdated: bool = False
+    self_update_failed: str = ""
 
 
 class AgentDetailOut(AgentOut):
@@ -307,7 +356,7 @@ class PackageOut(BaseModel):
     created_at: datetime
 
 
-def _agent_out(a: MachineAgent, detail: bool = False) -> AgentOut:
+def _agent_out(a: MachineAgent, detail: bool = False, latest: str = "") -> AgentOut:
     data = {
         "id": a.id,
         "machine_guid": a.machine_guid,
@@ -318,14 +367,19 @@ def _agent_out(a: MachineAgent, detail: bool = False) -> AgentOut:
         "created_at": a.created_at,
         "last_seen": a.last_seen,
         "inventory_at": a.inventory_at,
+        "outdated": bool(latest and a.agent_version and versions.is_newer(latest, a.agent_version)),
+        "self_update_failed": a.self_update_failed or "",
     }
     return AgentDetailOut(**data, inventory=a.inventory or {}) if detail else AgentOut(**data)
 
 
 @router.get("/admin/agents", response_model=list[AgentOut], dependencies=[Depends(require_admin)])
 async def list_agents(session: AsyncSession = Depends(get_session)):
+    from . import releases  # 避免循环引用
+
+    newest = await releases._latest(session)
     rows = await session.scalars(select(MachineAgent).order_by(MachineAgent.machine_name))
-    return [_agent_out(a) for a in rows]
+    return [_agent_out(a, latest=newest.version if newest else "") for a in rows]
 
 
 @router.get("/admin/agents/{agent_id}", response_model=AgentDetailOut, dependencies=[Depends(require_admin)])

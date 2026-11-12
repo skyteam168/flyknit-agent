@@ -33,6 +33,8 @@ internal sealed class PollResult
 {
     [JsonPropertyName("runs")] public List<AgentRun> Runs { get; set; } = new();
     [JsonPropertyName("poll_after")] public int PollAfter { get; set; } = 30;
+    /// <summary>安全中心「运维代理自动升级」在这台电脑上是否打开。老服务端不发，按关处理。</summary>
+    [JsonPropertyName("self_update")] public bool SelfUpdate { get; set; }
 }
 
 internal sealed class StartResult
@@ -116,6 +118,8 @@ public sealed class ServerApi
             machine_name = MachineIdentity.MachineName,
             os_version = MachineIdentity.OsVersion,
             agent_version = Version,
+            // 自升级失败、已回滚的版本：后台设备详情里显示
+            self_update_failed = SelfUpdater.FailedVersion(),
         };
         using var resp = await _http.PostAsJsonAsync("api/v1/agent/poll", body, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
@@ -125,11 +129,11 @@ public sealed class ServerApi
         if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
             // 被后台停用了，当作没任务，等启用
-            return new PollOutcome(new List<AgentRun>(), 60);
+            return new PollOutcome(new List<AgentRun>(), 60, false);
         }
         resp.EnsureSuccessStatusCode();
         var result = await resp.Content.ReadFromJsonAsync<PollResult>(cancellationToken: ct) ?? new PollResult();
-        return new PollOutcome(result.Runs, Math.Clamp(result.PollAfter, 5, 600));
+        return new PollOutcome(result.Runs, Math.Clamp(result.PollAfter, 5, 600), result.SelfUpdate);
     }
 
     /// <summary>开始执行前报一声。返回 false 表示任务已被取消，不要再做。</summary>
@@ -190,4 +194,4 @@ public sealed class ServerApi
     }
 }
 
-public sealed record PollOutcome(List<AgentRun> Runs, int PollAfterSeconds);
+public sealed record PollOutcome(List<AgentRun> Runs, int PollAfterSeconds, bool SelfUpdate);

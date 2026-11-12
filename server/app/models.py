@@ -483,6 +483,8 @@ class MachineAgent(Base):
     #: 最近一次「采集电脑信息」的结果：硬件、系统、软件清单……
     inventory: Mapped[dict] = mapped_column(JSON, default=dict)
     inventory_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 代理自升级失败、已回滚时报上来的那个版本（空 = 没失败过，或之后升级成功了）
+    self_update_failed: Mapped[str] = mapped_column(String(50), default="", server_default=text("''"))
 
 
 class SoftwarePackage(Base):

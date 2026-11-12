@@ -221,6 +221,15 @@ SETTINGS: tuple[Setting, ...] = (
         title="沙箱内存（GB）",
         risk="每个沙箱容器最多用多少内存。",
     ),
+    # ---- 运维代理自升级：见 docs/agent-self-update.md。代理以 SYSTEM 身份把自己换成新版本，默认关 ----
+    Setting(
+        key="agent_self_update", kind="bool", default=False, locked=True,
+        title="运维代理自动升级",
+        risk="打开后，运维代理（FlyknitAgent，SYSTEM 身份的 Windows 服务）替员工端升级时，如果新版本里带的代理比自己新，"
+             "会在空闲时把自己也换成新版本：只用代理自己下载并校验过的员工端安装包里的代理，只升不降；"
+             "新版本启动后 3 分钟内没连上服务器就自动换回原版本，同一个版本失败两次就不再尝试。代理版本每次变化都记审计。"
+             "关闭时代理只替员工端升级、补命令行 flyknit 的 PATH，自己不变。默认关闭。",
+    ),
     # ---- 个性化：员工可以在设置里选回复语气、给 AI 起名字。这两项决定哪些能选 ----
     Setting(
         key="persona_playful", kind="bool", default=True, locked=True,

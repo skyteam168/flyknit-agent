@@ -20,7 +20,7 @@ const serverUrl = location.origin
 const todayTokens = ref(new Map<number, number>())
 const loading = ref(false)
 const keyword = ref('')
-const state = ref<'all' | 'online' | 'offline' | 'disabled' | 'noagent' | 'portable'>('all')
+const state = ref<'all' | 'online' | 'offline' | 'disabled' | 'noagent' | 'portable' | 'oldagent'>('all')
 
 const canDispatch = computed(() => !!auth.user?.can_dispatch && !auth.user?.must_change_password)
 
@@ -73,6 +73,8 @@ const counts = computed(() => ({
   // 这两类不会自动升级：要 IT 用安装程序装一次
   noagent: rows.value.filter((d) => !d.disabled && !d.signed_out_at && !d.agent).length,
   portable: rows.value.filter((d) => !d.disabled && !d.signed_out_at && d.install_kind === 'portable').length,
+  // 代理比最新发布的版本旧：开了「运维代理自动升级」会跟着员工端升上来；更老的代理要先「搭桥」一次（见帮助中心）
+  oldagent: rows.value.filter((d) => !d.disabled && !d.signed_out_at && !!d.agent?.outdated).length,
 }))
 
 const filtered = computed(() => {
@@ -83,6 +85,7 @@ const filtered = computed(() => {
     if (state.value === 'disabled' && !d.disabled) return false
     if (state.value === 'noagent' && (d.disabled || d.signed_out_at || d.agent)) return false
     if (state.value === 'portable' && (d.disabled || d.signed_out_at || d.install_kind !== 'portable')) return false
+    if (state.value === 'oldagent' && (d.disabled || d.signed_out_at || !d.agent?.outdated)) return false
     if (!q) return true
     return [d.machine_name, d.user_name, d.owner, d.department, d.domain, d.ip_addresses, d.observed_ip, d.mac_address, d.client_version]
       .join(' ')
@@ -327,6 +330,7 @@ function summaryText(): string {
         <el-radio-button value="disabled">已停用 {{ counts.disabled }}</el-radio-button>
         <el-radio-button value="noagent">代理未安装 {{ counts.noagent }}</el-radio-button>
         <el-radio-button value="portable">免安装版 {{ counts.portable }}</el-radio-button>
+        <el-radio-button value="oldagent">代理版本旧 {{ counts.oldagent }}</el-radio-button>
       </el-radio-group>
 
       <el-table
@@ -357,6 +361,9 @@ function summaryText(): string {
         <el-table-column label="运维代理" width="110">
           <template #default="{ row }">
             <span class="agent-tag" :class="agentState(row as Row).cls">{{ agentState(row as Row).label }}</span>
+            <el-tooltip v-if="(row as Row).agent?.outdated" :content="`代理 v${(row as Row).agent?.agent_version}，比最新发布的版本旧`" placement="top">
+              <el-tag size="small" type="warning" class="old-agent">旧</el-tag>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="IP 地址" min-width="150">
@@ -475,7 +482,10 @@ function summaryText(): string {
           <div class="agent-bar">
             <div>
               <span class="agent-tag" :class="agentState(detailDevice).cls">代理{{ agentState(detailDevice).label }}</span>
-              <small>v{{ detail?.agent_version || detailDevice.agent.agent_version || '—' }} · 最后心跳 {{ relative(detailDevice.agent.last_seen) }}</small>
+              <small>v{{ detail?.agent_version || detailDevice.agent.agent_version || '—' }}<template v-if="detailDevice.agent.outdated">（比最新发布的版本旧）</template> · 最后心跳 {{ relative(detailDevice.agent.last_seen) }}</small>
+              <small v-if="detailDevice.agent.self_update_failed" class="self-update-failed">
+                自动升级到 v{{ detailDevice.agent.self_update_failed }} 失败，已换回原版本（同一个版本失败两次就不再试，原因看这台电脑的 C:\ProgramData\Flyknit\agent.log）
+              </small>
             </div>
             <div v-if="canDispatch" class="agent-actions">
               <el-button size="small" :loading="collecting" @click="collectNow">立即采集</el-button>
@@ -638,6 +648,13 @@ powershell -ExecutionPolicy Bypass -File install-agent.ps1 `
   display: flex;
   flex-direction: column;
   line-height: 1.4;
+}
+.old-agent {
+  margin-left: 4px;
+}
+.self-update-failed {
+  display: block;
+  color: var(--el-color-danger);
 }
 .agent-tag {
   font-size: 12px;

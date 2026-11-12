@@ -135,4 +135,7 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "ask_user",
         # 客户端读这一项决定「会话信息」面板里员工能不能展开详细拆分
         "context_details",
+        # 服务端 /agent/poll 读它（按这台电脑的部门 / 单台设置），回应里的 self_update 决定运维代理
+        # 能不能把自己换成新版本（Flyknit.Agent Worker）。员工端不读，只在安全中心里显示
+        "agent_self_update",
     }

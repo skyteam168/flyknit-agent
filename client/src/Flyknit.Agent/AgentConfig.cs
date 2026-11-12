@@ -20,6 +20,12 @@ public sealed class AgentConfig
     [JsonPropertyName("agent_id")] public int AgentId { get; set; }
     [JsonPropertyName("token")] public string Token { get; set; } = "";
 
+    /// <summary>员工端目录：配置里写了用配置的，老配置没写就是默认的 Program Files\FlyknitBuddy。</summary>
+    [JsonIgnore]
+    public string EffectiveClientDir => ClientDir.Length > 0
+        ? ClientDir
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "FlyknitBuddy");
+
     [JsonIgnore] public bool IsRegistered => AgentId > 0 && !string.IsNullOrEmpty(Token);
 
     private static readonly JsonSerializerOptions Options = new()
