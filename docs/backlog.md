@@ -223,6 +223,8 @@ D 的「运维代理顺带装 WebView2 运行时」也依赖这个。
 
 ### C1. 第 1 期：统一任务模型
 
+> 实施方案：`docs/c1-unified-tasks.md`（11-13，待确认）。
+
 **交付**：
 - 本机库新增 `tasks`、`runs`、`thread_subscriptions` 表（只加不删）；Task 状态机：待办 / 进行中 / 等确认 / 完成 / 失败 / 停止。
 - 统一入口 `TriggerEvent`：员工消息、定时任务（`Scheduling/*`）、事件触发、钉钉 / 企业微信 / 手机（`AgentHost.Channels.cs`）、IT 指令、盯 PR（`AgentHost.PullRequests.cs`）都改为「登记 Task → 开 Run」。
