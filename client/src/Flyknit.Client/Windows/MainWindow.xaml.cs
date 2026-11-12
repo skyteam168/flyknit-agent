@@ -46,8 +46,8 @@ public partial class MainWindow : Window, IWindowActions
             catch (Exception ex)
             {
                 // 任何初始化异常都显示在窗口里，避免只看到空白
-                Log.Error("WebView2 初始化失败", ex);
-                ShowError($"界面加载失败：{ex.GetType().Name}: {ex.Message}");
+                Log.Error($"WebView2 初始化失败（运行时 {WebViewCompat.SafeVersion()}）", ex);
+                ShowError(WebViewCompat.FailureMessage(ex, "界面加载失败："));
             }
         };
         SourceInitialized += (_, _) =>
@@ -99,17 +99,18 @@ public partial class MainWindow : Window, IWindowActions
 
         var core = Web.CoreWebView2;
         var settings = core.Settings;
-        settings.IsNonClientRegionSupportEnabled = true; // 支持网页中的 app-region: drag
+        // 支持网页中的 app-region: drag；运行时太旧时降级成宿主拖动（见 WebViewCompat）
+        await WebViewCompat.EnableDragRegionsAsync(core);
         settings.AreDefaultContextMenusEnabled = false;
         settings.IsStatusBarEnabled = false;
         settings.IsZoomControlEnabled = false;
-        settings.IsPasswordAutosaveEnabled = false;
-        settings.IsGeneralAutofillEnabled = false;
+        WebViewCompat.TrySet(() => settings.IsPasswordAutosaveEnabled = false, nameof(settings.IsPasswordAutosaveEnabled));
+        WebViewCompat.TrySet(() => settings.IsGeneralAutofillEnabled = false, nameof(settings.IsGeneralAutofillEnabled));
 #if DEBUG
         settings.AreDevToolsEnabled = true;
 #else
         settings.AreDevToolsEnabled = false;
-        settings.AreBrowserAcceleratorKeysEnabled = false;
+        WebViewCompat.TrySet(() => settings.AreBrowserAcceleratorKeysEnabled = false, nameof(settings.AreBrowserAcceleratorKeysEnabled));
 #endif
 
         // 外部链接用系统浏览器打开
@@ -625,6 +626,9 @@ public partial class MainWindow : Window, IWindowActions
     public event Action? HotkeyChanged;
 
     public void RefreshHotkey() => HotkeyChanged?.Invoke();
+
+    /// <summary>WebView2 运行时太旧、页面拖动区域不可用时，页面按下标题栏改由这里拖动窗口。</summary>
+    public void StartDrag() => WebViewCompat.DragWindow(new WindowInteropHelper(this).Handle);
 
     public void StartResize(string direction)
     {

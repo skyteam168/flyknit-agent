@@ -1339,6 +1339,7 @@ export function createMockHost(): HostTransport {
       case 'security.network':
         return { enabled: true, domains: ['localhost', 'shenzhougroup.com', 'github.com'], allowPrivate: true }
       case 'window.startResize':
+      case 'window.startDrag':
         return
       case 'window.toggleMaximize':
         maximized = !maximized

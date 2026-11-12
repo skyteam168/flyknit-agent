@@ -29,3 +29,6 @@ server/data/
 
 # 员工端打包产物（client/scripts/publish-client.ps1）
 client/publish/
+
+# WebView2 离线安装包（publish-client.ps1 -WithWebView2Runtime），从微软官网下载，不进仓库
+client/redist/

@@ -17,7 +17,10 @@ param(
     # 公司电脑统一装了 .NET 8 Desktop Runtime 时可以加 -FrameworkDependent，包从约 150 MB 变成十几 MB
     [switch]$FrameworkDependent,
     # 界面已经编译过、只改了 C# 时可以跳过 npm
-    [switch]$SkipWeb
+    [switch]$SkipWeb,
+    # 把 WebView2 离线安装包（先从微软官网下载到 client\redist\MicrosoftEdgeWebView2RuntimeInstallerX64.exe）打进包里：
+    # 安装程序和运维代理会在电脑上没装 / 太旧时静默装上。包会大约 170 MB，只在要给老电脑补运行时的版本里加
+    [switch]$WithWebView2Runtime
 )
 
 $ErrorActionPreference = "Stop"
@@ -90,6 +93,22 @@ Remove-Item $setupOut -Recurse -Force
 # 老版本脚本留下的中间目录
 $oldSetup = Join-Path $root "publish\setup"
 if (Test-Path $oldSetup) { Remove-Item $oldSetup -Recurse -Force }
+# WebView2 离线安装包（可选）：装好后安装程序 / 运维代理会把它从程序目录里删掉，不占 Program Files
+$redist = Join-Path $publish "redist"
+if (Test-Path $redist) { Remove-Item $redist -Recurse -Force }
+if ($WithWebView2Runtime) {
+    $runtime = Join-Path $root "redist\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+    if (-not (Test-Path $runtime)) {
+        throw "找不到 $runtime。请先从微软官网（WebView2 页面的 Evergreen Standalone Installer x64）下载放到这里"
+    }
+    $signature = Get-AuthenticodeSignature $runtime
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+        throw "$runtime 没有有效的微软签名（$($signature.Status)），请重新下载"
+    }
+    New-Item -ItemType Directory -Force -Path $redist | Out-Null
+    Copy-Item $runtime $redist -Force
+    Write-Host "已打入 WebView2 离线安装包" -ForegroundColor Green
+}
 # 发布目录里的 pdb 用不上，不打进包
 Get-ChildItem $publish -Recurse -Filter *.pdb | Remove-Item -Force
 

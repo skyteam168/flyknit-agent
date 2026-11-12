@@ -610,6 +610,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 _window.StartResize(Str("direction"));
                 return null;
 
+            case "window.startDrag":
+                _window.StartDrag();
+                return null;
+
             case "settings.setMaxSteps":
             {
                 var n = Int("value") ?? 0;
@@ -2683,6 +2687,9 @@ public interface IWindowActions
     bool IsMaximized { get; }
     bool ToggleMaximize();
     void StartResize(string direction);
+
+    /// <summary>WebView2 运行时太旧、页面拖动区域不可用时，由宿主拖动窗口。</summary>
+    void StartDrag();
 
     /// <summary>全局热键改了之后重新注册。</summary>
     void RefreshHotkey();

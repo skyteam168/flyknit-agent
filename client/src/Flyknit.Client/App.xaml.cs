@@ -64,6 +64,14 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // 免安装版可能被拷到老系统上：.NET 8 有时还能启动，但 WebView2、通知等会陆续出错。一开始就说清楚
+        var os = Environment.OSVersion.Version;
+        if (!Flyknit.Setup.RuntimeCheck.IsWindowsSupported(os))
+        {
+            System.Windows.MessageBox.Show(string.Format(NativeStrings.T("error.osUnsupported"), os), "FlyknitBuddy", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+            return;
+        }
         LeaveInstallDirectory();
         DispatcherUnhandledException += (_, ex) =>
         {

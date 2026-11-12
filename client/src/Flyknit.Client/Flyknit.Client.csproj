@@ -31,6 +31,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 系统版本、WebView2 版本的判断：和安装程序、运维代理同一份 -->
+    <Compile Include="..\Flyknit.Setup\RuntimeCheck.cs" Link="Setup\RuntimeCheck.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="Assets\flyknitbuddy.png" />
     <Content Include="Assets\flyknitbuddy.ico" CopyToOutputDirectory="PreserveNewest" />
     <!-- 系统通知里显示的图标需要是磁盘上的文件 -->
