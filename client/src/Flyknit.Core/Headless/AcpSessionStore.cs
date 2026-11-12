@@ -23,6 +23,9 @@ public sealed class SavedAcpSession
     public List<ChatMessage> Messages { get; set; } = new();
     public List<PlanItem> Plan { get; set; } = new();
     public List<string> LoadedTools { get; set; } = new();
+
+    /// <summary>/compact 之后较早对话的摘要（老文件没有）。</summary>
+    public string? Summary { get; set; }
 }
 
 /// <summary>会话列表里的一行（不带消息）。</summary>
@@ -92,6 +95,7 @@ public sealed class AcpSessionStore
             Messages = session.History.ToList(),
             Plan = session.Plan.ToList(),
             LoadedTools = session.LoadedTools.ToList(),
+            Summary = session.Summary,
         };
         lock (_lock)
         {

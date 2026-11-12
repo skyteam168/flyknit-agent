@@ -298,7 +298,7 @@ public sealed class AcpServer
             throw new AcpError(-32602, $"这个会话的工作目录已经不在了：{saved.Cwd}");
         }
         var session = new HeadlessSession(_env, saved.Cwd, _permission, saved.Id);
-        session.Restore(saved.Messages, saved.Plan, saved.LoadedTools);
+        session.Restore(saved.Messages, saved.Plan, saved.LoadedTools, saved.Summary);
         _sessions[sid] = new AcpSession(session) { CreatedAt = saved.CreatedAt, FirstPrompt = saved.Title };
         _log($"打开以前的会话 {sid}（{session.History.Count} 条消息），工作区 {session.Workspace}");
         foreach (var update in Replay(session.History))

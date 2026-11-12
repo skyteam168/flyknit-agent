@@ -39,7 +39,9 @@ public class LineEditorTests
     }
 
     [Theory]
-    [InlineData("/p\t\r", "/plan ")]          // 只有一个对得上：补全并加空格
+    [InlineData("/pl\t\r", "/plan ")]         // 只有一个对得上：补全并加空格
+    [InlineData("/p\t\r", "/p")]              // /plan、/permission 都对得上：先不动，再按一次 Tab 列出来
+    [InlineData("/th\t\r", "/think ")]
     [InlineData("/E\t\r", "/exit ")]          // 不分大小写
     [InlineData("/zz\t\r", "/zz")]            // 没有对得上的：不动
     [InlineData("hi /p\t\r", "hi /p")]        // 不是以 / 开头：不补全
@@ -64,6 +66,16 @@ public class LineEditorTests
         var (e2, _, _) = Make("/p\t\r");
         e2.Completions = new[] { "/plan", "/plugins" };
         Assert.Equal("/pl", await Read(e2));
+    }
+
+    [Fact]
+    public async Task AmbiguousRealCommandsAreListedOnSecondTab()
+    {
+        var (editor, output, _) = Make("/p\t\t\r");
+        Assert.Equal("/p", await Read(editor));
+        var text = output.ToString();
+        Assert.Contains("/plan", text);
+        Assert.Contains("/permission", text);
     }
 
     [Fact]

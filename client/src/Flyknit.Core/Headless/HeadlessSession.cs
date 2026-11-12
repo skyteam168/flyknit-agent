@@ -84,12 +84,33 @@ public sealed class HeadlessSession
         _env = env;
         Workspace = Path.GetFullPath(workspace);
         Permission = permission;
+        DeepThinking = env.DeepThinking;
         Id = id ?? "cli-" + Guid.NewGuid().ToString("N")[..12];
     }
 
     public string Id { get; }
     public string Workspace { get; }
-    public PermissionMode Permission { get; }
+    public PermissionMode Permission { get; private set; }
+
+    /// <summary>这个会话要不要深度思考（命令行 /think 可以中途切换；起始值来自 --think）。</summary>
+    public bool DeepThinking { get; set; }
+
+    /// <summary>
+    /// 较早对话压成的摘要（/compact 之后）：接在系统提示词后面，跟着会话一起保存。
+    /// </summary>
+    public string? Summary { get; private set; }
+
+    /// <summary>
+    /// 调这个会话的权限（命令行 /permission）。和开会话时一样，「完全权限」不给：只能员工在聊天窗口里对单个任务选。
+    /// </summary>
+    public void SetPermission(PermissionMode permission)
+    {
+        if (permission == PermissionMode.Full)
+        {
+            throw new ArgumentException("命令行和 IDE 不能使用完全权限", nameof(permission));
+        }
+        Permission = permission;
+    }
     public IReadOnlyList<ChatMessage> History => _history;
     public IReadOnlyList<PlanItem> Plan => _plan;
     public IReadOnlyCollection<string> LoadedTools => _loadedTools;
@@ -98,8 +119,9 @@ public sealed class HeadlessSession
     /// 接着一个保存下来的会话聊（IDE 的 session/load）：历史、计划、加载过的工具原样放回。
     /// 历史末尾要是停在半截（助手发了工具调用、结果没存下来），补上「没有执行」的结果，免得下一轮请求被上游拒绝。
     /// </summary>
-    public void Restore(IEnumerable<ChatMessage> history, IEnumerable<PlanItem> plan, IEnumerable<string> loadedTools)
+    public void Restore(IEnumerable<ChatMessage> history, IEnumerable<PlanItem> plan, IEnumerable<string> loadedTools, string? summary = null)
     {
+        Summary = string.IsNullOrWhiteSpace(summary) ? null : summary;
         _history.Clear();
         _history.AddRange(history.Where(m => m.Role != ChatRole.System));
         var answered = _history.Where(m => m.Role == ChatRole.Tool && m.ToolCallId is not null).Select(m => m.ToolCallId!).ToHashSet(StringComparer.Ordinal);
@@ -197,7 +219,7 @@ public sealed class HeadlessSession
         user.TurnContext = turnContext.Length > 0 ? turnContext : null;
         var plan = TaskPlan.HasOpenSteps(_plan) ? _plan : new List<PlanItem>();
 
-        var context = new ContextManager(_env.Gateway, prompt, null, _env.ContextLength) { Scene = scene, Plan = () => plan };
+        var context = new ContextManager(_env.Gateway, prompt, Summary, _env.ContextLength) { Scene = scene, Plan = () => plan };
         var history = new List<ChatMessage> { ChatMessage.System(context.SystemPrompt) };
         history.AddRange(_history);
         history.Add(user);
@@ -227,7 +249,7 @@ public sealed class HeadlessSession
             ToolOutputDir = _env.ToolOutputDir is { } dir ? Path.Combine(dir, Id) : null,
         };
         var loop = new AgentLoop(_env.Gateway, tools, confirm, new ActorAudit(_env.Audit, _env.Actor), options, _env.Approvals ?? new ApprovalStore());
-        var extraBody = _env.DeepThinking
+        var extraBody = DeepThinking
             ? new Dictionary<string, System.Text.Json.Nodes.JsonNode?> { ["enable_thinking"] = true }
             : null;
         var result = await loop.RunAsync(history, scene, ctx, observer, useTools: true, ct, modelId: null, context, extraBody);
@@ -237,6 +259,51 @@ public sealed class HeadlessSession
         _history.AddRange(result.NewMessages);
         _plan = plan;
         return result;
+    }
+
+    /// <summary>
+    /// 立即整理这个会话（命令行 /compact）：最近一问一答之前的对话压成摘要，摘要接在系统提示词后面。
+    /// 和员工端「整理对话」同一个 ContextManager.CompactNowAsync；focus 是员工交代要重点保留的内容。
+    /// 能压的太少时返回 null，什么也不改。
+    /// </summary>
+    public async Task<CompactionInfo?> CompactAsync(string? focus, CancellationToken ct)
+    {
+        var (prompt, _) = BuildPromptParts("");
+        var context = new ContextManager(_env.Gateway, prompt, Summary, _env.ContextLength)
+        {
+            Scene = DeveloperToolsOn ? Scenes.Code : Scenes.Agent,
+        };
+        var history = new List<ChatMessage> { ChatMessage.System(context.SystemPrompt) };
+        history.AddRange(_history);
+        var info = await context.CompactNowAsync(history, ct, focus);
+        if (info is null)
+        {
+            return null;
+        }
+        Summary = context.Summary;
+        _history.Clear();
+        _history.AddRange(history.Where(m => m.Role != ChatRole.System));
+        return info;
+    }
+
+    /// <summary>上下文用了多少、花在哪（命令行 /context）：和员工端「会话信息」同一套估算。</summary>
+    public ContextUsageReport MeasureContext()
+    {
+        var (prompt, _) = BuildPromptParts("");
+        var options = new ContextOptions();
+        var length = _env.ContextLength > 0 ? _env.ContextLength : options.DefaultContextLength;
+        var sections = new List<(string, string)> { ("base", prompt) };
+        if (Summary is not null)
+        {
+            sections.Add(("summary", ContextManager.WithSummary("", Summary)));
+        }
+        return ContextUsage.Measure(
+            sections,
+            BuildTools().All,
+            _history,
+            length,
+            (int)((length - options.ReserveOutputTokens) * options.CompactRatio),
+            options.ReserveOutputTokens);
     }
 
     /// <summary>单次任务的 token 上限：和员工端一样读安全中心（单位万 tokens，0 = 不限）。</summary>

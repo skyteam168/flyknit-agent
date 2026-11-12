@@ -83,6 +83,97 @@ public sealed class InteractiveShellTests : IDisposable
         return (output.ToString(), shell);
     }
 
+    // ---------- B3：/compact /permission /context /status /think ----------
+
+    [Fact]
+    public async Task PermissionCommandSwitchesTheSessionButNeverToFull()
+    {
+        var (output, shell) = await Run(new Scripted(), "/permission\n/permission 只读\n/permission full\n/permission 乱写\n/exit\n");
+        Assert.Contains("当前权限：工作区内修改", output);
+        Assert.Contains("已切换为「只读」", output);
+        Assert.Contains("命令行没有完全权限", output);
+        Assert.Contains("没有「乱写」这一档", output);
+        Assert.Equal(PermissionMode.ReadOnly, shell.Session.Permission);
+    }
+
+    [Fact]
+    public async Task ReadOnlyFromSlashCommandReallyBlocksWrites()
+    {
+        // 切成只读后，同一个会话里 AI 要写文件会被权限挡住（走的是真的工具和闸门）
+        var gateway = new Scripted(Call("write_file", new { path = "a.txt", content = "x" }), new ChatTurn { Content = "写不了" });
+        await Run(gateway, "/permission 只读\n写个文件\n/exit\n");
+        Assert.False(File.Exists(Path.Combine(_dir, "a.txt")));
+    }
+
+    [Fact]
+    public async Task ThinkCommandTogglesDeepThinkingForTheNextTurn()
+    {
+        var gateway = new Scripted(new ChatTurn { Content = "一" }, new ChatTurn { Content = "二" });
+        var (output, shell) = await Run(gateway, "/think 开\n第一句\n/think\n第二句\n/exit\n");
+        Assert.Contains("已打开深度思考", output);
+        Assert.Contains("已关闭深度思考", output);
+        Assert.True(gateway.Requests[0].ExtraBody?["enable_thinking"]?.GetValue<bool>());
+        Assert.Null(gateway.Requests[1].ExtraBody);
+        Assert.False(shell.Session.DeepThinking);
+    }
+
+    [Fact]
+    public async Task CompactSummarizesEarlierTurnsKeepsTheSummaryAndSavesIt()
+    {
+        var gateway = new Scripted(
+            new ChatTurn { Content = "报价 12.5 元" },
+            new ChatTurn { Content = "交期 11 月 30 日" },
+            new ChatTurn { Content = "摘要：报价 12.5 元" },   // /compact 的摘要请求
+            new ChatTurn { Content = "好的" });
+        var (output, shell) = await Run(gateway, "问报价\n问交期\n/compact 保留报价\n继续\n/exit\n");
+
+        Assert.Contains("已整理", output);
+        Assert.Contains("重点保留：保留报价", output);
+        var summarize = gateway.Requests[2];
+        Assert.EndsWith("保留报价", summarize.Messages[0].Content);    // 重点接在摘要提示词后面
+        Assert.Equal("摘要：报价 12.5 元", shell.Session.Summary);
+        // 下一轮的系统提示词带着摘要，较早的原话不再整段发
+        var next = gateway.Requests[3];
+        Assert.Contains("摘要：报价 12.5 元", next.Messages[0].Content);
+        Assert.DoesNotContain(next.Messages, m => m.Role == ChatRole.User && m.Content == "问报价");
+
+        // 摘要跟着会话保存，打开旧会话时还在
+        var saved = Store().Load(shell.Session.Id)!;
+        Assert.Equal("摘要：报价 12.5 元", saved.Summary);
+        var reopened = new HeadlessSession(Env(new Scripted()), _dir, PermissionMode.Workspace, saved.Id);
+        reopened.Restore(saved.Messages, saved.Plan, saved.LoadedTools, saved.Summary);
+        Assert.Equal(saved.Summary, reopened.Summary);
+    }
+
+    [Fact]
+    public async Task CompactOnAShortConversationSaysSo()
+    {
+        var (output, _) = await Run(new Scripted(new ChatTurn { Content = "好" }), "/compact\n只说一句\n/compact\n/exit\n");
+        Assert.Contains("还没有对话，不用整理", output);
+        Assert.Contains("对话还很短，不用整理", output);
+    }
+
+    [Fact]
+    public async Task ContextAndStatusDescribeTheSession()
+    {
+        var (output, shell) = await Run(new Scripted(new ChatTurn { Content = "好" }), "问一句\n/context\n/status\n/exit\n");
+        Assert.Contains("上下文：约", output);
+        Assert.Contains("会自动整理", output);
+        Assert.Contains(shell.Session.Id, output);       // /status 里有会话 ID
+        Assert.Contains("工作区内修改", output);
+        Assert.Contains("深度思考：", output);
+        Assert.Contains("1 句", output);
+    }
+
+    [Fact]
+    public void NewCommandsAreTabCompletable()
+    {
+        foreach (var c in new[] { "/compact", "/permission", "/context", "/status", "/think" })
+        {
+            Assert.Contains(c, InteractiveShell.CommandNames);
+        }
+    }
+
     [Fact]
     public async Task ChatKeepsHistoryAcrossTurnsAndSavesTheSession()
     {
