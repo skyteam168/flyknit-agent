@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type UploadFile, type UploadRawFile } from 'element-plus'
-import { Download, Link, Refresh, Upload } from '@element-plus/icons-vue'
+import { Download, Link, QuestionFilled, Refresh, Upload } from '@element-plus/icons-vue'
 import { api } from '@/api'
 import type { EnrollmentTicket, LandingDownload, Release } from '@/api/types'
 import { auth } from '@/store/auth'
@@ -78,6 +78,18 @@ async function toggleLanding(enabled: boolean) {
     landing.value = await api.setLanding(enabled, landingUrl.value.trim())
     ElMessage.success(enabled ? '产品页已开放下载' : '产品页已停止下载')
     tickets.value = await api.tickets()
+  } finally {
+    landingSaving.value = false
+  }
+}
+
+/** 只提供安装程序：免安装版（zip）没有运维代理，装上以后不能自动升级，后台也管不了 */
+async function setInstallerOnly(value: boolean) {
+  if (!landing.value) return
+  landingSaving.value = true
+  try {
+    landing.value = await api.setLanding(landing.value.enabled, landing.value.server_url, value)
+    ElMessage.success(value ? '产品页只提供安装程序' : '产品页同时提供安装程序和免安装版')
   } finally {
     landingSaving.value = false
   }
@@ -318,6 +330,17 @@ async function remove(r: Release) {
         </span>
         <span v-else-if="!current" class="muted">先发布一个版本，才能开放下载</span>
         <span v-else class="muted">未开放：产品页上的下载按钮显示「暂未开放」</span>
+        <el-checkbox
+          v-if="landing.enabled"
+          :model-value="landing.installer_only"
+          :disabled="!canPublish || landingSaving"
+          @change="(v: string | number | boolean) => setInstallerOnly(!!v)"
+        >
+          只提供安装程序
+          <el-tooltip content="隐藏产品页上的「免安装版（.zip）」。免安装版不带运维代理，装上后不能自动升级。本页的「下载员工端安装包」不受影响。" placement="top">
+            <el-icon class="hint-icon"><QuestionFilled /></el-icon>
+          </el-tooltip>
+        </el-checkbox>
         <el-button v-if="landing.enabled" link type="warning" :disabled="!canPublish" @click="rotateLanding">更换凭证</el-button>
         <el-button v-if="landing.enabled && landingUrl.trim() !== landing.server_url" link type="primary" :disabled="!canPublish" @click="toggleLanding(true)">保存新地址</el-button>
       </div>
@@ -485,6 +508,11 @@ async function remove(r: Release) {
   color: var(--el-text-color-secondary);
   font-size: 12px;
   font-weight: normal;
+}
+.hint-icon {
+  margin-left: 4px;
+  vertical-align: -2px;
+  color: var(--el-text-color-secondary);
 }
 .landing .panel-title {
   display: flex;

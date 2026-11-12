@@ -407,6 +407,8 @@
     zipBtn.classList.toggle('primary', formats.length === 1 && formats[0] === 'zip')
     zipBtn.classList.toggle('ghost', !(formats.length === 1 && formats[0] === 'zip'))
     exeBtn.hidden = ok && formats.indexOf('exe') < 0
+    // 后台设了「只提供安装程序」时没有 zip：按钮直接不显示
+    zipBtn.hidden = ok && formats.indexOf('zip') < 0
     if (ok) {
       var date = release.published_at ? new Date(release.published_at).toLocaleDateString(HTML_LANG[lang]) : ''
       meta.textContent = t('dl.version').replace('{v}', release.version).replace('{size}', size(release.size)).replace('{date}', date)

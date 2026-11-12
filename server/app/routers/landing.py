@@ -32,13 +32,15 @@ router = APIRouter(prefix="/api/v1", tags=["landing"])
 
 KEY = "landing_download"
 LABEL = "产品页下载"
-DEFAULT = {"enabled": False, "server_url": "", "ticket_id": None, "token": ""}
+DEFAULT = {"enabled": False, "server_url": "", "ticket_id": None, "token": "", "installer_only": False}
 
 
 class LandingIn(BaseModel):
     enabled: bool
     #: 员工电脑访问服务端用的地址，写进下载的安装包
     server_url: str = Field(default="", max_length=500)
+    #: 只提供安装程序（隐藏 zip 免安装版）。免安装版没有运维代理、不能自动升级。不传 = 不改
+    installer_only: bool | None = None
 
 
 class LandingOut(BaseModel):
@@ -47,6 +49,7 @@ class LandingOut(BaseModel):
     ticket_id: int | None = None
     ticket_uses: int = 0
     version: str = ""
+    installer_only: bool = False
 
 
 class PublicMobileApp(BaseModel):
@@ -90,6 +93,7 @@ async def _out(session: AsyncSession, conf: dict) -> LandingOut:
         ticket_id=ticket.id if ticket else None,
         ticket_uses=ticket.uses if ticket else 0,
         version=latest.version if latest else "",
+        installer_only=bool(conf.get("installer_only")),
     )
 
 
@@ -130,10 +134,13 @@ async def set_landing(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "服务器地址要写成 http://10.0.0.5:8000 这样的完整地址")
     changed_url = server_url != conf.get("server_url", "")
     conf = {**conf, "enabled": data.enabled, "server_url": server_url}
+    if data.installer_only is not None:
+        conf["installer_only"] = data.installer_only
     if data.enabled and (changed_url or await _valid_ticket(session, conf) is None):
         conf = await _new_ticket(session, conf, who)
     await settings_store.set_value(session, KEY, conf)
-    log.warning("%s %s了产品页下载（服务器 %s）", who, "打开" if data.enabled else "关闭", server_url or "-")
+    log.warning("%s %s了产品页下载（服务器 %s，%s）", who, "打开" if data.enabled else "关闭", server_url or "-",
+                "只提供安装程序" if conf.get("installer_only") else "安装程序和免安装版")
     return await _out(session, conf)
 
 
@@ -179,20 +186,28 @@ def _formats(latest: ClientRelease) -> list[str]:
     return _formats_cache[latest.sha256]
 
 
+def _offered(conf: dict, latest: ClientRelease) -> list[str]:
+    """产品页实际提供的格式。只提供安装程序时去掉 zip；但包里没有安装程序外壳时照旧给 zip，不能一个都下不了。"""
+    formats = _formats(latest)
+    if conf.get("installer_only") and "exe" in formats:
+        return ["exe"]
+    return formats
+
+
 @router.get("/public/release", response_model=PublicRelease)
 async def public_release(session: AsyncSession = Depends(get_session)):
     """产品页显示的版本信息。没开放下载时只告诉页面「暂未开放」，不透露别的。"""
     ready = await _ready(session)
     if ready is None:
         return PublicRelease(download_enabled=False)
-    _, latest, _ = ready
+    conf, latest, _ = ready
     return PublicRelease(
         download_enabled=True,
         version=latest.version,
         notes=latest.notes,
         size=latest.size,
         published_at=latest.created_at.isoformat() if latest.created_at else "",
-        formats=_formats(latest),
+        formats=_offered(conf, latest),
     )
 
 
@@ -207,6 +222,9 @@ async def public_download(
     if ready is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "下载暂未开放，请联系 IT 信息科技部")
     conf, latest, ticket = ready
+    if format == "zip" and "zip" not in _offered(conf, latest):
+        # 后台设了「只提供安装程序」：免安装版没有运维代理，装上以后不能自动升级
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "产品页只提供安装程序，请下载安装程序（.exe）")
     cached = _cache_dir() / f"{latest.sha256[:16]}-{ticket.id}.{format}"
     if not cached.exists():
         folder, stub = releases._package_stub(latest, format)

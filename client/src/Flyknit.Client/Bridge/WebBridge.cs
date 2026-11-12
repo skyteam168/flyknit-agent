@@ -480,6 +480,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     theme = _settings.Theme,
                     userName = Environment.UserName,
                     machineName = Environment.MachineName,
+                    // 免安装版不会自动升级：「关于」页提示去装安装程序
+                    installKind = AgentHost.CurrentInstallKind,
                     serverUrl = _settings.ServerUrl,
                     department = _host.Department,
                     owner = _host.Owner,

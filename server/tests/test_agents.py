@@ -182,3 +182,25 @@ async def test_heartbeat_links_device_to_agent(client, device_headers):
     await client.post("/api/v1/devices/heartbeat", headers=device_headers, json={"machine_guid": GUID.upper()})
     devices = (await client.get("/api/v1/admin/devices", headers=ADMIN)).json()
     assert devices[0]["machine_guid"] == GUID
+
+
+async def test_heartbeat_reports_install_kind_and_webview(client, device_headers):
+    """员工端报安装方式和 WebView2 版本：后台据此标「免安装版」、排查界面打不开。只收认得的值。"""
+    async def beat(**info):
+        r = await client.post("/api/v1/devices/heartbeat", headers=device_headers, json=info)
+        assert r.status_code == 204, r.text
+        return (await client.get("/api/v1/admin/devices", headers=ADMIN)).json()[0]
+
+    # 老版本不报：空着
+    row = await beat(machine_name="PC-QC-01")
+    assert row["install_kind"] == "" and row["webview_version"] == ""
+
+    row = await beat(install_kind="portable", webview_version="109.0.1518.140")
+    assert row["install_kind"] == "portable" and row["webview_version"] == "109.0.1518.140"
+
+    # 认不出的值不存，也不把上次的好数据冲掉
+    row = await beat(install_kind="<script>", webview_version="1; drop table")
+    assert row["install_kind"] == "portable" and row["webview_version"] == "109.0.1518.140"
+
+    row = await beat(install_kind="managed", webview_version="131.0.2903.112")
+    assert row["install_kind"] == "managed" and row["webview_version"] == "131.0.2903.112"

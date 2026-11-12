@@ -20,7 +20,7 @@ const serverUrl = location.origin
 const todayTokens = ref(new Map<number, number>())
 const loading = ref(false)
 const keyword = ref('')
-const state = ref<'all' | 'online' | 'offline' | 'disabled'>('all')
+const state = ref<'all' | 'online' | 'offline' | 'disabled' | 'noagent' | 'portable'>('all')
 
 const canDispatch = computed(() => !!auth.user?.can_dispatch && !auth.user?.must_change_password)
 
@@ -70,6 +70,9 @@ const counts = computed(() => ({
   online: rows.value.filter((d) => !d.disabled && live(d)).length,
   offline: rows.value.filter((d) => !d.disabled && !live(d)).length,
   disabled: rows.value.filter((d) => d.disabled).length,
+  // 这两类不会自动升级：要 IT 用安装程序装一次
+  noagent: rows.value.filter((d) => !d.disabled && !d.signed_out_at && !d.agent).length,
+  portable: rows.value.filter((d) => !d.disabled && !d.signed_out_at && d.install_kind === 'portable').length,
 }))
 
 const filtered = computed(() => {
@@ -78,6 +81,8 @@ const filtered = computed(() => {
     if (state.value === 'online' && (d.disabled || !live(d))) return false
     if (state.value === 'offline' && (d.disabled || live(d))) return false
     if (state.value === 'disabled' && !d.disabled) return false
+    if (state.value === 'noagent' && (d.disabled || d.signed_out_at || d.agent)) return false
+    if (state.value === 'portable' && (d.disabled || d.signed_out_at || d.install_kind !== 'portable')) return false
     if (!q) return true
     return [d.machine_name, d.user_name, d.owner, d.department, d.domain, d.ip_addresses, d.observed_ip, d.mac_address, d.client_version]
       .join(' ')
@@ -142,6 +147,13 @@ async function saveEdit() {
   } finally {
     editing.value = false
   }
+}
+
+const INSTALL_KIND: Record<string, string> = {
+  managed: '安装程序（代理负责升级）',
+  setup: '安装程序（没有代理，不会自动升级）',
+  portable: '免安装版（不会自动升级）',
+  '': '—（员工端版本较旧，没有上报）',
 }
 
 const ips = (d: Device) => d.ip_addresses.split(/[,\s]+/).filter(Boolean)
@@ -313,6 +325,8 @@ function summaryText(): string {
         <el-radio-button value="online">在线 {{ counts.online }}</el-radio-button>
         <el-radio-button value="offline">离线 {{ counts.offline }}</el-radio-button>
         <el-radio-button value="disabled">已停用 {{ counts.disabled }}</el-radio-button>
+        <el-radio-button value="noagent">代理未安装 {{ counts.noagent }}</el-radio-button>
+        <el-radio-button value="portable">免安装版 {{ counts.portable }}</el-radio-button>
       </el-radio-group>
 
       <el-table
@@ -331,6 +345,9 @@ function summaryText(): string {
                 <strong>{{ row.machine_name }}</strong>
                 <el-tooltip v-if="row.signed_out_at" :content="`员工于 ${dateTime(row.signed_out_at)} 退出登录，这条记录不会再上线`" placement="top">
                   <el-tag size="small" type="info" class="signed-out">已退出登录</el-tag>
+                </el-tooltip>
+                <el-tooltip v-if="row.install_kind === 'portable'" content="zip 免安装版：没有运维代理，不会自动升级。用安装程序覆盖安装一次即可（员工的数据不受影响）" placement="top">
+                  <el-tag size="small" type="warning" class="signed-out">免安装版</el-tag>
                 </el-tooltip>
                 <small>{{ row.owner || row.user_name || '—' }}<template v-if="row.department"> · {{ row.department }}</template><template v-if="row.domain"> @ {{ row.domain }}</template></small>
               </div>
@@ -408,6 +425,8 @@ function summaryText(): string {
           <div><label>部门</label><span>{{ detailDevice.department || '—' }}</span></div>
           <div><label>Windows 账号</label><span>{{ detailDevice.user_name || '—' }}</span></div>
           <div><label>系统</label><span>{{ detailDevice.os_version || '—' }}</span></div>
+          <div><label>安装方式</label><span>{{ INSTALL_KIND[detailDevice.install_kind || ''] }}</span></div>
+          <div><label>WebView2</label><span>{{ detailDevice.webview_version || '—' }}</span></div>
           <div><label>MAC</label><code>{{ detailDevice.mac_address || '—' }}</code></div>
           <div><label>设备标识</label><code class="muted">{{ detailDevice.machine_guid || '—' }}</code></div>
           <div v-if="detailDevice.note" class="note"><label>备注</label><span>{{ detailDevice.note }}</span></div>
@@ -523,6 +542,11 @@ function summaryText(): string {
               <strong>运维代理和员工端是两个程序。</strong>员工端（FlyknitBuddy）以员工身份运行，聊天和「指令中心」下发的指令靠它执行；
               运维代理（FlyknitAgent）是以 SYSTEM 身份运行的 Windows 服务，「任务中心」的装软件、收集硬件和软件清单靠它。
               员工端装好不代表代理装好了。
+            </p>
+            <p v-if="detailDevice.install_kind === 'portable'">
+              <strong>这台电脑用的是免安装版（zip）。</strong>免安装版本身就不带代理，也不会自动升级。
+              用安装程序在这台电脑上覆盖安装一次即可，员工的对话、记忆、设置都在各自的 <code>%APPDATA%\Flyknit</code> 里，不受影响。
+              不想再有人装免安装版，可以在「发布」页的产品页下载里勾选「只提供安装程序」。
             </p>
             <p>
               <strong>推荐：</strong>在「发布」页下载<strong>安装程序 .exe</strong>，在这台电脑上用管理员身份运行，员工端和代理一起装好。

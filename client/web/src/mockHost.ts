@@ -1150,6 +1150,7 @@ export function createMockHost(): HostTransport {
           theme: 'system',
           userName: 'nguyen.van.a',
           machineName: 'PC-QC-017',
+          installKind: 'portable',
           serverUrl: 'http://10.0.0.5:8000',
           micAvailable: true,
           sandboxed: true,

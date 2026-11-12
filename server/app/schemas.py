@@ -147,6 +147,9 @@ class MachineInfoIn(BaseModel):
     ip_addresses: list[str] = Field(default_factory=list, max_length=16)
     mac_address: Clip(64) = ""
     machine_guid: Clip(64) = ""
+    #: managed / setup / portable；认不出的值存成空（见 client.heartbeat）
+    install_kind: Clip(16) = ""
+    webview_version: Clip(50) = ""
 
 
 class DeviceRegisterOut(BaseModel):
@@ -212,6 +215,8 @@ class DeviceOut(BaseModel):
     observed_ip: str = ""
     mac_address: str = ""
     machine_guid: str = ""
+    install_kind: str = ""
+    webview_version: str = ""
     owner: str = ""
     department: str = ""
     note: str = ""

@@ -4,6 +4,7 @@ import hmac
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
@@ -38,6 +39,9 @@ from ..services.settings_store import get_policy
 from . import tool_rules
 
 log = logging.getLogger("flyknit.audit")
+
+#: 员工端上报的安装方式（见 models.Device.install_kind）
+INSTALL_KINDS = ("managed", "setup", "portable")
 router = APIRouter(prefix="/api/v1", tags=["client"])
 
 
@@ -148,6 +152,11 @@ async def heartbeat(
         device.mac_address = data.mac_address[:64]
     if data.machine_guid:
         device.machine_guid = data.machine_guid[:64].lower()
+    # 只认这几个值：后台按它标「免安装版」、做筛选，不能让客户端塞进任意文字
+    if data.install_kind in INSTALL_KINDS:
+        device.install_kind = data.install_kind
+    if data.webview_version and re.fullmatch(r"[0-9][0-9.]{0,30}( [A-Za-z]{1,12})?", data.webview_version):
+        device.webview_version = data.webview_version
     # 这个不听客户端的，以服务端看到的为准
     device.observed_ip = _client_ip(request)
     # 以前每次登录都新建一行，同一台电脑同一个员工的旧行在这里并过来（用量相加）

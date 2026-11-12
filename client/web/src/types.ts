@@ -636,6 +636,8 @@ export interface AppInfo {
   theme: Theme
   userName: string
   machineName: string
+  /** 怎么装的：managed（安装程序 + 运维代理）/ setup（安装程序，没代理）/ portable（免安装版） */
+  installKind?: 'managed' | 'setup' | 'portable'
   /** 连接的服务器地址 */
   serverUrl?: string
   department?: string
