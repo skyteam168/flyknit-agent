@@ -17,11 +17,14 @@ const { t } = useI18n()
 const preview = computed(() => state.preview)
 const doc = computed(() => state.preview?.doc ?? null)
 const activeSection = ref(0)
+/** 视频 / 音频放不了（编码 WebView2 不支持，比如 H.265 的 mov）：改成「用默认应用打开」 */
+const mediaFailed = ref(false)
 
 watch(
   () => state.preview?.file.path,
   () => {
     activeSection.value = 0
+    mediaFailed.value = false
   },
 )
 
@@ -124,6 +127,31 @@ function onKeyResize(e: KeyboardEvent) {
         <p v-if="doc.notice" class="notice">{{ doc.notice }}</p>
 
         <img v-if="doc.kind === 'image'" :src="doc.dataUrl ?? ''" :alt="preview.file.name" class="image" />
+
+        <div v-else-if="(doc.kind === 'video' || doc.kind === 'audio') && mediaFailed" class="fallback">
+          <p>{{ t('ui.preview.mediaError') }}</p>
+          <button type="button" class="open" @click="launchFile(preview.file)">
+            <ExternalLink :size="15" /> {{ t('ui.outputs.openWithDefault') }}
+          </button>
+        </div>
+        <video
+          v-else-if="doc.kind === 'video'"
+          :key="doc.url ?? ''"
+          :src="doc.url ?? ''"
+          controls
+          preload="metadata"
+          class="video"
+          @error="mediaFailed = true"
+        />
+        <audio
+          v-else-if="doc.kind === 'audio'"
+          :key="doc.url ?? ''"
+          :src="doc.url ?? ''"
+          controls
+          preload="metadata"
+          class="audio"
+          @error="mediaFailed = true"
+        />
 
         <PdfView v-else-if="doc.kind === 'pdf'" :src="doc.dataUrl ?? ''" :name="preview.file.name" class="pdf" />
 
@@ -278,6 +306,17 @@ header {
 .image {
   max-width: 100%;
   border-radius: 8px;
+}
+.video {
+  display: block;
+  width: 100%;
+  max-height: calc(100vh - 160px);
+  border-radius: 8px;
+  background: #000;
+}
+.audio {
+  width: 100%;
+  margin-top: 8px;
 }
 .pdf {
   width: 100%;

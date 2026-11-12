@@ -161,6 +161,9 @@ public partial class MainWindow : Window, IWindowActions
         // 资料库文件：https://files.flyknit.local/{id}[?thumb=1]。按 ID 从索引里找到文件再给，网页拿不到任意路径
         core.AddWebResourceRequestedFilter($"https://{LibraryService.Host}/*", CoreWebView2WebResourceContext.All);
         core.WebResourceRequested += OnLibraryRequest;
+        // 视频 / 音频预览：https://media.flyknit.local/{令牌}，按 Range 分段从磁盘读（见 MediaService）
+        core.AddWebResourceRequestedFilter($"https://{MediaService.Host}/*", CoreWebView2WebResourceContext.All);
+        core.WebResourceRequested += OnMediaRequest;
         // WebView2 会缓存 index.html；界面重新构建后资源文件名变了，旧缓存会导致白屏。
         // 用 index.html 的修改时间作为版本参数，每次构建后都会加载最新页面。
         var index = Path.Combine(root, "index.html");
@@ -197,6 +200,53 @@ public partial class MainWindow : Window, IWindowActions
         finally
         {
             deferral.Complete();
+        }
+    }
+
+    private void OnMediaRequest(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        var uri = new Uri(e.Request.Uri);
+        if (!uri.Host.Equals(MediaService.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        var env = Web.CoreWebView2.Environment;
+        var cors = $"Access-Control-Allow-Origin: https://{VirtualHost}";
+        try
+        {
+            var token = uri.AbsolutePath.Trim('/');
+            if (!MediaService.Tokens.TryResolve(token, out var path) || !File.Exists(path))
+            {
+                e.Response = env.CreateWebResourceResponse(null, 404, "Not Found", cors);
+                return;
+            }
+            var mime = Flyknit.Core.Preview.MediaPreviewProvider.MimeOf(path) ?? "application/octet-stream";
+            // 员工可能正开着这个文件（播放器、剪辑软件），按共享方式只读打开
+            var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024);
+            var length = stream.Length;
+            var header = e.Request.Headers.Contains("Range") ? e.Request.Headers.GetHeader("Range") : null;
+            var range = Flyknit.Core.Preview.HttpRange.Parse(header, length);
+            var common = $"Content-Type: {mime}\r\nAccept-Ranges: bytes\r\nCache-Control: no-cache\r\n{cors}";
+            if (range is null)
+            {
+                e.Response = env.CreateWebResourceResponse(stream, 200, "OK", $"{common}\r\nContent-Length: {length}");
+            }
+            else if (!range.IsValid)
+            {
+                stream.Dispose();
+                e.Response = env.CreateWebResourceResponse(null, 416, "Range Not Satisfiable", $"Content-Range: bytes */{length}\r\n{cors}");
+            }
+            else
+            {
+                var slice = new Flyknit.Core.Preview.BoundedStream(stream, range.Start, range.Length);
+                e.Response = env.CreateWebResourceResponse(slice, 206, "Partial Content",
+                    $"{common}\r\nContent-Length: {range.Length}\r\nContent-Range: bytes {range.Start}-{range.End}/{length}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"读取媒体文件失败：{e.Request.Uri}", ex);
+            e.Response = env.CreateWebResourceResponse(null, 500, "Error", cors);
         }
     }
 

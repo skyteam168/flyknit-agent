@@ -2410,6 +2410,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     text = doc.Text,
                     language = doc.Language,
                     dataUrl = doc.DataUrl,
+                    // 视频 / 音频：不给本机路径，给一个只对应这个文件的令牌地址，播放时由宿主分段提供
+                    url = doc.MediaPath is { } media ? MediaService.UrlFor(media) : null,
+                    mime = doc.Mime,
                     notice = doc.Notice,
                     error = doc.Error,
                     sections = doc.Sections.Select(x => new { title = x.Title, text = x.Text, rows = x.Rows }).ToList(),

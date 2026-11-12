@@ -341,6 +341,7 @@ export function createMockHost(): HostTransport {
     { path: 'D:\\工作区\\日报\\九月产量汇总.xlsx', name: '九月产量汇总.xlsx', extension: 'xlsx', size: 184_000, modifiedAt: now(), previewable: true, exists: true },
     { path: 'D:\\工作区\\日报\\FlyknitBuddy_产品介绍页.html', name: 'FlyknitBuddy_产品介绍页.html', extension: 'html', size: 21_000, modifiedAt: now(), previewable: true, exists: true },
     { path: 'D:\\工作区\\日报\\说明.md', name: '说明.md', extension: 'md', size: 2_400, modifiedAt: now(), previewable: true, exists: true },
+    { path: 'D:\\工作区\\日报\\产线巡检.webm', name: '产线巡检.webm', extension: 'webm', size: 606_000, modifiedAt: now(), previewable: true, exists: true },
   ]
 
   const mockChannelBindings: { id: number; channel: string; name: string; createdAt: string; lastUsed: string | null }[] = []
@@ -356,6 +357,8 @@ export function createMockHost(): HostTransport {
   }
 
   const mockPreviews: Record<string, unknown> = {
+    // 视频：真宿主给 https://media.flyknit.local/{令牌}，按 Range 分段从磁盘读。开发预览里这个地址取不到，会显示「用系统播放器打开」
+    'D:\\工作区\\日报\\产线巡检.webm': { kind: 'video', url: 'https://media.flyknit.local/0123456789abcdef0123456789abcdef', mime: 'video/webm', notice: '592 KB' },
     'D:\\工作区\\日报\\FlyknitBuddy_产品介绍页.html': {
       kind: 'html',
       language: 'html',

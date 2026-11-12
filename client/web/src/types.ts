@@ -243,7 +243,7 @@ export interface OutputFile {
   exists: boolean
 }
 
-export type PreviewKind = 'text' | 'markdown' | 'table' | 'sections' | 'image' | 'pdf' | 'diagram' | 'listing' | 'html' | 'none'
+export type PreviewKind = 'text' | 'markdown' | 'table' | 'sections' | 'image' | 'pdf' | 'diagram' | 'listing' | 'html' | 'video' | 'audio' | 'none'
 
 export interface PreviewSection {
   title: string
@@ -258,6 +258,9 @@ export interface PreviewDoc {
   text?: string | null
   language?: string | null
   dataUrl?: string | null
+  /** 视频 / 音频的流式地址（https://media.flyknit.local/{令牌}，宿主按 Range 分段提供） */
+  url?: string | null
+  mime?: string | null
   notice?: string | null
   error?: string | null
   sections: PreviewSection[]
