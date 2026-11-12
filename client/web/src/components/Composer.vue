@@ -59,8 +59,8 @@ import {
   draftMode,
   finishSpeech,
   interject,
-  askSide,
   loadCommands,
+  setPermission,
   dismissInterrupted,
   interruptedRun,
   resumeInterrupted,
@@ -83,6 +83,8 @@ import {
 import type { InterjectMode, Mode, PendingInput, SlashCommand } from '../types'
 import { shouldFold, snippet } from '../pasted'
 import { expandCommand, findCommand, parseSlash, templateParams } from '../slash'
+import { availableBuiltins, BUILTIN_NAMES, describeBuiltin, findBuiltin, runBuiltin, type BuiltinContext } from '../builtinCommands'
+import FullAccessDialog from './FullAccessDialog.vue'
 
 const props = defineProps<{ home?: boolean }>()
 const { t, locale } = useI18n()
@@ -169,19 +171,25 @@ async function submit(how?: InterjectMode) {
   text.value = ''
   await nextTick()
   resize()
-  // /btw 开头：顺便问一句，答案在侧聊里，不写进任务对话
-  const btw = /^\/btw\s+([\s\S]+)/i.exec(value.trim())
-  if (btw && current.value) {
-    void askSide(btw[1])
-    return
-  }
-  // 快捷指令：「/名字 参数…」展开成模板发出去；参数没填全就放回输入框，让员工补上
   let outgoing = value
   const slash = parseSlash(value)
-  const cmd = slash ? findCommand(slash.name, state.commands.mine, state.commands.it) : null
-  // /init：开发者工具打开时，让 AI 摸清工作区后写一份项目说明 FLYKNIT.md（员工或公司自己有同名指令时用他们的）
-  if (slash && !cmd && slash.name.toLowerCase() === 'init' && initAvailable.value) {
-    outgoing = t('ui.slash.initPrompt') + (slash.rest ? `\n\n${slash.rest}` : '')
+  // 内置命令优先（/compact、/permission、/model……见 builtinCommands.ts）：大多在本地办完、不发给模型
+  if (slash) {
+    const outcome = await runBuiltin(slash.name, slash.rest, builtinCtx.value)
+    if (outcome.kind === 'done') return
+    if (outcome.kind === 'confirmFull') {
+      askFull.value = true // 和权限选择器一样，先弹风险确认
+      return
+    }
+    if (outcome.kind === 'send') outgoing = outcome.text
+  }
+  // 快捷指令：「/名字 参数…」展开成模板发出去；参数没填全就放回输入框，让员工补上
+  const cmd = slash && outgoing === value ? findCommand(slash.name, state.commands.mine, state.commands.it) : null
+  // 内置命令在这个模式下用不了（比如翻译对话里的 /compact）、也没有同名快捷指令：说一声，不当成普通文字发出去
+  if (slash && !cmd && outgoing === value && BUILTIN_NAMES.includes(slash.name.toLowerCase())) {
+    text.value = value
+    toast(t('ui.slash.run.unavailable', { name: slash.name.toLowerCase() }))
+    return
   }
   if (slash && cmd) {
     const r = expandCommand(cmd, slash.rest)
@@ -289,24 +297,71 @@ async function editInput(item: PendingInput) {
   box.value?.focus()
 }
 
-// ---------- 快捷指令选择：输入框里只有「/」加几个字时列出来 ----------
-interface SlashItem { name: string; title: string; template: string; source: 'builtin' | 'it' | 'mine' }
+// ---------- 斜杠列表：输入框里只有「/」加几个字时列出命令；「/命令 」后面列出可选参数 ----------
+interface SlashItem {
+  name: string
+  title: string
+  template: string
+  source: 'builtin' | 'it' | 'mine'
+  /** 内置命令的参数提示（如「只读 | 工作区 | 完全」） */
+  hint?: string
+  /** 有值 = 这是参数补全：选中后执行「/name arg」 */
+  arg?: string
+  /** 内置命令选中后要不要等员工继续打参数 */
+  wantsArg?: boolean
+}
 const initAvailable = computed(() => !!state.app?.developerTools && mode.value === 'agent')
+const builtinCtx = computed<BuiltinContext>(() => ({ mode: mode.value, busy: busy.value, initAvailable: initAvailable.value, planMode: planMode.value }))
+const askFull = ref(false)
+async function confirmFull() {
+  askFull.value = false
+  await setPermission('full')
+  toast(t('ui.slash.run.permissionSet', { name: t('ui.permission.full') }))
+}
 const slashIndex = ref(0)
 const slashDismissed = ref('')
 const slashItems = computed<SlashItem[]>(() => {
+  if (slashDismissed.value === text.value) return []
+  // 「/permission 」「/model gp」：列出这个命令的可选参数
+  const withArg = /^\/(\S+) (\S*)$/.exec(text.value)
+  if (withArg) {
+    const cmd = findBuiltin(withArg[1], builtinCtx.value)
+    if (!cmd?.args) return []
+    const q = withArg[2].toLowerCase()
+    return cmd
+      .args()
+      .filter((a) => !q || a.value.toLowerCase().includes(q) || a.label.toLowerCase().includes(q))
+      .slice(0, 30)
+      .map((a) => ({ name: `${cmd.name} ${a.value}`, title: a.label, template: '', source: 'builtin' as const, arg: a.value }))
+  }
   const m = /^\/([^\s/]*)$/.exec(text.value)
-  if (!m || slashDismissed.value === text.value) return []
+  if (!m) return []
   const q = m[1].toLowerCase()
+  const builtins = availableBuiltins(builtinCtx.value)
+  const taken = new Set(builtins.flatMap((c) => [c.name, ...(c.aliases ?? [])]))
+  // 分组排列：内置 → 公司 → 我的。和内置命令重名的快捷指令不生效，也就不列出来
   const all: SlashItem[] = [
-    ...state.commands.mine.map((c) => ({ ...c, source: 'mine' as const })),
-    ...state.commands.it.filter((c) => !state.commands.mine.some((x) => x.name.toLowerCase() === c.name.toLowerCase())).map((c) => ({ ...c, source: 'it' as const })),
-    { name: 'btw', title: t('ui.slash.btw'), template: '', source: 'builtin' as const },
-    ...(initAvailable.value ? [{ name: 'init', title: t('ui.slash.init'), template: '', source: 'builtin' as const }] : []),
+    ...builtins.map((c) => ({
+      name: c.name,
+      title: describeBuiltin(c),
+      template: '',
+      source: 'builtin' as const,
+      hint: c.argHint?.() ?? '',
+      wantsArg: !!c.argHint,
+    })),
+    ...state.commands.it
+      .filter((c) => !taken.has(c.name.toLowerCase()) && !state.commands.mine.some((x) => x.name.toLowerCase() === c.name.toLowerCase()))
+      .map((c) => ({ ...c, source: 'it' as const })),
+    ...state.commands.mine.filter((c) => !taken.has(c.name.toLowerCase())).map((c) => ({ ...c, source: 'mine' as const })),
   ]
-  return all.filter((c) => !q || c.name.toLowerCase().includes(q) || c.title.toLowerCase().includes(q)).slice(0, 8)
+  return all.filter((c) => !q || c.name.toLowerCase().includes(q) || c.title.toLowerCase().includes(q)).slice(0, 40)
 })
 watch(slashItems, () => (slashIndex.value = 0))
+// 方向键选到列表外面时滚过去
+watch(slashIndex, async () => {
+  await nextTick()
+  document.querySelector('.slash-item.on')?.scrollIntoView({ block: 'nearest' })
+})
 // 第一次打出 / 时刷新一下（后台刚发布的新指令也能马上用上）
 watch(
   () => text.value === '/',
@@ -315,9 +370,25 @@ watch(
   },
 )
 
-/** 选中一条：有参数的先放「/名字 」让员工接着打参数；没有参数的直接把模板放进输入框，看一眼再发 */
+/**
+ * 选中一条：
+ * - 内置命令：不要参数的直接执行；要参数的先放「/名字 」，接着列出可选参数或让员工打；选中参数直接执行。
+ * - 快捷指令：有参数的先放「/名字 」让员工接着打参数；没有参数的直接把模板放进输入框，看一眼再发。
+ */
 async function pickSlash(c: SlashItem) {
-  const params = c.source === 'builtin' || templateParams(c.template).length > 0
+  if (c.source === 'builtin') {
+    if (c.arg !== undefined || !c.wantsArg) {
+      text.value = `/${c.name}`
+      await submit()
+      return
+    }
+    text.value = `/${c.name} `
+    await nextTick()
+    resize()
+    box.value?.focus()
+    return
+  }
+  const params = templateParams(c.template).length > 0
   text.value = params ? `/${c.name} ` : c.template
   await nextTick()
   resize()
@@ -325,6 +396,7 @@ async function pickSlash(c: SlashItem) {
 }
 
 function slashHint(c: SlashItem) {
+  if (c.source === 'builtin') return c.arg !== undefined ? '' : c.hint ?? ''
   const params = templateParams(c.template)
   return params.length ? params.map((p) => `{${p}}`).join(' ') : ''
 }
@@ -664,7 +736,7 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
       <div v-if="slashItems.length" class="slash-menu" role="listbox" :aria-label="t('ui.slash.title')">
         <button
           v-for="(c, i) in slashItems"
-          :key="c.source + c.name"
+          :key="c.source + c.name + (c.arg ?? '')"
           type="button"
           role="option"
           class="slash-item"
@@ -676,7 +748,7 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
           <span class="slash-name">/{{ c.name }}</span>
           <span class="slash-args">{{ slashHint(c) }}</span>
           <span class="slash-title">{{ c.title || c.template }}</span>
-          <span class="slash-src" :class="c.source">{{ t(`ui.slash.source.${c.source}`) }}</span>
+          <span v-if="c.arg === undefined" class="slash-src" :class="c.source">{{ t(`ui.slash.source.${c.source}`) }}</span>
         </button>
       </div>
       <textarea
@@ -1071,6 +1143,8 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
       @ok="applySandbox(false)"
       @cancel="confirmSandboxOff = false"
     />
+    <!-- /permission full：和权限选择器一样先确认风险 -->
+    <FullAccessDialog v-if="askFull" @ok="confirmFull" @cancel="askFull = false" />
   </div>
 </template>
 

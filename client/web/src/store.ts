@@ -174,6 +174,8 @@ export const state = reactive({
   workspaces: [] as WorkspaceInfo[],
   memoryOpen: false,
   usageOpen: false,
+  /** 斜杠命令 /status、/help 打开的信息卡（''= 没开） */
+  commandInfo: '' as '' | 'status' | 'help',
   schedules: [] as ScheduledTask[],
   maximized: false,
   /** 正在压缩上下文的会话（界面上显示进度条） */
@@ -1601,9 +1603,9 @@ export async function loadContextUsage(conversationId: string) {
 }
 
 /** 手动整理对话：较早的内容压成摘要。返回宿主的说明（成功或为什么没整理） */
-export async function compactConversation(conversationId: string): Promise<string> {
+export async function compactConversation(conversationId: string, focus?: string): Promise<string> {
   try {
-    const r = await bridge.compactContext(conversationId)
+    const r = await bridge.compactContext(conversationId, focus)
     if (r.ok) await loadContextUsage(conversationId)
     return r.message
   } catch (e) {

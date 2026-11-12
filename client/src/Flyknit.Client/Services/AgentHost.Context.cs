@@ -84,7 +84,8 @@ public sealed partial class AgentHost
     /// 员工手动「整理对话」：最近一问一答保留原文，之前的压成摘要（和自动压缩存的是同一份摘要）。
     /// AI 正在回答时不能整理。
     /// </summary>
-    public async Task<(bool Ok, string Message)> CompactConversationAsync(string id, IHostEvents events, CancellationToken ct)
+    /// <param name="focus">员工要求重点保留的内容（「/compact 后面那段」），可以为空</param>
+    public async Task<(bool Ok, string Message)> CompactConversationAsync(string id, IHostEvents events, CancellationToken ct, string? focus = null)
     {
         if (IsRunning(id))
         {
@@ -123,7 +124,7 @@ public sealed partial class AgentHost
         history.AddRange(TrimHistory(recent.ToList()));
         try
         {
-            info = await context.CompactNowAsync(history, ct);
+            info = await context.CompactNowAsync(history, ct, focus);
         }
         catch (Exception ex)
         {

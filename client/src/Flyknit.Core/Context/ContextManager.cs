@@ -353,7 +353,8 @@ public sealed class ContextManager
     /// 员工手动「整理对话」：不看门槛，把最近一轮之前的对话都压成摘要（最近一问一答保留原文）。
     /// 能压的不到两条时返回 null，什么也不做。
     /// </summary>
-    public Task<CompactionInfo?> CompactNowAsync(List<ChatMessage> history, CancellationToken ct)
+    /// <param name="focus">员工要求重点保留的内容（输入框里「/compact 保留报价和交期」后面那段），可以为空</param>
+    public Task<CompactionInfo?> CompactNowAsync(List<ChatMessage> history, CancellationToken ct, string? focus = null)
     {
         var start = history.Count > 0 && history[0].Role == ChatRole.System ? 1 : 0;
         var lastUser = history.FindLastIndex(m => m.Role == ChatRole.User && m.Content != ContinueMarker);
@@ -361,10 +362,23 @@ public sealed class ContextManager
         {
             return Task.FromResult<CompactionInfo?>(null);
         }
-        return CompactAsync(history, Measure(history), ct, lastUser);
+        return CompactAsync(history, Measure(history), ct, lastUser, CleanFocus(focus));
     }
 
-    private async Task<CompactionInfo?> CompactAsync(List<ChatMessage> history, int tokensBefore, CancellationToken ct, int? manualBoundary = null)
+    /// <summary>压缩重点最长这么多字：是一句要求，不是一篇文章（也免得把整段对话塞进摘要提示词）。</summary>
+    public const int MaxFocusChars = 300;
+
+    internal static string? CleanFocus(string? focus)
+    {
+        var text = (focus ?? "").Trim();
+        if (text.Length == 0)
+        {
+            return null;
+        }
+        return text.Length > MaxFocusChars ? text[..MaxFocusChars] : text;
+    }
+
+    private async Task<CompactionInfo?> CompactAsync(List<ChatMessage> history, int tokensBefore, CancellationToken ct, int? manualBoundary = null, string? focus = null)
     {
         var start = history.Count > 0 && history[0].Role == ChatRole.System ? 1 : 0;
         var boundary = manualBoundary ?? FindBoundary(history);
@@ -388,7 +402,8 @@ public sealed class ContextManager
         // 优先使用后台 Session Memory（如果已经准备好且覆盖了足够的内容）
         string? summary = null;
         var sessionState = _sessionMemory?.State;
-        if (sessionState?.Initialized == true && !string.IsNullOrWhiteSpace(sessionState.Summary))
+        // 员工指定了重点：后台的会话摘要不是按这个重点写的，不用它，照重点重新摘
+        if (focus is null && sessionState?.Initialized == true && !string.IsNullOrWhiteSpace(sessionState.Summary))
         {
             // 检查 Session Memory 是否覆盖了要压缩的部分
             var lastSummarizedIdx = old.FindIndex(m => m.Id == sessionState.LastSummarizedMessageId);
@@ -412,7 +427,7 @@ public sealed class ContextManager
         // 没有可用的 Session Memory，同步生成摘要
         if (string.IsNullOrWhiteSpace(summary))
         {
-            summary = await SummarizeAsync(old, ct);
+            summary = await SummarizeAsync(old, ct, focus);
         }
 
         if (string.IsNullOrWhiteSpace(summary))
@@ -451,7 +466,15 @@ public sealed class ContextManager
         return info;
     }
 
-    private async Task<string?> SummarizeAsync(List<ChatMessage> old, CancellationToken ct)
+    /// <summary>
+    /// 员工手动整理时附的要求，接在摘要提示词后面。
+    /// 这句话是员工本人在输入框里打的（「/compact 保留报价和交期」），按员工的要求对待；
+    /// 但只用来决定摘要里保留什么，所以明确写成「重点保留」，不让它改写摘要的格式和规则。
+    /// </summary>
+    internal static string FocusInstruction(string focus) =>
+        "\n\n员工这次整理时特别交代，摘要里要重点、完整地保留下面这些内容（其他照常精简）：\n" + focus;
+
+    private async Task<string?> SummarizeAsync(List<ChatMessage> old, CancellationToken ct, string? focus = null)
     {
         var transcript = new StringBuilder();
         if (Summary is not null)
@@ -480,7 +503,7 @@ public sealed class ContextManager
             Temperature = 0.2,
             MaxTokens = 2048,
             ExtraBody = new Dictionary<string, JsonNode?> { ["enable_thinking"] = false },
-            Messages = new[] { ChatMessage.System(CompactPrompt), ChatMessage.User(text) },
+            Messages = new[] { ChatMessage.System(focus is null ? CompactPrompt : CompactPrompt + FocusInstruction(focus)), ChatMessage.User(text) },
         }, sink, ct);
         return StripThink(turn.Content);
     }

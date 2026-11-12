@@ -413,7 +413,9 @@ class Bridge {
   /** 会话信息面板：最近一次回答时的上下文用量（没回答过返回 null） */
   contextUsage = (conversationId: string) => this.call<ContextUsage | null>('context.usage', { conversationId })
   /** 手动整理对话：较早的内容压成摘要 */
-  compactContext = (conversationId: string) => this.call<{ ok: boolean; message: string }>('context.compact', { conversationId }, undefined, 0)
+  /** focus：/compact 后面附的「重点保留什么」，可选 */
+  compactContext = (conversationId: string, focus?: string) =>
+    this.call<{ ok: boolean; message: string }>('context.compact', focus ? { conversationId, focus } : { conversationId }, undefined, 0)
   /** 回答 AI 的选项提问；answers 为 null 表示跳过 */
   answerAsk = (requestId: string, answers: AskAnswerInput[] | null) =>
     this.call<void>('tool.answer', answers ? { requestId, answers } : { requestId, skip: true })
