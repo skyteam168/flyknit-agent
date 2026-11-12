@@ -2,7 +2,9 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { i18n } from './i18n'
 import './styles/base.css'
-import { fail } from './store'
+import { fail, toggleMaximize } from './store'
+import { bridge } from './bridge'
+import { installDragFallback } from './appRegion'
 
 // WebView2 中禁止拖入文件时浏览器直接打开文件
 window.addEventListener('dragover', (e) => e.preventDefault())
@@ -14,6 +16,9 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Tab' || e.key.startsWith('Arrow')) root.dataset.input = 'keyboard'
 }, true)
 window.addEventListener('pointerdown', () => { root.dataset.input = 'pointer' }, true)
+
+// 老 WebView2 运行时上页面拖动区域不起作用：改由宿主拖动窗口
+installDragFallback(() => bridge.startDrag().catch(() => undefined), () => toggleMaximize())
 
 const app = createApp(App).use(i18n)
 

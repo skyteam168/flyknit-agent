@@ -246,6 +246,12 @@ public sealed partial class AgentHost : IDisposable
 
     public bool Connected { get; private set; }
     public string ServerMessage { get; private set; } = "";
+    /// <summary>员工端是怎么装的（managed / setup / portable），「关于」页和心跳上报用。</summary>
+    public static string CurrentInstallKind => Flyknit.Core.Setup.InstallKind.Detect(
+        UpdateService.InstallDirectory,
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+        UpdateService.Managed);
+
     public string ModelName { get; private set; } = "";
 
     /// <summary>后台填的台账：这台电脑的使用者实名与所属部门。界面上显示。</summary>
@@ -507,6 +513,8 @@ public sealed partial class AgentHost : IDisposable
             {
                 var version = typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
                 var info = MachineInfo.Collect(version, _settings.ResolveUiLanguage());
+                info.InstallKind = CurrentInstallKind;
+                info.WebViewVersion = Flyknit.Client.Windows.WebViewCompat.SafeVersion();
                 await Server.ReportMachineAsync(info, cts.Token);
             }
             catch (Exception ex)

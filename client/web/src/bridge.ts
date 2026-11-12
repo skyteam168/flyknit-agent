@@ -181,6 +181,8 @@ class Bridge {
   toggleMaximize = () => this.call<boolean>('window.toggleMaximize')
   /** 从窗口边缘开始调整大小（无边框窗口自己实现） */
   startResize = (direction: string) => this.call<void>('window.startResize', { direction })
+  /** WebView2 运行时太旧、页面拖动区域不可用时由宿主拖动窗口（appRegion.ts） */
+  startDrag = () => this.call<void>('window.startDrag')
   setLearning = (enabled: boolean) => this.call<void>('settings.setLearning', { enabled })
   setMaxSteps = (value: number) => this.call<number>('settings.setMaxSteps', { value })
   setWindowBackground = (color: string) => this.call<void>('window.setBackground', { color })

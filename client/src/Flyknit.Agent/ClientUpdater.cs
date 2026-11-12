@@ -130,6 +130,10 @@ public sealed class ClientUpdater(AgentConfig config, Func<ServerApi> api)
         ZipFile.ExtractToDirectory(zip, files);
         File.Delete(zip);
         var root = RootOf(files) ?? throw new InvalidOperationException("更新包里找不到 FlyknitBuddy.exe");
+        // 包里带了 WebView2 离线安装包、本机的运行时又没装或太旧：趁员工还在用旧版时装上（和员工端互不影响）。
+        // 离线安装包不进 Program Files
+        Flyknit.Setup.WebViewSetup.EnsureRuntime(root, m => AgentLog.Info(m));
+        Flyknit.Setup.WebViewSetup.RemoveRedist(root);
         _ready = (update.Version, root);
         WriteStatus(update.Version, update.Notes, "ready");
         AgentLog.Info($"员工端 {update.Version} 已就绪，等员工端退出后替换");

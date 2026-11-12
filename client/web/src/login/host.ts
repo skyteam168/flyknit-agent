@@ -84,7 +84,7 @@ export const host = {
   manual: (server: string, key: string) => call<void>('manual', { server, key }),
   /** 登录成功、动画放完：关窗进主界面 */
   done: () => call<void>('done'),
-  window: (action: 'close' | 'minimize') => call<void>('window', { action }),
+  window: (action: 'close' | 'minimize' | 'drag') => call<void>('window', { action }),
   isMock: !webview,
 }
 

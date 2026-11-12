@@ -77,8 +77,8 @@ public sealed class LoginWindow : Window
             }
             catch (Exception ex)
             {
-                Log.Error("登录窗口初始化失败", ex);
-                MessageBox.Show(this, $"登录界面加载失败：{ex.Message}", "FlyknitBuddy", MessageBoxButton.OK, MessageBoxImage.Error);
+                Log.Error($"登录窗口初始化失败（WebView2 运行时 {WebViewCompat.SafeVersion()}）", ex);
+                MessageBox.Show(this, WebViewCompat.FailureMessage(ex, "登录界面加载失败："), "FlyknitBuddy", MessageBoxButton.OK, MessageBoxImage.Error);
                 DialogResult = false;
             }
         };
@@ -90,12 +90,13 @@ public sealed class LoginWindow : Window
         var env = await SharedWebView.EnvironmentAsync();
         await _web.EnsureCoreWebView2Async(env);
         var core = _web.CoreWebView2;
-        core.Settings.IsNonClientRegionSupportEnabled = true; // 页面里 app-region: drag 的地方能拖动窗口
+        // 页面里 app-region: drag 的地方能拖动窗口；运行时太旧时降级成宿主拖动（见 WebViewCompat）
+        await WebViewCompat.EnableDragRegionsAsync(core);
         core.Settings.AreDefaultContextMenusEnabled = false;
         core.Settings.IsStatusBarEnabled = false;
         core.Settings.IsZoomControlEnabled = false;
-        core.Settings.IsPasswordAutosaveEnabled = false;
-        core.Settings.IsGeneralAutofillEnabled = false;
+        WebViewCompat.TrySet(() => core.Settings.IsPasswordAutosaveEnabled = false, "IsPasswordAutosaveEnabled");
+        WebViewCompat.TrySet(() => core.Settings.IsGeneralAutofillEnabled = false, "IsGeneralAutofillEnabled");
         core.Settings.AreDevToolsEnabled = false;
         core.NewWindowRequested += (_, e) => e.Handled = true;
         core.NavigationStarting += (_, e) =>
@@ -262,6 +263,11 @@ public sealed class LoginWindow : Window
         else if (action == "close")
         {
             DialogResult = _settings.IsRegistered;
+        }
+        else if (action == "drag")
+        {
+            // WebView2 运行时太旧、页面拖动区域不可用时，页面按下标题栏改由这里拖动
+            WebViewCompat.DragWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle);
         }
         return null;
     }

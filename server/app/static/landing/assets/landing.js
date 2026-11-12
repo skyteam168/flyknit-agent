@@ -75,6 +75,7 @@
       'dl.title': 'Bắt đầu dùng FlyknitBuddy ngay', 'dl.sub': 'Cài xong đăng nhập một chạm bằng tài khoản domain công ty, không cần nhập địa chỉ máy chủ.',
       'dl.exe': 'Tải bộ cài (.exe)', 'dl.zip': 'Bản không cần cài (.zip)', 'dl.checking': 'Đang kiểm tra phiên bản mới nhất…',
       'dl.closed': 'Chưa mở tải về. Vui lòng liên hệ phòng IT để nhận bộ cài.',
+      'dl.oldos': 'Máy này có vẻ đang dùng Windows 7 / 8 — FlyknitBuddy không hỗ trợ, cần Windows 10 1809 trở lên hoặc Windows 11. Bạn vẫn có thể tải về để cài trên máy Win10 / 11.',
       'dl.s1': 'Tải và chạy bộ cài', 'dl.s2': 'Đăng nhập một chạm bằng tài khoản domain', 'dl.s3': 'Nhấp quả bóng nổi góc phải dưới và nói việc cần làm',
       'dl.req': 'Yêu cầu: Windows 10 / 11 (64-bit) · cần kết nối mạng nội bộ công ty · bộ cài cần quyền quản trị; nếu không có quyền, dùng bản không cần cài',
       'dl.version': 'Phiên bản mới nhất {v} · {size} · phát hành {date}',
@@ -188,6 +189,7 @@
       'dl.title': 'Start using FlyknitBuddy today', 'dl.sub': 'Install it and sign in with your company domain account — no server address to type.',
       'dl.exe': 'Download installer (.exe)', 'dl.zip': 'Portable version (.zip)', 'dl.checking': 'Checking the latest version…',
       'dl.closed': 'Downloads aren\u2019t open yet. Please contact the IT department for the installer.',
+      'dl.oldos': 'This PC looks like Windows 7 / 8, which FlyknitBuddy doesn\u2019t support — it needs Windows 10 1809 or later, or Windows 11. You can still download it and install it on a Windows 10 / 11 PC.',
       'dl.s1': 'Download and run the installer', 'dl.s2': 'Sign in with your domain account', 'dl.s3': 'Click the floating ball and say what you need',
       'dl.req': 'Requirements: Windows 10 / 11 (64-bit) · company network access · the installer needs administrator rights; use the portable version otherwise',
       'dl.version': 'Latest version {v} · {size} · released {date}',
@@ -382,6 +384,9 @@
   var zipBtn = document.getElementById('dl-zip')
   var meta = document.getElementById('dl-meta')
   var closed = document.getElementById('dl-closed')
+  // Win7 / 8 / 8.1 的浏览器 UA 里是 Windows NT 6.x：装上也打不开（.NET 8、WebView2 都不支持），先说清楚。
+  // 不藏下载按钮：IT 可能在老电脑上下载、拿到别的电脑上装
+  document.getElementById('dl-oldos').hidden = !/Windows NT (5\.|6\.[0-3])/.test(navigator.userAgent)
   exeBtn.href = API + '/api/v1/public/download?format=exe'
   zipBtn.href = API + '/api/v1/public/download?format=zip'
 
@@ -402,6 +407,8 @@
     zipBtn.classList.toggle('primary', formats.length === 1 && formats[0] === 'zip')
     zipBtn.classList.toggle('ghost', !(formats.length === 1 && formats[0] === 'zip'))
     exeBtn.hidden = ok && formats.indexOf('exe') < 0
+    // 后台设了「只提供安装程序」时没有 zip：按钮直接不显示
+    zipBtn.hidden = ok && formats.indexOf('zip') < 0
     if (ok) {
       var date = release.published_at ? new Date(release.published_at).toLocaleDateString(HTML_LANG[lang]) : ''
       meta.textContent = t('dl.version').replace('{v}', release.version).replace('{size}', size(release.size)).replace('{date}', date)

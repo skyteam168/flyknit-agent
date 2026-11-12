@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -80,6 +80,11 @@ class Device(Base):
     mac_address: Mapped[str] = mapped_column(String(64), default="")
     #: Windows 的 MachineGuid。员工端和运维代理各自注册，靠它对上是同一台电脑
     machine_guid: Mapped[str] = mapped_column(String(64), default="", index=True)
+    #: 员工端怎么装的：managed（安装程序 + 运维代理）/ setup（安装程序，没装代理）/ portable（zip 免安装版）；
+    #: 空 = 老版本没报。只用于展示和筛选，不影响任何权限。server_default 让升级时老行、老写法的插入都补成空串
+    install_kind: Mapped[str] = mapped_column(String(16), default="", server_default=text("''"))
+    #: 这台电脑的 WebView2 运行时版本（界面打不开、窗口拖不动时排查用）
+    webview_version: Mapped[str] = mapped_column(String(50), default="", server_default=text("''"))
 
     # 管理员手工填写的台账信息。客户端心跳不会覆盖这几项（user_name 是 Windows 账号，自动上报）
     #: 使用者实名（和 Windows 账号区分开）

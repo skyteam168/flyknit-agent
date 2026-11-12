@@ -197,6 +197,10 @@ export interface Device {
   observed_ip: string
   mac_address: string
   machine_guid: string
+  /** 员工端怎么装的：managed（安装程序 + 代理）/ setup（安装程序，没代理）/ portable（免安装版）；空 = 老版本没报 */
+  install_kind?: '' | 'managed' | 'setup' | 'portable'
+  /** WebView2 运行时版本 */
+  webview_version?: string
   owner: string
   department: string
   note: string
@@ -666,6 +670,8 @@ export interface LandingDownload {
   ticket_id: number | null
   ticket_uses: number
   version: string
+  /** 只提供安装程序（隐藏 zip 免安装版：没有运维代理、不能自动升级） */
+  installer_only: boolean
 }
 
 /** MCP 运行环境（便携版 Node.js / uv / Python）与 npm、PyPI 缓存代理 */

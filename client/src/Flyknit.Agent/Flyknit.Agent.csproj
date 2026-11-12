@@ -21,6 +21,9 @@
   <ItemGroup>
     <!-- 替员工端升级时和员工端自己的更新器用同一份「整目录替换、失败回滚」 -->
     <Compile Include="..\Flyknit.Updater\Swap.cs" Link="Swap.cs" />
+    <!-- 升级时顺带装 WebView2 运行时：和安装程序同一份逻辑 -->
+    <Compile Include="..\Flyknit.Setup\RuntimeCheck.cs" Link="Setup\RuntimeCheck.cs" />
+    <Compile Include="..\Flyknit.Setup\WebViewSetup.cs" Link="Setup\WebViewSetup.cs" />
   </ItemGroup>
 
   <ItemGroup>

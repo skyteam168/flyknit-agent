@@ -111,3 +111,36 @@ async def test_help_center_is_served_under_help(client):
     assert (await client.get("/docs")).status_code == 200
     assert (await client.get("/api/v1/public/release")).status_code == 200
     assert (await client.get("/help/no-such-page.html")).status_code == 404
+
+
+async def test_installer_only_hides_portable_zip(client):
+    """免安装版没有运维代理、不能自动升级：后台可以让产品页只提供安装程序。默认关（两种都给）。"""
+    headers = await owner_headers(client)
+    await released(client, headers, version="0.3.0", body=with_setup("0.3.0"))
+    conf = (await client.put("/api/v1/admin/landing", headers=headers, json={"enabled": True, "server_url": SERVER})).json()
+    assert conf["installer_only"] is False
+    assert (await client.get("/api/v1/public/release")).json()["formats"] == ["exe", "zip"]
+
+    conf = (await client.put("/api/v1/admin/landing", headers=headers,
+                             json={"enabled": True, "server_url": SERVER, "installer_only": True})).json()
+    assert conf["installer_only"] is True
+    assert (await client.get("/api/v1/public/release")).json()["formats"] == ["exe"]
+    r = await client.get("/api/v1/public/download", params={"format": "zip"})
+    assert r.status_code == 404 and "安装程序" in r.json()["detail"]
+    assert (await client.get("/api/v1/public/download")).status_code == 200
+
+    # 只改地址、不带这个字段（老版本后台）：设置保持不变
+    conf = (await client.put("/api/v1/admin/landing", headers=headers, json={"enabled": True, "server_url": SERVER})).json()
+    assert conf["installer_only"] is True
+
+    # 后台「员工端版本」里 IT 自己照样能下 zip（不受产品页开关影响）
+    assert (await client.get("/api/v1/admin/landing", headers=headers)).json()["installer_only"] is True
+
+
+async def test_installer_only_keeps_zip_when_package_has_no_installer(client):
+    """老打包脚本出来的包没有安装程序外壳：只提供安装程序会变成什么都下不了，这时照旧给 zip。"""
+    headers = await owner_headers(client)
+    await released(client, headers, body=nested_zip("0.3.0"))
+    await client.put("/api/v1/admin/landing", headers=headers, json={"enabled": True, "server_url": SERVER, "installer_only": True})
+    assert (await client.get("/api/v1/public/release")).json()["formats"] == ["zip"]
+    assert (await client.get("/api/v1/public/download", params={"format": "zip"})).status_code == 200

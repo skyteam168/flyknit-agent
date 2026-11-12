@@ -46,8 +46,8 @@ public partial class MainWindow : Window, IWindowActions
             catch (Exception ex)
             {
                 // 任何初始化异常都显示在窗口里，避免只看到空白
-                Log.Error("WebView2 初始化失败", ex);
-                ShowError($"界面加载失败：{ex.GetType().Name}: {ex.Message}");
+                Log.Error($"WebView2 初始化失败（运行时 {WebViewCompat.SafeVersion()}）", ex);
+                ShowError(WebViewCompat.FailureMessage(ex, "界面加载失败："));
             }
         };
         SourceInitialized += (_, _) =>
@@ -99,17 +99,18 @@ public partial class MainWindow : Window, IWindowActions
 
         var core = Web.CoreWebView2;
         var settings = core.Settings;
-        settings.IsNonClientRegionSupportEnabled = true; // 支持网页中的 app-region: drag
+        // 支持网页中的 app-region: drag；运行时太旧时降级成宿主拖动（见 WebViewCompat）
+        await WebViewCompat.EnableDragRegionsAsync(core);
         settings.AreDefaultContextMenusEnabled = false;
         settings.IsStatusBarEnabled = false;
         settings.IsZoomControlEnabled = false;
-        settings.IsPasswordAutosaveEnabled = false;
-        settings.IsGeneralAutofillEnabled = false;
+        WebViewCompat.TrySet(() => settings.IsPasswordAutosaveEnabled = false, nameof(settings.IsPasswordAutosaveEnabled));
+        WebViewCompat.TrySet(() => settings.IsGeneralAutofillEnabled = false, nameof(settings.IsGeneralAutofillEnabled));
 #if DEBUG
         settings.AreDevToolsEnabled = true;
 #else
         settings.AreDevToolsEnabled = false;
-        settings.AreBrowserAcceleratorKeysEnabled = false;
+        WebViewCompat.TrySet(() => settings.AreBrowserAcceleratorKeysEnabled = false, nameof(settings.AreBrowserAcceleratorKeysEnabled));
 #endif
 
         // 外部链接用系统浏览器打开
@@ -160,6 +161,9 @@ public partial class MainWindow : Window, IWindowActions
         // 资料库文件：https://files.flyknit.local/{id}[?thumb=1]。按 ID 从索引里找到文件再给，网页拿不到任意路径
         core.AddWebResourceRequestedFilter($"https://{LibraryService.Host}/*", CoreWebView2WebResourceContext.All);
         core.WebResourceRequested += OnLibraryRequest;
+        // 视频 / 音频预览：https://media.flyknit.local/{令牌}，按 Range 分段从磁盘读（见 MediaService）
+        core.AddWebResourceRequestedFilter($"https://{MediaService.Host}/*", CoreWebView2WebResourceContext.All);
+        core.WebResourceRequested += OnMediaRequest;
         // WebView2 会缓存 index.html；界面重新构建后资源文件名变了，旧缓存会导致白屏。
         // 用 index.html 的修改时间作为版本参数，每次构建后都会加载最新页面。
         var index = Path.Combine(root, "index.html");
@@ -196,6 +200,53 @@ public partial class MainWindow : Window, IWindowActions
         finally
         {
             deferral.Complete();
+        }
+    }
+
+    private void OnMediaRequest(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        var uri = new Uri(e.Request.Uri);
+        if (!uri.Host.Equals(MediaService.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        var env = Web.CoreWebView2.Environment;
+        var cors = $"Access-Control-Allow-Origin: https://{VirtualHost}";
+        try
+        {
+            var token = uri.AbsolutePath.Trim('/');
+            if (!MediaService.Tokens.TryResolve(token, out var path) || !File.Exists(path))
+            {
+                e.Response = env.CreateWebResourceResponse(null, 404, "Not Found", cors);
+                return;
+            }
+            var mime = Flyknit.Core.Preview.MediaPreviewProvider.MimeOf(path) ?? "application/octet-stream";
+            // 员工可能正开着这个文件（播放器、剪辑软件），按共享方式只读打开
+            var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024);
+            var length = stream.Length;
+            var header = e.Request.Headers.Contains("Range") ? e.Request.Headers.GetHeader("Range") : null;
+            var range = Flyknit.Core.Preview.HttpRange.Parse(header, length);
+            var common = $"Content-Type: {mime}\r\nAccept-Ranges: bytes\r\nCache-Control: no-cache\r\n{cors}";
+            if (range is null)
+            {
+                e.Response = env.CreateWebResourceResponse(stream, 200, "OK", $"{common}\r\nContent-Length: {length}");
+            }
+            else if (!range.IsValid)
+            {
+                stream.Dispose();
+                e.Response = env.CreateWebResourceResponse(null, 416, "Range Not Satisfiable", $"Content-Range: bytes */{length}\r\n{cors}");
+            }
+            else
+            {
+                var slice = new Flyknit.Core.Preview.BoundedStream(stream, range.Start, range.Length);
+                e.Response = env.CreateWebResourceResponse(slice, 206, "Partial Content",
+                    $"{common}\r\nContent-Length: {range.Length}\r\nContent-Range: bytes {range.Start}-{range.End}/{length}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"读取媒体文件失败：{e.Request.Uri}", ex);
+            e.Response = env.CreateWebResourceResponse(null, 500, "Error", cors);
         }
     }
 
@@ -625,6 +676,9 @@ public partial class MainWindow : Window, IWindowActions
     public event Action? HotkeyChanged;
 
     public void RefreshHotkey() => HotkeyChanged?.Invoke();
+
+    /// <summary>WebView2 运行时太旧、页面拖动区域不可用时，页面按下标题栏改由这里拖动窗口。</summary>
+    public void StartDrag() => WebViewCompat.DragWindow(new WindowInteropHelper(this).Handle);
 
     public void StartResize(string direction)
     {

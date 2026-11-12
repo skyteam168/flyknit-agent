@@ -2,8 +2,8 @@
 
 ## 系统要求
 
-- Windows 10（1809 及以上）或 Windows 11；
-- Windows 10 如果提示缺少 WebView2，请 IT 装一次 WebView2 Runtime（免费）；
+- Windows 10（1809 及以上）或 Windows 11；**不支持 Windows 7 / 8**（装上也打不开，产品页在这些电脑上会提示）；
+- Windows 10 如果提示缺少 WebView2 或「WebView2 组件太旧」，请 IT 装 / 更新一次 WebView2 Runtime（免费），或用带离线运行时的安装包重装（见 [装到员工电脑](/admin/rollout#webview2-运行时)）；
 - 能访问公司的 FlyknitBuddy 服务器（由 IT 告诉你地址，一般装好就配置好了）。
 
 ## 安装

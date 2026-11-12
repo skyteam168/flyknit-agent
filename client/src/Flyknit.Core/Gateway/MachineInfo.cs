@@ -35,6 +35,12 @@ public sealed class MachineInfo
     /// </summary>
     [JsonPropertyName("machine_guid")] public string MachineGuid { get; set; } = "";
 
+    /// <summary>managed / setup / portable（见 <see cref="Flyknit.Core.Setup.InstallKind"/>）。由员工端宿主填。</summary>
+    [JsonPropertyName("install_kind")] public string InstallKind { get; set; } = "";
+
+    /// <summary>WebView2 运行时版本。由员工端宿主填（Core 不引用 WebView2）。</summary>
+    [JsonPropertyName("webview_version")] public string WebViewVersion { get; set; } = "";
+
     public static MachineInfo Collect(string clientVersion, string uiLanguage)
     {
         var info = new MachineInfo

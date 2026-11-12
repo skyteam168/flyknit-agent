@@ -644,6 +644,22 @@ onMounted(async () => {
               <span class="label"><strong>{{ t('settings.nav.device') }}</strong></span>
               <span class="value">{{ state.app?.userName }}, {{ state.app?.machineName }}</span>
             </div>
+            <div v-if="state.app?.installKind" class="row">
+              <span class="label">
+                <strong>{{ t('settings.installKind') }}</strong>
+                <small v-if="state.app.installKind !== 'managed'">{{ t(state.app.installKind === 'portable' ? 'settings.portableHint' : 'settings.setupHint') }}</small>
+              </span>
+              <span class="value">
+                {{ t(`settings.installKinds.${state.app.installKind}`) }}
+                <a
+                  v-if="state.app.installKind === 'portable' && state.app.serverUrl"
+                  class="install-link"
+                  :href="`${state.app.serverUrl.replace(/\/+$/, '')}/#download`"
+                  target="_blank"
+                  rel="noopener"
+                >{{ t('settings.getInstaller') }}</a>
+              </span>
+            </div>
           </section>
         </template>
       </div>
@@ -686,6 +702,10 @@ onMounted(async () => {
   box-shadow: var(--shadow-pop);
 }
 
+.install-link {
+  margin-left: 8px;
+  color: var(--indigo);
+}
 /* ---------- 左侧菜单 ---------- */
 .menu {
   display: flex;

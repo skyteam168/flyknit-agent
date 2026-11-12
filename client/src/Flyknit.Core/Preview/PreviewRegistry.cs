@@ -32,6 +32,12 @@ public enum PreviewKind
     /// <summary>网页（.html / .htm），Text 是源码。界面放进沙箱 iframe 渲染，也能切回看源码。</summary>
     Html,
 
+    /// <summary>视频：不读内容，MediaPath 交给宿主换成流式地址，界面用 &lt;video&gt; 播放。</summary>
+    Video,
+
+    /// <summary>音频：同视频，界面用 &lt;audio&gt;。</summary>
+    Audio,
+
     /// <summary>无法预览，只给文件信息。</summary>
     None,
 }
@@ -47,6 +53,11 @@ public sealed record PreviewDocument(PreviewKind Kind)
     public string? Language { get; init; }
 
     public string? DataUrl { get; init; }
+
+    /// <summary>视频 / 音频的本机路径。不发给界面：宿主换成 https://media.flyknit.local/{令牌} 再给。</summary>
+    public string? MediaPath { get; init; }
+
+    public string? Mime { get; init; }
     public IReadOnlyList<PreviewSection> Sections { get; init; } = Array.Empty<PreviewSection>();
 
     /// <summary>内容被截断时给用户的说明（大文件只读前面一部分）。</summary>
@@ -100,6 +111,7 @@ public sealed class PreviewRegistry
     public static PreviewRegistry CreateDefault() => new PreviewRegistry()
         .Register(new ImagePreviewProvider())
         .Register(new PdfPreviewProvider())
+        .Register(new MediaPreviewProvider())
         .Register(new OfficePreviewProvider())
         .Register(new ArchivePreviewProvider())
         .Register(new TablePreviewProvider())
@@ -125,7 +137,9 @@ public sealed class PreviewRegistry
         {
             return PreviewDocument.Unavailable("文件不存在，可能已被移动或删除");
         }
-        if (info.Length > MaxBytes)
+        // 视频、音频不读进内存，按段流式提供，不受大小上限限制
+        var streaming = _providers.FirstOrDefault(p => p.CanHandle(path)) is IStreamingPreviewProvider;
+        if (info.Length > MaxBytes && !streaming)
         {
             return PreviewDocument.Unavailable($"文件有 {Format(info.Length)}，太大了，请用对应的软件打开");
         }

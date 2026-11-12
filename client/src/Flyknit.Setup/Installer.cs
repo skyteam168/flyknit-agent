@@ -36,6 +36,14 @@ public sealed class Installer(Action<string> say)
     /// <returns>员工端主程序的路径（装完要打开它）。</returns>
     public string Install(string selfPath)
     {
+        // .NET 8 和员工端的下限是 Windows 10 1809；更老的系统装上也打不开，不如一开始就说清楚
+        var os = Environment.OSVersion.Version;
+        if (!RuntimeCheck.IsWindowsSupported(os))
+        {
+            throw new SetupException(
+                $"这台电脑的系统版本是 {os}，FlyknitBuddy 需要 Windows 10 1809（内部版本 {RuntimeCheck.MinWindowsBuild}）或更新的 Windows 10 / 11。\n\n" +
+                "不支持 Windows 7 / 8 / 8.1，请先升级系统。");
+        }
         var temp = Path.Combine(Path.GetTempPath(), $"FlyknitSetup-{Guid.NewGuid():N}");
         Directory.CreateDirectory(temp);
         try
@@ -56,6 +64,11 @@ public sealed class Installer(Action<string> say)
             File.Delete(zip);
             var root = Payload.FindRoot(unpacked) ?? throw new SetupException("安装文件里找不到 FlyknitBuddy.exe，安装包可能损坏了，请重新下载。");
             var provision = ReadProvision(Path.Combine(root, ProvisionFile));
+
+            // 员工端界面靠 WebView2：没装或太旧时，用包里带的离线安装包装上（没带就只提醒）。
+            // 离线安装包不进 Program Files
+            WebViewSetup.EnsureRuntime(root, say);
+            WebViewSetup.RemoveRedist(root);
 
             say("正在关闭正在运行的 FlyknitBuddy…");
             StopProcesses("FlyknitBuddy", "FlyknitUpdater", "flyknit");

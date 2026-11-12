@@ -128,7 +128,8 @@ export const api = {
     return request<McpRuntimeConf>(`/mcp-runtime/${name}/upload`, { method: 'POST', body: form })
   },
   landing: () => get<LandingDownload>('/landing'),
-  setLanding: (enabled: boolean, server_url: string) => put<LandingDownload>('/landing', { enabled, server_url }),
+  setLanding: (enabled: boolean, server_url: string, installer_only?: boolean) =>
+    put<LandingDownload>('/landing', { enabled, server_url, installer_only }),
   rotateLanding: () => post<LandingDownload>('/landing/rotate'),
   skillSource: (name: string) => get<SkillSource>(`/skills/${encodeURIComponent(name)}/source`),
   draftSkill: (text: string, name?: string) => post<SkillDraft>('/skills/draft', { text, name: name || null }),
