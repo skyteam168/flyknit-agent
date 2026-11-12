@@ -56,7 +56,10 @@ const problems = computed(() => {
  * 员工端的内置命令（client/web/src/builtinCommands.ts 的 BUILTIN_NAMES，两边要一起改）。
  * 快捷指令和它们重名时，新版员工端以内置命令为准，这条快捷指令不会生效。
  */
-const BUILTIN = ['help', 'btw', 'init', 'compact', 'permission', 'permissions', 'model', 'plan', 'new', 'clear', 'context', 'usage', 'rewind', 'fork', 'memory', 'status']
+const BUILTIN = [
+  'help', 'btw', 'init', 'compact', 'permission', 'permissions', 'model', 'plan', 'new', 'clear', 'context', 'usage', 'rewind', 'fork', 'memory', 'status',
+  'review', 'mcp', 'export', 'doctor', 'feedback', 'bug', 'long', 'sandbox',
+]
 const shadowed = computed(() =>
   items.value.map((c) => c.name.trim().replace(/^\//, '').toLowerCase()).filter((n) => BUILTIN.includes(n)),
 )

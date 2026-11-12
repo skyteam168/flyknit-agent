@@ -16,6 +16,10 @@ import {
   forkConversation,
   loadChanges,
   newConversation,
+  openConnectors,
+  openPreview,
+  setLongMode,
+  setSandbox,
   selectModel,
   selectedPermission,
   setPermission,
@@ -24,6 +28,7 @@ import {
   toast,
   toggleSessionPanel,
 } from './store'
+import { bridge } from './bridge'
 import type { Mode, Permission } from './types'
 
 // 键是拼出来的（ui.slash.cmd.<名字>、ui.permission.<档>），绕开 vue-i18n 按字面量检查键名的类型
@@ -37,6 +42,10 @@ export interface BuiltinContext {
   /** 开发者工具开着、办事模式：/init 可用 */
   initAvailable: boolean
   planMode: boolean
+  /** 长任务模式开着没有（当前对话的，或新对话打算开的） */
+  longMode: boolean
+  /** 沙箱开着没有 */
+  sandboxOn: boolean
 }
 
 /** 命令执行完要输入框做的事 */
@@ -47,6 +56,8 @@ export type BuiltinOutcome =
   | { kind: 'send'; text: string }
   /** 「完全权限」要先弹风险确认框（和权限选择器一样） */
   | { kind: 'confirmFull' }
+  /** 关沙箱会删容器（没推出去的改动就没了）：和沙箱按钮一样先确认 */
+  | { kind: 'confirmSandboxOff' }
   /** 不是可用的内置命令：交给快捷指令处理 */
   | { kind: 'pass' }
 
@@ -291,6 +302,103 @@ export const BUILTINS: BuiltinCommand[] = [
     name: 'status',
     run: () => {
       state.commandInfo = 'status'
+      return done
+    },
+  },
+  // ---------- 第二批（docs/backlog.md B2）：开发者和管理类 ----------
+  {
+    name: 'review',
+    argHint: () => t('ui.slash.arg.reviewFocus'),
+    // 和 /init 一样：开了开发者工具、办事模式才有
+    available: (ctx) => ctx.initAvailable,
+    run: async (arg, ctx) => {
+      if (ctx.busy) {
+        toast(t('ui.slash.run.busy'))
+        return done
+      }
+      // 计划模式下 AI 只看不改：审查只给意见，要不要改由员工决定
+      if (!ctx.planMode) await setPlanMode(true)
+      return { kind: 'send', text: t('ui.slash.reviewPrompt') + (arg ? `\n\n${arg}` : '') }
+    },
+  },
+  {
+    name: 'mcp',
+    run: () => {
+      // 连接器页：每个连接器的状态、重新连接、日志都在那里
+      openConnectors()
+      return done
+    },
+  },
+  {
+    name: 'export',
+    available: () => !!current.value,
+    run: async () => {
+      const id = needConversation()
+      if (!id) return done
+      try {
+        const r = await bridge.exportConversation(id)
+        if (!r.ok) {
+          toast(t('ui.slash.run.exportFailed', { msg: r.message }))
+          return done
+        }
+        const name = r.path.split(/[\\/]/).pop() ?? r.path
+        toast(t('ui.slash.run.exported', { name }))
+        // 导出的就是一份 Markdown：直接在右侧打开看看
+        void openPreview({ path: r.path, name, extension: 'md', size: 0, modifiedAt: new Date().toISOString(), previewable: true, exists: true })
+      } catch (e) {
+        toast(t('ui.slash.run.exportFailed', { msg: e instanceof Error ? e.message : String(e) }))
+      }
+      return done
+    },
+  },
+  {
+    name: 'doctor',
+    run: () => {
+      // 设置 → 网络：网络和登录诊断
+      state.settingsPage = 'network'
+      state.settingsOpen = true
+      return done
+    },
+  },
+  {
+    name: 'feedback',
+    aliases: ['bug'],
+    run: (arg) => {
+      // 带上这个对话的标题和 ID，IT 看反馈时能对上是哪个对话（员工在框里看得到、可以删）
+      const c = current.value
+      const ref = c ? t('ui.slash.run.feedbackRef', { title: c.title || t('ui.tasks.untitled'), id: c.id }) : ''
+      state.feedbackPrefill = [arg, ref].filter(Boolean).join('\n\n')
+      state.feedbackOpen = true
+      return done
+    },
+  },
+  {
+    name: 'long',
+    // 和输入框下面的「长任务」按钮同样的条件
+    available: (ctx) => ctx.mode === 'agent' && state.app?.longTasks !== false,
+    run: async (_arg, ctx) => {
+      await setLongMode(!ctx.longMode)
+      toast(ctx.longMode ? t('ui.slash.run.longOff') : t('ui.slash.run.longOn'))
+      return done
+    },
+  },
+  {
+    name: 'sandbox',
+    // 和沙箱按钮同样的条件：IT 开了开发者工具和沙箱任务
+    available: (ctx) => ctx.mode === 'agent' && !!state.app?.developerTools && !!state.app?.sandboxTasks,
+    run: async (_arg, ctx) => {
+      if (ctx.busy) {
+        toast(t('ui.slash.run.busy'))
+        return done
+      }
+      if (ctx.sandboxOn) {
+        // 已经建好的对话里关沙箱会删容器：先确认；新对话还没建容器，直接关
+        if (current.value) return { kind: 'confirmSandboxOff' }
+        await setSandbox(false)
+        toast(t('ui.slash.run.sandboxOff'))
+        return done
+      }
+      if (await setSandbox(true)) toast(t('ui.slash.run.sandboxOn'))
       return done
     },
   },

@@ -72,7 +72,9 @@ const nav: { group: string; pages: { id: Page; icon: Component; label: string }[
     ],
   },
 ]
-const page = ref<Page>('general')
+// /doctor 这类斜杠命令会指定打开哪一页
+const page = ref<Page>((state.settingsPage as Page) || 'general')
+state.settingsPage = ''
 /** 安全中心里点了「查看全部」，右侧换成审计明细；切到别的页再回来时回到安全中心首页 */
 const auditOpen = ref(false)
 const feedbackOpen = ref(false)

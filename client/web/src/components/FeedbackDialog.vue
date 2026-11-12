@@ -8,6 +8,7 @@ import { toast } from '../store'
 
 // 设置 → 意见反馈：写问题、贴截图（按钮 / 粘贴 / 拖入，最多 6 张），可选附上最近几天的日志。
 // 截图和日志由宿主上传到服务端，IT 在后台「意见反馈」里看。
+const props = defineProps<{ prefill?: string }>()
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
 
@@ -18,7 +19,8 @@ const MAX_BYTES = 5 * 1024 * 1024
 const MAX_SIDE = 2560
 const TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 
-const content = ref('')
+// /feedback 打开时带着要说的话和对话标题、ID
+const content = ref(props.prefill ?? '')
 const images = ref<string[]>([])
 const logs = ref(true)
 const submitting = ref(false)

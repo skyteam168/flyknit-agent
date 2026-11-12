@@ -14,7 +14,7 @@
 
 ### 输入框里的斜杠命令
 
-打 `/` 就能用 `/compact`（整理对话，可以说明要保留什么）、`/permission`、`/model`、`/plan`、`/context`、`/usage`、`/rewind`、`/fork`、`/status` 等命令，不用去找按钮，也不占额度。→ [使用方法](/guide/usage#斜杠命令)
+打 `/` 就能用 `/compact`（整理对话，可以说明要保留什么）、`/permission`、`/model`、`/plan`、`/context`、`/usage`、`/rewind`、`/fork`、`/status` 等命令，不用去找按钮，也不占额度。还有 `/review`（审查改动）、`/export`（导出对话）、`/doctor`（网络诊断）、`/feedback`、`/mcp`、`/long`、`/sandbox`。→ [使用方法](/guide/usage#斜杠命令)
 
 ### 视频、音频直接预览
 

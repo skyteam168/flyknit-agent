@@ -1745,6 +1745,29 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 await Task.Run(() => _host.Store.Rename(Str("id"), Str("title")));
                 return null;
 
+            case "conversation.exportMarkdown":
+            {
+                // 输入框里的 /export：把对话存成 Markdown 放进这个对话的工作区（没有就放默认工作区）。
+                // 文件名由宿主拼、只写在工作区目录里，不接受页面给的路径；已有同名文件不覆盖
+                var id = Str("id");
+                var conv = _host.Store.Get(id);
+                if (conv is null)
+                {
+                    return new { ok = false, path = "", message = "对话不存在" };
+                }
+                var dir = _settings.ResolveWorkspace(string.IsNullOrWhiteSpace(conv.Workspace) ? _settings.DefaultWorkspace : conv.Workspace);
+                if (!Directory.Exists(dir))
+                {
+                    return new { ok = false, path = "", message = $"工作区不在了：{dir}" };
+                }
+                var now = DateTimeOffset.Now;
+                var messages = await Task.Run(() => _host.Store.GetMessages(id));
+                var markdown = Flyknit.Core.Storage.ConversationExport.ToMarkdown(conv.Title, messages, now);
+                var path = Flyknit.Core.Storage.ConversationExport.UniquePath(dir, Flyknit.Core.Storage.ConversationExport.FileName(conv.Title, now));
+                await File.WriteAllTextAsync(path, markdown, new System.Text.UTF8Encoding(false));
+                return new { ok = true, path, message = "" };
+            }
+
             case "conversation.delete":
                 _host.Stop(Str("id"));
                 _host.StopTerminalFor(Str("id"));

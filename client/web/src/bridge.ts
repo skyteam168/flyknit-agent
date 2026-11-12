@@ -391,6 +391,8 @@ class Bridge {
     this.call<RevertOutcome>('changes.revert', { conversationId, turnId, paths }, undefined, 60_000)
   /** 长任务模式开关。IT 关掉了这个功能时打不开（返回 false） */
   setLongMode = (id: string, on: boolean) => this.call<boolean>('conversation.setLongMode', { id, on })
+  /** 输入框 /export：宿主把对话存成 Markdown 放进工作区，返回文件路径 */
+  exportConversation = (id: string) => this.call<{ ok: boolean; path: string; message: string }>('conversation.exportMarkdown', { id }, undefined, 60_000)
   /** 从某条消息分叉出新对话（复制到那条为止） */
   forkConversation = (id: string, messageId: string, title: string) => this.call<Conversation | null>('conversation.fork', { id, messageId, title })
   /** 计划模式（先出方案）：只在这次打开程序期间有效 */
