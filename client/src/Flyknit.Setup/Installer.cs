@@ -201,7 +201,8 @@ public sealed class Installer(Action<string> say)
         {
             Thread.Sleep(500);
         }
-        StopProcesses("FlyknitAgent");
+        // 代理自升级的更新助手（docs/agent-self-update.md）正好在跑的话也停掉，免得和这次安装同时改代理目录
+        StopProcesses("FlyknitAgent", "FlyknitAgentUpdate");
     }
 
     private static void StopProcesses(params string[] names)

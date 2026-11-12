@@ -23,6 +23,10 @@
     <Compile Include="..\..\src\Flyknit.Setup\Payload.cs" Link="Setup\Payload.cs" />
     <Compile Include="..\..\src\Flyknit.Setup\AgentSettings.cs" Link="Setup\AgentSettings.cs" />
     <Compile Include="..\..\src\Flyknit.Setup\RuntimeCheck.cs" Link="Setup\RuntimeCheck.cs" />
+    <Compile Include="..\..\src\Flyknit.Setup\SetupArgs.cs" Link="Setup\SetupArgs.cs" />
+    <Compile Include="..\..\src\Flyknit.Setup\PathList.cs" Link="Setup\PathList.cs" />
+    <!-- 运维代理自升级里「该不该做」的判断（不碰文件和服务） -->
+    <Compile Include="..\..\src\Flyknit.Agent\SelfUpdatePolicy.cs" Link="Agent\SelfUpdatePolicy.cs" />
   </ItemGroup>
 
   <ItemGroup>

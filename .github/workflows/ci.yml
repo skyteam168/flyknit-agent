@@ -67,12 +67,16 @@ jobs:
         run: dotnet test client/tests/Flyknit.Core.Tests -c Release
       - name: Build installer, ops agent and updater
         run: |
+          # 一个步骤里有多条命令时，PowerShell 默认只看最后一条的退出码：前面编译失败也会被吞掉（11-12 WPF 编译失败就这样漏过去了）
+          $PSNativeCommandUseErrorActionPreference = $true
           dotnet build client/src/Flyknit.Setup -c Release
           dotnet build client/src/Flyknit.Agent -c Release
           dotnet build client/src/Flyknit.Updater -c Release
           dotnet build client/src/Flyknit.Cli -c Release
       - name: Build Windows client
         run: |
+          # 一个步骤里有多条命令时，PowerShell 默认只看最后一条的退出码：前面编译失败也会被吞掉（11-12 WPF 编译失败就这样漏过去了）
+          $PSNativeCommandUseErrorActionPreference = $true
           dotnet publish client/src/Flyknit.Client -c Release -r win-x64 --self-contained false -o artifacts/FlyknitBuddy
           dotnet publish client/src/Flyknit.Cli -c Release -r win-x64 --self-contained false -o artifacts/FlyknitBuddy
       - uses: actions/upload-artifact@v4
