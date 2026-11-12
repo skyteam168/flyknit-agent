@@ -247,27 +247,40 @@ public sealed class InteractiveShellTests : IDisposable
         Assert.Contains("工作区 D:\\日报", plain);
     }
 
-    [Fact]
-    public async Task PlaceholderShowsUntilTheFirstKey()
+    /// <summary>把一串字变成按键：\r 回车、\b 退格、\t Tab、\u001b Esc，其他按字符。</summary>
+    internal static Queue<ConsoleKeyInfo?> Keys(string typed)
     {
-        // 真终端里：「> 」后面先显示灰色提示；第一个按键单独读出来、擦掉提示，和后面读到的拼成一整行
-        var keys = new Queue<ConsoleKeyInfo?>(new ConsoleKeyInfo?[]
+        var q = new Queue<ConsoleKeyInfo?>();
+        foreach (var c in typed)
         {
-            new ConsoleKeyInfo('看', ConsoleKey.NoName, false, false, false),
-            new ConsoleKeyInfo('\r', ConsoleKey.Enter, false, false, false),     // 直接回车：空行，跳过
-            new ConsoleKeyInfo('/', ConsoleKey.Oem2, false, false, false),
-        });
+            q.Enqueue(c switch
+            {
+                '\r' => new ConsoleKeyInfo('\r', ConsoleKey.Enter, false, false, false),
+                '\b' => new ConsoleKeyInfo('\b', ConsoleKey.Backspace, false, false, false),
+                '\t' => new ConsoleKeyInfo('\t', ConsoleKey.Tab, false, false, false),
+                '\u001b' => new ConsoleKeyInfo('\u001b', ConsoleKey.Escape, false, false, false),
+                _ => new ConsoleKeyInfo(c, ConsoleKey.NoName, false, false, false),
+            });
+        }
+        return q;
+    }
+
+    [Fact]
+    public async Task TypedTextCanBeDeletedAndCommandsCompleteWithTab()
+    {
+        // 真终端里整行由 LineEditor 读：第一个字也能退格删掉（以前删不掉）；/ex + Tab 补全成 /exit
+        var keys = Keys("看x\b\b看看目录\r" + "\r" + "/ex\t\r");
         var gateway = new Scripted(new ChatTurn { Content = "好" });
         var output = new StringWriter();
-        var shell = new InteractiveShell(Env(gateway), _dir, PermissionMode.Workspace, new StringReader("看目录\nexit\n"), output,
+        var shell = new InteractiveShell(Env(gateway), _dir, PermissionMode.Workspace, new StringReader(""), output,
             style: new ConsoleStyle(true), store: Store(), readKey: _ => Task.FromResult(keys.Count > 0 ? keys.Dequeue() : null));
         await shell.RunAsync(null, null, CancellationToken.None);
 
         Assert.Equal("看看目录", gateway.Requests.Single().Messages.Last(m => m.Role == ChatRole.User).Content);
         var text = output.ToString();
         Assert.Contains(InteractiveShell.Placeholder, text);
-        Assert.Contains("\u001b[K", text, StringComparison.Ordinal);   // 提示被擦掉
-        Assert.Contains("再见", text);                                   // 「/」+「exit」= /exit
+        Assert.Contains("\u001b[K", text, StringComparison.Ordinal);   // 打字时提示被擦掉
+        Assert.Contains("再见", text);                                   // /ex + Tab = /exit
     }
 
     [Fact]

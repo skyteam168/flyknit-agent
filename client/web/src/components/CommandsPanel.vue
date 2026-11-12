@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { BUILTIN_NAMES } from '../builtinCommands'
 import { useI18n } from 'vue-i18n'
 import { Pencil, Plus, Trash2 } from '@lucide/vue'
 import { bridge } from '../bridge'
@@ -44,6 +45,12 @@ async function persist(list: SlashCommand[]) {
 async function save() {
   const e = editing.value
   if (!e) return
+  // 和内置命令（/compact、/model……）重名的不会生效：输入框里内置命令优先
+  const name = e.cmd.name.trim().replace(/^\//, '').toLowerCase()
+  if (BUILTIN_NAMES.includes(name)) {
+    toast(t('ui.commands.builtinName', { name }))
+    return
+  }
   const list = [...state.commands.mine]
   if (e.index < 0) list.push(e.cmd)
   else list[e.index] = e.cmd

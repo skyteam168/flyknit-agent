@@ -2078,7 +2078,7 @@ export function createMockHost(): HostTransport {
         await sleep(1200)
         mockCompacted.add(p.conversationId)
         emit({ type: 'context.compacted', conversationId: p.conversationId, uptoMessageId: '', tokensBefore: 122280, tokensAfter: 43540 })
-        return { ok: true, message: '已整理 18 条较早的消息' }
+        return { ok: true, message: `已整理 18 条较早的消息${p.focus ? `（重点保留：${p.focus}）` : ''}` }
       }
       case 'tool.answer': {
         // 和宿主一样把回答整理成交给 AI 的文字

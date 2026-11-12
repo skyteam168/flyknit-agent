@@ -52,6 +52,15 @@ const problems = computed(() => {
   return out
 })
 
+/**
+ * 员工端的内置命令（client/web/src/builtinCommands.ts 的 BUILTIN_NAMES，两边要一起改）。
+ * 快捷指令和它们重名时，新版员工端以内置命令为准，这条快捷指令不会生效。
+ */
+const BUILTIN = ['help', 'btw', 'init', 'compact', 'permission', 'permissions', 'model', 'plan', 'new', 'clear', 'context', 'usage', 'rewind', 'fork', 'memory', 'status']
+const shadowed = computed(() =>
+  items.value.map((c) => c.name.trim().replace(/^\//, '').toLowerCase()).filter((n) => BUILTIN.includes(n)),
+)
+
 async function save() {
   if (problems.value.length) {
     ElMessage.error(problems.value[0])
@@ -70,6 +79,14 @@ async function save() {
 
 <template>
   <div v-loading="loading" class="page">
+    <el-alert
+      v-if="shadowed.length"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="`/${shadowed.join('、/')} 和员工端的内置命令重名，新版员工端会执行内置命令，这条快捷指令不会生效。建议换个名字。`"
+      style="margin-bottom: 12px"
+    />
     <div class="head">
       <div>
         <h2>快捷指令</h2>

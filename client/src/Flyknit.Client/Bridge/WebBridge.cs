@@ -2203,7 +2203,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "context.compact":
             {
-                var (ok, message) = await _host.CompactConversationAsync(Str("conversationId"), this, CancellationToken.None);
+                // focus：输入框里「/compact 保留报价和交期」后面那段（老界面不传）
+                var (ok, message) = await _host.CompactConversationAsync(Str("conversationId"), this, CancellationToken.None, Str("focus"));
                 return new { ok, message };
             }
 

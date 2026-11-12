@@ -16,9 +16,11 @@ public class ContextUsageTests
     private sealed class SummaryGateway : IChatGateway
     {
         public int Calls;
+        public ChatRequest? Last;
         public Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct)
         {
             Calls++;
+            Last = request;
             return Task.FromResult(new ChatTurn { Content = "摘要：员工在核对 6# 区域的考勤", Usage = new TokenUsage(100, 20) });
         }
     }
@@ -160,6 +162,41 @@ public class ContextUsageTests
         Assert.Equal(keep, history[1].Id); // 留下的是最近一问一答
         Assert.Contains("摘要：员工在核对", history[0].Content);
         Assert.Equal(3, history.Count); // 系统提示 + 最近一问一答
+    }
+
+    [Fact]
+    public async Task CompactWithFocusTellsTheSummarizerWhatToKeep()
+    {
+        List<ChatMessage> History(ContextManager c) => new()
+        {
+            ChatMessage.System(c.SystemPrompt),
+            ChatMessage.User("报价 12.5 元，交期 11 月 30 日"),
+            ChatMessage.Assistant("记下了"),
+            ChatMessage.User("下一个问题"),
+            ChatMessage.Assistant("好的"),
+        };
+
+        // 输入框里「/compact 保留报价和交期」：重点接在摘要提示词后面
+        var gateway = new SummaryGateway();
+        var context = new ContextManager(gateway, "系统提示", enableSessionMemory: false);
+        Assert.NotNull(await context.CompactNowAsync(History(context), CancellationToken.None, "  保留报价和交期  "));
+        var system = gateway.Last!.Messages[0].Content!;
+        Assert.EndsWith("保留报价和交期", system);
+        Assert.Contains("重点", system);
+
+        // 不带重点：提示词照旧
+        var plain = new SummaryGateway();
+        var context2 = new ContextManager(plain, "系统提示", enableSessionMemory: false);
+        await context2.CompactNowAsync(History(context2), CancellationToken.None, "   ");
+        Assert.DoesNotContain("特别交代", plain.Last!.Messages[0].Content!);
+    }
+
+    [Fact]
+    public void FocusIsTrimmedAndCapped()
+    {
+        Assert.Null(ContextManager.CleanFocus(null));
+        Assert.Null(ContextManager.CleanFocus(" \n "));
+        Assert.Equal(ContextManager.MaxFocusChars, ContextManager.CleanFocus(new string('字', 5000))!.Length);
     }
 
     [Fact]

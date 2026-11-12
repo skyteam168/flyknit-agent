@@ -62,6 +62,12 @@ public sealed class InteractiveShell
     /// <summary>读一个按键（不回显）。真终端里才有：用来在输入行显示灰色提示、敲第一个字时擦掉。</summary>
     private readonly Func<CancellationToken, Task<ConsoleKeyInfo?>>? _readKey;
 
+    /// <summary>真终端里自己读整行（退格、Tab 补全、↑↓ 翻历史），见 LineEditor。输入被重定向时为 null，照旧用 ReadLine。</summary>
+    private readonly LineEditor? _editor;
+
+    /// <summary>Tab 能补全的命令。</summary>
+    public static readonly string[] CommandNames = { "/help", "/new", "/resume", "/plan", "/usage", "/clear", "/exit" };
+
     /// <summary>输入行空着时显示的灰色提示（同 Codex 的「Ask Codex to do anything」）。</summary>
     public const string Placeholder = "告诉 FlyknitBuddy 要做什么（/help 看命令）";
 
@@ -83,6 +89,11 @@ public sealed class InteractiveShell
     {
         _readKey = readKey;
         _terminalWidth = terminalWidth;
+        var styleOn = (style ?? ConsoleStyle.Plain).Enabled;
+        if (readKey is not null && styleOn)
+        {
+            _editor = new LineEditor(readKey, output, style!, terminalWidth) { Completions = CommandNames };
+        }
         _env = env;
         _permission = permission == PermissionMode.Full ? PermissionMode.Workspace : permission;
         _input = input;
@@ -128,7 +139,15 @@ public sealed class InteractiveShell
                 return false;
             }
             _lastIdleInterrupt = now;
-            Write("\n" + _style.Dim("（再按一次 Ctrl+C 退出，或输入 /exit）") + "\n");
+            var message = _style.Dim("（再按一次 Ctrl+C 退出，或输入 /exit）");
+            if (_editor is not null)
+            {
+                _editor.Interrupted(message); // 换一行写提示，重新显示提示符，正在打的这一行清空
+            }
+            else
+            {
+                Write("\n" + message + "\n");
+            }
             return true;
         }
     }
@@ -177,9 +196,11 @@ public sealed class InteractiveShell
     /// 读一句话。行尾写 \ 接着下一行；单独一行 """ 开始多行输入，再一行 """ 结束（粘贴大段文字用）。
     /// 返回 null 表示输入结束。
     /// </summary>
+    private string PromptMark => _style.Bold(_style.Cyan("> "));
+
     private async Task<string?> ReadPromptAsync(CancellationToken ct)
     {
-        Write(_style.Bold(_style.Cyan("> ")));
+        Write(PromptMark);
         var first = await ReadFirstLineAsync(ct);
         if (first is null)
         {
@@ -191,7 +212,7 @@ public sealed class InteractiveShell
             while (true)
             {
                 Write(_style.Dim("… "));
-                var line = await ReadLineAsync(ct);
+                var line = await ReadLineAsync(ct, _style.Dim("… "));
                 if (line is null || line.Trim() == "\"\"\"")
                 {
                     break;
@@ -206,7 +227,7 @@ public sealed class InteractiveShell
         {
             lines.Add(current[..^1]);
             Write(_style.Dim("… "));
-            current = await ReadLineAsync(ct) ?? "";
+            current = await ReadLineAsync(ct, _style.Dim("… ")) ?? "";
         }
         lines.Add(current);
         return string.Join("\n", lines).Trim();
@@ -218,6 +239,10 @@ public sealed class InteractiveShell
     /// </summary>
     private async Task<string?> ReadFirstLineAsync(CancellationToken ct)
     {
+        if (_editor is not null)
+        {
+            return await _editor.ReadLineAsync(PromptMark, Placeholder, ct);
+        }
         if (_readKey is null || !_style.Enabled)
         {
             return await ReadLineAsync(ct);
@@ -252,8 +277,13 @@ public sealed class InteractiveShell
         return rest is null ? k.KeyChar.ToString() : k.KeyChar + rest;
     }
 
-    private async Task<string?> ReadLineAsync(CancellationToken ct)
+    /// <param name="prompt">调用方已经写出来的提示（真终端里自己读整行时要知道它占几列）</param>
+    private async Task<string?> ReadLineAsync(CancellationToken ct, string prompt = "")
     {
+        if (_editor is not null)
+        {
+            return await _editor.ReadLineAsync(prompt, null, ct, remember: false);
+        }
         while (true)
         {
             var line = await _input.ReadLineAsync(ct);
@@ -278,7 +308,8 @@ public sealed class InteractiveShell
             _turn = cts;
         }
         var observer = new ConsoleObserver(_output, _style, _showThinking);
-        var confirm = new ConsoleConfirm(_input, _output, _style, observer);
+        var confirm = new ConsoleConfirm(_input, _output, _style, observer,
+            _editor is null ? null : (prompt, token) => _editor.ReadLineAsync(prompt, null, token, remember: false));
         var watch = Stopwatch.StartNew();
         observer.ShowWaiting();
         AgentRunResult? result = null;
@@ -372,6 +403,7 @@ public sealed class InteractiveShell
           /exit             退出（也可以 Ctrl+D / Ctrl+Z 回车，或空闲时连按两次 Ctrl+C）
         输入：
           回车发送；行尾写 \ 换行接着写；单独一行 \"\"\" 开始多行输入，再一行 \"\"\" 结束。
+          打 / 再按 Tab 补全命令（有好几个时再按一次 Tab 列出来）；↑ ↓ 翻之前输过的话；Esc 清空这一行。
           任务进行中按 Ctrl+C 停下这一轮。
         """;
 
@@ -461,8 +493,9 @@ public sealed class InteractiveShell
                 {
                     Write($"  {i + 1,2}. {shown[i].Title}  {_style.Dim(shown[i].UpdatedAt.ToLocalTime().ToString("MM-dd HH:mm"))}\n");
                 }
-                Write(_style.Dim("输入序号打开，直接回车取消：") + " ");
-                var answer = (await ReadLineAsync(ct))?.Trim() ?? "";
+                var ask = _style.Dim("输入序号打开，直接回车取消：") + " ";
+                Write(ask);
+                var answer = (await ReadLineAsync(ct, ask))?.Trim() ?? "";
                 if (!int.TryParse(answer, out pick))
                 {
                     Write("\n");
@@ -741,9 +774,13 @@ internal sealed class ConsoleConfirm : IConfirmationHandler
     private readonly ConsoleStyle _style;
     private readonly ConsoleObserver _observer;
     private readonly SemaphoreSlim _one = new(1, 1);
+    /// <summary>真终端里由 LineEditor 读回答（退格能用）；为 null 时照旧从输入流读一行。</summary>
+    private readonly Func<string, CancellationToken, Task<string?>>? _readLine;
 
-    public ConsoleConfirm(TextReader input, TextWriter output, ConsoleStyle style, ConsoleObserver observer)
+    public ConsoleConfirm(TextReader input, TextWriter output, ConsoleStyle style, ConsoleObserver observer,
+        Func<string, CancellationToken, Task<string?>>? readLine = null)
     {
+        _readLine = readLine;
         _input = input;
         _output = output;
         _style = style;
@@ -796,12 +833,13 @@ internal sealed class ConsoleConfirm : IConfirmationHandler
             }
             while (true)
             {
+                var prompt = "    " + options + " > ";
                 lock (_output)
                 {
-                    _output.Write("    " + options + " > ");
+                    _output.Write(prompt);
                     _output.Flush();
                 }
-                var answer = await _input.ReadLineAsync(ct);
+                var answer = _readLine is null ? await _input.ReadLineAsync(ct) : await _readLine(prompt, ct);
                 if (answer is null)
                 {
                     return ConfirmChoice.Reject;
