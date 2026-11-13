@@ -152,6 +152,10 @@ public sealed partial class AgentHost
     {
         var w = outcome.Watch;
         PostPr(w);
+        if (!w.Active)
+        {
+            _ = CleanupWorktreesAsync(); // PR 合并 / 关闭了：它用的独立工作副本可以清了
+        }
         if (outcome.Events.Count == 0)
         {
             return;

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { CircleAlert, CircleCheck, CircleStop, Clock, LoaderCircle, ShieldAlert, Split } from '@lucide/vue'
 import { answerConfirm, current, loadGroups, openConversation, pendingConfirmsOf, state } from '../store'
 import type { GroupView } from '../types'
+import { bridge } from '../bridge'
 
 /**
  * 汇总卡（docs/c2-router.md 3.3）：这个对话拆出来的几件事各自做到哪了；
@@ -11,6 +12,11 @@ import type { GroupView } from '../types'
  * 合并只是换个地方呈现，每一条照旧走原来的确认、照旧写审计。
  */
 const { t } = useI18n()
+
+/** PR 链接：交给宿主打开（宿主按「盯 PR」的记录找地址，不接受界面传任意网址） */
+function openPr(conversationId: string, prId: string) {
+  void bridge.repoOpen(conversationId, 'pr', prId).catch(() => undefined)
+}
 
 const groups = computed<GroupView[]>(() => (current.value ? state.groups[current.value.id] ?? [] : []))
 watch(
@@ -50,6 +56,11 @@ async function allowAllSafe(g: GroupView) {
       <span class="muted">{{ it.state === 'running' && it.step ? it.step : t(`ui.tasks.state.${it.state}`) }}</span>
       <span v-if="it.total" class="muted">{{ it.done }}/{{ it.total }}</span>
     </button>
+    <div v-for="it in g.items.filter((x) => x.branch || x.prUrl)" :key="it.taskId + '-iso'" class="iso">
+      <span class="muted">{{ it.title.split(' · ')[0] }}</span>
+      <code v-if="it.branch">{{ it.branch }}</code>
+      <a v-if="it.prUrl && it.prId" href="#" @click.prevent="openPr(it.conversationId, it.prId)">{{ t('ui.router.openPr') }}</a>
+    </div>
 
     <!-- 合并确认：同一组里等你确认的操作 -->
     <div v-if="confirmsOf(g).length" class="confirms">
@@ -142,6 +153,22 @@ async function allowAllSafe(g: GroupView) {
   to {
     transform: rotate(360deg);
   }
+}
+.iso {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 2px 28px;
+  font-size: var(--t-xs);
+}
+.iso code {
+  overflow: hidden;
+  color: var(--ink-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.iso a {
+  color: var(--indigo);
 }
 .confirms {
   margin-top: 8px;

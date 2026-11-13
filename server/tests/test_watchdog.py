@@ -104,3 +104,10 @@ async def test_router_settings_default_off(client, device_headers):
     assert sec["router_split"]["value"] is False
     assert sec["router_parallel"]["value"] == 1
     assert all(sec[k]["locked"] for k in ("router", "router_split", "router_parallel"))
+
+
+async def test_isolated_writes_default_off(client, device_headers):
+    """C4 隔离并行写：默认关，IT 统一配置。"""
+    sec = (await client.get("/api/v1/client/config", headers=device_headers)).json()["security"]
+    assert sec["isolated_writes"]["value"] is False
+    assert sec["isolated_writes"]["locked"] is True

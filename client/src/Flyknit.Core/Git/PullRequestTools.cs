@@ -122,6 +122,11 @@ public sealed class CreatePullRequestTool : ITool
             {
                 return ToolResult.Fail("当前不在任何分支上。先用 run_shell 执行 git switch -c <新分支名> 建一个分支");
             }
+            // 拆分子任务的独立工作副本：只能从它自己的 flyknit/ 分支推、建 PR（不能借它推别的分支）
+            if (ctx.IsolatedBranch.Length > 0 && info.Branch != ctx.IsolatedBranch)
+            {
+                return ToolResult.Fail($"这件事在独立的工作副本里做，只能从分支 {ctx.IsolatedBranch} 建 PR；现在在 {info.Branch} 上。先切回 {ctx.IsolatedBranch}");
+            }
             var target = baseBranch.Length > 0 ? baseBranch : info.DefaultBranch;
             if (info.Branch == target || (target.Length == 0 && info.Branch is "main" or "master"))
             {

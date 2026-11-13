@@ -1954,7 +1954,7 @@ export function createMockHost(): HostTransport {
         // 最后一行像「汇总 / 报告」：当成最后一步
         const last = items[items.length - 1]
         const final = items.length > 2 && /汇总|报告|对比|总结/.test(last.instruction) ? items.pop()! : null
-        return { items, final }
+        return { items, final, isolation: 'worktree' }
       }
       case 'router.split': {
         const parent = conversations.get(p.conversationId)!
@@ -1968,7 +1968,8 @@ export function createMockHost(): HostTransport {
           messages.set(c.id, [])
           const states = ['running', 'pending', 'pending']
           return { taskId: 't' + uid(), conversationId: c.id, title: c.title, state: states[i] ?? 'pending', stopReason: '', runs: i === 0 ? 1 : 0,
-            tokensUsed: i === 0 ? 8_400 : 0, step: i === 0 ? '读取 D:\\日报 里的表格' : '', done: i === 0 ? 1 : 0, total: i === 0 ? 3 : 0 }
+            tokensUsed: i === 0 ? 8_400 : 0, step: i === 0 ? '读取 D:\\日报 里的表格' : '', done: i === 0 ? 1 : 0, total: i === 0 ? 3 : 0,
+            isolation: 'worktree', branch: `flyknit/20261113-0930${i}0-a1b2c${i}`, prUrl: i === 0 ? 'https://github.com/acme/app/pull/42' : '', prId: i === 0 ? 'pw_mock' : '' }
         })
         mockGroups.set(parent.id, [...(mockGroups.get(parent.id) ?? []), { groupId, items }])
         const user: UiMessage = { id: uid(), role: 'user', content: p.text, attachments: [], createdAt: now() }

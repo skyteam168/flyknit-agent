@@ -128,6 +128,11 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
     /// <summary>盯着的 PR。</summary>
     public Git.PrWatchStore PrWatches => _prWatches ??= new Git.PrWatchStore(Open);
 
+    private Git.WorktreeStore? _worktrees;
+
+    /// <summary>拆分子任务的独立工作副本登记（docs/c4-parallel-writes.md）。</summary>
+    public Git.WorktreeStore Worktrees => _worktrees ??= new Git.WorktreeStore(Open);
+
     private Flyknit.Core.Tasks.TaskStore? _tasks;
     private Flyknit.Core.Tasks.ThreadSubscriptionStore? _subscriptions;
 
@@ -256,6 +261,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         Security.TaskGrantStore.Migrate(c);
         // 盯着的 PR（定时查 CI、冲突、评审）
         Git.PrWatchStore.Migrate(c);
+        Git.WorktreeStore.Migrate(c);
         // VNext 第 1 期：任务、运行记录、对话订阅（只加表）
         Flyknit.Core.Tasks.TaskStore.Migrate(c);
         Flyknit.Core.Tasks.ThreadSubscriptionStore.Migrate(c);

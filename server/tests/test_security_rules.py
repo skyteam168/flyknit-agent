@@ -116,6 +116,8 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "router",
         "router_split",
         "router_parallel",
+        # 客户端 AgentHost.IsolationForAsync 读它：拆开的几件在独立的沙箱 / worktree 里各自改代码（C4）
+        "isolated_writes",
         # 客户端 AgentHost 读它决定这一轮有没有浏览器工具
         "browser_tools",
         # 客户端读它决定能不能在后台启动命令（run_shell background=true、shell_output、shell_stop）

@@ -168,7 +168,7 @@ public sealed partial class AgentHost
     /// 每件事各自走正常的授权、确认和审计，拆分本身不放宽任何东西。
     /// </summary>
     /// <param name="final">最后一步（可选）：前面几件都结束后，在原对话里用它们的结果再做这一步（汇总、对比、写报告）</param>
-    public string StartSplit(string conversationId, string text, IReadOnlyList<SplitItem> items, SplitItem? final, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
+    public async Task<string> StartSplitAsync(string conversationId, string text, IReadOnlyList<SplitItem> items, SplitItem? final, string uiLanguage, IConfirmationHandler confirm, IHostEvents events)
     {
         if (!RouterSplitOn)
         {
@@ -205,17 +205,46 @@ public sealed partial class AgentHost
         // 原对话只是记下原话和拆分说明，不是一轮运行：不推 chat.message（界面会当成开始运行），界面拆完后自己重读
         Store.AddMessages(parent.Id, new[] { user, plan });
 
+        // 隔离并行写（docs/c4-parallel-writes.md）：每件准备一个独立的沙箱 / 工作副本，各改各的、各出 PR
+        var isolation = await IsolationForAsync(parent.Workspace, parent.Sandbox, _watchCts.Token);
+        var worktrees = isolation == IsolationWorktree ? await CreateWorktreesAsync(parent.Workspace, n) : null;
+        var worktreeFailed = isolation == IsolationWorktree && worktrees is null;
+        if (worktreeFailed)
+        {
+            isolation = ""; // 建不出来：照第 2 期的方式做（写操作排队），原对话里说明
+        }
+
         var children = new List<(string, string)>();
         for (var i = 0; i < n; i++)
         {
             var title = $"{i + 1}/{n} · {list[i].Title}";
-            var child = Store.Create(ConversationMode.Agent, title, parent.ModelId, parent.Workspace, parent.Permission);
+            var child = Store.Create(ConversationMode.Agent, title, parent.ModelId, worktrees?[i].Path ?? parent.Workspace, parent.Permission);
             Store.Rename(child.Id, title);
+            if (worktrees is not null)
+            {
+                Store.Worktrees.Add(child.Id, worktrees[i]);
+                AuditIsolation(child.Id, "worktree_created", $"{worktrees[i].Branch} {worktrees[i].Path}");
+            }
+            else if (isolation == IsolationSandbox)
+            {
+                Store.SetSandbox(child.Id, true); // 每件一个容器：第一次开始跑时再起
+            }
             var task = Store.Tasks.Create(new TriggerEvent(TaskOrigins.Ui, child.Id, title, Reference: "split:" + parent.Id,
                 RequestedBy: "员工本人", TokenBudget: Ledger.DefaultBudget, GroupId: groupId));
             children.Add((child.Id, task.Id));
             _itemInstructions[task.Id] = list[i].Instruction;
             _groupOf[child.Id] = groupId;
+        }
+        var isolationNote = isolation switch
+        {
+            IsolationSandbox => "每件在自己的沙箱（容器）里同时改代码，做完各出一个 PR，互不覆盖。",
+            IsolationWorktree => "每件在自己的独立工作副本（单独的分支）里改代码，做完各出一个 PR；改文件仍然一次一个、照常确认。",
+            _ => "",
+        };
+        if (isolationNote.Length > 0 || worktreeFailed)
+        {
+            var note = ChatMessage.Assistant(isolationNote.Length > 0 ? isolationNote : "这次没能给每件准备独立的工作副本，几件改的是同一个工作区，改文件会排队一次一个。");
+            Store.AddMessages(parent.Id, new[] { note });
         }
         var group = new SplitGroup
         {
@@ -259,6 +288,7 @@ public sealed partial class AgentHost
                     {instruction}
 
                     （这是员工一段话里拆出来的第 {index}/{group.Children.Count} 件事，其余几件另有安排，只做这一件。员工的原话：「{Clip(parentText, 300)}」）
+                    {IsolationPrompt(conversationId)}
                     """;
                 Ledger.Adopt(conversationId, taskId);
                 var message = NewUserMessage(null, prompt.Trim(), Array.Empty<Attachment>());
@@ -311,7 +341,7 @@ public sealed partial class AgentHost
         var tasks = group.Children.Select(c => Store.Tasks.Get(c.TaskId)).ToList();
         if (tasks.All(t => t is null || TaskStateMachine.IsFinal(t.State)) && group.Children.All(c => !IsRunning(c.ConversationId)))
         {
-            Summarize(group, tasks);
+            _ = Task.Run(() => SummarizeAsync(group, tasks));
         }
     }
 
@@ -319,7 +349,7 @@ public sealed partial class AgentHost
     /// 全部做完：有最后一步就在原对话里开一轮去做（前面几件的结果作为参考资料交给它）；
     /// 没有就按每件事的最后回答拼一段汇总写进原对话（不再调模型）。
     /// </summary>
-    private void Summarize(SplitGroup group, IReadOnlyList<TaskRecord?> tasks)
+    private async Task SummarizeAsync(SplitGroup group, IReadOnlyList<TaskRecord?> tasks)
     {
         lock (_groupGate)
         {
@@ -329,9 +359,12 @@ public sealed partial class AgentHost
             }
             group.Summarized = true;
         }
+        // 隔离并行写：每件的分支 / PR，以及改到同一个文件的提示（docs/c4-parallel-writes.md）
+        var labels = group.Children.Select((c, i) => (c.ConversationId, $"{i + 1}/{group.Children.Count}")).ToList();
+        var (perChild, overlaps) = await IsolationReportAsync(labels);
         if (group.Final is { } final && tasks.Any(t => t?.State == TaskState.Done))
         {
-            RunFinalStep(group, final, tasks);
+            RunFinalStep(group, final, tasks, perChild, overlaps);
             return;
         }
         var lines = new List<string> { $"{group.Children.Count} 件事都结束了：", "" };
@@ -349,8 +382,13 @@ public sealed partial class AgentHost
             {
                 lines.Add("> " + t.StopReason);
             }
+            if (perChild.TryGetValue(group.Children[i].ConversationId, out var where))
+            {
+                lines.Add(where);
+            }
             lines.Add("");
         }
+        lines.AddRange(overlaps);
         var summary = ChatMessage.Assistant(string.Join("\n", lines).TrimEnd());
         Store.AddMessages(group.ParentId, new[] { summary });
         RunFinished?.Invoke(new RunFinishedInfo(group.ParentId, Store.Get(group.ParentId)?.Title ?? "", summary.Content, AgentStopReason.Completed));
@@ -366,7 +404,8 @@ public sealed partial class AgentHost
     /// 最后一步：在原对话里正常开一轮（照常授权、确认、审计）。前面几件的结果是参考资料：包在 &lt;前面几件的结果&gt; 里并写明不是指令，
     /// 每件最多取 3000 字；没做完的照实写上，不让 AI 当它做完了。
     /// </summary>
-    private void RunFinalStep(SplitGroup group, SplitItem final, IReadOnlyList<TaskRecord?> tasks)
+    private void RunFinalStep(SplitGroup group, SplitItem final, IReadOnlyList<TaskRecord?> tasks,
+        IReadOnlyDictionary<string, string> perChild, IReadOnlyList<string> overlaps)
     {
         var parts = new List<string>();
         for (var i = 0; i < group.Children.Count; i++)
@@ -374,8 +413,10 @@ public sealed partial class AgentHost
             var t = tasks[i];
             var state = t?.State switch { TaskState.Done => "已完成", TaskState.Stopped => "已停止（没做完）", _ => "没做完" };
             var answer = LastAnswerOf(group.Children[i].ConversationId);
-            parts.Add($"### {t?.Title ?? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)}（{state}）\n{(answer.Length > 0 ? Clip(answer, 3000) : "（没有结果）")}");
+            var where = perChild.TryGetValue(group.Children[i].ConversationId, out var w) ? $"\n{w}" : "";
+            parts.Add($"### {t?.Title ?? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)}（{state}）{where}\n{(answer.Length > 0 ? Clip(answer, 3000) : "（没有结果）")}");
         }
+        parts.AddRange(overlaps);
         var prompt = $"""
             {final.Instruction}
 
@@ -441,6 +482,10 @@ public sealed partial class AgentHost
                         step = live?.Step ?? "",
                         done = live?.Done ?? 0,
                         total = live?.Total ?? 0,
+                        isolation = IsolationOf(t.ConversationId).Isolation,
+                        branch = IsolationOf(t.ConversationId).Branch,
+                        prUrl = IsolationOf(t.ConversationId).PrUrl,
+                        prId = IsolationOf(t.ConversationId).PrId,
                     };
                 }).ToList(),
             }).ToList();

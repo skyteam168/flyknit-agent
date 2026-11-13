@@ -117,6 +117,12 @@ public sealed class SecuritySettings
 
     /// <summary>分开做时同时做几件（1～3，默认 1 = 一件接一件）；大于 1 时写操作全局排队。</summary>
     public const string RouterParallel = "router_parallel";
+
+    /// <summary>
+    /// 拆开的几件在独立的沙箱 / 工作副本里各自改代码、各出 PR（docs/c4-parallel-writes.md）。默认关。
+    /// 还要「分开做」「开发者工具」打开、「同时做几件」≥ 2，工作区是 git 仓库。
+    /// </summary>
+    public const string IsolatedWrites = "isolated_writes";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字

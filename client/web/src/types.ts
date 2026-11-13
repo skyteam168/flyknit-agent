@@ -758,6 +758,12 @@ export interface GroupView {
     step: string
     done: number
     total: number
+    /** 隔离并行写：sandbox / worktree / 空 */
+    isolation?: string
+    branch?: string
+    prUrl?: string
+    /** 盯 PR 的记录编号：打开链接时交给宿主（宿主只打开自己算出来的地址） */
+    prId?: string
   }[]
 }
 

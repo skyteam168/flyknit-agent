@@ -194,6 +194,14 @@ SETTINGS: tuple[Setting, ...] = (
              "同时做会同时用 token，也会同时弹确认。",
     ),
     Setting(
+        key="isolated_writes", kind="bool", default=False, locked=True,
+        title="调度：拆开的几件在独立的沙箱 / 工作副本里各自改代码",
+        risk="需要同时打开「一句话里的几件事分开做」「开发者工具」，「分开做时同时做几件」≥ 2，且工作区是 git 仓库。"
+             "打开后，会改代码的几件各在自己的环境里改、各出一个 flyknit/ 分支和 PR，互不覆盖、员工的工作副本不被碰："
+             "原对话开着沙箱时每件一个容器（真正同时改）；否则每件一个 git worktree（在员工电脑上，照常确认，改文件仍一次一个）。"
+             "不自动合并；PR 合并 / 关闭或 7 天没动静后清理 worktree，有未提交的改动不删。",
+    ),
+    Setting(
         key="run_token_budget", kind="int", default=200, locked=True,
         title="单次任务 token 上限（万）", minimum=0, maximum=100000,
         risk="一次办事任务（员工说一句话引起的一轮）最多用多少 token，输入 + 输出累计，单位万；用到 70% 提醒 AI 收尾，用完就停下总结、等员工说「继续」。"
