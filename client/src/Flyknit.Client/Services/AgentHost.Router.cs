@@ -161,9 +161,6 @@ public sealed partial class AgentHost
             : "调度：模型判断不宜拆开（或回答不合格），照常发送");
         return decision.Action == RouterAction.Split ? decision : null;
     }
-        var decision = await TaskRouter.DecideAsync(Server, RouterKind.Split, text, Array.Empty<RouterCandidate>(), ct);
-        return decision.Action == RouterAction.Split ? decision.Items : null;
-    }
 
     /// <summary>
     /// 员工点了「分开做」：原对话记下原话和拆分结果，变成汇总；每件事开一个子对话（同样的工作区、权限、模型），
