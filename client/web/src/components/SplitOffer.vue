@@ -24,6 +24,10 @@ const { t } = useI18n()
         <span class="muted">{{ it.instruction }}</span>
       </li>
     </ol>
+    <p v-if="state.splitOffer.final" class="final">
+      <strong>{{ t('ui.router.finalStep') }}</strong>{{ state.splitOffer.final.title }}
+      <span class="muted">{{ t('ui.router.finalHint') }}</span>
+    </p>
     <div class="actions">
       <button type="button" class="btn" :disabled="state.splitOffer.busy" @click="declineSplit">{{ t('ui.router.keepOne') }}</button>
       <button type="button" class="btn primary" :disabled="state.splitOffer.busy" @click="acceptSplit">{{ t('ui.router.split') }}</button>
@@ -73,6 +77,15 @@ li .muted {
   color: var(--ink-soft);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.final {
+  margin: 6px 0 0;
+  padding-left: 4px;
+}
+.final .muted {
+  display: block;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
 }
 .actions {
   display: flex;

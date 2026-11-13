@@ -126,7 +126,7 @@ export const state = reactive({
   toast: '' as string,
   /** 主区域显示什么：对话（含新任务首页）、资料库，或者专家列表 */
   /** 拆分建议（docs/c2-router.md 3.3）：员工一句话里像有好几件事，等员工选「分开做」还是「就当一件做」 */
-  splitOffer: null as null | { text: string; items: SplitItemView[]; busy: boolean },
+  splitOffer: null as null | { text: string; items: SplitItemView[]; final: SplitItemView | null; busy: boolean },
   /** 每个对话拆出来的几组事（原对话的汇总卡） */
   groups: {} as Record<string, GroupView[]>,
   view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
@@ -1312,9 +1312,9 @@ async function offerSplit(body: string): Promise<boolean> {
   const c = current.value
   const mode = c ? c.mode : draftMode.expertId ? 'expert' : draftMode.mode
   if (mode !== 'agent' || c?.expertId || (c && convState(c.id).busy)) return false
-  const items = await bridge.suggestSplit(body).catch(() => null)
-  if (!items || items.length < 2) return false
-  state.splitOffer = { text: body, items, busy: false }
+  const suggestion = await bridge.suggestSplit(body).catch(() => null)
+  if (!suggestion || suggestion.items.length < 2) return false
+  state.splitOffer = { text: body, items: suggestion.items, final: suggestion.final ?? null, busy: false }
   return true
 }
 
@@ -1325,7 +1325,7 @@ export async function acceptSplit() {
   offer.busy = true
   try {
     const id = await ensureConversation()
-    await bridge.startSplit(id, offer.text, offer.items)
+    await bridge.startSplit(id, offer.text, offer.items, offer.final)
     state.splitOffer = null
     await refreshList()
     await reloadMessages(id)
@@ -2009,6 +2009,7 @@ function onHostEvent(e: HostEvent) {
         if (e.keepScreenAllowed !== undefined) state.app.keepScreenAllowed = e.keepScreenAllowed
         if (e.contextDetails !== undefined) state.app.contextDetails = e.contextDetails
         if (e.longTasks !== undefined) state.app.longTasks = e.longTasks
+        if (e.routerSplit !== undefined) state.app.routerSplit = e.routerSplit
         if (e.developerTools !== undefined) state.app.developerTools = e.developerTools
         if (e.sandboxTasks !== undefined) state.app.sandboxTasks = e.sandboxTasks
         if (e.webSearchEnabled !== undefined) state.app.webSearchEnabled = e.webSearchEnabled
