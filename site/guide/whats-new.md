@@ -8,9 +8,13 @@
 
 有的电脑上 WebView2 组件比较旧，以前装完一打开就报「界面加载失败」。新版会照常打开（窗口照样能拖动）；实在太旧时会直接说明原因和怎么处理，不再是一串看不懂的报错。IT 也可以让安装程序顺带把 WebView2 装好。→ [安装与登录](/guide/install)
 
+### 命令行里也能整理对话、调权限
+
+`flyknit` 对话里新增 `/compact`（整理对话，可以写要保留什么）、`/context`（上下文用量）、`/permission 只读|工作区`、`/think`（深度思考开关）、`/status`。打的字能用退格删，命令能用 Tab 补全。→ [终端对话](/guide/terminal#命令)
+
 ### 输入框里的斜杠命令
 
-打 `/` 就能用 `/compact`（整理对话，可以说明要保留什么）、`/permission`、`/model`、`/plan`、`/context`、`/usage`、`/rewind`、`/fork`、`/status` 等命令，不用去找按钮，也不占额度。→ [使用方法](/guide/usage#斜杠命令)
+打 `/` 就能用 `/compact`（整理对话，可以说明要保留什么）、`/permission`、`/model`、`/plan`、`/context`、`/usage`、`/rewind`、`/fork`、`/status` 等命令，不用去找按钮，也不占额度。还有 `/review`（审查改动）、`/export`（导出对话）、`/doctor`（网络诊断）、`/feedback`、`/mcp`、`/long`、`/sandbox`。→ [使用方法](/guide/usage#斜杠命令)
 
 ### 视频、音频直接预览
 

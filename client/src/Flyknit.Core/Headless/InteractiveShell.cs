@@ -47,12 +47,14 @@ public sealed class ConsoleStyle
 public sealed class InteractiveShell
 {
     private readonly HeadlessEnvironment _env;
-    private readonly PermissionMode _permission;
+    /// <summary>新会话、打开的旧会话用的权限（/permission 改它，也改当前会话的）。</summary>
+    private PermissionMode _permission;
     private readonly TextReader _input;
     private readonly TextWriter _output;
     private readonly ConsoleStyle _style;
     private readonly AcpSessionStore? _store;
-    private readonly bool _showThinking;
+    /// <summary>深度思考开着时也把思考过程显示出来（--think 或 /think on）。</summary>
+    private bool _showThinking;
     private readonly string _version;
     private readonly Func<Task>? _afterTurn;
     private readonly Func<DateTimeOffset> _now;
@@ -66,7 +68,10 @@ public sealed class InteractiveShell
     private readonly LineEditor? _editor;
 
     /// <summary>Tab 能补全的命令。</summary>
-    public static readonly string[] CommandNames = { "/help", "/new", "/resume", "/plan", "/usage", "/clear", "/exit" };
+    public static readonly string[] CommandNames =
+    {
+        "/help", "/new", "/resume", "/plan", "/usage", "/compact", "/permission", "/context", "/status", "/think", "/clear", "/exit",
+    };
 
     /// <summary>输入行空着时显示的灰色提示（同 Codex 的「Ask Codex to do anything」）。</summary>
     public const string Placeholder = "告诉 FlyknitBuddy 要做什么（/help 看命令）";
@@ -101,6 +106,7 @@ public sealed class InteractiveShell
         _style = style ?? ConsoleStyle.Plain;
         _store = store;
         _showThinking = showThinking;
+        _thinking = env.DeepThinking;
         _version = version;
         _afterTurn = afterTurn;
         _now = now ?? (() => DateTimeOffset.Now);
@@ -112,7 +118,10 @@ public sealed class InteractiveShell
 
     /// <summary>新会话的 ID 和 IDE 的同一个格式：会话列表、/resume 两边通用。</summary>
     private HeadlessSession NewSession(string workspace) =>
-        new(_env, workspace, _permission, "acp-" + Guid.NewGuid().ToString("N")[..12]);
+        new(_env, workspace, _permission, "acp-" + Guid.NewGuid().ToString("N")[..12]) { DeepThinking = _thinking };
+
+    /// <summary>深度思考（--think 起始，/think 切换）；新会话、打开的旧会话都跟着它。</summary>
+    private bool _thinking;
 
     /// <summary>
     /// Ctrl+C：有任务在跑就停下这一轮（已经发出的工具调用照常补结果），返回 true（不退出）。
@@ -398,6 +407,11 @@ public sealed class InteractiveShell
           /resume [序号]    列出这个工作区以前的会话；带序号直接打开接着聊
           /plan             看当前的任务计划
           /usage            这个会话用了多少 token
+          /compact [重点]   马上整理对话，较早的压成摘要；可以写上要重点保留什么
+          /context          上下文用了多少、各部分占多少
+          /permission [档]  看或调权限：只读、工作区（命令行没有完全权限）
+          /think [开|关]    打开 / 关闭深度思考（更慢、更费额度）
+          /status           这个会话的版本、工作区、权限、开发者工具、深度思考
           /clear            清屏
           /help             显示这段说明
           /exit             退出（也可以 Ctrl+D / Ctrl+Z 回车，或空闲时连按两次 Ctrl+C）
@@ -446,11 +460,155 @@ public sealed class InteractiveShell
             case "/usage":
                 Write($"这个会话：输入 {Short(_sessionPrompt)}、输出 {Short(_sessionCompletion)} tokens（今日额度和员工端共用）\n");
                 break;
+            case "/compact":
+                await CompactAsync(arg, ct);
+                break;
+            case "/permission" or "/permissions":
+                SetPermission(arg);
+                break;
+            case "/context":
+                ShowContext();
+                break;
+            case "/status":
+                ShowStatus();
+                break;
+            case "/think":
+                SetThinking(arg);
+                break;
             default:
                 Write(_style.Yellow($"不认识的命令 {parts[0]}，输入 /help 看能用哪些。") + "\n");
                 break;
         }
         return true;
+    }
+
+    /// <summary>/compact [要重点保留的内容]：和员工端「整理对话」同一套，压完说一声省了多少。</summary>
+    private async Task CompactAsync(string focus, CancellationToken ct)
+    {
+        if (_session.History.Count == 0)
+        {
+            Write(_style.Dim("还没有对话，不用整理。") + "\n");
+            return;
+        }
+        Write(_style.Dim("  … 正在整理对话") + "\n");
+        CompactionInfo? info;
+        try
+        {
+            info = await _session.CompactAsync(focus, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            Write(_style.Yellow("已取消整理。") + "\n");
+            return;
+        }
+        catch (Exception ex)
+        {
+            Write(_style.Yellow("整理失败：" + ex.Message) + "\n");
+            return;
+        }
+        if (info is null)
+        {
+            Write(_style.Dim("对话还很短，不用整理（最近一问一答保留原文，之前的不到两条）。") + "\n");
+            return;
+        }
+        _store?.Save(_session, _firstPrompt ?? "", _createdAt);
+        Write(_style.Green($"已整理 {info.MessagesCompacted} 条较早的消息：约 {Short(info.TokensBefore)} → {Short(info.TokensAfter)} tokens") +
+              (focus.Length > 0 ? _style.Dim($"（重点保留：{Clip(focus, 60)}）") : "") + "\n");
+    }
+
+    /// <summary>/permission [只读|工作区]：没有参数时说当前是哪一档。命令行没有完全权限。</summary>
+    private void SetPermission(string arg)
+    {
+        var a = arg.Trim().ToLowerInvariant();
+        if (a.Length == 0)
+        {
+            Write($"当前权限：{PermissionLabel(_session.Permission)}。可以选：/permission 只读、/permission 工作区（命令行没有完全权限）\n");
+            return;
+        }
+        PermissionMode? mode = a switch
+        {
+            "readonly" or "read" or "ro" or "只读" or "仅可查看" => PermissionMode.ReadOnly,
+            "workspace" or "ws" or "edit" or "工作区" or "工作区内修改" => PermissionMode.Workspace,
+            _ => null,
+        };
+        if (a is "full" or "完全" or "完全权限")
+        {
+            Write(_style.Yellow("命令行没有完全权限：只能员工在聊天窗口里对单个任务选。") + "\n");
+            return;
+        }
+        if (mode is not { } m)
+        {
+            Write(_style.Yellow($"没有「{arg}」这一档，可以选：只读、工作区") + "\n");
+            return;
+        }
+        _permission = m;
+        _session.SetPermission(m);
+        Write(_style.Green($"权限已切换为「{PermissionLabel(m)}」，下一句话起生效。") + "\n");
+    }
+
+    /// <summary>/think [开|关]：不带参数就切换。思考过程跟着一起显示 / 不显示。</summary>
+    private void SetThinking(string arg)
+    {
+        var a = arg.Trim().ToLowerInvariant();
+        bool? on = a switch
+        {
+            "" => !_thinking,
+            "on" or "开" or "1" or "true" => true,
+            "off" or "关" or "0" or "false" => false,
+            _ => null,
+        };
+        if (on is not { } value)
+        {
+            Write(_style.Yellow("用法：/think、/think 开、/think 关") + "\n");
+            return;
+        }
+        _thinking = value;
+        _showThinking = value;
+        _session.DeepThinking = value;
+        Write(value
+            ? _style.Green("已打开深度思考：每一步先想一想，更慢、更费额度。") + "\n"
+            : _style.Green("已关闭深度思考。") + "\n");
+    }
+
+    /// <summary>/context：上下文用了多少、各部分占多少（估算）。</summary>
+    private void ShowContext()
+    {
+        var report = _session.MeasureContext();
+        var percent = report.ContextLength > 0 ? report.Used * 100.0 / report.ContextLength : 0;
+        Write(_style.Bold($"上下文：约 {Short(report.Used)} / {Short(report.ContextLength)} tokens（{percent:0}%）") +
+              _style.Dim($"，超过 {Short(report.CompactAt)} 会自动整理") + "\n");
+        foreach (var part in report.Parts.Where(p => p.Tokens > 0))
+        {
+            // 中文标签一个字占两列：按显示宽度补空格，数字才对得齐
+            var pad = new string(' ', Math.Max(1, 12 - ConsoleBanner.DisplayWidth(part.Label)));
+            Write($"  {part.Label}{pad}{Short(part.Tokens),8}\n");
+        }
+        if (_session.Summary is not null)
+        {
+            Write(_style.Dim("  （较早的对话已经整理成摘要）") + "\n");
+        }
+        Write(_style.Dim("  按字数估算，和实际计费会有出入；/compact 可以马上整理。") + "\n");
+    }
+
+    /// <summary>/status：这个会话正在用的设置。</summary>
+    private void ShowStatus()
+    {
+        var dev = _env.Security.On(SecuritySettings.DeveloperTools, fallback: false);
+        var rows = new (string, string)[]
+        {
+            ("版本", _version),
+            ("会话", _session.Id),
+            ("工作区", _session.Workspace),
+            ("权限", PermissionLabel(_session.Permission)),
+            ("开发者工具", dev ? "开" : "关（IT 在安全中心控制）"),
+            ("深度思考", _thinking ? "开" : "关"),
+            ("对话", $"{_session.History.Count(m => m.Role == ChatRole.User)} 句" + (_session.Summary is null ? "" : "（较早的已整理成摘要）")),
+            ("本会话用量", $"输入 {Short(_sessionPrompt)}、输出 {Short(_sessionCompletion)} tokens"),
+        };
+        foreach (var (k, v) in rows)
+        {
+            Write($"  {_style.Dim(k + "：")}{v}\n");
+        }
     }
 
     /// <summary>
@@ -521,8 +679,8 @@ public sealed class InteractiveShell
             Write(_style.Yellow($"这个会话的工作目录已经不在了：{saved.Cwd}") + "\n");
             return;
         }
-        var session = new HeadlessSession(_env, saved.Cwd, _permission, saved.Id);
-        session.Restore(saved.Messages, saved.Plan, saved.LoadedTools);
+        var session = new HeadlessSession(_env, saved.Cwd, _permission, saved.Id) { DeepThinking = _thinking };
+        session.Restore(saved.Messages, saved.Plan, saved.LoadedTools, saved.Summary);
         _session = session;
         _createdAt = saved.CreatedAt;
         _firstPrompt = saved.Title;
@@ -549,7 +707,7 @@ public sealed class InteractiveShell
         {
             $"工作区 {_session.Workspace}",
             // 框里不用「·」「…」这类宽度不确定的字符（有的字体占一列、有的占两列），框线会歪
-            $"权限：{PermissionLabel(_permission)}    开发者工具：{(dev ? "开" : "关")}    深度思考：{(_env.DeepThinking ? "开" : "关")}",
+            $"权限：{PermissionLabel(_permission)}    开发者工具：{(dev ? "开" : "关")}    深度思考：{(_thinking ? "开" : "关")}",
         };
         Write(ConsoleBanner.Render(_style, _terminalWidth, _version, info,
             "输入要做的事，回车发送；/help 看命令；任务进行中按 Ctrl+C 停下"));

@@ -2074,6 +2074,12 @@ export function createMockHost(): HostTransport {
       }
       case 'workspace.attach':
         return { fileName: String(p.path).split('\\').pop(), localPath: 'D:\\工作区\\' + p.path, mime: 'application/octet-stream', size: 15000 }
+      case 'conversation.exportMarkdown': {
+        const c = conversations.get(p.id)
+        const path = `D:\\工作区\\对话导出-${(c?.title ?? '对话').replace(/[\\/:*?"<>|]/g, '_')}.md`
+        mockPreviews[path] = { kind: 'markdown', text: `# ${c?.title ?? '对话'}\n\n> 从 FlyknitBuddy 导出（开发预览）\n\n## 我\n\n……` }
+        return { ok: true, path, message: '' }
+      }
       case 'context.compact': {
         await sleep(1200)
         mockCompacted.add(p.conversationId)

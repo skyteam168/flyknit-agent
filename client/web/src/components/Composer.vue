@@ -181,6 +181,10 @@ async function submit(how?: InterjectMode) {
       askFull.value = true // 和权限选择器一样，先弹风险确认
       return
     }
+    if (outcome.kind === 'confirmSandboxOff') {
+      confirmSandboxOff.value = true // 和沙箱按钮一样：关掉会删容器，先确认
+      return
+    }
     if (outcome.kind === 'send') outgoing = outcome.text
   }
   // 快捷指令：「/名字 参数…」展开成模板发出去；参数没填全就放回输入框，让员工补上
@@ -311,7 +315,14 @@ interface SlashItem {
   wantsArg?: boolean
 }
 const initAvailable = computed(() => !!state.app?.developerTools && mode.value === 'agent')
-const builtinCtx = computed<BuiltinContext>(() => ({ mode: mode.value, busy: busy.value, initAvailable: initAvailable.value, planMode: planMode.value }))
+const builtinCtx = computed<BuiltinContext>(() => ({
+  mode: mode.value,
+  busy: busy.value,
+  initAvailable: initAvailable.value,
+  planMode: planMode.value,
+  longMode: longMode.value,
+  sandboxOn: sandboxOn.value,
+}))
 const askFull = ref(false)
 async function confirmFull() {
   askFull.value = false

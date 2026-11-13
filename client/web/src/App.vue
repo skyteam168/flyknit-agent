@@ -11,6 +11,7 @@ import MemoryDialog from './components/MemoryDialog.vue'
 import ResizeEdges from './components/ResizeEdges.vue'
 import UsageDialog from './components/UsageDialog.vue'
 import CommandInfoDialog from './components/CommandInfoDialog.vue'
+import FeedbackDialog from './components/FeedbackDialog.vue'
 import SchedulesPage from './components/SchedulesPage.vue'
 import MessageList from './components/MessageList.vue'
 import Composer from './components/Composer.vue'
@@ -353,6 +354,7 @@ onBeforeUnmount(() => {
     <MemoryDialog v-if="state.memoryOpen" />
     <UsageDialog v-if="state.usageOpen" />
     <CommandInfoDialog v-if="state.commandInfo" />
+    <FeedbackDialog v-if="state.feedbackOpen" :prefill="state.feedbackPrefill" @close="state.feedbackOpen = false" />
     <ExpertDetail v-if="state.expertDetail" />
     <div v-if="state.toast" class="toast" role="status">{{ state.toast }}</div>
     <ResizeEdges />

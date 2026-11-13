@@ -176,6 +176,11 @@ export const state = reactive({
   usageOpen: false,
   /** 斜杠命令 /status、/help 打开的信息卡（''= 没开） */
   commandInfo: '' as '' | 'status' | 'help',
+  /** 意见反馈对话框（设置里的入口有自己的开关；这个给 /feedback 用），prefill 是预先填好的文字 */
+  feedbackOpen: false,
+  feedbackPrefill: '',
+  /** 打开设置时直接翻到哪一页（/doctor → 网络），设置打开后清掉 */
+  settingsPage: '' as string,
   schedules: [] as ScheduledTask[],
   maximized: false,
   /** 正在压缩上下文的会话（界面上显示进度条） */
