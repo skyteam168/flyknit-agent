@@ -62,6 +62,12 @@ public sealed class TeamScheduler
 
     public int Parallel { get; init; } = 3;
 
+    /// <summary>
+    /// 沿用之前的结果（程序中途关掉后接着做时，同一位成员、同一项任务已经交过卷的不重做）。
+    /// 返回之前那次的子任务记录；null = 照常派遣。
+    /// </summary>
+    public Func<TeamPlanItem, SubtaskRecord?>? Reuse { get; init; }
+
     public event Action<TeamMemberUpdate>? Updated;
 
     /// <summary>员工在面板上停掉某一位成员。没在跑的返回 false。</summary>
@@ -198,6 +204,14 @@ public sealed class TeamScheduler
                 board.Append(new TeamBoardEntry(id, name, TeamBoardKind.Read,
                     $"读取了 {string.Join("、", item.DependsOn.Select(NameOf))} 的结果", DateTimeOffset.Now));
             }
+            if (Reuse?.Invoke(item) is { } previous)
+            {
+                board.Append(new TeamBoardEntry(id, name, TeamBoardKind.Progress, "沿用中断前已交卷的结果，没有重做", DateTimeOffset.Now));
+                Post(board, id, name, previous);
+                var reused = new ToolResult(true, ReusedText(previous));
+                var (reusedStatus, reusedDelivery) = Grade(reused, previous);
+                return new TeamMemberResult(item, name, reusedStatus, reusedDelivery + "（沿用）", 0, reused, previous);
+            }
             var request = new DelegationRequest(id, TaskText(item, team), board.RenderFor(item.DependsOn), Array.Empty<string>(),
                 $"{callId}#{id}", dispatch);
             var retries = 0;
@@ -312,6 +326,34 @@ public sealed class TeamScheduler
             sb.AppendLine($"你在这个团队里的职责补充：{note}");
         }
         sb.AppendLine("只做分给你的这一项；别的成员负责的部分不要做。做完按交付标准交卷，缺的信息写进 open_questions。");
+        return sb.ToString();
+    }
+
+    /// <summary>沿用的结果交回队长时的文字：结论（带核验标记）、报告、产出、没解决的问题。</summary>
+    internal static string ReusedText(SubtaskRecord record)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("（这是程序中断前这位成员已经交回的结果，没有重做）");
+        if (record.Summary.Trim().Length > 0)
+        {
+            sb.AppendLine("摘要：" + record.Summary.Trim());
+        }
+        foreach (var f in record.Findings.Where(f => f.Statement.Trim().Length > 0))
+        {
+            sb.AppendLine($"- {f.Statement.Trim()}（{VerificationText(f.Verification)}）");
+        }
+        if (record.Report.Trim().Length > 0)
+        {
+            sb.AppendLine(Clip(record.Report.Trim(), 4000));
+        }
+        foreach (var file in record.Artifacts)
+        {
+            sb.AppendLine("产出：" + file);
+        }
+        foreach (var q in record.OpenQuestions.Where(q => q.Trim().Length > 0))
+        {
+            sb.AppendLine("没解决：" + q.Trim());
+        }
         return sb.ToString();
     }
 

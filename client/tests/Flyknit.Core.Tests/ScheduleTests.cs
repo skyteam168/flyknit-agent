@@ -155,6 +155,12 @@ public class ScheduleTests
             task.Rehearsal = false;
             store.Save(task);
             Assert.False(store.Get(task.Id)!.Rehearsal);
+
+            // 交给团队的定时任务（docs/team-mode.md 第 15 节）：老任务没有团队
+            Assert.Null(store.Get("old")!.TeamId);
+            task.TeamId = "tm_1";
+            store.Save(task);
+            Assert.Equal("tm_1", store.Get(task.Id)!.TeamId);
         }
         finally
         {

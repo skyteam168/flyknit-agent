@@ -147,6 +147,12 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
 
     private Scheduling.ScheduledTaskStore? _schedules;
 
+    /// <summary>
+    /// 功能模块自己的表用的连接（docs/extension-architecture.md）：和会话同一个库；表名带功能前缀，
+    /// 表由模块自己建、迁移只加不删。拿到的连接用完要释放。
+    /// </summary>
+    public Func<SqliteConnection> ConnectionFactory => Open;
+
     private SqliteConnection Open()
     {
         var c = new SqliteConnection(_connectionString);

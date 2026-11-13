@@ -168,12 +168,15 @@ public sealed class ScheduleRunner : IDisposable
 
         try
         {
+            // 交给团队的：建团队对话（团队模式开着时）；到点时团队不能用了，运行时按普通办事继续
             var conv = _host.Store.Create(
                 ConversationMode.Agent,
                 $"{(task.Rehearsal ? RehearsalTag(_host.UiLanguage) : "")}{task.Name} · {now:MM-dd HH:mm}",
                 task.ModelId,
                 task.Workspace,
-                task.Permission);
+                task.Permission,
+                null,
+                _host.Teams.On && !string.IsNullOrWhiteSpace(task.TeamId) ? task.TeamId : null);
             _host.Store.Rename(conv.Id, conv.Title); // 定时任务的标题固定，不让 AI 覆盖
             if (task.Rehearsal)
             {

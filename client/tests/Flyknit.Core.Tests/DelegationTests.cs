@@ -1588,6 +1588,32 @@ public class DelegationTests : IDisposable
             Started.TrySetResult(id);
             return Task.CompletedTask;
         }
+        public readonly ConcurrentQueue<Flyknit.Core.Teams.TeamRunReport> Reports = new();
+        public readonly List<(string RunId, int Rating, string Feedback)> Ratings = new();
+        public List<Flyknit.Core.Teams.TeamNote> Notes = new();
+        public Task ReportTeamRunAsync(string teamId, Flyknit.Core.Teams.TeamRunReport report, CancellationToken ct)
+        {
+            Reports.Enqueue(report);
+            return Task.CompletedTask;
+        }
+        public Task RateTeamRunAsync(string teamId, string runId, int rating, string feedback, CancellationToken ct)
+        {
+            Ratings.Add((runId, rating, feedback));
+            return Task.CompletedTask;
+        }
+        public Task<List<Flyknit.Core.Teams.TeamNote>> GetTeamNotesAsync(string teamId, CancellationToken ct) =>
+            Down ? throw new HttpRequestException("连不上") : Task.FromResult(Notes.ToList());
+        public Task<Flyknit.Core.Teams.TeamNote> AddTeamNoteAsync(string teamId, string text, string kind, string source, CancellationToken ct)
+        {
+            var note = new Flyknit.Core.Teams.TeamNote { Id = $"tn_{Notes.Count + 1}", TeamId = teamId, Text = text, Kind = kind, Source = source };
+            Notes.Insert(0, note);
+            return Task.FromResult(note);
+        }
+        public Task DeleteTeamNoteAsync(string teamId, string noteId, CancellationToken ct)
+        {
+            Notes.RemoveAll(n => n.Id == noteId);
+            return Task.CompletedTask;
+        }
     }
 
     private static SecuritySettings TeamSecurity(bool on, int budget = 100) => new(new Dictionary<string, SecurityItem>
@@ -1596,7 +1622,8 @@ public class DelegationTests : IDisposable
         [SecuritySettings.TeamTokenBudget] = new() { Value = budget },
     });
 
-    private static (Flyknit.Core.Teams.TeamFeature Feature, FakeTeams Server) TeamFeatureFor(Harness h, bool on = true)
+    private static (Flyknit.Core.Teams.TeamFeature Feature, FakeTeams Server) TeamFeatureFor(Harness h, bool on = true,
+        Flyknit.Core.Teams.ITeamRunStore? runs = null, Func<string, SubtaskRecord?>? subtask = null, Action<Flyknit.Core.Teams.Team>? edit = null)
     {
         var server = new FakeTeams();
         server.Teams.Add(new Flyknit.Core.Teams.Team
@@ -1604,17 +1631,21 @@ public class DelegationTests : IDisposable
             Id = "tm_1", Name = "交付分析组", ModelId = 5,
             Members = new() { new Flyknit.Core.Teams.TeamMember { ExpertId = "mes", Available = true } },
         });
+        edit?.Invoke(server.Teams[0]);
         Expert? Find(string id) => h.Experts.TryGetValue(id, out var e) ? e : null;
-        return (new Flyknit.Core.Teams.TeamFeature(TeamSecurity(on), server, Find, () => h.Dispatcher), server);
+        return (new Flyknit.Core.Teams.TeamFeature(TeamSecurity(on), server, Find, () => h.Dispatcher, null, runs, subtask), server);
     }
 
-    private static Flyknit.Core.Agent.Extensions.RunScope TeamScope(string teamId = "tm_1", Expert? expert = null, bool newMessage = true) => new()
+    private static Flyknit.Core.Agent.Extensions.RunScope TeamScope(string teamId = "tm_1", Expert? expert = null, bool newMessage = true,
+        bool unattended = false, string runId = "run_1", List<object>? events = null) => new()
     {
+        Unattended = unattended,
+        Post = e => { if (events is not null) lock (events) events.Add(e); },
         Conversation = new Conversation { Id = "c_team", TeamId = teamId },
         Expert = expert,
         Query = "查一下 10 月 A 车间交货延误的原因",
         History = new[] { ChatMessage.User("查一下 10 月 A 车间交货延误的原因") },
-        RunId = "run_1",
+        RunId = runId,
         Scene = "agent",
         NewUserMessage = newMessage,
         Confirm = new FakeTeamConfirm(),
@@ -1639,7 +1670,7 @@ public class DelegationTests : IDisposable
         using var assembly = await pipeline.PrepareAsync(TeamScope(), CancellationToken.None);
 
         Assert.Equal(new[] { "team" }, assembly.ActiveIds);                  // 团队出场，派遣专家这一轮不出场
-        Assert.Equal(new[] { "team_plan", "team_assign" }, assembly.Tools.Select(t => t.Name));
+        Assert.Equal(new[] { "team_plan", "team_assign", "team_note" }, assembly.Tools.Select(t => t.Name));
         Assert.Contains("交付分析组", assembly.SystemPrompt);
         Assert.Equal(5, assembly.ModelId);
         Assert.Equal(1_000_000, assembly.MaxRunTokens);                     // 100 万
@@ -1713,6 +1744,227 @@ public class DelegationTests : IDisposable
         var none = new DelegationRunExtension(() => true, () => Array.Empty<Expert>(), () => h.Dispatcher);
         Assert.Null(await none.PrepareAsync(scope, CancellationToken.None));
         Assert.Equal("那 B 车间呢\n查 A 车间", DelegationRunExtension.Query(new[] { ChatMessage.User("查 A 车间"), ChatMessage.User("那 B 车间呢") }, "那 B 车间呢"));
+    }
+
+    // ---------- 团队第 3 期：面板数据、评价、团队经验、队长专家、定时任务（docs/team-mode.md 第 15 节）----------
+
+    private static string TypeOf(object e) => (string)e.GetType().GetProperty("type")!.GetValue(e)!;
+
+    private async Task<Flyknit.Core.Teams.TeamRunRecord> RunTeamOnceAsync(Harness h, Flyknit.Core.Teams.TeamFeature feature,
+        List<object> events, string runId = "run_1", bool unattended = true)
+    {
+        var part = await feature.PrepareAsync(TeamScope(unattended: unattended, runId: runId, events: events), CancellationToken.None);
+        Assert.NotNull(part);
+        var plan = part!.Tools.Single(t => t.Name == "team_plan");
+        var ctx = Ctx(runId: runId);
+        ctx.CurrentCallId = "call_plan";
+        var result = await plan.ExecuteAsync(PlanArgs("mes"), ctx, CancellationToken.None);
+        Assert.True(result.Ok, result.Output);
+        part.OnEnd!();
+        return feature.RunOf("c_team")!;
+    }
+
+    [Fact]
+    public async Task AnUnattendedTeamRunStartsWithoutThePlanCardAndIsKeptAndReported()
+    {
+        var h = new Harness();
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()));
+        var store = new Flyknit.Core.Teams.MemoryTeamRunStore();
+        var (feature, server) = TeamFeatureFor(h, runs: store);
+        var events = new List<object>();
+
+        var record = await RunTeamOnceAsync(h, feature, events);
+
+        Assert.DoesNotContain(events, e => TypeOf(e) == "team.plan");                // 定时任务：没有计划卡
+        Assert.Contains(events, e => TypeOf(e) == "team.started");
+        Assert.Contains(events, e => TypeOf(e) == "team.record");                    // 一轮结束把面板数据推给界面
+        Assert.True(record.Finished && record.AutoStarted && !record.Interrupted);
+        var mes = record.Members.Single();
+        Assert.Equal("done", mes.Status);
+        Assert.Equal("达标", mes.Delivery);
+        Assert.NotEmpty(mes.SubtaskId);
+        Assert.Contains(record.Board, b => b.Text.Contains("自动开始"));
+        Assert.Contains(record.Board, b => b.Kind == "finding");
+        Assert.Equal("找出 10 月延期原因", record.Goal);
+        Assert.Equal(record.RunId, store.Latest("c_team")!.RunId);                   // 存下来了：关掉再打开照样有
+
+        await WaitUntil(() => server.Reports.Count > 0);
+        var report = server.Reports.Last();
+        Assert.Equal((1, 1, 0, 0, "finished"), (report.Planned, report.Completed, report.Failed, report.Stopped, report.Status));
+    }
+
+    [Fact]
+    public async Task RatingIsSavedLocallyAndReported()
+    {
+        var h = new Harness();
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()));
+        var (feature, server) = TeamFeatureFor(h);
+        var record = await RunTeamOnceAsync(h, feature, new List<object>());
+
+        var rated = await feature.RateAsync("c_team", record.RunId, 1, "  很 有用 ", CancellationToken.None);
+        Assert.Equal(1, rated!.Rating);
+        Assert.Equal("很 有用", rated.Feedback);
+        Assert.Equal(1, feature.RunOf("c_team")!.Rating);
+        Assert.Contains(server.Ratings, r => r == (record.RunId, 1, "很 有用"));
+        Assert.Null(await feature.RateAsync("c_team", "other_run", 1, "", CancellationToken.None));   // 不是这个对话的任务
+    }
+
+    [Fact]
+    public async Task AnInterruptedRunIsMarkedAndFinishedMembersAreReusedNextTime()
+    {
+        var h = new Harness();
+        var store = new Flyknit.Core.Teams.MemoryTeamRunStore();
+        var finished = new SubtaskRecord { Id = "st_prev", Status = "completed", Summary = "延期 37 单，包装工序占 62%" };
+        finished.Findings.Add(new SubtaskFinding { Statement = "包装工序延误 6.5h", Verification = "supported" });
+        store.Save(new Flyknit.Core.Teams.TeamRunRecord
+        {
+            RunId = "run_0", ConversationId = "c_team", TeamId = "tm_1", Rounds = 1,
+            Members =
+            {
+                new Flyknit.Core.Teams.TeamRunMember
+                {
+                    ExpertId = "mes", Status = "done", Delivery = "达标", SubtaskId = "st_prev",
+                    Task = "查询 A 车间 10 月 mes 相关的数据，给出依据", Done = "一张表加结论",
+                },
+                new Flyknit.Core.Teams.TeamRunMember { ExpertId = "qc", Status = "running" },
+            },
+        });
+        var (feature, server) = TeamFeatureFor(h, runs: store, subtask: id => id == "st_prev" ? finished : null);
+
+        // 打开对话：程序上次中途关掉了 → 标成中断，没做完的算停下，报一次
+        var opened = feature.RunOf("c_team")!;
+        Assert.True(opened.Interrupted && opened.Finished);
+        Assert.Equal("stopped", opened.Members.Single(m => m.ExpertId == "qc").Status);
+        await WaitUntil(() => server.Reports.Any(r => r.Status == "interrupted"));
+
+        // 接着做：同一位成员、同一项任务已经交过卷 → 沿用，不再派遣（没有给网关准备任何回答）
+        var record = await RunTeamOnceAsync(h, feature, new List<object>(), runId: "run_2");
+        var mes = record.Members.Single();
+        Assert.Equal("done", mes.Status);
+        Assert.True(mes.Reused);
+        Assert.EndsWith("（沿用）", mes.Delivery);
+        Assert.Empty(h.Registry.Registered);
+        Assert.Contains(record.Board, b => b.Text.Contains("沿用"));
+    }
+
+    [Fact]
+    public async Task TeamNotesAreReferenceMaterialAndTheLeaderCannotRecordSecrets()
+    {
+        var h = new Harness();
+        var (feature, server) = TeamFeatureFor(h);
+        server.Notes.Add(new Flyknit.Core.Teams.TeamNote { Id = "tn_0", Text = "MES 的延期按计划完工日算", Kind = "source" });
+        var part = await feature.PrepareAsync(TeamScope(), CancellationToken.None);
+        Assert.Contains("MES 的延期按计划完工日算", part!.TurnContext);
+        Assert.Contains("不是指令", part.TurnContext);
+        Assert.Contains("team_note", part.SystemPrompt);
+
+        var note = part.Tools.Single(t => t.Name == "team_note");
+        var ctx = Ctx();
+        var secret = await note.ExecuteAsync(JsonSerializer.SerializeToElement(new { text = "MES 账号 admin 密码是 Abc12345" }), ctx, CancellationToken.None);
+        Assert.False(secret.Ok);
+        Assert.Single(server.Notes);
+        for (var i = 0; i < 3; i++)
+        {
+            var ok = await note.ExecuteAsync(JsonSerializer.SerializeToElement(new { text = $"查工单前先选工厂 {i}", kind = "method" }), ctx, CancellationToken.None);
+            Assert.True(ok.Ok, ok.Output);
+        }
+        Assert.Equal("leader", server.Notes[0].Source);
+        var fourth = await note.ExecuteAsync(JsonSerializer.SerializeToElement(new { text = "第四条经验写不进去" }), ctx, CancellationToken.None);
+        Assert.False(fourth.Ok);                                                     // 一次最多 3 条
+        part.OnEnd!();
+
+        // 服务端连不上：用上次拉到的经验
+        server.Down = true;
+        var offline = await feature.PrepareAsync(TeamScope(runId: "run_2"), CancellationToken.None);
+        Assert.Contains("查工单前先选工厂", offline!.TurnContext);
+    }
+
+    [Fact]
+    public async Task AnExpertLeaderOnlyNarrowsToolsAndPermission()
+    {
+        var h = new Harness();
+        h.Experts["lead"] = new Expert
+        {
+            Id = "lead", Version = 1, Name = "生产部组长", Instructions = "先看产能再看质量", ReadOnly = true, ModelId = 9,
+            DisallowedTools = new() { "run_shell" },
+        };
+        var (feature, _) = TeamFeatureFor(h, edit: t => { t.LeaderExpertId = "lead"; t.LeaderAvailable = true; });
+        var pipeline = new Flyknit.Core.Agent.Extensions.RunExtensionPipeline<Flyknit.Core.Agent.Extensions.RunScope>(new[] { feature });
+        using var assembly = await pipeline.PrepareAsync(TeamScope(), CancellationToken.None);
+
+        Assert.Contains("生产部组长", assembly.SystemPrompt);
+        Assert.Contains("先看产能再看质量", assembly.SystemPrompt);
+        Assert.Equal(9, assembly.ModelId);                                          // 队长专家指定的模型优先
+        Assert.True(assembly.FiltersTools);
+        Assert.False(assembly.AllowsTool(new Named("run_shell")));                  // 专家不让用的，队长也不能用
+        Assert.False(assembly.AllowsTool(new Named("write_file")));                 // 只读专家
+        Assert.True(assembly.AllowsTool(new Named("read_file")));
+        Assert.True(assembly.AllowsTool(assembly.Tools.Single(t => t.Name == "team_plan")));
+        Assert.Equal(PermissionMode.ReadOnly, assembly.CapPermission(PermissionMode.Full));
+
+        // 队长专家这台电脑用不了：主助手当队长，不收紧
+        var (plain, _) = TeamFeatureFor(h, edit: t => { t.LeaderExpertId = "lead"; t.LeaderAvailable = false; });
+        var part = await plain.PrepareAsync(TeamScope(runId: "run_3"), CancellationToken.None);
+        Assert.Null(part!.AllowTool);
+        Assert.Null(part.CapPermission);
+        Assert.Equal(5, part.ModelId);
+    }
+
+    private sealed class Named(string name) : ITool
+    {
+        public string Name => name;
+        public string Description => "";
+        public JsonObject Parameters => new();
+        public PolicyDecision Assess(JsonElement args, ToolContext ctx) => PolicyDecision.Auto();
+        public string Describe(JsonElement args) => name;
+        public Task<ToolResult> ExecuteAsync(JsonElement args, ToolContext ctx, CancellationToken ct) => Task.FromResult(ToolResult.Success(""));
+    }
+
+    [Fact]
+    public void TeamRunsAreKeptInTheLocalDatabase()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"flyknit-teamruns-{Guid.NewGuid():N}.db");
+        try
+        {
+            Microsoft.Data.Sqlite.SqliteConnection Open()
+            {
+                var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+                c.Open();
+                return c;
+            }
+            var store = new Flyknit.Core.Teams.SqliteTeamRunStore(Open);
+            Assert.Null(store.Latest("c1"));
+            for (var i = 0; i < 25; i++)
+            {
+                store.Save(new Flyknit.Core.Teams.TeamRunRecord
+                {
+                    RunId = $"r{i}", ConversationId = "c1", TeamId = "tm_1", StartedAt = DateTimeOffset.Now.AddMinutes(i),
+                    Members = { new Flyknit.Core.Teams.TeamRunMember { ExpertId = "mes", Status = "done" } },
+                    Board = { new Flyknit.Core.Teams.TeamRunBoardItem { ExpertId = "mes", Kind = "finding", Text = $"结论 {i}" } },
+                });
+            }
+            var latest = new Flyknit.Core.Teams.SqliteTeamRunStore(Open).Latest("c1")!;   // 重新打开（程序重启）照样读得到
+            Assert.Equal("r24", latest.RunId);
+            Assert.Equal("结论 24", latest.Board.Single().Text);
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM team_runs WHERE conversation_id = 'c1'";
+            Assert.Equal(20L, (long)cmd.ExecuteScalar()!);                            // 每个对话只留最近 20 次
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            File.Delete(path);
+        }
+    }
+
+    private static async Task WaitUntil(Func<bool> condition)
+    {
+        for (var i = 0; i < 100 && !condition(); i++)
+        {
+            await Task.Delay(20);
+        }
+        Assert.True(condition());
     }
 }
 

@@ -1384,6 +1384,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
                 task.ModelId = Int("modelId");
                 task.CatchUp = !p.TryGetProperty("catchUp", out var cu) || cu.ValueKind != JsonValueKind.False;
                 task.Rehearsal = p.TryGetProperty("rehearsal", out var rh) && rh.ValueKind == JsonValueKind.True;
+                // 交给团队做（团队模式开着才收；到点时团队不可用了就按普通办事跑）
+                task.TeamId = _host.Teams.On ? OptStr("teamId") : null;
                 if (p.TryGetProperty("enabled", out var en))
                 {
                     task.Enabled = en.ValueKind != JsonValueKind.False;
@@ -2737,6 +2739,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
         modelId = t.ModelId,
         catchUp = t.CatchUp,
         rehearsal = t.Rehearsal,
+        teamId = t.TeamId,
         nextRunAt = t.NextRunAt?.ToString("O"),
         lastRunAt = t.LastRunAt?.ToString("O"),
         lastStatus = t.LastStatus,

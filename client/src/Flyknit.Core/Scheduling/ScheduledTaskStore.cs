@@ -31,6 +31,9 @@ public sealed class ScheduledTask
     /// </summary>
     public bool Rehearsal { get; set; }
 
+    /// <summary>交给哪个团队做（docs/team-mode.md）：到点后建团队对话，分工计划自动开始。空 = 普通办事。</summary>
+    public string? TeamId { get; set; }
+
     public DateTimeOffset? NextRunAt { get; set; }
     public DateTimeOffset? LastRunAt { get; set; }
 
@@ -89,6 +92,14 @@ public sealed class ScheduledTaskStore
             alter.CommandText = "ALTER TABLE scheduled_tasks ADD COLUMN rehearsal INTEGER NOT NULL DEFAULT 0";
             alter.ExecuteNonQuery();
         }
+        using var teamCol = c.CreateCommand();
+        teamCol.CommandText = "SELECT COUNT(*) FROM pragma_table_info('scheduled_tasks') WHERE name = 'team_id'";
+        if ((long)teamCol.ExecuteScalar()! == 0)
+        {
+            using var alter = c.CreateCommand();
+            alter.CommandText = "ALTER TABLE scheduled_tasks ADD COLUMN team_id TEXT NULL";
+            alter.ExecuteNonQuery();
+        }
     }
 
     public List<ScheduledTask> List()
@@ -123,16 +134,16 @@ public sealed class ScheduledTaskStore
         cmd.CommandText = """
             INSERT INTO scheduled_tasks
                 (id, name, instructions, schedule, enabled, workspace, permission, model_id, catch_up,
-                 next_run_at, last_run_at, last_status, last_summary, last_conversation_id, run_count, created_at, rehearsal)
+                 next_run_at, last_run_at, last_status, last_summary, last_conversation_id, run_count, created_at, rehearsal, team_id)
             VALUES ($id, $name, $ins, $sched, $enabled, $ws, $perm, $model, $catch,
-                    $next, $last, $status, $summary, $conv, $count, $created, $rehearsal)
+                    $next, $last, $status, $summary, $conv, $count, $created, $rehearsal, $team)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name, instructions = excluded.instructions, schedule = excluded.schedule,
                 enabled = excluded.enabled, workspace = excluded.workspace, permission = excluded.permission,
                 model_id = excluded.model_id, catch_up = excluded.catch_up, next_run_at = excluded.next_run_at,
                 last_run_at = excluded.last_run_at, last_status = excluded.last_status,
                 last_summary = excluded.last_summary, last_conversation_id = excluded.last_conversation_id,
-                run_count = excluded.run_count, rehearsal = excluded.rehearsal
+                run_count = excluded.run_count, rehearsal = excluded.rehearsal, team_id = excluded.team_id
             """;
         cmd.Parameters.AddWithValue("$id", task.Id);
         cmd.Parameters.AddWithValue("$name", Trim(task.Name, 100));
@@ -144,6 +155,7 @@ public sealed class ScheduledTaskStore
         cmd.Parameters.AddWithValue("$model", (object?)task.ModelId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$catch", task.CatchUp ? 1 : 0);
         cmd.Parameters.AddWithValue("$rehearsal", task.Rehearsal ? 1 : 0);
+        cmd.Parameters.AddWithValue("$team", string.IsNullOrWhiteSpace(task.TeamId) ? DBNull.Value : task.TeamId);
         cmd.Parameters.AddWithValue("$next", (object?)task.NextRunAt?.ToString("O") ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$last", (object?)task.LastRunAt?.ToString("O") ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$status", task.LastStatus);
@@ -181,7 +193,7 @@ public sealed class ScheduledTaskStore
 
     private const string Select = """
         SELECT id, name, instructions, schedule, enabled, workspace, permission, model_id, catch_up,
-               next_run_at, last_run_at, last_status, last_summary, last_conversation_id, run_count, created_at, rehearsal
+               next_run_at, last_run_at, last_status, last_summary, last_conversation_id, run_count, created_at, rehearsal, team_id
         FROM scheduled_tasks
         """;
 
@@ -204,6 +216,7 @@ public sealed class ScheduledTaskStore
         RunCount = (int)r.GetInt64(14),
         CreatedAt = DateTimeOffset.Parse(r.GetString(15)),
         Rehearsal = r.GetInt64(16) != 0,
+        TeamId = r.IsDBNull(17) ? null : r.GetString(17),
     };
 
     private static string Trim(string s, int max)

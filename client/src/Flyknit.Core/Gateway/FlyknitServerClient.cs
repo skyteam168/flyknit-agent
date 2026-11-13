@@ -785,6 +785,53 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         await EnsureOk(resp, ct);
     }
 
+    public async Task ReportTeamRunAsync(string teamId, Flyknit.Core.Teams.TeamRunReport report, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/teams/{Uri.EscapeDataString(teamId)}/runs");
+        req.Content = JsonContent.Create(report);
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
+    public async Task RateTeamRunAsync(string teamId, string runId, int rating, string feedback, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post,
+            $"api/v1/client/teams/{Uri.EscapeDataString(teamId)}/runs/{Uri.EscapeDataString(runId)}/rating");
+        req.Content = JsonContent.Create(new { rating, feedback });
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
+    public async Task<List<Flyknit.Core.Teams.TeamNote>> GetTeamNotesAsync(string teamId, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/teams/{Uri.EscapeDataString(teamId)}/notes");
+        using var resp = await SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new();
+        }
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Teams.TeamNote>>(cancellationToken: ct) ?? new();
+    }
+
+    public async Task<Flyknit.Core.Teams.TeamNote> AddTeamNoteAsync(string teamId, string text, string kind, string source, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/teams/{Uri.EscapeDataString(teamId)}/notes");
+        req.Content = JsonContent.Create(new { text, kind, source });
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<Flyknit.Core.Teams.TeamNote>(cancellationToken: ct)
+            ?? throw new GatewayException("服务端没有返回经验", 500);
+    }
+
+    public async Task DeleteTeamNoteAsync(string teamId, string noteId, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Delete,
+            $"api/v1/client/teams/{Uri.EscapeDataString(teamId)}/notes/{Uri.EscapeDataString(noteId)}");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
     /// <summary>员工向专家发了一句话：服务端用来算使用量。</summary>
     public async Task ReportExpertUseAsync(string expertId, CancellationToken ct)
     {

@@ -36,6 +36,12 @@ public class RunScope
     /// <summary>这一轮不许改东西（计划模式、预演）。</summary>
     public bool ReadOnlyRun { get; init; }
 
+    /// <summary>
+    /// 没人在电脑前看着的运行（定时任务、文件夹监视、事件触发）：需要员工点的卡片没人点。
+    /// 确认照常走（宿主给的确认会超时按拒绝处理），扩展只能据此跳过「看一眼再开始」这类非安全的环节。
+    /// </summary>
+    public bool Unattended { get; init; }
+
     public required IConfirmationHandler Confirm { get; init; }
 
     /// <summary>往界面推事件（团队面板、计划卡之类）。宿主没有界面时什么都不做。</summary>
@@ -83,6 +89,15 @@ public sealed class RunContribution
 
     /// <summary>这一轮的 token 上限（null = 宿主默认）。</summary>
     public long? MaxRunTokens { get; init; }
+
+    /// <summary>
+    /// 只收紧：这一轮的工具表里哪些工具还能留（含底座的和别的扩展加的）。返回 false 的去掉。null = 不过滤。
+    /// 比如团队的队长由某位专家当时，按那位专家的限制筛。
+    /// </summary>
+    public Func<ITool, bool>? AllowTool { get; init; }
+
+    /// <summary>只收紧：把这一轮的权限压到不超过某一级（如只读专家当队长时压成只读）。null = 不变。</summary>
+    public Func<Security.PermissionMode, Security.PermissionMode>? CapPermission { get; init; }
 
     /// <summary>这一轮结束（不管成功、失败、停止）时调用，用来收拾这一轮的状态。</summary>
     public Action? OnEnd { get; init; }
@@ -203,6 +218,31 @@ public sealed class RunAssembly : IDisposable
 
     /// <summary>所有扩展给的 token 上限里最小的；都没给为 null。</summary>
     public long? MaxRunTokens => _parts.Select(p => p.Part.MaxRunTokens).Where(t => t is not null).Min();
+
+    /// <summary>有扩展要筛这一轮的工具表。</summary>
+    public bool FiltersTools => _parts.Any(p => p.Part.AllowTool is not null);
+
+    /// <summary>这个工具这一轮能不能留：所有扩展都同意才留（只会更少）。</summary>
+    public bool AllowsTool(ITool tool) => _parts.All(p => p.Part.AllowTool?.Invoke(tool) ?? true);
+
+    /// <summary>这一轮的权限：依次过每个扩展的上限；结果不会比原来宽（扩展给了更宽的也按原来的）。</summary>
+    public Security.PermissionMode CapPermission(Security.PermissionMode chosen)
+    {
+        var result = chosen;
+        foreach (var (_, part) in _parts)
+        {
+            if (part.CapPermission is { } cap)
+            {
+                var capped = cap(result);
+                // 只收紧：不认比当前更宽的结果
+                if ((int)capped < (int)result)   // 枚举按宽松程度排：只读 < 工作区 < 完全
+                {
+                    result = capped;
+                }
+            }
+        }
+        return result;
+    }
 
     public void Dispose()
     {

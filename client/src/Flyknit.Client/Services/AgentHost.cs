@@ -361,7 +361,8 @@ public sealed partial class AgentHost : IDisposable
         Experts = new Flyknit.Core.Experts.ExpertCatalog(Path.Combine(AppPaths.Root, "experts.json"));
         // 功能模块（docs/extension-architecture.md）：底座只认扩展点，团队、派遣专家、子代理都从这里接进来。
         // 注册顺序就是出场顺序；互斥由各扩展自己声明（团队出场时派遣专家、子代理不出场）
-        Teams = new Flyknit.Core.Teams.TeamFeature(Security, Server, id => Experts.Get(id), () => Dispatcher, message => Log.Warn(message));
+        Teams = new Flyknit.Core.Teams.TeamFeature(Security, Server, id => Experts.Get(id), () => Dispatcher, message => Log.Warn(message),
+            new Flyknit.Core.Teams.SqliteTeamRunStore(Store.ConnectionFactory), id => Store.GetSubtask(id));
         _runExtensions = new Flyknit.Core.Agent.Extensions.RunExtensionPipeline<Flyknit.Core.Agent.Extensions.RunScope>(
             new Flyknit.Core.Agent.Extensions.IRunExtension<Flyknit.Core.Agent.Extensions.RunScope>[]
             {
@@ -878,6 +879,8 @@ public sealed partial class AgentHost : IDisposable
                 Scene = scene,
                 NewUserMessage = newUser is not null,
                 ReadOnlyRun = planMode || rehearsal,
+                // 定时任务、文件夹监视、事件触发：没人在电脑前点卡片
+                Unattended = grant is { Origin: "schedule" or "folder" or "event" },
                 Confirm = confirm,
                 Post = events.Post,
             };
@@ -887,6 +890,8 @@ public sealed partial class AgentHost : IDisposable
             }
             var modelId = conv.ModelId ?? expert?.ModelId ?? extensions.ModelId;
             scope.Binding.ModelId = modelId;
+            // 扩展只能把权限收紧（比如只读专家当团队队长）
+            permission = extensions.CapPermission(permission);
             if (extensions.SystemPrompt.Length > 0)
             {
                 // 整个对话不变的东西（如团队名单）放系统提示词，提示词缓存能命中
@@ -1043,6 +1048,16 @@ public sealed partial class AgentHost : IDisposable
             if (planMode)
             {
                 tools = Flyknit.Core.Agent.PlanMode.Filter(tools);
+            }
+            if (extensions.FiltersTools)
+            {
+                // 扩展只能把工具表收紧（比如专家当团队队长时按那位专家的限制筛）
+                var narrowed = new ToolRegistry();
+                foreach (var tool in tools.All.Where(extensions.AllowsTool))
+                {
+                    narrowed.Add(tool);
+                }
+                tools = narrowed;
             }
             // 扩展加的工具执行时要用这一轮最终的工具表（比如子代理继承主助手的工具）
             scope.Binding.Tools = tools;

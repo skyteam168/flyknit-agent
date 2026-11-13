@@ -180,4 +180,26 @@ public class RunExtensionTests
             new Ext("team", () => null),
         }));
     }
+
+    [Fact]
+    public async Task ExtensionsCanOnlyNarrowToolsAndPermission()
+    {
+        var pipeline = new RunExtensionPipeline<RunScope>(new[]
+        {
+            new Ext("a", () => new RunContribution { AllowTool = t => t.Name != "run_shell", CapPermission = _ => Security.PermissionMode.Full }),
+            new Ext("b", () => new RunContribution { CapPermission = _ => Security.PermissionMode.Workspace }),
+        });
+        using var assembly = await pipeline.PrepareAsync(Scope(), CancellationToken.None);
+        Assert.True(assembly.FiltersTools);
+        Assert.False(assembly.AllowsTool(new Named("run_shell")));
+        Assert.True(assembly.AllowsTool(new Named("read_file")));
+        // 扩展给了更宽的权限也不认：只读还是只读
+        Assert.Equal(Security.PermissionMode.ReadOnly, assembly.CapPermission(Security.PermissionMode.ReadOnly));
+        Assert.Equal(Security.PermissionMode.Workspace, assembly.CapPermission(Security.PermissionMode.Full));
+
+        using var none = await new RunExtensionPipeline<RunScope>(new[] { new Ext("c", () => new RunContribution()) })
+            .PrepareAsync(Scope(), CancellationToken.None);
+        Assert.False(none.FiltersTools);
+        Assert.Equal(Security.PermissionMode.Full, none.CapPermission(Security.PermissionMode.Full));
+    }
 }
