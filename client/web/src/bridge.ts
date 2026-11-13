@@ -13,6 +13,7 @@ import type {
   RefCard,
   PrWatchView,
   SubscriptionView,
+  TaskView,
   SandboxStatus,
   SlashCommand,
   PluginInfo,
@@ -403,6 +404,9 @@ class Bridge {
   setPlanMode = (id: string, on: boolean) => this.call<boolean>('conversation.setPlanMode', { id, on })
   /** 任务中心：正在跑的、上次没跑完的、最近跑完的 */
   listRuns = () => this.call<RunsList>('runs.list')
+  /** 任务中心：按任务列（来源、发起人、授权、轮数、token） */
+  listTasks = () => this.call<TaskView[]>('tasks.list')
+  stopTask = (id: string) => this.call<boolean>('tasks.stop', { id })
   /** 接着做上次没做完的任务 */
   resumeRun = (conversationId: string) => this.call<void>('runs.resume', { conversationId })
   /** 上次没做完的任务：不用了，不再提示 */

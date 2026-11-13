@@ -104,15 +104,21 @@ public sealed class TaskGrantStore
     }
 
     /// <summary>这个对话最近的一份授权。</summary>
-    public TaskGrant? Latest(string conversationId)
+    public TaskGrant? Latest(string conversationId) =>
+        One("WHERE conversation_id = $p ORDER BY created_at DESC, rowid DESC LIMIT 1", conversationId);
+
+    /// <summary>按编号取一份授权（任务中心显示任务按什么授权在跑）。</summary>
+    public TaskGrant? Get(string id) => One("WHERE id = $p", id);
+
+    private TaskGrant? One(string where, string param)
     {
         using var c = _open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT id, conversation_id, origin, reference, requested_by, instruction, permission, workspace, created_at
-            FROM task_grants WHERE conversation_id = $conv ORDER BY created_at DESC, rowid DESC LIMIT 1
+            FROM task_grants {where}
             """;
-        cmd.Parameters.AddWithValue("$conv", conversationId);
+        cmd.Parameters.AddWithValue("$p", param);
         using var r = cmd.ExecuteReader();
         if (!r.Read())
         {

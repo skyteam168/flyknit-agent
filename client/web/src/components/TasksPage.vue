@@ -1,24 +1,70 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { CircleAlert, CircleCheck, CircleStop, History, ListChecks, LoaderCircle, Pause, Play, RotateCcw, Smartphone, Square, X } from '@lucide/vue'
+import {
+  CalendarClock, CircleAlert, CircleCheck, CircleStop, FolderSearch, GitPullRequest, Hand, ListChecks, LoaderCircle, MessageSquare,
+  Pause, Play, RotateCcw, ScrollText, Smartphone, Square, X, Zap,
+} from '@lucide/vue'
 import { bridge } from '../bridge'
-import { dismissInterrupted, fail, loadRuns, openConversation, resumeInterrupted, state } from '../store'
-import type { RunningRun } from '../types'
+import { dismissInterrupted, fail, loadRuns, openConversation, resumeInterrupted, state, toast } from '../store'
+import type { RunningRun, TaskState, TaskView } from '../types'
 
-const { t, locale } = useI18n()
+/**
+ * 任务中心：按任务列（docs/c1-unified-tasks.md 第 6 节）。每件事从哪来、谁让做的、按什么授权、跑了几轮、用了多少 token；
+ * 正在跑的合上实时进度（runs.list），可以暂停 / 停止；中断的可以接着做 / 不用了；都能打开所在的对话。
+ */
+const { t, te, locale } = useI18n()
 
-// 每秒走一下「用时」
+const tasks = ref<TaskView[]>([])
+const loaded = ref(false)
+async function loadTasks() {
+  try {
+    tasks.value = (await bridge.listTasks()) ?? []
+  } catch (e) {
+    console.warn('读取任务失败', e)
+  } finally {
+    loaded.value = true
+  }
+}
+
+// 每秒走一下「用时」；任务开始 / 结束 / 换步时 runs 会刷新，顺带重读任务
 const now = ref(Date.now())
 let tick: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   void loadRuns()
+  void loadTasks()
   tick = setInterval(() => (now.value = Date.now()), 1000)
 })
 onBeforeUnmount(() => clearInterval(tick))
+watch(() => state.runs, () => void loadTasks(), { deep: true })
 
-const runs = computed(() => state.runs)
-const empty = computed(() => runs.value.running.length + runs.value.interrupted.length + runs.value.recent.length === 0)
+type Filter = 'all' | 'active' | 'waiting' | 'interrupted' | 'finished'
+const filter = ref<Filter>('all')
+const origin = ref('')
+const groupOf = (s: TaskState): Exclude<Filter, 'all'> =>
+  s === 'waiting_confirm' ? 'waiting' : s === 'interrupted' ? 'interrupted' : s === 'pending' || s === 'running' ? 'active' : 'finished'
+const counts = computed(() => {
+  const c: Record<Filter, number> = { all: tasks.value.length, active: 0, waiting: 0, interrupted: 0, finished: 0 }
+  for (const x of tasks.value) c[groupOf(x.state)]++
+  return c
+})
+const filters: Filter[] = ['all', 'active', 'waiting', 'interrupted', 'finished']
+const origins = computed(() => [...new Set(tasks.value.map((x) => x.origin))])
+const order: Record<Exclude<Filter, 'all'>, number> = { waiting: 0, active: 1, interrupted: 2, finished: 3 }
+const shown = computed(() =>
+  tasks.value
+    .filter((x) => (filter.value === 'all' || groupOf(x.state) === filter.value) && (!origin.value || x.origin === origin.value))
+    .sort((a, b) => order[groupOf(a.state)] - order[groupOf(b.state)] || (b.finishedAt ?? b.createdAt).localeCompare(a.finishedAt ?? a.createdAt)),
+)
+
+const icons: Record<string, Component> = {
+  ui: Hand, mobile: Smartphone, dingtalk: MessageSquare, wecom: MessageSquare, instruction: ScrollText,
+  schedule: CalendarClock, folder: FolderSearch, event: Zap, pr: GitPullRequest,
+}
+const originName = (o: string) => (te(`ui.tasks.from.${o}`) ? t(`ui.tasks.from.${o}`) : o)
+
+/** 正在跑的那一轮的实时进度（同一个对话） */
+const liveRun = (x: TaskView): RunningRun | undefined => (x.live ? state.runs.running.find((r) => r.conversationId === x.conversationId) : undefined)
 
 function elapsed(startedAt: string) {
   const s = Math.max(0, Math.floor((now.value - new Date(startedAt).getTime()) / 1000))
@@ -33,98 +79,105 @@ function when(at: string) {
   return Number.isNaN(date.getTime()) ? at : date.toLocaleString(locale.value, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-/** 一轮任务的结局 → 文案和样式 */
-function outcome(reason: string) {
-  const known = ['Completed', 'Cancelled', 'MaxSteps', 'Budget', 'Stuck', 'TooManyFailures', 'Failed']
-  const key = known.includes(reason) ? reason : 'Failed'
-  return { text: t(`ui.tasks.outcome.${key}`), ok: key === 'Completed', stopped: key === 'Cancelled' }
+function fmt(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`
+  return String(n)
 }
+const tokens = (x: TaskView) => (x.tokenBudget > 0 ? t('ui.tasks.tokensOf', { used: fmt(x.tokensUsed), budget: fmt(x.tokenBudget) }) : t('ui.tasks.tokens', { used: fmt(x.tokensUsed) }))
+function grantText(x: TaskView) {
+  if (!x.grant) return ''
+  const perm = te(`ui.permission.${x.grant.permission}`) ? t(`ui.permission.${x.grant.permission}`) : x.grant.permission
+  const dir = x.grant.workspace.split(/[\\/]/).filter(Boolean).pop()
+  return dir ? t('ui.tasks.grantIn', { perm, dir }) : t('ui.tasks.grant', { perm })
+}
+const finished = (x: TaskView) => groupOf(x.state) === 'finished'
+const stateIcon = (x: TaskView) =>
+  x.state === 'done' ? CircleCheck : x.state === 'stopped' ? CircleStop : x.state === 'failed' || x.state === 'interrupted' ? CircleAlert : x.state === 'waiting_confirm' ? Hand : LoaderCircle
 
 async function act(fn: () => Promise<unknown>) {
   try {
     await fn()
     await loadRuns()
+    await loadTasks()
   } catch (e) {
     fail(e)
   }
 }
 
 const togglePause = (r: RunningRun) => act(() => (r.paused ? bridge.resume(r.conversationId) : bridge.pause(r.conversationId)))
-const stopRun = (r: RunningRun) => act(() => bridge.stop(r.conversationId))
+async function stopTask(x: TaskView) {
+  if (!window.confirm(t('ui.tasks.stopConfirm'))) return
+  await act(async () => {
+    if (await bridge.stopTask(x.id)) toast(t('ui.tasks.stopped'))
+  })
+}
+const resume = (x: TaskView) => act(() => resumeInterrupted(x.conversationId))
+const dismiss = (x: TaskView) => act(() => dismissInterrupted(x.conversationId))
 </script>
 
 <template>
   <div class="tasks">
     <div class="head">
       <h1><ListChecks :size="22" /> {{ t('ui.tasks.title') }}</h1>
-      <p class="sub">{{ t('ui.tasks.subtitle') }}</p>
+      <p class="sub">{{ t('ui.tasks.byTask') }}</p>
+      <div v-if="tasks.length" class="filters">
+        <button v-for="f in filters" :key="f" type="button" class="chip" :class="{ on: filter === f }" @click="filter = f">
+          {{ t(`ui.tasks.filter.${f}`) }} <span class="n">{{ counts[f] }}</span>
+        </button>
+        <select v-if="origins.length > 1" v-model="origin" class="origin-select" :aria-label="t('ui.tasks.allOrigins')">
+          <option value="">{{ t('ui.tasks.allOrigins') }}</option>
+          <option v-for="o in origins" :key="o" :value="o">{{ originName(o) }}</option>
+        </select>
+      </div>
     </div>
 
     <div class="content">
-      <p v-if="empty" class="empty">{{ t('ui.tasks.empty') }}</p>
+      <p v-if="loaded && tasks.length === 0" class="empty">{{ t('ui.tasks.empty') }}</p>
+      <p v-else-if="loaded && shown.length === 0" class="empty">{{ t('ui.tasks.noMatch') }}</p>
+      <p v-if="counts.interrupted && (filter === 'all' || filter === 'interrupted')" class="hint">{{ t('ui.tasks.interruptedHint') }}</p>
 
-      <!-- 正在进行 -->
-      <section v-if="runs.running.length">
-        <h2><LoaderCircle :size="15" class="spin" /> {{ t('ui.tasks.running') }} <span class="count">{{ runs.running.length }}</span></h2>
-        <div v-for="r in runs.running" :key="r.conversationId" class="card" :class="{ paused: r.paused }">
+      <section class="list-tasks">
+        <div v-for="x in shown" :key="x.id" class="card" :class="[`st-${x.state}`, { paused: liveRun(x)?.paused }]">
           <div class="row">
-            <button type="button" class="title" :title="t('ui.tasks.open')" @click="openConversation(r.conversationId)">
-              <Smartphone v-if="r.remote" :size="14" class="origin" />
-              {{ r.title }}
-            </button>
-            <span v-if="r.paused" class="pill warn"><Pause :size="12" /> {{ t('ui.pause.paused') }}</span>
-            <span class="meta">{{ elapsed(r.startedAt) }}</span>
-          </div>
-          <p class="step">{{ r.step || t('ui.tasks.thinking') }}</p>
-          <div v-if="r.total" class="bar" :title="`${r.done}/${r.total}`">
-            <span :style="{ width: `${Math.round((r.done / r.total) * 100)}%` }" />
-          </div>
-          <div class="row actions">
-            <span v-if="r.total" class="meta">{{ t('ui.tasks.planProgress', { done: r.done, total: r.total }) }}</span>
+            <span class="from" :title="originName(x.origin)"><component :is="icons[x.origin] ?? Zap" :size="13" /> {{ originName(x.origin) }}</span>
+            <span class="pill" :class="`st-${x.state}`">
+              <component :is="stateIcon(x)" :size="12" :class="{ spin: x.state === 'running' && !liveRun(x)?.paused }" />
+              {{ liveRun(x)?.paused ? t('ui.pause.paused') : t(`ui.tasks.state.${x.state}`) }}
+            </span>
             <span class="spacer" />
-            <button type="button" class="btn" @click="togglePause(r)">
-              <component :is="r.paused ? Play : Pause" :size="14" /> {{ t(r.paused ? 'ui.pause.resume' : 'ui.tasks.pause') }}
-            </button>
-            <button type="button" class="btn" @click="stopRun(r)"><Square :size="13" /> {{ t('ui.tasks.stop') }}</button>
-            <button type="button" class="btn primary" @click="openConversation(r.conversationId)">{{ t('ui.tasks.open') }}</button>
+            <span class="meta">{{ liveRun(x) ? elapsed(liveRun(x)!.startedAt) : when(x.finishedAt ?? x.startedAt ?? x.createdAt) }}</span>
           </div>
-        </div>
-      </section>
-
-      <!-- 上次没做完 -->
-      <section v-if="runs.interrupted.length">
-        <h2><CircleAlert :size="15" /> {{ t('ui.tasks.interrupted') }} <span class="count">{{ runs.interrupted.length }}</span></h2>
-        <p class="hint">{{ t('ui.tasks.interruptedHint') }}</p>
-        <div v-for="r in runs.interrupted" :key="r.conversationId" class="card">
-          <div class="row">
-            <button type="button" class="title" @click="openConversation(r.conversationId)">{{ r.title || t('ui.tasks.untitled') }}</button>
-            <span class="meta">{{ t('ui.tasks.startedAt', { at: when(r.startedAt) }) }}</span>
-          </div>
-          <p v-if="r.origin !== 'ui'" class="step">{{ t(`ui.tasks.origin.${r.origin === 'remote' ? 'remote' : 'headless'}`) }}</p>
-          <p v-if="r.stage" class="step">{{ t('ui.tasks.stoppedAt', { stage: r.stage }) }}</p>
-          <div class="row actions">
-            <span class="spacer" />
-            <button type="button" class="btn" @click="dismissInterrupted(r.conversationId)"><X :size="14" /> {{ t('ui.tasks.dismiss') }}</button>
-            <button type="button" class="btn primary" @click="resumeInterrupted(r.conversationId)"><RotateCcw :size="14" /> {{ t('ui.tasks.resume') }}</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- 最近完成 -->
-      <section v-if="runs.recent.length">
-        <h2><History :size="15" /> {{ t('ui.tasks.recent') }}</h2>
-        <div class="list">
-          <button v-for="(r, i) in runs.recent" :key="r.conversationId + i" type="button" class="item" @click="openConversation(r.conversationId)">
-            <component
-              :is="outcome(r.stopReason).ok ? CircleCheck : outcome(r.stopReason).stopped ? CircleStop : CircleAlert"
-              :size="15"
-              class="state"
-              :class="{ ok: outcome(r.stopReason).ok, bad: !outcome(r.stopReason).ok && !outcome(r.stopReason).stopped }"
-            />
-            <span class="name">{{ r.title || t('ui.tasks.untitled') }}</span>
-            <span class="meta">{{ outcome(r.stopReason).text }} · {{ t('ui.tasks.steps', { n: r.steps }) }}</span>
-            <span class="meta when">{{ when(r.finishedAt) }}</span>
+          <button type="button" class="title" :title="t('ui.tasks.open')" @click="openConversation(x.conversationId)">
+            {{ x.title || x.conversationTitle || t('ui.tasks.untitled') }}
           </button>
+          <p class="facts">
+            <span v-if="x.requestedBy">{{ t('ui.tasks.requestedBy', { who: x.requestedBy }) }}</span>
+            <span v-if="grantText(x)">{{ grantText(x) }}</span>
+            <span>{{ t('ui.tasks.runs', { n: x.runs }) }}</span>
+            <span :class="{ out: x.tokenBudget > 0 && x.tokensUsed >= x.tokenBudget }">{{ tokens(x) }}</span>
+          </p>
+          <template v-if="liveRun(x)">
+            <p class="step">{{ liveRun(x)!.paused ? t('ui.pause.paused') : liveRun(x)!.step || t('ui.tasks.thinking') }}</p>
+            <div v-if="liveRun(x)!.total" class="bar" :title="`${liveRun(x)!.done}/${liveRun(x)!.total}`">
+              <span :style="{ width: `${Math.round((liveRun(x)!.done / liveRun(x)!.total) * 100)}%` }" />
+            </div>
+          </template>
+          <p v-if="finished(x) && x.stopReason" class="step">{{ x.stopReason }}</p>
+          <p v-if="x.conversationTitle && x.conversationTitle !== x.title" class="step muted">{{ t('ui.tasks.conversation', { title: x.conversationTitle }) }}</p>
+          <div class="row actions">
+            <span v-if="liveRun(x)?.total" class="meta">{{ t('ui.tasks.planProgress', { done: liveRun(x)!.done, total: liveRun(x)!.total }) }}</span>
+            <span class="spacer" />
+            <button v-if="liveRun(x)" type="button" class="btn" @click="togglePause(liveRun(x)!)">
+              <component :is="liveRun(x)!.paused ? Play : Pause" :size="14" /> {{ t(liveRun(x)!.paused ? 'ui.pause.resume' : 'ui.tasks.pause') }}
+            </button>
+            <template v-if="x.state === 'interrupted'">
+              <button type="button" class="btn" @click="dismiss(x)"><X :size="14" /> {{ t('ui.tasks.dismiss') }}</button>
+              <button type="button" class="btn" @click="resume(x)"><RotateCcw :size="14" /> {{ t('ui.tasks.resume') }}</button>
+            </template>
+            <button v-else-if="!finished(x)" type="button" class="btn" @click="stopTask(x)"><Square :size="13" /> {{ t('ui.tasks.stop') }}</button>
+            <button type="button" class="btn primary" @click="openConversation(x.conversationId)">{{ t('ui.tasks.open') }}</button>
+          </div>
         </div>
       </section>
     </div>
@@ -360,5 +413,97 @@ h2 {
   .when {
     display: none;
   }
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--cloth);
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.chip.on {
+  border-color: var(--indigo);
+  color: var(--indigo);
+}
+.chip .n {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.origin-select {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--cloth);
+  color: var(--ink-soft);
+  font-size: var(--t-sm);
+}
+.list-tasks {
+  margin-top: 10px;
+}
+.from {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+}
+.pill.st-running {
+  color: var(--indigo);
+}
+.pill.st-waiting_confirm,
+.pill.st-interrupted {
+  background: color-mix(in srgb, var(--amber, #d97706) 14%, transparent);
+  color: var(--amber, #d97706);
+}
+.pill.st-done {
+  color: var(--green, #16a34a);
+}
+.pill.st-failed {
+  color: var(--danger, #dc2626);
+}
+.card .title {
+  display: block;
+  margin-top: 6px;
+}
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 4px 0 0;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.facts .out {
+  color: var(--danger, #dc2626);
+}
+.muted {
+  color: var(--ink-faint);
+}
+.card.st-done,
+.card.st-stopped,
+.card.st-failed {
+  background: var(--cloth-sunk, var(--cloth));
 }
 </style>

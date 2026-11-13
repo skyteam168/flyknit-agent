@@ -84,6 +84,35 @@ public sealed class TaskLedgerTests : IDisposable
     }
 
     [Fact]
+    public void TheTaskCentreStopsOnlyIdleTasks()
+    {
+        var t = _ledger.BeginRun(_conv, "x", "r1", RunKinds.First)!;
+        Assert.False(_ledger.StopIdle(t.TaskId, "员工在任务中心停止"));   // 正在跑：宿主走正常的停止，账本不碰
+        Assert.Equal(TaskState.Running, _store.Tasks.Get(t.TaskId)!.State);
+
+        _store.Tasks.RecoverAfterRestart();                              // 程序被关：中断
+        var fresh = new TaskLedger(_store.Tasks);
+        Assert.True(fresh.StopIdle(t.TaskId, "员工在任务中心停止"));
+        var stopped = _store.Tasks.Get(t.TaskId)!;
+        Assert.Equal(TaskState.Stopped, stopped.State);
+        Assert.Equal("员工在任务中心停止", stopped.StopReason);
+        Assert.False(fresh.StopIdle(t.TaskId, "再停一次"));               // 已经结束的不动
+        Assert.False(fresh.StopIdle("no-such-task", "x"));
+        Assert.Null(_store.Tasks.OpenFor(_conv));
+    }
+
+    [Fact]
+    public void ATasksGrantCanBeLookedUpById()
+    {
+        var g = TaskGrant.Issue("pr", _conv, "pw_1", "盯 PR #7", "修 CI", PermissionMode.Workspace, "D:\\repo", null);
+        _store.Grants.Add(g);
+        var got = _store.Grants.Get(g.Id)!;
+        Assert.Equal("pr", got.Origin);
+        Assert.Equal(PermissionMode.Workspace, got.Permission);
+        Assert.Null(_store.Grants.Get("g-missing"));
+    }
+
+    [Fact]
     public void ATriggerClosesAnUnresumedInterruptedTask()
     {
         _ledger.BeginRun(_conv, "x", "r1", RunKinds.First);

@@ -2180,6 +2180,13 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "runs.list":
                 return await RunsListAsync();
 
+            // 任务中心按任务列（docs/c1-unified-tasks.md 第 6 节）
+            case "tasks.list":
+                return _host.TasksList();
+
+            case "tasks.stop":
+                return _host.StopTask(Str("id"));
+
             case "runs.resume":
                 _host.ResumeInterrupted(Str("conversationId"), _settings.ResolveUiLanguage(), this, this);
                 return null;

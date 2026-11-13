@@ -207,6 +207,27 @@ public sealed class TaskLedger
         }, "记录任务放弃失败");
     }
 
+    /// <summary>
+    /// 在任务中心停掉一个没在跑的任务（中断了没续跑的、还没开始的）。正在跑的由宿主走正常的「停止」，这里不碰，返回 false。
+    /// </summary>
+    public bool StopIdle(string taskId, string reason)
+    {
+        try
+        {
+            if (_store.Get(taskId) is not { } task || TaskStateMachine.IsFinal(task.State)
+                || (_current.TryGetValue(task.ConversationId, out var c) && c.TaskId == taskId))
+            {
+                return false;
+            }
+            return _store.Transition(taskId, TaskEvent.Stop, reason) is not null;
+        }
+        catch (Exception ex)
+        {
+            _warn("记录任务停止失败", ex);
+            return false;
+        }
+    }
+
     /// <summary>程序启动时调：上次没收尾的任务标成中断，升级前的老数据补成任务。</summary>
     public void RecoverAfterRestart() => Safe(() => _store.RecoverAfterRestart(), "恢复任务状态失败");
 

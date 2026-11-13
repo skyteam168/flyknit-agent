@@ -727,6 +727,30 @@ export interface RecentRunInfo {
   finishedAt: string
 }
 
+/** 任务中心的一条任务（任务账本，docs/c1-unified-tasks.md） */
+export type TaskState = 'pending' | 'running' | 'waiting_confirm' | 'interrupted' | 'done' | 'failed' | 'stopped'
+export interface TaskView {
+  id: string
+  conversationId: string
+  conversationTitle: string
+  /** ui / mobile / dingtalk / wecom / instruction / schedule / folder / event / pr */
+  origin: string
+  title: string
+  requestedBy: string
+  state: TaskState
+  stopReason: string
+  runs: number
+  tokensUsed: number
+  /** 0 = 不限 */
+  tokenBudget: number
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+  /** 这个对话里正在跑的就是它（合上实时进度） */
+  live: boolean
+  grant: { permission: string; workspace: string } | null
+}
+
 export interface RunsList {
   running: RunningRun[]
   interrupted: InterruptedRunInfo[]
