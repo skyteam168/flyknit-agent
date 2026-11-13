@@ -407,6 +407,8 @@ class Bridge {
   /** 任务中心：按任务列（来源、发起人、授权、轮数、token） */
   listTasks = () => this.call<TaskView[]>('tasks.list')
   stopTask = (id: string) => this.call<boolean>('tasks.stop', { id })
+  /** 看门狗提醒后点「不用管」：这个任务后面不再提醒 */
+  dismissWatchdog = (id: string) => this.call<boolean>('tasks.watchdogDismiss', { id })
   /** 接着做上次没做完的任务 */
   resumeRun = (conversationId: string) => this.call<void>('runs.resume', { conversationId })
   /** 上次没做完的任务：不用了，不再提示 */

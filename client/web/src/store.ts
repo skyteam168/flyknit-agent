@@ -2000,6 +2000,10 @@ function onHostEvent(e: HostEvent) {
     case 'chat.paused':
       convState(e.conversationId).paused = e.paused
       break
+    case 'task.watchdog':
+      // 看门狗提醒 / 停下了一个任务：任务中心跟着刷新
+      refreshRunsSoon()
+      break
     case 'pr.updated': {
       const list = state.prs[e.conversationId] ?? []
       const i = list.findIndex((w) => w.id === e.watch.id)

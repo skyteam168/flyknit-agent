@@ -2187,6 +2187,10 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "tasks.stop":
                 return _host.StopTask(Str("id"));
 
+            // 看门狗提醒后员工点「不用管」：这个任务后面不再提醒
+            case "tasks.watchdogDismiss":
+                return _host.DismissWatchdog(Str("id"));
+
             case "runs.resume":
                 _host.ResumeInterrupted(Str("conversationId"), _settings.ResolveUiLanguage(), this, this);
                 return null;

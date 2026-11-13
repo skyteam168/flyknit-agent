@@ -290,6 +290,14 @@ public partial class App : Application
                 _notifications?.ShowNotice(title, body);
             }
         });
+        // 看门狗：任务一直在动却没进展（提醒 / 停下）时弹通知
+        _host.WatchdogNotice += (title, body, _) => Dispatcher.BeginInvoke(() =>
+        {
+            if (_settings.EnableNotifications)
+            {
+                _notifications?.ShowNotice(title, body);
+            }
+        });
         _host.RunFinished += info => Dispatcher.BeginInvoke(() =>
         {
             // 用户正看着这个任务时不打扰；被用户停止的任务不通知

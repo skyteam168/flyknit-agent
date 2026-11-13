@@ -84,6 +84,19 @@ public sealed class TaskLedgerTests : IDisposable
     }
 
     [Fact]
+    public void AWatchdogStopIsRecordedAsAFailureWithItsReason()
+    {
+        var t = _ledger.BeginRun(_conv, "x", "r1", RunKinds.First)!;
+        _ledger.NoteOutcome(_conv, TaskEvent.Fail, "看门狗：长时间没有进展");
+        _ledger.EndRun(_conv, AgentStopReason.Cancelled, 10, 2, null);   // 看门狗走的是正常的停止
+        _ledger.Finish(_conv);
+        var task = _store.Tasks.Get(t.TaskId)!;
+        Assert.Equal(TaskState.Failed, task.State);
+        Assert.Equal("看门狗：长时间没有进展", task.StopReason);
+        _ledger.NoteOutcome(_conv, TaskEvent.Fail, "没在跑");             // 没在跑的对话：不做事、不抛
+    }
+
+    [Fact]
     public void TheTaskCentreStopsOnlyIdleTasks()
     {
         var t = _ledger.BeginRun(_conv, "x", "r1", RunKinds.First)!;

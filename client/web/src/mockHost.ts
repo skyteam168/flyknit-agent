@@ -102,6 +102,8 @@ export function createMockHost(): HostTransport {
   const runningConvs = new Set<string>()
   /** 模拟：任务中心里停掉的任务 */
   const stoppedTasks = new Set<string>()
+  /** 模拟：看门狗提醒后点了「不用管」的任务 */
+  const watchdogDismissed = new Set<string>()
   const dismissedRuns = new Set<string>()
   const revertedMock = new Set<string>()
   const MOCK_XLSX = 'D:\\日报\\2026-09\\汇总.xlsx'
@@ -1919,6 +1921,12 @@ export function createMockHost(): HostTransport {
             tokensUsed: 9_200, tokenBudget: 500_000, grant: { permission: 'workspace', workspace: 'D:\\生产日报' } },
           { ...base('t-int', 2), origin: 'ui', title: '本周 3 号线停机排行', requestedBy: '员工本人', state: 'interrupted', runs: 2,
             tokensUsed: 64_000, tokenBudget: 0 },
+          { ...base('t-loop', 6), origin: 'ui', title: '找出上个月所有异常停机的原因', requestedBy: '员工本人', state: 'running', runs: 2,
+            tokensUsed: 182_000, tokenBudget: 0,
+            watchdog: watchdogDismissed.has('t-loop') ? null : { stage: 'reminded', verdict: 'stalled', reason: '一直在反复列同几个目录，没有读到新的数据' } },
+          { ...base('t-dog', 7), origin: 'schedule', title: '每周一整理质检记录', requestedBy: '定时任务：质检周报', state: 'failed',
+            stopReason: '看门狗：长时间没有进展', runs: 1, tokensUsed: 96_000, tokenBudget: 0, finishedAt: ago(8 * 3600_000),
+            watchdog: { stage: 'stopped', verdict: 'stalled', reason: '共享盘打不开，反复重试同一个路径' } },
           { ...base('t-sched', 3), origin: 'schedule', title: '每日 8 点汇总产量', requestedBy: '定时任务：每日产量', state: 'done', runs: 1,
             tokensUsed: 21_300, tokenBudget: 0, finishedAt: ago(5 * 3600_000), grant: { permission: 'workspace', workspace: 'D:\\生产日报' } },
           { ...base('t-pr', 4), origin: 'pr', title: 'PR #42 自动修复', requestedBy: '盯 PR #42', state: 'failed', stopReason: '任务额度用完', runs: 3,
@@ -1930,6 +1938,9 @@ export function createMockHost(): HostTransport {
       }
       case 'tasks.stop':
         stoppedTasks.add(p.id)
+        return true
+      case 'tasks.watchdogDismiss':
+        watchdogDismissed.add(p.id)
         return true
       case 'runs.dismiss':
         dismissedRuns.add(p.conversationId)

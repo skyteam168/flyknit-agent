@@ -749,6 +749,8 @@ export interface TaskView {
   /** 这个对话里正在跑的就是它（合上实时进度） */
   live: boolean
   grant: { permission: string; workspace: string } | null
+  /** 看门狗提醒过 / 停下的（docs/c3-watchdog.md）；没提醒过为 null */
+  watchdog?: { stage: 'reminded' | 'notified' | 'stopped' | 'dismissed'; verdict: string; reason: string } | null
 }
 
 export interface RunsList {
@@ -1001,6 +1003,7 @@ export type HostEvent =
   | { type: 'chat.notice'; conversationId: string; text: string }
   | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
   | { type: 'pr.updated'; conversationId: string; watch: PrWatchView }
+  | { type: 'task.watchdog'; conversationId: string; taskId: string; watchdog: TaskView['watchdog'] }
   | { type: 'sandbox.state'; conversationId: string; state: SandboxState; message: string; container: string; branch: string; base: string }
   | { type: 'chat.paused'; conversationId: string; paused: boolean }
   | { type: 'runs.changed' }

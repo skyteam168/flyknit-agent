@@ -1439,6 +1439,7 @@ const zh = {
       stopConfirm: '停止这个任务？正在做的这一步会停下，已经做完的不会撤回。',
       stopped: '已停止',
       conversation: '对话：{title}',
+      watchdog: { stalled: '可能卡住了', drifting: '可能跑偏了', dismiss: '不用管', stoppedBecause: '看门狗停下了这个任务：{reason}' },
       origin: { remote: '这是钉钉 / 企业微信 / 手机发来的任务，接着做的结果只在电脑上', headless: '这是定时任务或后台指令' },
       outcome: {
         Completed: '已完成',
@@ -3207,6 +3208,7 @@ const vi: Messages = {
       stopConfirm: 'Dừng việc này? Bước đang làm sẽ dừng lại, những gì đã làm xong sẽ không bị hoàn tác.',
       stopped: 'Đã dừng',
       conversation: 'Hội thoại: {title}',
+      watchdog: { stalled: 'Có thể đang bị kẹt', drifting: 'Có thể đang đi chệch hướng', dismiss: 'Bỏ qua', stoppedBecause: 'Trình giám sát đã dừng việc này: {reason}' },
       origin: { remote: 'Việc gửi từ DingTalk / WeCom / điện thoại, kết quả làm tiếp chỉ có trên máy tính', headless: 'Việc theo lịch hoặc lệnh chạy nền' },
       outcome: {
         Completed: 'Đã xong',
@@ -4973,6 +4975,7 @@ const en: Messages = {
       stopConfirm: 'Stop this task? The current step stops; work already done is not undone.',
       stopped: 'Stopped',
       conversation: 'Conversation: {title}',
+      watchdog: { stalled: 'May be stuck', drifting: 'May be off track', dismiss: 'Ignore', stoppedBecause: 'Stopped by the watchdog: {reason}' },
       origin: { remote: 'Sent from DingTalk / WeCom / phone; continuing shows the result on this PC only', headless: 'Scheduled task or background instruction' },
       outcome: {
         Completed: 'Done',

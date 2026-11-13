@@ -64,6 +64,8 @@ public sealed partial class AgentHost
                 finishedAt = task.FinishedAt,
                 // 正在跑的那一个任务（同一个对话里只有一个）：界面据此合上实时进度、暂停按钮
                 live = IsRunning(task.ConversationId) && Ledger.TaskIdOf(task.ConversationId) == task.Id,
+                // 看门狗提醒过 / 停下的（docs/c3-watchdog.md）：卡片上标出来，带「不用管」
+                watchdog = WatchdogDto(task.ConversationId, task.Id),
                 grant = grant is null ? null : new
                 {
                     permission = PermissionModes.ToText(grant.Permission),

@@ -31,6 +31,8 @@ public sealed class TaskLedger
         public AgentStopReason? LastStop { get; set; }
         public string Message { get; set; } = "";
         public bool Ended { get; set; }
+        /// <summary>收尾时用这个结果，不按最后一轮的停止原因推（看门狗停掉的：记失败和原因，不记「已停止」）。</summary>
+        public (TaskEvent Event, string Reason)? Override { get; set; }
     }
 
     public TaskLedger(TaskStore store, Action<string, Exception?>? warn = null)
@@ -103,6 +105,17 @@ public sealed class TaskLedger
         }
     }
 
+    /// <summary>
+    /// 先定好这件事怎么收尾（看门狗停掉任务前调）：之后的 Finish 用它，而不是按「被停止」记成已停止。
+    /// </summary>
+    public void NoteOutcome(string conversationId, TaskEvent e, string reason)
+    {
+        if (_current.TryGetValue(conversationId, out var c))
+        {
+            c.Override = (e, reason);
+        }
+    }
+
     /// <summary>这个对话现在在跑的任务。</summary>
     public string? TaskIdOf(string conversationId) => _current.TryGetValue(conversationId, out var c) ? c.TaskId : null;
 
@@ -161,7 +174,7 @@ public sealed class TaskLedger
             {
                 return;
             }
-            var (e, reason) = Outcome(c.LastStop, c.Message, task.BudgetExhausted);
+            var (e, reason) = c.Override ?? Outcome(c.LastStop, c.Message, task.BudgetExhausted);
             _store.Transition(task.Id, e, reason);
         }, "记录任务结束失败");
     }
