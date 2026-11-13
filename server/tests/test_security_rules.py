@@ -112,6 +112,10 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "watchdog",
         "watchdog_auto_stop",
         "watchdog_minutes",
+        # 客户端 AgentHost.Router 读这三项：调度（钉钉追问归档、问进度、事件合并）、拆分建议、同时做几件
+        "router",
+        "router_split",
+        "router_parallel",
         # 客户端 AgentHost 读它决定这一轮有没有浏览器工具
         "browser_tools",
         # 客户端读它决定能不能在后台启动命令（run_shell background=true、shell_output、shell_stop）

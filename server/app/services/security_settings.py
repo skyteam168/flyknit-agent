@@ -175,6 +175,25 @@ SETTINGS: tuple[Setting, ...] = (
         risk="任务一直在动、却连续这么多分钟没有新进展，才请模型判断。长任务模式的对话按 2 倍算。调小会更早提醒，也更容易误报。",
     ),
     Setting(
+        key="router", kind="bool", default=False, locked=True,
+        title="调度：归档追问、合并重复事件",
+        risk="打开后，钉钉 / 企业微信里同一个人有事在办时，新消息先由便宜模型（title 场景，用量记在「调度」用途下）判断："
+             "是追问就交给正在做的那件（不再新开对话），问进度就按任务记录直接回复（不跑 AI），是新的事照常排队。"
+             "事件触发同样内容 10 分钟内只处理一次。调度只做归档决定，不执行任何操作、不放宽权限。手机端不受影响。",
+    ),
+    Setting(
+        key="router_split", kind="bool", default=False, locked=True,
+        title="调度：一句话里的几件事分开做",
+        risk="打开后，员工一句话里像有好几件互相独立的事时，会问一句「要分开做吗？」，员工点了才拆："
+             "每件事在自己的对话里做，原对话汇总进度、合并确认（高危操作仍要逐条点）。不会自动拆。",
+    ),
+    Setting(
+        key="router_parallel", kind="int", default=1, locked=True,
+        title="分开做时同时做几件", minimum=1, maximum=3,
+        risk="1 = 一件接一件（默认）。调大后几件同时做，读可以并行，写文件、跑会改东西的命令仍然排队一次一个；"
+             "同时做会同时用 token，也会同时弹确认。",
+    ),
+    Setting(
         key="run_token_budget", kind="int", default=200, locked=True,
         title="单次任务 token 上限（万）", minimum=0, maximum=100000,
         risk="一次办事任务（员工说一句话引起的一轮）最多用多少 token，输入 + 输出累计，单位万；用到 70% 提醒 AI 收尾，用完就停下总结、等员工说「继续」。"

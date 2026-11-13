@@ -222,6 +222,7 @@ const PURPOSES: Record<string, { title: string; hint: string }> = {
   enhance: { title: '优化提示词', hint: '员工点「优化」改写输入' },
   sidechat: { title: '顺便问一句', hint: '任务进行中的旁路提问' },
   watchdog: { title: '看门狗', hint: '任务一直在动却没进展时，判断是不是卡住 / 跑偏' },
+  router: { title: '调度', hint: '钉钉追问归到原任务、问进度、合并重复事件、拆分建议' },
   other: { title: '其他', hint: '客户端报了认不出的用途' },
 }
 const purposeLabel = (p: string) => PURPOSES[p] ?? { title: p, hint: '' }

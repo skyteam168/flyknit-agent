@@ -91,3 +91,16 @@ async def test_watchdog_settings_default_off(client, device_headers):
     assert sec["watchdog_auto_stop"]["value"] is False
     assert sec["watchdog_minutes"]["value"] == 10
     assert all(sec[k]["locked"] for k in ("watchdog", "watchdog_auto_stop", "watchdog_minutes"))
+
+
+def test_router_is_a_known_purpose():
+    assert usage_store.clean_purpose("router") == "router"
+
+
+async def test_router_settings_default_off(client, device_headers):
+    """C2 调度：三个开关默认关 / 一件接一件，都由 IT 统一配置。"""
+    sec = (await client.get("/api/v1/client/config", headers=device_headers)).json()["security"]
+    assert sec["router"]["value"] is False
+    assert sec["router_split"]["value"] is False
+    assert sec["router_parallel"]["value"] == 1
+    assert all(sec[k]["locked"] for k in ("router", "router_split", "router_parallel"))
