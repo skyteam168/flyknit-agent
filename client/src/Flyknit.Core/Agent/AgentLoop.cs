@@ -917,6 +917,7 @@ public sealed class AgentLoop
             {
                 ConversationId = context.ConversationId,
                 GrantId = context.GrantId,
+                TaskId = context.TaskId,
                 Scene = scene,
                 ToolName = call.Name,
                 Arguments = call.ArgumentsJson,

@@ -120,7 +120,7 @@ public sealed partial class AgentHost
         PrNotice?.Invoke($"PR #{w.Number}：{text}", w.Title, w.ConversationId);
         if (outcome.FixPrompt is { } prompt)
         {
-            StartPrFix(w.ConversationId, prompt);
+            StartPrFix(w, prompt);
         }
     }
 
@@ -128,9 +128,10 @@ public sealed partial class AgentHost
     /// 在那个对话里开一轮修复。界面没挂上（没人确认推送）就不开；对话正在跑就排到这一轮之后。
     /// 修复和员工自己发话一样走正常的权限和确认，不会因为是自动开的就少问一句。
     /// </summary>
-    private void StartPrFix(string conversationId, string prompt)
+    private void StartPrFix(PrWatch w, string prompt)
     {
-        if (Events is not { } events || Confirm is not { } confirm || Store.Get(conversationId) is null)
+        var conversationId = w.ConversationId;
+        if (Events is not { } events || Confirm is not { } confirm || Store.Get(conversationId) is not { } conv)
         {
             return;
         }
@@ -139,8 +140,21 @@ public sealed partial class AgentHost
             Inbox.Add(conversationId, prompt, RunInbox.Queue);
             return;
         }
+        // 不是员工自己发的话：和定时任务、手机任务一样先记一份授权（权限不超过这个对话现在的权限，本机发起、不等服务端），
+        // 任务账本里记成一件「PR 自动修复」的事
+        var (grant, _) = IssueGrant(conv, "pr", w.Id, $"盯 PR #{w.Number} 自动修复", prompt);
+        ExpectTask(Flyknit.Core.Tasks.TaskOrigins.PullRequest, conv, $"PR #{w.Number} 自动修复", w.Id, $"盯 PR #{w.Number}", grant);
         var message = NewUserMessage(null, prompt, Array.Empty<Attachment>());
-        StartRun(conversationId, UiLanguage, confirm, events, _ => message);
+        try
+        {
+            StartRun(conversationId, UiLanguage, confirm, events, _ => message);
+        }
+        catch
+        {
+            ForgetTask(conversationId);
+            _activeGrants.TryRemove(conversationId, out _);
+            throw;
+        }
         events.Post(new { type = "chat.message", conversationId, message = MessageDto.From(message) });
     }
 

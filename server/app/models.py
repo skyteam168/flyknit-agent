@@ -315,6 +315,8 @@ class AuditLog(Base):
     actor: Mapped[str] = mapped_column(String(60), default="")
     #: 不是员工在电脑前发起的任务（手机、钉钉、定时、事件……）所依据的授权记录（task_grants.id）
     grant_id: Mapped[str] = mapped_column(String(40), default="")
+    #: 所属任务（员工端本机任务账本的 tasks.id，见 docs/c1-unified-tasks.md）；老员工端不报时为空
+    task_id: Mapped[str] = mapped_column(String(40), default="", server_default=text("''"), index=True)
     #: MCP 工具调用当时的连接器来源：global，或 plugin:<插件>@<版本>。服务端收到时按连接器表填，员工端报的不算
     mcp_source: Mapped[str] = mapped_column(String(120), default="")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

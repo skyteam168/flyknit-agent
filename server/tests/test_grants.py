@@ -68,3 +68,31 @@ async def test_schedule_grants_and_content_visibility(client, device_headers):
         "id": "g-bad-00001", "origin": "email", "permission": "readonly"})
     assert bad.status_code == 422
     assert (await client.get("/api/v1/admin/grants", headers=device_headers)).status_code in (401, 403)
+
+
+async def test_folder_and_pr_grants_are_local_and_accepted(client, device_headers):
+    """文件夹监视（以前借用 event）和 PR 自动修复：本机发起、服务端没有记录可核对，照收不核对。"""
+    for gid, origin, ref in (("g-folder-0001", "folder", "sched-7"), ("g-prfix-0001", "pr", "w123")):
+        r = await client.post("/api/v1/client/grants", headers=device_headers, json={
+            "id": gid, "conversation_id": "c3", "origin": origin, "reference": ref,
+            "requested_by": "盯 PR #12", "instruction": "修 CI", "permission": "workspace"})
+        assert r.status_code == 201, r.text
+        assert r.json()["origin"] == origin and r.json()["verified"] is False
+    bad = await client.post("/api/v1/client/grants", headers=device_headers, json={
+        "id": "g-nope-0001", "origin": "whatever", "permission": "readonly"})
+    assert bad.status_code == 422
+
+
+async def test_audit_carries_the_task_and_can_be_filtered_by_it(client, device_headers):
+    """VNext 第 1 期：审计带任务编号，同一件事跨好几轮的操作能一次看全；老员工端不报时为空。"""
+    r = await client.post("/api/v1/audit", headers=device_headers, json={"items": [
+        {"conversation_id": "c1", "tool_name": "read_file", "risk": "auto", "decision": "auto", "task_id": "t-aaa"},
+        {"conversation_id": "c1", "tool_name": "write_file", "risk": "confirm", "decision": "approved", "task_id": "t-aaa"},
+        {"conversation_id": "c1", "tool_name": "run_shell", "risk": "confirm", "decision": "approved", "task_id": "t-bbb"},
+        {"conversation_id": "c1", "tool_name": "list_dir", "risk": "auto", "decision": "auto"},
+    ]})
+    assert r.status_code == 204
+    rows = (await client.get("/api/v1/admin/audit", headers=ADMIN, params={"task_id": "t-aaa"})).json()
+    assert sorted(x["tool_name"] for x in rows) == ["read_file", "write_file"]
+    everything = (await client.get("/api/v1/admin/audit", headers=ADMIN)).json()
+    assert {x["task_id"] for x in everything} == {"t-aaa", "t-bbb", ""}

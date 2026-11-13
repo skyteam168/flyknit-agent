@@ -266,6 +266,7 @@ class AuditItem(BaseModel):
     actor: ClipOrEmpty(60) = ""
     #: 依据的任务授权记录（远程 / 定时 / 事件任务）；员工自己发起的为空
     grant_id: ClipOrEmpty(40) = ""
+    task_id: ClipOrEmpty(40) = ""
     occurred_at: datetime | None = None
 
 
@@ -291,6 +292,7 @@ class AuditOut(BaseModel):
     subtask_id: str = ""
     actor: str = ""
     grant_id: str = ""
+    task_id: str = ""
     mcp_source: str = ""
     occurred_at: datetime
     created_at: datetime

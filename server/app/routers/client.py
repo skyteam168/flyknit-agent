@@ -246,6 +246,7 @@ async def report_audit(
             subtask_id=item.subtask_id,
             actor=item.actor,
             grant_id=item.grant_id,
+            task_id=item.task_id,
             mcp_source=_mcp_source(item.tool_name, sources),
         )
         if item.occurred_at is not None:

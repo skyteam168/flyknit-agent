@@ -54,13 +54,17 @@ public sealed partial class AgentHost
         var progress = mobile ? new RemoteProgress(Server, messageId) : null;
         var confirm = new RemoteDecline(mobile ? Server : null, messageId, mobile ? Confirm : null, mobile ? Events : null, progress);
         // 授权记录：谁让做、做到哪。服务端核对不通过（这条消息不是发给这台电脑的）就不执行
-        var (grant, refused) = await IssueGrantAsync(conv, channel is "mobile" or "wecom" or "event" ? channel : "dingtalk",
-            messageId > 0 ? messageId.ToString(System.Globalization.CultureInfo.InvariantCulture) : "", sender, text, ct,
+        var origin = channel is "mobile" or "wecom" or "event" ? channel : "dingtalk";
+        var reference = messageId > 0 ? messageId.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+        var (grant, refused) = await IssueGrantAsync(conv, origin, reference, sender, text, ct,
             permission.Length > 0 ? Flyknit.Core.Security.PermissionModes.Parse(permission) : null);
         if (refused is not null)
         {
             return new InstructionOutcome(false, "", refused, conv.Id);
         }
+        // 任务账本：一条远程消息是一件新的事
+        ExpectTask(origin, conv, Store.Get(conv.Id)?.Title ?? conv.Title, reference,
+            $"{ChannelName(channel)}：{(sender.Length > 0 ? sender : "远程")}", grant);
         if (rehearsal)
         {
             MarkRehearsal(conv.Id); // 只读调研、列出会做的修改（见 PlanMode.RehearsalGuide）

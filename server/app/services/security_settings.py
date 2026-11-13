@@ -150,6 +150,13 @@ SETTINGS: tuple[Setting, ...] = (
              "开着时，开了长任务模式的对话步数上限放宽到 300 步，到上限会自动接着做（最多再续 5 次），每一轮仍受单次任务的 token 预算约束。",
     ),
     Setting(
+        key="task_token_budget", kind="int", default=0, locked=True,
+        title="单个任务 token 上限（万）", minimum=0, maximum=1000000,
+        risk="一件事（一个任务）所有轮次合计最多用多少 token，单位万：员工说一句话后 AI 连着做的几轮、长任务模式的自动续跑、"
+             "中断后续跑都算同一个任务；手机、钉钉、定时任务、指令中心、PR 自动修复每次触发各算一个。用完后不再自动续跑，"
+             "这一轮也不会超过剩下的额度，任务记成「任务额度用完」；员工再说话算新任务。单次任务的上限照样生效。默认 0 = 不限。",
+    ),
+    Setting(
         key="run_token_budget", kind="int", default=200, locked=True,
         title="单次任务 token 上限（万）", minimum=0, maximum=100000,
         risk="一次办事任务（员工说一句话引起的一轮）最多用多少 token，输入 + 输出累计，单位万；用到 70% 提醒 AI 收尾，用完就停下总结、等员工说「继续」。"

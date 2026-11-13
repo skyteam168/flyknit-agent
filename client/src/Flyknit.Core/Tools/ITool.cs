@@ -162,6 +162,9 @@ public sealed class ToolContext
     /// <summary>这一轮依据的任务授权记录（远程 / 定时 / 事件任务）；员工自己发起的为空。写进审计。</summary>
     public string GrantId { get; init; } = "";
 
+    /// <summary>这一轮属于哪个任务（任务账本 tasks.id，见 docs/c1-unified-tasks.md）。写进审计；没有时为空。</summary>
+    public string TaskId { get; init; } = "";
+
     /// <summary>这次运行（员工的一句话引起的一轮）的 ID。派遣专家按它计次。</summary>
     public string RunId { get; init; } = "";
 
@@ -279,6 +282,7 @@ public sealed class ToolContext
         Workspace = Workspace,
         Permission = (PermissionMode)Math.Min((int)Permission, (int)permission),
         GrantId = GrantId,
+        TaskId = TaskId,
         RunId = runId,
         LoadedTools = new HashSet<string>(LoadedTools, StringComparer.Ordinal),
         Rules = Rules,
