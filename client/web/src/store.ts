@@ -4,6 +4,7 @@ import { forHost, isTextAttachment, utf8Base64 } from './pasted'
 import { applyLanguage, i18n } from './i18n'
 import type {
   GroupView,
+  QueuedView,
   SplitItemView,
   PrWatchView,
   SandboxStatus,
@@ -129,6 +130,8 @@ export const state = reactive({
   splitOffer: null as null | { text: string; items: SplitItemView[]; final: SplitItemView | null; busy: boolean },
   /** 每个对话拆出来的几组事（原对话的汇总卡） */
   groups: {} as Record<string, GroupView[]>,
+  /** 排队中（还没轮到）的拆分子对话：侧栏标「排队中」，打开时显示占位说明 */
+  queued: {} as Record<string, QueuedView>,
   view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
@@ -768,6 +771,16 @@ export async function loadRuns() {
     state.runs = await bridge.listRuns()
   } catch (e) {
     console.warn('读取任务列表失败', e)
+  }
+  void loadQueued() // 一件开始 / 结束时排队的那几件也跟着变
+}
+
+async function loadQueued() {
+  try {
+    const list = (await bridge.routerQueued()) ?? []
+    state.queued = Object.fromEntries(list.map((q) => [q.conversationId, q]))
+  } catch {
+    // 旧宿主没有这个接口：不显示排队标记
   }
 }
 

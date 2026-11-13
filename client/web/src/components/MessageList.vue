@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, FilePen, GitBranch, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
+import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, Clock, FilePen, GitBranch, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
 import { changesForAnswer, current, currentState, editAndResend, forkConversation, mcpToolLabel, openChanges, openAttachment, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
@@ -21,6 +21,8 @@ const copiedId = ref<string | null>(null)
 const stick = ref(true)
 
 const s = computed(() => currentState.value)
+/** 一句话拆开、还没轮到的那几件：打开时不是一片空白，说清楚在排队、前面做完会自动开始 */
+const queued = computed(() => (current.value ? state.queued[current.value.id] : undefined))
 const isTranslate = computed(() => current.value?.mode === 'translate')
 
 /** 隐藏 tool 消息（结果显示在工具卡片里）和空的 assistant 消息 */
@@ -322,6 +324,14 @@ const isImage = (mime: string) => mime.startsWith('image/')
             <span v-if="i === 1" class="skel" style="width: 58%; height: 54px; border-radius: 10px" />
           </div>
         </template>
+      </div>
+    </div>
+    <div v-else-if="s && queued && s.messages.length === 0" class="column">
+      <div class="queued-wait" role="status">
+        <Clock :size="40" class="queued-icon" />
+        <strong>{{ t('ui.router.queuedTitle') }}</strong>
+        <p>{{ t('ui.router.queuedText', { parent: queued.parentTitle || t('ui.tasks.untitled'), index: queued.index, total: queued.total }) }}</p>
+        <button type="button" class="btn" @click="openConversation(queued.parentId)">{{ t('ui.router.viewSummary') }}</button>
       </div>
     </div>
     <div v-else-if="s" class="column" @click="onContentClick">
@@ -1229,5 +1239,26 @@ const isImage = (mime: string) => mime.startsWith('image/')
   padding-left: 12px;
   border-left: 3px solid var(--line-strong);
   color: var(--ink-soft);
+}
+.queued-wait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 18vh auto 0;
+  max-width: 420px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.queued-wait strong {
+  color: var(--ink);
+  font-size: var(--t-md, 15px);
+}
+.queued-wait p {
+  margin: 0;
+  line-height: 1.6;
+}
+.queued-icon {
+  color: var(--ink-faint);
 }
 </style>

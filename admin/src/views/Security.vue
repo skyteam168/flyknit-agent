@@ -59,8 +59,6 @@ function setLock(key: string, next: boolean) {
 }
 onMounted(load)
 
-const boolItems = computed(() => catalog.value.filter((i) => i.kind === 'bool'))
-const intItems = computed(() => catalog.value.filter((i) => i.kind === 'int'))
 
 async function save() {
   saving.value = true
@@ -111,8 +109,9 @@ async function save() {
         style="margin-bottom: 16px"
       />
 
-      <h3 class="section">开关项</h3>
-      <div v-for="i in boolItems" :key="i.key" class="row">
+      <!-- 按服务端清单的顺序排成一列：相关的开关和数值挨在一起（例如「分开做」下面就是「同时做几件」），
+           以前数值项都集中在最底下，IT 找不到 -->
+      <div v-for="i in catalog" :key="i.key" class="row">
         <div class="info">
           <strong>{{ i.title }}</strong>
           <small v-if="i.risk">{{ i.risk }}</small>
@@ -129,31 +128,13 @@ async function save() {
             >{{ locks[i.key] ? '已锁定' : '员工可改' }}</el-button>
           </el-tooltip>
           <el-switch
+            v-if="i.kind === 'bool'"
             :model-value="(values[i.key] as boolean)"
             :disabled="!canEdit"
             @update:model-value="setValue(i.key, $event as boolean)"
           />
-        </div>
-      </div>
-
-      <h3 class="section">数值项</h3>
-      <div v-for="i in intItems" :key="i.key" class="row">
-        <div class="info">
-          <strong>{{ i.title }}</strong>
-          <small v-if="i.risk">{{ i.risk }}</small>
-        </div>
-        <div class="ctrl">
-          <el-tooltip content="锁定后员工端只读，不能自己改" placement="top">
-            <el-button
-              :type="locks[i.key] ? 'warning' : 'default'"
-              :icon="Lock"
-              size="small"
-              plain
-              :disabled="!canEdit"
-              @click="setLock(i.key, !locks[i.key])"
-            >{{ locks[i.key] ? '已锁定' : '员工可改' }}</el-button>
-          </el-tooltip>
           <el-input-number
+            v-else
             :model-value="(values[i.key] as number)"
             :min="meta[i.key]?.min ?? 0"
             :max="meta[i.key]?.max ?? 100000"

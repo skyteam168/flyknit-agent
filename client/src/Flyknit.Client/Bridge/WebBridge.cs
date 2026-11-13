@@ -2224,6 +2224,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "router.groups":
                 return _host.GroupsOf(Str("conversationId"));
 
+            case "router.queued":
+                return _host.QueuedSplits();
+
             // 看门狗提醒后员工点「不用管」：这个任务后面不再提醒
             case "tasks.watchdogDismiss":
                 return _host.DismissWatchdog(Str("id"));
