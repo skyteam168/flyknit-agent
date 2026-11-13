@@ -8,6 +8,8 @@ import type { Department, DeviceAccess, ItemScope, LayerPolicy, ScopeKind, Slash
   MobilePhone,
   MobileRelease,
   WeComConfig,
+  Team,
+  TeamIn,
   Expert,
   ExpertDraft,
   ExpertFields,
@@ -322,6 +324,11 @@ export const api = {
   feedbackLogs: (id: number) => download(`/feedback/${id}/logs`, undefined, `feedback-${id}.zip`),
   // 部门与隔离：部门清单、部门 / 单台电脑的安全设置、技能 / 专家 / 连接器的使用范围
   departments: () => get<Department[]>('/departments'),
+  teams: () => get<Team[]>('/teams'),
+  createTeam: (body: TeamIn) => post<Team>('/teams', body),
+  updateTeam: (id: string, body: TeamIn) => put<Team>(`/teams/${encodeURIComponent(id)}`, body),
+  dissolveTeam: (id: string) => post<Team>(`/teams/${encodeURIComponent(id)}/dissolve`),
+  restoreTeam: (id: string) => post<Team>(`/teams/${encodeURIComponent(id)}/restore`),
   createDepartment: (body: { name: string; note?: string }) => post<Department>('/departments', body),
   updateDepartment: (id: number, body: Partial<{ name: string; note: string; sort_order: number }>) =>
     patch<Department>(`/departments/${id}`, body),

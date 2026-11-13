@@ -24,6 +24,7 @@ import ImageViewer from './components/ImageViewer.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
+import TeamsPage from './components/TeamsPage.vue'
 import TasksPage from './components/TasksPage.vue'
 import GroupCard from './components/GroupCard.vue'
 import PluginsPage from './components/PluginsPage.vue'
@@ -314,6 +315,7 @@ onBeforeUnmount(() => {
       <div class="body">
         <LibraryPage v-if="state.view === 'library'" />
         <ExpertsPage v-else-if="state.view === 'experts'" />
+        <TeamsPage v-else-if="state.view === 'teams'" />
         <TasksPage v-else-if="state.view === 'tasks'" />
         <PluginsPage v-else-if="state.view === 'plugins'" />
         <ConnectorsPage v-else-if="state.view === 'connectors'" @use="useExample" />

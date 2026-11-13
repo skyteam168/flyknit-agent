@@ -202,6 +202,33 @@ SETTINGS: tuple[Setting, ...] = (
              "不自动合并；PR 合并 / 关闭或 7 天没动静后清理 worktree，有未提交的改动不删。",
     ),
     Setting(
+        key="teams", kind="bool", default=False, locked=True,
+        title="团队模式",
+        risk="打开后，员工端侧栏出现「团队」：把 2～8 位专家组成团队，主助手当队长列分工计划、员工确认后成员分头做、最后汇总报告。"
+             "团队只能在专家原有配置上收紧，确认和安全规则照旧；一次团队任务会同时用好几位专家的 token。",
+    ),
+    Setting(
+        key="team_create", kind="bool", default=True, locked=True,
+        title="团队：员工可以自己建团队",
+        risk="关掉后员工只能用 IT 下发的团队；已建的部门团队、个人团队仍可使用，但不能再新建。",
+    ),
+    Setting(
+        key="team_max_members", kind="int", default=8, locked=True,
+        title="团队：最多几位成员", minimum=2, maximum=8,
+        risk="一个团队最多几位专家（不含队长）。成员越多，一次任务花的 token 越多。",
+    ),
+    Setting(
+        key="team_parallel", kind="int", default=3, locked=True,
+        title="团队：同时干活的成员", minimum=1, maximum=4,
+        risk="一次团队任务里最多几位成员同时进行。只读的成员可以同时查；会改东西的成员仍按写入排队或在独立工作副本里做。",
+    ),
+    Setting(
+        key="team_token_budget", kind="int", default=100, locked=True,
+        title="团队：单次任务 token 上限（万）", minimum=10, maximum=10000,
+        risk="一次团队任务（含队长和所有成员）最多用多少 token，单位万；用到 80% 提醒，用完后已在做的成员收尾交卷，"
+             "队长用已有结果出报告。同时受每日额度约束。",
+    ),
+    Setting(
         key="run_token_budget", kind="int", default=200, locked=True,
         title="单次任务 token 上限（万）", minimum=0, maximum=100000,
         risk="一次办事任务（员工说一句话引起的一轮）最多用多少 token，输入 + 输出累计，单位万；用到 70% 提醒 AI 收尾，用完就停下总结、等员工说「继续」。"

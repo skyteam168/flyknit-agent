@@ -732,6 +732,58 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Experts.Expert>>(cancellationToken: ct) ?? new();
     }
 
+    // ---------- 团队（docs/team-mode.md）----------
+
+    /// <summary>这台电脑能用的团队。服务端没有这个接口（老版本）时返回空。</summary>
+    public async Task<List<Flyknit.Core.Teams.Team>> GetTeamsAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/teams");
+        using var resp = await SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new();
+        }
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<List<Flyknit.Core.Teams.Team>>(cancellationToken: ct) ?? new();
+    }
+
+    /// <summary>新建（id 为空）或修改团队。服务端拒绝时抛 GatewayException，消息是给员工看的中文。</summary>
+    public async Task<Flyknit.Core.Teams.Team> SaveTeamAsync(string? id, Flyknit.Core.Teams.TeamInput input, CancellationToken ct)
+    {
+        using var req = Authorized(string.IsNullOrEmpty(id) ? HttpMethod.Post : HttpMethod.Put,
+            string.IsNullOrEmpty(id) ? "api/v1/client/teams" : $"api/v1/client/teams/{Uri.EscapeDataString(id)}");
+        req.Content = JsonContent.Create(input);
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<Flyknit.Core.Teams.Team>(cancellationToken: ct)
+            ?? throw new GatewayException("服务端没有返回团队", 500);
+    }
+
+    public async Task DissolveTeamAsync(string id, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/teams/{Uri.EscapeDataString(id)}/dissolve");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
+    /// <summary>复制为「我的团队」（只复制这台电脑能用的成员）。</summary>
+    public async Task<Flyknit.Core.Teams.Team> CopyTeamAsync(string id, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/teams/{Uri.EscapeDataString(id)}/copy");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<Flyknit.Core.Teams.Team>(cancellationToken: ct)
+            ?? throw new GatewayException("服务端没有返回团队", 500);
+    }
+
+    /// <summary>开始一次团队任务时报一下，只记次数。</summary>
+    public async Task ReportTeamStartAsync(string id, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/teams/{Uri.EscapeDataString(id)}/start");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
     /// <summary>员工向专家发了一句话：服务端用来算使用量。</summary>
     public async Task ReportExpertUseAsync(string expertId, CancellationToken ct)
     {

@@ -1023,3 +1023,45 @@ class MobileRelease(Base):
     published: Mapped[bool] = mapped_column(Boolean, default=False)
     uploaded_by: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Team(Base):
+    """
+    团队（docs/team-mode.md）：2～8 位专家组成，主助手当队长。
+
+    来源三种：
+      it         IT 在后台建，按 scope_departments / scope_devices 下发（两个都空 = 全公司）
+      department 员工建、本部门共享：department 是建的人那台电脑在服务端登记的部门（不信客户端传的）
+      personal   员工建、只自己用：只有 owner_device_id 那台电脑看得到
+
+    团队只能在成员专家原有配置上收紧（模型、禁用工具、只读），不会放宽任何东西。
+    解散 = 软删除（dissolved_at）：正在跑的任务照常跑完，对话和审计保留，IT 可以恢复。
+    """
+
+    __tablename__ = "teams"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(60))
+    description: Mapped[str] = mapped_column(String(300), default="")
+    icon: Mapped[str] = mapped_column(String(20), default="team")
+    #: 给队长的补充要求（报告格式、口径……）
+    leader_note: Mapped[str] = mapped_column(Text, default="")
+    #: [{expert_id, note}]，按顺序
+    members: Mapped[list] = mapped_column(JSON, default=list)
+    #: models.id；空 = 和普通办事一样。成员被 IT 指定了模型时仍用指定的
+    model_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: 这个团队不用的工具类别（shell / write / browser / mcp / developer）；只能收紧
+    disabled_tools: Mapped[list] = mapped_column(JSON, default=list)
+    read_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    source: Mapped[str] = mapped_column(String(12), default="it")
+    owner_device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    owner_name: Mapped[str] = mapped_column(String(200), default="")
+    department: Mapped[str] = mapped_column(String(200), default="")
+    scope_departments: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    scope_devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    #: 被选来开始任务的次数（只算次数，不存内容）
+    runs: Mapped[int] = mapped_column(Integer, default=0)
+    dissolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dissolved_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

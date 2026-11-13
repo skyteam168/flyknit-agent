@@ -3,7 +3,7 @@
  * 模拟会话存储、流式回复、工具调用与确认流程，便于在没有 Windows 的情况下开发界面。
  */
 import type { HostTransport } from './bridge'
-import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, SubtaskDto, TerminalRun, UiMessage } from './types'
+import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, SubtaskDto, Team, TeamInput, TerminalRun, UiMessage } from './types'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -498,6 +498,46 @@ export function createMockHost(): HostTransport {
   // subtasks.list / subtasks.get 从这里取；另有几条历史记录，演示打开对话时的恢复
   const subtasks = new Map<string, SubtaskDto>()
   const mesExpert = { id: 'mes_analyst', name: 'MES生产分析专家', avatar: '🏭', version: 3 }
+
+  // ---------- 团队（docs/team-mode.md）：模拟服务端的范围和权限 ----------
+  const teamStamp = () => new Date().toISOString()
+  let mockTeams: Team[] = [
+    {
+      id: 'tm_it1', name: '月报小组', description: '每月 3 号前出上月经营报告', icon: 'chart', leader_note: '',
+      members: [{ expert_id: 'mes_analyst', note: '' }, { expert_id: 'quality', note: '' }, { expert_id: 'report', note: '' }],
+      model_id: null, disabled_tools: [], read_only: true, source: 'it', owner_name: 'IT', department: '', editable: false, runs: 41,
+      created_at: teamStamp(), updated_at: teamStamp(),
+    },
+    {
+      id: 'tm_d1', name: '交付分析组', description: '查订单延期的原因，给出改进建议', icon: 'truck', leader_note: '结论先行，报告用表格。',
+      members: [{ expert_id: 'mes_analyst', note: '只看 A、B 车间' }, { expert_id: 'quality', note: '' }, { expert_id: 'plan', note: '' }, { expert_id: 'report', note: '' }],
+      model_id: null, disabled_tools: [], read_only: false, source: 'department', owner_name: 'nguyen.van.a', department: '质检部', editable: true, runs: 14,
+      created_at: teamStamp(), updated_at: teamStamp(),
+    },
+    {
+      id: 'tm_d2', name: '客诉追溯组', description: '按客户投诉追到批次和发运', icon: 'search', leader_note: '',
+      members: [{ expert_id: 'quality', note: '' }, { expert_id: 'erp_helper', note: '' }, { expert_id: 'ghost', note: '', available: false }],
+      model_id: null, disabled_tools: ['shell'], read_only: false, source: 'department', owner_name: 'li.na', department: '质检部', editable: false, runs: 5,
+      created_at: teamStamp(), updated_at: teamStamp(),
+    },
+  ]
+  function saveMockTeam(id: string, input: TeamInput): Team {
+    const name = (input.name ?? '').trim()
+    if (!name) throw new Error('给团队起个名字')
+    if (input.members.length < 2 || input.members.length > 8) throw new Error('团队要 2～8 位专家')
+    if (mockTeams.some((t) => t.name === name && t.id !== id && t.source === (input.share === 'personal' ? 'personal' : 'department')))
+      throw new Error(`已经有叫「${name}」的团队了，换一个名字`)
+    const base = mockTeams.find((t) => t.id === id)
+    const team: Team = {
+      id: id || 'tm_' + uid().slice(0, 8), name, description: input.description, icon: input.icon, leader_note: input.leader_note,
+      members: input.members.map((m) => ({ expert_id: m.expert_id, note: m.note, available: true })), model_id: input.model_id,
+      disabled_tools: input.disabled_tools, read_only: input.read_only, source: input.share === 'personal' ? 'personal' : 'department',
+      owner_name: 'nguyen.van.a', department: input.share === 'personal' ? '' : '质检部', editable: true, runs: base?.runs ?? 0,
+      created_at: base?.created_at ?? teamStamp(), updated_at: teamStamp(),
+    }
+    mockTeams = base ? mockTeams.map((t) => (t.id === id ? team : t)) : [...mockTeams, team]
+    return team
+  }
   const qcExpert = { id: 'quality', name: '质检数据分析', avatar: '🔬', version: 1 }
   const stId = () => 'st_' + Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
   const step = (index: number, kind: string, name: string, summary: string, durationMs: number, extra: Record<string, unknown> = {}) => ({
@@ -1207,6 +1247,9 @@ export function createMockHost(): HostTransport {
           sandboxed: true,
           developerTools: true,
           routerSplit: true,
+          teams: true,
+          teamCreate: true,
+          teamMaxMembers: 8,
           sandboxTasks: true,
           notificationSound: 'none',
           fontScale: 1,
@@ -1762,6 +1805,18 @@ export function createMockHost(): HostTransport {
         }
       case 'experts.list':
         return mockExperts.map((e) => ({ ...e }))
+      case 'teams.list':
+        return mockTeams.map((t) => ({ ...t, members: t.members.map((m) => ({ ...m })) }))
+      case 'teams.save':
+        return saveMockTeam(p.id, p.team)
+      case 'teams.dissolve':
+        mockTeams = mockTeams.filter((t) => t.id !== p.id)
+        return
+      case 'teams.copy': {
+        const src = mockTeams.find((t) => t.id === p.id)
+        if (!src) throw new Error('团队不存在或已解散')
+        return saveMockTeam('', { ...src, name: `${src.name}（我的）`.slice(0, 30), members: src.members.filter((m) => m.available !== false), share: 'personal' })
+      }
       case 'conversation.create': {
         const c = makeConversation(p.expertId ? 'agent' : p.mode)
         c.expertId = mockExperts.some((e) => e.id === p.expertId) ? p.expertId : null

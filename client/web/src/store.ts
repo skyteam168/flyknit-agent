@@ -20,6 +20,8 @@ import type {
   TerminalRun,
   ConfirmChoice,
   Expert,
+  Team,
+  TeamInput,
   McpVendor,
   Conversation,
   HostEvent,
@@ -134,7 +136,10 @@ export const state = reactive({
   groups: {} as Record<string, GroupView[]>,
   /** 排队中（还没轮到）的拆分子对话：侧栏标「排队中」，打开时显示占位说明 */
   queued: {} as Record<string, QueuedView>,
-  view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
+  view: 'chat' as 'chat' | 'library' | 'experts' | 'teams' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
+  /** 团队（docs/team-mode.md）：打开「团队」页时从服务端取 */
+  teams: [] as Team[],
+  teamsLoading: false,
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
   /** 每个对话里每一轮改动的文件（打开对话、一轮结束时取） */
@@ -927,6 +932,56 @@ export async function setLongMode(on: boolean) {
 export function openExperts() {
   state.view = 'experts'
   void loadExperts()
+}
+
+// ---------- 团队（docs/team-mode.md）----------
+export function openTeams() {
+  state.view = 'teams'
+  void loadExperts()
+  void loadTeams()
+}
+
+export async function loadTeams() {
+  state.teamsLoading = true
+  try {
+    state.teams = await bridge.listTeams()
+  } catch (e) {
+    fail(e)
+  } finally {
+    state.teamsLoading = false
+  }
+}
+
+/** 保存团队：成功返回保存后的团队；失败（重名、成员不在范围内、别人刚改过……）提示服务端的原话，返回 null */
+export async function saveTeam(id: string | null, input: TeamInput): Promise<Team | null> {
+  try {
+    const saved = await bridge.saveTeam(id, input)
+    await loadTeams()
+    return saved
+  } catch (e) {
+    fail(e)
+    return null
+  }
+}
+
+export async function dissolveTeam(id: string) {
+  try {
+    await bridge.dissolveTeam(id)
+    state.teams = state.teams.filter((t) => t.id !== id)
+  } catch (e) {
+    fail(e)
+  }
+}
+
+export async function copyTeam(id: string): Promise<Team | null> {
+  try {
+    const team = await bridge.copyTeam(id)
+    await loadTeams()
+    return team
+  } catch (e) {
+    fail(e)
+    return null
+  }
 }
 
 /** 呼叫专家：进入这位专家的新对话（发第一句话时才真正创建，和新任务一样） */
@@ -2063,6 +2118,10 @@ function onHostEvent(e: HostEvent) {
         if (e.contextDetails !== undefined) state.app.contextDetails = e.contextDetails
         if (e.longTasks !== undefined) state.app.longTasks = e.longTasks
         if (e.routerSplit !== undefined) state.app.routerSplit = e.routerSplit
+        if (e.teams !== undefined) state.app.teams = e.teams
+        if (e.teams === false && state.view === 'teams') state.view = 'chat'
+        if (e.teamCreate !== undefined) state.app.teamCreate = e.teamCreate
+        if (e.teamMaxMembers !== undefined) state.app.teamMaxMembers = e.teamMaxMembers
         if (e.developerTools !== undefined) state.app.developerTools = e.developerTools
         if (e.sandboxTasks !== undefined) state.app.sandboxTasks = e.sandboxTasks
         if (e.webSearchEnabled !== undefined) state.app.webSearchEnabled = e.webSearchEnabled

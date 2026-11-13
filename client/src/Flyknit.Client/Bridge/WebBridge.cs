@@ -110,6 +110,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
             longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
             developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
             routerSplit = _host.RouterSplitOn,
+            teams = _host.TeamsOn,
+            teamCreate = _host.TeamCreateOn,
+            teamMaxMembers = _host.TeamMaxMembers,
             sandboxTasks = _host.SandboxSwitchOn,
             webSearchEnabled = _host.WebSearchEnabled,
             deepThinking = _settings.DeepThinking,
@@ -596,6 +599,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
                     longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
                     developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
                     routerSplit = _host.RouterSplitOn,
+                    teams = _host.TeamsOn,
+                    teamCreate = _host.TeamCreateOn,
+                    teamMaxMembers = _host.TeamMaxMembers,
                     sandboxTasks = _host.SandboxSwitchOn,
                     webSearchEnabled = _host.WebSearchEnabled,
                     deepThinking = _settings.DeepThinking,
@@ -1829,6 +1835,26 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
 
             case "experts.list":
                 return _host.Experts.Callable.Select(ExpertDto.From).ToList();
+
+            // ---------- 团队（docs/team-mode.md）----------
+            case "teams.list":
+                return await _host.TeamsAsync(CancellationToken.None);
+
+            case "teams.save":
+            {
+                var input = p.TryGetProperty("team", out var t)
+                    ? t.Deserialize<Flyknit.Core.Teams.TeamInput>() ?? new Flyknit.Core.Teams.TeamInput()
+                    : new Flyknit.Core.Teams.TeamInput();
+                var id = OptStr("id");
+                return await _host.SaveTeamAsync(string.IsNullOrWhiteSpace(id) ? null : id, input, CancellationToken.None);
+            }
+
+            case "teams.dissolve":
+                await _host.DissolveTeamAsync(Str("id"), CancellationToken.None);
+                return null;
+
+            case "teams.copy":
+                return await _host.CopyTeamAsync(Str("id"), CancellationToken.None);
 
             case "conversation.rename":
                 await Task.Run(() => _host.Store.Rename(Str("id"), Str("title")));

@@ -685,6 +685,12 @@ export interface AppInfo {
   longTasks?: boolean
   /** IT 打开了「一句话里的几件事分开做」（docs/c2-router.md 3.3） */
   routerSplit?: boolean
+  /** IT 打开了团队模式（docs/team-mode.md）：侧栏显示「团队」 */
+  teams?: boolean
+  /** 员工能不能自己建团队 */
+  teamCreate?: boolean
+  /** 一个团队最多几位成员（2～8） */
+  teamMaxMembers?: number
   /** IT 打开了「开发者工具」：办事模式有 grep / git 工具，输入框能用 /init */
   developerTools?: boolean
   /** IT 打开了「沙箱任务」（还要开发者工具）：输入框显示「沙箱」开关 */
@@ -1123,7 +1129,7 @@ export type HostEvent =
   | { type: 'shell.request'; action: 'ask' | 'summarize' | 'translate' | 'workspace'; attachments?: AttachmentRef[]; path?: string }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
-      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'routerSplit' | 'developerTools' | 'sandboxTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
+      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'routerSplit' | 'teams' | 'teamCreate' | 'teamMaxMembers' | 'developerTools' | 'sandboxTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
     >)
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }
@@ -1446,4 +1452,45 @@ export interface PluginInfo {
   commands: string[]
   experts: string[]
   connectors: string[]
+}
+
+// ---------- 团队（docs/team-mode.md）：字段和服务端一致（下划线命名） ----------
+export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer'
+export interface TeamMember {
+  expert_id: string
+  note: string
+  /** 这台电脑现在能不能用这位专家（下线、不在范围内 = false，开工时跳过） */
+  available?: boolean
+}
+export interface Team {
+  id: string
+  name: string
+  description: string
+  icon: string
+  leader_note: string
+  members: TeamMember[]
+  model_id: number | null
+  disabled_tools: TeamToolKind[]
+  read_only: boolean
+  /** it（IT 下发）/ department（本部门共享）/ personal（只我自己） */
+  source: 'it' | 'department' | 'personal'
+  owner_name: string
+  department: string
+  /** 这台电脑能不能改、解散（只有建的人） */
+  editable: boolean
+  runs: number
+  created_at: string
+  updated_at: string
+}
+export interface TeamInput {
+  name: string
+  description: string
+  icon: string
+  leader_note: string
+  members: TeamMember[]
+  model_id: number | null
+  disabled_tools: TeamToolKind[]
+  read_only: boolean
+  share: 'department' | 'personal'
+  updated_at?: string | null
 }

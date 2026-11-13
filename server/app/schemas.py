@@ -1009,3 +1009,81 @@ class SubtaskAdminOut(BaseModel):
     deadline_at: datetime
     #: 结束时间 - 开始时间；还在跑的为 None
     duration_ms: int | None
+
+
+# ---------- 团队（docs/team-mode.md）----------
+TEAM_TOOL_KINDS = ("shell", "write", "browser", "mcp", "developer")
+
+
+class TeamMember(BaseModel):
+    expert_id: str = Field(min_length=1, max_length=40)
+    #: 在这个团队里的职责补充（可选）
+    note: ClipOrEmpty(200) = ""
+
+
+class TeamIn(BaseModel):
+    """员工建 / 改团队。部门由服务端按这台电脑登记的部门填，不收客户端传的。"""
+
+    name: str = Field(min_length=1, max_length=30)
+    description: ClipOrEmpty(300) = ""
+    icon: ClipOrEmpty(20) = "team"
+    leader_note: ClipOrEmpty(1000) = ""
+    members: list[TeamMember] = Field(min_length=2, max_length=8)
+    model_id: int | None = None
+    disabled_tools: list[Literal["shell", "write", "browser", "mcp", "developer"]] = []
+    read_only: bool = False
+    #: department = 本部门共享；personal = 只我自己
+    share: Literal["department", "personal"] = "department"
+    #: 改的时候带上读到的 updated_at，防止两个人同时改互相覆盖；新建不用
+    updated_at: datetime | None = None
+
+
+class TeamAdminIn(BaseModel):
+    """IT 建 / 改团队：多一项使用范围。"""
+
+    name: str = Field(min_length=1, max_length=30)
+    description: ClipOrEmpty(300) = ""
+    icon: ClipOrEmpty(20) = "team"
+    leader_note: ClipOrEmpty(1000) = ""
+    members: list[TeamMember] = Field(min_length=2, max_length=8)
+    model_id: int | None = None
+    disabled_tools: list[Literal["shell", "write", "browser", "mcp", "developer"]] = []
+    read_only: bool = False
+    scope_departments: list[str] = []
+    scope_devices: list[int] = []
+
+
+class TeamMemberOut(BaseModel):
+    expert_id: str
+    note: str = ""
+    #: 这台电脑现在能不能用这位专家（下线、不在范围内 = false，开工时跳过）
+    available: bool = True
+
+
+class TeamOut(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    icon: str = "team"
+    leader_note: str = ""
+    members: list[TeamMemberOut] = []
+    model_id: int | None = None
+    disabled_tools: list[str] = []
+    read_only: bool = False
+    #: it / department / personal
+    source: str
+    owner_name: str = ""
+    department: str = ""
+    #: 这台电脑能不能改、解散（员工端：只有建的人）
+    editable: bool = False
+    runs: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class TeamAdminOut(TeamOut):
+    scope_departments: list[str] = []
+    scope_devices: list[int] = []
+    owner_device_id: int | None = None
+    dissolved_at: datetime | None = None
+    dissolved_by: str = ""

@@ -58,6 +58,8 @@ import type {
   ConfirmChoice,
   Conversation,
   Expert,
+  Team,
+  TeamInput,
   HostEvent,
   Mode,
   ModelInfo,
@@ -215,6 +217,10 @@ class Bridge {
   createConversation = (mode: Mode, modelId: number | null, workspace: string | null, permission: Permission, expertId: string | null = null) =>
     this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission, expertId })
   listExperts = () => this.call<Expert[]>('experts.list')
+  listTeams = () => this.call<Team[]>('teams.list')
+  saveTeam = (id: string | null, team: TeamInput) => this.call<Team>('teams.save', { id: id ?? '', team })
+  dissolveTeam = (id: string) => this.call<void>('teams.dissolve', { id })
+  copyTeam = (id: string) => this.call<Team>('teams.copy', { id })
   enhancePrompt = (text: string, mode: Mode, conversationId: string | null, expertId: string | null) =>
     this.call<{ text: string }>('prompt.enhance', { text, mode, conversationId, expertId }, undefined, 90_000)
   setWorkspace = (id: string, path: string | null) => this.call<void>('conversation.setWorkspace', { id, path })

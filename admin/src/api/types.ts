@@ -980,3 +980,36 @@ export interface DeviceAccess {
   security: Record<string, SecurityEffectiveItem>
   security_sources: Record<string, 'device' | 'department' | 'global' | 'default'>
 }
+
+// ---------- 团队（docs/team-mode.md）----------
+export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer'
+export interface TeamMember {
+  expert_id: string
+  note: string
+  available?: boolean
+}
+export interface TeamIn {
+  name: string
+  description: string
+  icon: string
+  leader_note: string
+  members: TeamMember[]
+  model_id: number | null
+  disabled_tools: TeamToolKind[]
+  read_only: boolean
+  scope_departments: string[]
+  scope_devices: number[]
+}
+export interface Team extends TeamIn {
+  id: string
+  /** it / department / personal */
+  source: 'it' | 'department' | 'personal'
+  owner_name: string
+  owner_device_id: number | null
+  department: string
+  runs: number
+  created_at: string
+  updated_at: string
+  dissolved_at: string | null
+  dissolved_by: string
+}
