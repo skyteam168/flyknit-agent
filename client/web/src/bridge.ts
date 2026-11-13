@@ -214,13 +214,17 @@ class Bridge {
   // ---------- 会话 ----------
   listConversations = (query = '', trash = false) =>
     this.call<Conversation[]>('conversations.list', { query, trash })
-  createConversation = (mode: Mode, modelId: number | null, workspace: string | null, permission: Permission, expertId: string | null = null) =>
-    this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission, expertId })
+  createConversation = (mode: Mode, modelId: number | null, workspace: string | null, permission: Permission, expertId: string | null = null, teamId: string | null = null) =>
+    this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission, expertId, teamId })
   listExperts = () => this.call<Expert[]>('experts.list')
   listTeams = () => this.call<Team[]>('teams.list')
   saveTeam = (id: string | null, team: TeamInput) => this.call<Team>('teams.save', { id: id ?? '', team })
   dissolveTeam = (id: string) => this.call<void>('teams.dissolve', { id })
   copyTeam = (id: string) => this.call<Team>('teams.copy', { id })
+  /** 计划卡：start（removed = 去掉的成员）/ revise（text = 让队长怎么改）/ cancel */
+  teamPlanAnswer = (requestId: string, action: 'start' | 'revise' | 'cancel', removed: string[], text: string) =>
+    this.call<boolean>('team.planAnswer', { requestId, action, removed, text })
+  stopTeamMember = (conversationId: string, expertId: string) => this.call<boolean>('team.stopMember', { conversationId, expertId })
   enhancePrompt = (text: string, mode: Mode, conversationId: string | null, expertId: string | null) =>
     this.call<{ text: string }>('prompt.enhance', { text, mode, conversationId, expertId }, undefined, 90_000)
   setWorkspace = (id: string, path: string | null) => this.call<void>('conversation.setWorkspace', { id, path })

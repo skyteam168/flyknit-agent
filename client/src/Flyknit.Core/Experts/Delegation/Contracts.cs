@@ -14,7 +14,8 @@ public sealed record SubtaskRegistration(
     int ExpertVersion,
     string Task,
     long TokenCap,
-    int TimeoutSeconds);
+    int TimeoutSeconds,
+    string TeamId = "");
 
 /// <summary>服务端同意派遣后给的凭据。</summary>
 public sealed record SubtaskTicket(string Id, int Seq, long TokenCap, DateTimeOffset DeadlineAt, int PublishedVersion);

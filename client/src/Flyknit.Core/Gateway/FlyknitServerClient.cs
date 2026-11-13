@@ -808,6 +808,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
             task = registration.Task,
             token_cap = registration.TokenCap,
             timeout_seconds = registration.TimeoutSeconds,
+            team_id = registration.TeamId,
         });
         using var resp = await SendAsync(req, ct);
         if ((int)resp.StatusCode is 403 or 409)

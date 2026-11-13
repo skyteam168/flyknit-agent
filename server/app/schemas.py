@@ -924,6 +924,8 @@ class SubtaskCreateIn(BaseModel):
     token_cap: int = 400_000
     #: 服务端会夹到 [60, 900]
     timeout_seconds: int = 900
+    #: 团队派遣（docs/team-mode.md）：带上团队 ID 时看团队模式开关、成员资格，次数按团队人数算
+    team_id: Clip(40) = ""
 
 
 class SubtaskExpertOut(BaseModel):

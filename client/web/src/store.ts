@@ -72,6 +72,8 @@ interface ConversationState {
   paused?: boolean
   /** 同一步里几个要确认的操作合成的一张卡（docs/approval-p0.md 第 7 节） */
   batch?: import('./types').BatchConfirm
+  /** 团队任务（docs/team-mode.md）：计划卡、成员进度、看板 */
+  team?: import('./types').TeamRunView
 }
 
 /** 读一个对话盯着的 PR */
@@ -973,6 +975,40 @@ export async function dissolveTeam(id: string) {
   }
 }
 
+/** 团队卡片上点「开始任务」：进入这个团队的新对话（发第一句话时才真正创建） */
+export function startTeamTask(id: string) {
+  newConversation('agent')
+  draftMode.teamId = id
+  window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+}
+
+/** 当前对话（或新对话草稿）的团队 */
+export const currentTeam = computed<Team | null>(() => {
+  const id = current.value ? current.value.teamId : draftMode.teamId
+  return id ? (state.teams.find((t) => t.id === id) ?? null) : null
+})
+
+/** 回答计划卡 */
+export async function answerTeamPlan(conversationId: string, action: 'start' | 'revise' | 'cancel', removed: string[] = [], text = '') {
+  const run = convState(conversationId).team
+  const pending = run?.pending
+  if (!run || !pending) return
+  run.pending = null
+  await bridge.teamPlanAnswer(pending.requestId, action, removed, text).catch(fail)
+}
+
+/** 面板上停掉某一位成员（其余照常） */
+export async function stopTeamMember(conversationId: string, expertId: string) {
+  await bridge.stopTeamMember(conversationId, expertId).catch(fail)
+}
+
+function teamRun(s: ConversationState, runId: string) {
+  if (!s.team || s.team.runId !== runId) {
+    s.team = { runId, pending: null, members: {}, order: [], board: [], startedAt: new Date().toISOString(), finished: false }
+  }
+  return s.team
+}
+
 export async function copyTeam(id: string): Promise<Team | null> {
   try {
     const team = await bridge.copyTeam(id)
@@ -1118,6 +1154,7 @@ export function newConversation(mode?: Mode) {
   state.currentId = null
   state.pending = []
   draftMode.expertId = null
+  draftMode.teamId = null
   // 新对话跟着最近一次选的工作区走（输入框下面选的、侧栏添加的、设置里改的都算）
   if (state.app?.defaultWorkspace) draftMode.workspace = state.app.defaultWorkspace
   if (mode) draftMode.mode = mode
@@ -1132,6 +1169,8 @@ export const draftMode = reactive({
   permission: 'workspace' as Permission,
   /** 新对话要呼叫的专家 */
   expertId: null as string | null,
+  /** 新对话是哪个团队的任务（docs/team-mode.md） */
+  teamId: null as string | null,
   /** 新对话开长任务模式 */
   longMode: false,
   /** 新对话先出方案（计划模式） */
@@ -1371,11 +1410,12 @@ export async function quickReply(text: string) {
 async function ensureConversation(): Promise<string> {
   if (state.currentId) return state.currentId
   const c = await bridge.createConversation(
-    draftMode.expertId ? 'agent' : draftMode.mode,
+    draftMode.expertId || draftMode.teamId ? 'agent' : draftMode.mode,
     draftMode.modelId,
     selectedWorkspace.value || null,
     draftMode.permission,
     draftMode.expertId,
+    draftMode.teamId,
   )
   if (draftMode.mode === 'translate') {
     await bridge.setTranslate(c.id, draftMode.translateFrom, draftMode.translateTo)
@@ -1944,6 +1984,11 @@ function finishRun(s: ConversationState, conversationId: string) {
   s.stopping = false
   s.paused = false
   s.batch = undefined
+  if (s.team) {
+    s.team.pending = null
+    s.team.finished = true
+    for (const m of Object.values(s.team.members)) if (!['done', 'failed', 'stopped'].includes(m.status)) m.status = 'stopped'
+  }
   void loadChanges(conversationId)
   s.draft = null
   for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
@@ -2024,6 +2069,62 @@ function onHostEvent(e: HostEvent) {
         effect: e.effect ?? 'unknown',
         actor: e.actor,
         bundle: e.bundle,
+      }
+      break
+    }
+    case 'team.plan': {
+      const run = teamRun(markRunning(e.conversationId), e.runId)
+      run.pending = {
+        requestId: e.requestId, callId: e.callId, runId: e.runId, round: e.round, goal: e.goal, items: e.items,
+        skipped: e.skipped, estimateTokens: e.estimateTokens, budgetTokens: e.budgetTokens,
+      }
+      run.finished = false
+      break
+    }
+    case 'team.planClosed': {
+      const run = convState(e.conversationId).team
+      if (run?.pending?.requestId === e.requestId) run.pending = null
+      break
+    }
+    case 'team.started': {
+      const run = teamRun(convState(e.conversationId), e.runId)
+      for (const item of e.items) {
+        run.members[item.expertId] = {
+          expertId: item.expertId, status: item.dependsOn.length ? 'upstream' : 'waiting', note: '', callId: `${e.callId}#${item.expertId}`,
+          subtaskId: '', task: item.task, done: item.done, dependsOn: item.dependsOn,
+        }
+        if (!run.order.includes(item.expertId)) run.order.push(item.expertId)
+      }
+      run.finished = false
+      // 团队开工：右侧面板切到「团队」
+      state.rightTab = 'team'
+      state.rightClosed = false
+      break
+    }
+    case 'team.member': {
+      const run = convState(e.conversationId).team
+      const m = run?.runId === e.runId ? run.members[e.expertId] : undefined
+      if (m) {
+        m.status = e.status
+        m.note = e.note
+        if (e.subtaskId) m.subtaskId = e.subtaskId
+        if (e.status === 'retrying') m.retries = (m.retries ?? 0) + 1
+      }
+      break
+    }
+    case 'team.board': {
+      const run = convState(e.conversationId).team
+      if (run?.runId === e.runId) run.board.push({ expertId: e.expertId, name: e.name, kind: e.kind, text: e.text, at: e.at })
+      break
+    }
+    case 'team.round': {
+      const run = convState(e.conversationId).team
+      if (run?.runId === e.runId) {
+        for (const r of e.results) {
+          const m = run.members[r.expertId]
+          if (m) m.delivery = r.delivery
+        }
+        run.finished = Object.values(run.members).every((m) => ['done', 'failed', 'stopped'].includes(m.status))
       }
       break
     }

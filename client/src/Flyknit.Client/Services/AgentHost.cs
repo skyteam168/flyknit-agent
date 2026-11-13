@@ -718,6 +718,7 @@ public sealed partial class AgentHost : IDisposable
     {
         var id = conv.Id;
         var observer = new RunObserver(id, events, this);
+        Flyknit.Core.Teams.TeamSession? teamSession = null;
         try
         {
             await Task.WhenAny(_initialConfig); // 启动后立刻发的任务：等 IT 的安全策略先拉下来
@@ -778,7 +779,25 @@ public sealed partial class AgentHost : IDisposable
                     workspace = grant.Workspace;
                 }
             }
-            var modelId = conv.ModelId ?? expert?.ModelId;
+            // 团队任务（docs/team-mode.md）：主助手当队长；团队解散、范围收回或团队模式关了，就按普通助手继续
+            var team = conv.Mode == ConversationMode.Agent && expert is null && !string.IsNullOrEmpty(conv.TeamId)
+                ? await TeamAsync(conv.TeamId, cts.Token)
+                : null;
+            if (team is not null && newUser is not null && stored.Count(m => m.Role == ChatRole.User) == 1)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Server.ReportTeamStartAsync(team.Id, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"上报团队任务次数失败：{ex.Message}");
+                    }
+                });
+            }
+            var modelId = conv.ModelId ?? expert?.ModelId ?? team?.ModelId;
             var mcpServers = conv.Mode == ConversationMode.Agent ? Mcp.PromptInfo() : Array.Empty<McpPromptInfo>();
             if (expert is not null)
             {
@@ -823,7 +842,8 @@ public sealed partial class AgentHost : IDisposable
                 Rehearsal = rehearsal,
             });
             // 派遣专家：开关开着、这一轮有候选专家时，主助手才看得到名单和 ask_expert
-            var delegation = DelegationFor(conv, expert, DelegationQuery(stored, text), semantic);
+            // 团队任务里成员由队长按计划派，不再给主助手 ask_expert
+            var delegation = team is null ? DelegationFor(conv, expert, DelegationQuery(stored, text), semantic) : ("", null);
             if (delegation.Prompt.Length > 0)
             {
                 // 候选专家按问题挑，每轮不同：和记忆、技能一样放本轮参考资料
@@ -843,6 +863,12 @@ public sealed partial class AgentHost : IDisposable
             if (sandbox is not null)
             {
                 prompt += Flyknit.Core.Sandbox.SandboxSettings.Guide(sandbox);
+            }
+            if (team is not null)
+            {
+                // 团队名单和队长的工作方式：同一个对话里不变，放系统提示词（提示词缓存能命中）
+                var usable = team.Members.Where(m => m.Available && Experts.Get(m.ExpertId) is { AllowDelegate: true }).Select(m => m.ExpertId).ToList();
+                prompt += "\n\n" + Flyknit.Core.Teams.TeamLeader.PromptSection(team, Experts.Get, usable);
             }
 
             var scene = conv.Mode switch
@@ -978,9 +1004,15 @@ public sealed partial class AgentHost : IDisposable
                     .Where(t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t)));
             }
             extra.AddRange(developerTools);
+            if (team is not null)
+            {
+                teamSession = StartTeamSession(conv, team, runId, events, confirm);
+                extra.Add(new Flyknit.Core.Teams.TeamPlanTool(teamSession));
+                extra.Add(new Flyknit.Core.Teams.TeamAssignTool(teamSession));
+            }
             // 子代理：IT 打开了「子代理」时主助手能开分身（spawn_agent）。用这一轮最终的工具表，计划模式下只能只读
             ToolRegistry? runTools = null;
-            if (Flyknit.Core.Agent.SubAgents.SubAgentRunner.Enabled(Security, conv.Mode == ConversationMode.Agent))
+            if (team is null && Flyknit.Core.Agent.SubAgents.SubAgentRunner.Enabled(Security, conv.Mode == ConversationMode.Agent))
             {
                 var runner = new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, confirm, () => AgentOptionsFor(conv), _auditSink, Approvals, Store, DelegationEvents)
                     .WithTraceSerializer((trace, stop) => Bridge.TraceDto.Serialize(trace, stop));
@@ -1124,6 +1156,7 @@ public sealed partial class AgentHost : IDisposable
         }
         finally
         {
+            EndTeamSession(id, teamSession);
             _runs.TryRemove(id, out _);
             cts.Dispose();
             MarkRunEnded(id);
@@ -1200,7 +1233,9 @@ public sealed partial class AgentHost : IDisposable
     {
         InlineToolImages = InlineToolImagesFor(conv),
         MaxSteps = LongModeOn(conv) ? Math.Max(_settings.ResolveAgentMaxSteps(), LongModeSteps) : _settings.ResolveAgentMaxSteps(),
-        MaxRunTokens = Flyknit.Core.Tasks.TaskLedger.CapRunTokens(RunTokenLimit(LongModeOn(conv)), taskRemaining),
+        // 团队对话按团队任务的上限（含队长和所有成员）；其余按单次任务上限
+        MaxRunTokens = Flyknit.Core.Tasks.TaskLedger.CapRunTokens(
+            conv is { TeamId.Length: > 0 } && TeamsOn ? TeamRunTokens : RunTokenLimit(LongModeOn(conv)), taskRemaining),
         // 长任务模式用到 token 上限后会自动接着做（QueueAutoContinue）：快到上限时别叫模型收尾。钉钉 / 手机发来的不续
         // （续跑次数用完、任务预算用完时不会再续：照常提醒收尾）
         AutoContinues = conv is not null && LongModeOn(conv) && !_remoteRuns.ContainsKey(conv.Id)

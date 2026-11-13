@@ -21,7 +21,7 @@ from ..db import get_session
 from ..deps import admin_name, require_admin, require_device
 from ..models import Device, Expert, ModelConfig, Team
 from ..schemas import TeamAdminIn, TeamAdminOut, TeamIn, TeamMemberOut, TeamOut
-from ..services import config_events, department_store, device_security, item_scope, plugin_scope
+from ..services import config_events, department_store, device_security, item_scope, plugin_scope, team_scope
 
 log = logging.getLogger("flyknit.teams")
 admin_router = APIRouter(prefix="/api/v1/admin/teams", tags=["teams"], dependencies=[Depends(require_admin)])
@@ -51,14 +51,7 @@ async def _usable_experts(session: AsyncSession, device: Device | None) -> set[s
 
 
 def _visible(team: Team, device: Device) -> bool:
-    """这台电脑看不看得到这个团队。"""
-    if team.dissolved_at is not None:
-        return False
-    if team.source == "personal":
-        return team.owner_device_id == device.id
-    if team.source == "department":
-        return bool(team.department) and department_store.key(team.department) == department_store.key(device.department)
-    return item_scope.in_scope(team, device)
+    return team_scope.visible(team, device)
 
 
 def _members_out(team: Team, usable: set[str]) -> list[TeamMemberOut]:

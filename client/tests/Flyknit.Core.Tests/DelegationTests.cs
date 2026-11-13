@@ -1307,6 +1307,216 @@ public class DelegationTests : IDisposable
         Assert.Equal(0, change.Executed);
     }
 
+    // ---------- 团队派遣（docs/team-mode.md）----------
+
+    private static Flyknit.Core.Experts.Delegation.TeamDispatch TeamSettings(bool readOnly = false, string[]? disabled = null, string[]? granted = null, int? model = null) =>
+        new("tm_1", model, disabled ?? Array.Empty<string>(), readOnly, 16, granted ?? Array.Empty<string>());
+
+    private static Task<(ToolResult Result, SubtaskRecord? Record)> TeamDispatchAsync(Harness h, ToolContext ctx, Flyknit.Core.Experts.Delegation.TeamDispatch team) =>
+        h.Dispatcher.DispatchDetailedAsync(new DelegationRequest("mes", "查询 A 车间 10 月订单延期的主要工序，给出依据", "", Array.Empty<string>(), "call_team#mes", team), ctx, CancellationToken.None);
+
+    [Fact]
+    public async Task TeamDispatchUsesTheTeamSwitchNotTheDelegationSwitch()
+    {
+        var h = new Harness { Enabled = false };          // 「派遣专家」关着
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()));
+        var (_, none) = await TeamDispatchAsync(h, Ctx(), TeamSettings());
+        Assert.Null(none);                                // 团队模式也关着：不派
+        h.Dispatcher.TeamsEnabled = () => true;
+        var (result, record) = await TeamDispatchAsync(h, Ctx(), TeamSettings());
+        Assert.True(result.Ok);
+        Assert.NotNull(record);
+        Assert.Equal("tm_1", h.Registry.Registered.Single().TeamId);    // 服务端按团队算次数、查成员资格
+        Assert.Equal("call_team#mes", record!.CallId);
+    }
+
+    [Fact]
+    public async Task TeamSettingsOnlyTighten()
+    {
+        var h = new Harness();
+        h.Dispatcher.TeamsEnabled = () => true;
+        var write = new FakeTool("write_file", "写好了") { Risk = RiskLevel.Confirm };
+        var shell = new FakeTool("run_shell", "跑完了");
+        h.Host.AllTools.Add(write).Add(shell).Add(new FakeTool("read_file", "内容"));
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()));
+
+        await TeamDispatchAsync(h, Ctx(), TeamSettings(readOnly: true, disabled: new[] { "shell" }));
+
+        var offered = h.Gateway.ChildRequests.SelectMany(r => r.Tools!.Select(t => t!["function"]!["name"]!.ToString())).Distinct().ToList();
+        Assert.DoesNotContain("run_shell", offered);    // 团队关掉的类别
+        Assert.DoesNotContain("write_file", offered);   // 只读团队去掉写文件
+        Assert.Contains("read_file", offered);
+        var snapshot = System.Text.Json.JsonSerializer.Deserialize<Expert>(h.Only.ExpertSnapshot)!;
+        Assert.True(snapshot.ReadOnly);
+        Assert.Equal(new[] { "shell" }, snapshot.TeamDisabledKinds);
+        Assert.Equal("mes", h.Experts["mes"].Id);
+        Assert.False(h.Experts["mes"].ReadOnly);         // 专家本身的配置没被改
+    }
+
+    [Fact]
+    public async Task TheTeamModelIsOnlyUsedWhenItDidNotPinOne()
+    {
+        var h = new Harness();
+        h.Dispatcher.TeamsEnabled = () => true;
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()), Call(SubmitResultTool.ToolName, Submit()));
+        await TeamDispatchAsync(h, Ctx(runId: "r1"), TeamSettings(model: 7));
+        Assert.Equal(7, System.Text.Json.JsonSerializer.Deserialize<Expert>(h.Store.Records.Values.Single().ExpertSnapshot)!.ModelId);
+        h.Experts["mes"].ModelId = 3;                    // IT 给专家指定了模型
+        await TeamDispatchAsync(h, Ctx(runId: "r2"), TeamSettings(model: 7));
+        Assert.Contains(h.Store.Records.Values, r => System.Text.Json.JsonSerializer.Deserialize<Expert>(r.ExpertSnapshot)!.ModelId == 3);
+    }
+
+    [Fact]
+    public async Task TeamMembersUseTheTeamGrantInsteadOfTheirOwnCard()
+    {
+        var h = new Harness();
+        h.Dispatcher.TeamsEnabled = () => true;
+        var calls = 0;
+        var orders = Mcp("query_orders", ran: () => calls++);
+        h.Host.AllTools.Add(orders);
+        var rule = orders.Assess(JsonDocument.Parse("{}").RootElement, Ctx()).Rule!;
+        h.Gateway.Children(Call(orders.Name, new { }), Call(SubmitResultTool.ToolName, Submit()));
+
+        await TeamDispatchAsync(h, Ctx(), TeamSettings(granted: new[] { SessionApprovals.KeyFor(orders.Name, "", rule) }));
+
+        Assert.Empty(h.Host.Confirmer.Requests);   // 没有单独的派遣授权卡，也没逐条问
+        Assert.Equal(1, calls);
+        // 开工授权的候选就是它
+        Assert.Equal(new[] { "MES · query_orders" }, h.Dispatcher.TeamGrantCandidates("mes", TeamSettings(), Ctx()).Select(c => c.Rule.Display));
+        Assert.Empty(h.Dispatcher.TeamGrantCandidates("mes", TeamSettings(readOnly: true), Ctx()));   // 只读成员不出授权
+        Assert.Empty(h.Dispatcher.TeamGrantCandidates("mes", TeamSettings(disabled: new[] { "mcp" }), Ctx()));   // 关了连接器就没有
+    }
+
+    /// <summary>假的宿主：计划卡按 Answers 依次回答，开工授权回答 Grant。</summary>
+    private sealed class FakeTeamHost : Flyknit.Core.Teams.ITeamHost
+    {
+        public readonly Queue<Flyknit.Core.Teams.TeamPlanAnswer> Answers = new();
+        public readonly List<Flyknit.Core.Teams.TeamPlanReview> Reviews = new();
+        public readonly List<IReadOnlyList<string>> Grants = new();
+        public readonly List<Flyknit.Core.Teams.TeamMemberUpdate> Updates = new();
+        public readonly List<Flyknit.Core.Teams.TeamBoardEntry> Board = new();
+        public bool Grant = true;
+        public Task<Flyknit.Core.Teams.TeamPlanAnswer> ReviewPlanAsync(Flyknit.Core.Teams.TeamPlanReview review, CancellationToken ct)
+        {
+            Reviews.Add(review);
+            return Task.FromResult(Answers.Count > 0 ? Answers.Dequeue() : new Flyknit.Core.Teams.TeamPlanAnswer(Flyknit.Core.Teams.TeamPlanAction.Start, Array.Empty<string>(), ""));
+        }
+        public Task<bool> GrantAsync(string conversationId, string callId, IReadOnlyList<string> labels, CancellationToken ct)
+        {
+            Grants.Add(labels);
+            return Task.FromResult(Grant);
+        }
+        public void PlanStarted(Flyknit.Core.Teams.TeamPlanReview review, Flyknit.Core.Teams.TeamPlan plan) { }
+        public void MemberUpdated(string conversationId, Flyknit.Core.Teams.TeamMemberUpdate update) { lock (Updates) Updates.Add(update); }
+        public void BoardAppended(string conversationId, string runId, Flyknit.Core.Teams.TeamBoardEntry entry) { lock (Board) Board.Add(entry); }
+        public void RoundFinished(string conversationId, string runId, IReadOnlyList<Flyknit.Core.Teams.TeamMemberResult> results) { }
+    }
+
+    private (Flyknit.Core.Teams.TeamSession Session, FakeTeamHost Host) TeamSessionFor(Harness h, params string[] members)
+    {
+        h.Dispatcher.TeamsEnabled = () => true;
+        var host = new FakeTeamHost();
+        Expert? Find(string id) => h.Experts.TryGetValue(id, out var e) ? e : null;
+        var team = new Flyknit.Core.Teams.Team
+        {
+            Id = "tm_1", Name = "交付分析组",
+            Members = members.Select(m => new Flyknit.Core.Teams.TeamMember { ExpertId = m, Available = m != "gone" }).ToList(),
+        };
+        var scheduler = new Flyknit.Core.Teams.TeamScheduler(h.Dispatcher.DispatchDetailedAsync, Find) { Parallel = 3 };
+        return (new Flyknit.Core.Teams.TeamSession(team, "tr_1", scheduler, host, h.Dispatcher, Find), host);
+    }
+
+    private static JsonElement PlanArgs(params string[] members) => JsonSerializer.SerializeToElement(new
+    {
+        goal = "找出 10 月延期原因",
+        items = members.Select(m => new { member = m, task = $"查询 A 车间 10 月 {m} 相关的数据，给出依据", done = "一张表加结论", depends_on = Array.Empty<string>() }),
+    });
+
+    [Fact]
+    public async Task TheLeaderPlansTheEmployeeConfirmsAndMembersReportBack()
+    {
+        var h = new Harness();
+        h.Experts["qc"] = new Expert { Id = "qc", Version = 1, Name = "质检专家", Description = "负责：质检", AllowDelegate = true, ReadOnly = true };
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()), Call(SubmitResultTool.ToolName, Submit(statement: "返工 11 单")));
+        var (session, host) = TeamSessionFor(h, "mes", "qc", "gone");
+        var tool = new Flyknit.Core.Teams.TeamPlanTool(session);
+        var ctx = Ctx();
+        ctx.CurrentCallId = "call_plan";
+
+        // 计划有问题：不给员工看
+        var bad = await tool.ExecuteAsync(PlanArgs("mes", "gone"), ctx, CancellationToken.None);
+        Assert.False(bad.Ok);
+        Assert.Empty(host.Reviews);
+
+        // 员工先要求修改，再开始
+        host.Answers.Enqueue(new(Flyknit.Core.Teams.TeamPlanAction.Revise, Array.Empty<string>(), "B 车间也看"));
+        var revise = await tool.ExecuteAsync(PlanArgs("mes", "qc"), ctx, CancellationToken.None);
+        Assert.Contains("B 车间也看", revise.Output);
+        Assert.False(session.Executed);
+        Assert.Equal(new[] { "gone" }, host.Reviews[0].Skipped);
+
+        var done = await tool.ExecuteAsync(PlanArgs("mes", "qc"), ctx, CancellationToken.None);
+        Assert.True(done.Ok);
+        Assert.Contains("<团队执行结果", done.Output);
+        Assert.Contains("交付标准：达标", done.Output);
+        Assert.Contains("交叉验证", done.Output);
+        Assert.Equal(2, h.Registry.Registered.Count(r => r.TeamId == "tm_1"));
+        Assert.True(session.Executed);
+        Assert.Contains(host.Updates, u => u.ExpertId == "qc" && u.Status == Flyknit.Core.Teams.TeamMemberStatus.Done);
+        Assert.Contains(host.Board, e => e.Text.Contains("返工 11 单"));
+
+        // 只执行一次计划
+        Assert.False((await tool.ExecuteAsync(PlanArgs("mes"), ctx, CancellationToken.None)).Ok);
+    }
+
+    [Fact]
+    public async Task CancellingThePlanDispatchesNobody()
+    {
+        var h = new Harness();
+        var (session, host) = TeamSessionFor(h, "mes");
+        host.Answers.Enqueue(new(Flyknit.Core.Teams.TeamPlanAction.Cancel, Array.Empty<string>(), ""));
+        var result = await new Flyknit.Core.Teams.TeamPlanTool(session).ExecuteAsync(PlanArgs("mes"), Ctx(), CancellationToken.None);
+        Assert.Contains("取消", result.Output);
+        Assert.Empty(h.Registry.Registered);
+    }
+
+    [Fact]
+    public async Task OneExtraRoundOfAtMostThreeMembers()
+    {
+        var h = new Harness();
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()), Call(SubmitResultTool.ToolName, Submit()));
+        var (session, host) = TeamSessionFor(h, "mes");
+        var assign = new Flyknit.Core.Teams.TeamAssignTool(session);
+        var args = JsonSerializer.SerializeToElement(new { reason = "数字对不上", items = new[] { new { member = "mes", task = "重新核对 A 车间 10 月延期单数", done = "核对后的单数" } } });
+        Assert.False((await assign.ExecuteAsync(args, Ctx(), CancellationToken.None)).Ok);   // 还没执行分工计划
+        await new Flyknit.Core.Teams.TeamPlanTool(session).ExecuteAsync(PlanArgs("mes"), Ctx(), CancellationToken.None);
+        var round2 = await assign.ExecuteAsync(args, Ctx(), CancellationToken.None);
+        Assert.True(round2.Ok, round2.Output);
+        Assert.Equal(2, host.Reviews.Last().Round);
+        Assert.Contains("不能再补派", round2.Output);
+        Assert.False((await assign.ExecuteAsync(args, Ctx(), CancellationToken.None)).Ok);   // 只能补派一轮
+    }
+
+    [Fact]
+    public async Task TheTeamGrantIsAskedOnceForTheWholeTeam()
+    {
+        var h = new Harness();
+        h.Experts["qc"] = new Expert { Id = "qc", Version = 1, Name = "质检专家", AllowDelegate = true };
+        var calls = 0;
+        var orders = Mcp("query_orders", ran: () => calls++);
+        h.Host.AllTools.Add(orders);
+        h.Gateway.Children(Call(orders.Name, new { }), Call(SubmitResultTool.ToolName, Submit()), Call(orders.Name, new { }), Call(SubmitResultTool.ToolName, Submit()));
+        var (session, host) = TeamSessionFor(h, "mes", "qc");
+        session.Scheduler.GetType();
+
+        var result = await new Flyknit.Core.Teams.TeamPlanTool(session).ExecuteAsync(PlanArgs("mes", "qc"), Ctx(), CancellationToken.None);
+
+        Assert.True(result.Ok);
+        Assert.Equal(new[] { "MES · query_orders" }, host.Grants.Single());   // 两位成员共用的工具只列一次、只问一次
+        Assert.Empty(h.Host.Confirmer.Requests);                               // 成员不再各自弹卡、不逐条问
+        Assert.Equal(2, calls);
+    }
+
     [Fact]
     public void ParallelBudgetReservationsNeverOverlap()
     {

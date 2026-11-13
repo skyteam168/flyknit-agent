@@ -231,6 +231,9 @@ public class SecuritySwitchTests
             SecuritySettings.Teams,
             SecuritySettings.TeamCreate,
             SecuritySettings.TeamMaxMembers,
+            // AgentHost.Teams 读这两项：团队调度同时干活的成员数（TeamScheduler.Parallel）、团队对话一轮的 token 上限（AgentOptionsFor）
+            SecuritySettings.TeamParallel,
+            SecuritySettings.TeamTokenBudget,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

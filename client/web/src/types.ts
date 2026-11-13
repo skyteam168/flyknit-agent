@@ -31,6 +31,8 @@ export interface Conversation {
   longMode?: boolean
   /** 沙箱任务：读写、命令、git 都在本机 Docker 容器里做，不弹确认；只有推分支建 PR 能带出容器 */
   sandbox?: boolean
+  /** 团队任务的团队 ID（docs/team-mode.md） */
+  teamId?: string | null
 }
 
 /** 一个对话的沙箱状态。off 没开；idle 开了还没起容器（第一次发话时起）；preparing 正在起；ready 容器在 */
@@ -1055,6 +1057,12 @@ export type HostEvent =
     }
   | { type: 'tool.confirmBatch'; conversationId: string; requestId: string; rationale: string; items: BatchConfirmItem[]; groupId?: string }
   | { type: 'tool.confirmBatchResolved'; conversationId: string; requestId: string }
+  | ({ type: 'team.plan'; conversationId: string } & TeamPlanPending)
+  | { type: 'team.planClosed'; conversationId: string; requestId: string }
+  | { type: 'team.started'; conversationId: string; runId: string; callId: string; round: number; items: { expertId: string; task: string; done: string; dependsOn: string[] }[] }
+  | { type: 'team.member'; conversationId: string; runId: string; expertId: string; status: TeamMemberState; note: string; subtaskId: string; callId: string }
+  | ({ type: 'team.board'; conversationId: string; runId: string } & TeamBoardItem)
+  | { type: 'team.round'; conversationId: string; runId: string; results: { expertId: string; status: string; delivery: string; retries: number }[] }
   | {
       type: 'expert.started'
       conversationId: string
@@ -1493,4 +1501,59 @@ export interface TeamInput {
   read_only: boolean
   share: 'department' | 'personal'
   updated_at?: string | null
+}
+
+// ---------- 团队执行（docs/team-mode.md 第 6、7 节）----------
+export interface TeamPlanCardItem {
+  expertId: string
+  name: string
+  avatar: string
+  readOnly: boolean
+  task: string
+  done: string
+  dependsOn: string[]
+}
+/** 等员工回答的计划卡 */
+export interface TeamPlanPending {
+  requestId: string
+  callId: string
+  runId: string
+  /** 1 = 分工计划，2 = 补派 */
+  round: number
+  goal: string
+  items: TeamPlanCardItem[]
+  skipped: string[]
+  estimateTokens: number
+  budgetTokens: number
+}
+export type TeamMemberState = 'waiting' | 'upstream' | 'running' | 'retrying' | 'done' | 'failed' | 'stopped'
+export interface TeamMemberView {
+  expertId: string
+  status: TeamMemberState
+  note: string
+  callId: string
+  subtaskId: string
+  task: string
+  done: string
+  dependsOn: string[]
+  delivery?: string
+  retries?: number
+}
+export interface TeamBoardItem {
+  expertId: string
+  name: string
+  /** finding / file / question / progress / read */
+  kind: string
+  text: string
+  at: string
+}
+/** 一次团队任务在界面上的状态（右侧「团队」标签、计划卡） */
+export interface TeamRunView {
+  runId: string
+  pending: TeamPlanPending | null
+  members: Record<string, TeamMemberView>
+  order: string[]
+  board: TeamBoardItem[]
+  startedAt: string
+  finished: boolean
 }

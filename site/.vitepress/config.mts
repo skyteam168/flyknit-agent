@@ -44,6 +44,7 @@ export default defineConfig({
           text: '能力扩展',
           items: [
             { text: '专家', link: '/guide/experts' },
+            { text: '团队', link: '/guide/teams' },
             { text: '技能', link: '/guide/skills' },
             { text: '连接器', link: '/guide/connectors' },
           ],

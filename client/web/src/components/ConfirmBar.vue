@@ -41,6 +41,8 @@ const canSessionApprove = computed(() => effect.value !== 'destructive')
 
 /** 派遣时的一次授权（docs/approval-p0.md 第 5 节）：不是针对某一个调用，按钮换成「这次派遣内都直接执行 / 用到时逐条问我」 */
 const bundle = computed(() => tool.value?.confirm?.bundle ?? null)
+/** 团队开工授权（docs/team-mode.md 第 6 节 ③）：挂在队长那次 team_plan / team_assign 上 */
+const isTeam = computed(() => tool.value?.name === 'team_plan' || tool.value?.name === 'team_assign')
 
 function answer(choice: 'allowOnce' | 'allowForSession' | 'allowAlways' | 'reject') {
   if (tool.value && conversationId.value) void answerConfirm(conversationId.value, tool.value.callId, choice)
@@ -62,17 +64,17 @@ function answer(choice: 'allowOnce' | 'allowForSession' | 'allowAlways' | 'rejec
       <span v-if="!bundle" class="what-name">{{ label }}</span>
     </div>
     <template v-if="bundle">
-      <p class="why">{{ t('tool.bundle.lead', { n: bundle.length }) }}</p>
+      <p class="why">{{ isTeam ? t('tool.bundle.teamLead', { n: bundle.length }) : t('tool.bundle.lead', { n: bundle.length }) }}</p>
       <ul class="bundle">
         <li v-for="b in bundle" :key="b">{{ b }}</li>
       </ul>
       <div class="actions">
         <button type="button" class="btn primary" @click="answer('allowForSession')">
-          <Check :size="15" /> {{ t('tool.bundle.allow') }}
+          <Check :size="15" /> {{ isTeam ? t('tool.bundle.teamAllow') : t('tool.bundle.allow') }}
         </button>
         <button type="button" class="btn" @click="answer('reject')">{{ t('tool.bundle.perCall') }}</button>
       </div>
-      <p class="note">{{ t('tool.bundle.note') }}</p>
+      <p class="note">{{ isTeam ? t('tool.bundle.teamNote') : t('tool.bundle.note') }}</p>
     </template>
     <template v-else>
     <code v-if="what" class="what">{{ what }}</code>

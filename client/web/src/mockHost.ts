@@ -499,6 +499,163 @@ export function createMockHost(): HostTransport {
   const subtasks = new Map<string, SubtaskDto>()
   const mesExpert = { id: 'mes_analyst', name: 'MES生产分析专家', avatar: '🏭', version: 3 }
 
+  // ---------- 团队任务（docs/team-mode.md 第 6 节）：计划卡 → 开工授权 → 成员按依赖并行 → 看板 → 报告 ----------
+  async function teamTask(c: Conversation, list: UiMessage[], text: string) {
+    const id = c.id
+    const team = mockTeams.find((t) => t.id === c.teamId)!
+    const runId = 'tr_' + uid().slice(0, 6)
+    const callId = uid()
+    const lead = `这件事要同时看生产、质量和排程，我按「${team.name}」的分工来做。下面是分工计划，你看一下。`
+    await stream(id, lead)
+    const items = [
+      { expertId: 'mes_analyst', task: '查 10 月 A、B 车间工单进度和延期明细', done: '延期工单清单（单号、工序、延误小时）', dependsOn: [] as string[] },
+      { expertId: 'quality', task: '查同期不良和返工，标出和延期工单重叠的', done: '返工单与延期单的重叠情况', dependsOn: [] as string[] },
+      { expertId: 'plan', task: '结合前两位的结论，看排程变更的影响', done: '插单清单和对包装线产能的占用估算', dependsOn: ['mes_analyst', 'quality'] },
+      { expertId: 'report', task: '把结论整理成 Excel 报告', done: 'Excel 三页：延期明细、返工、改进建议', dependsOn: ['plan'] },
+    ].filter((i) => team.members.some((m) => m.expert_id === i.expertId && m.available !== false))
+    const args = JSON.stringify({ goal: '找出 10 月 A 车间订单延期的主要原因', items: items.map((i) => ({ member: i.expertId, task: i.task, done: i.done, depends_on: i.dependsOn })) })
+    list.push({ id: uid(), role: 'assistant', content: lead, toolCalls: [{ id: callId, name: 'team_plan', arguments: args }], createdAt: now() })
+    emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+    emit({ type: 'tool.started', conversationId: id, callId, name: 'team_plan', summary: '团队分工计划：找出 10 月 A 车间订单延期的主要原因', args, risk: 'auto' })
+    const expertOf = (eid: string) => mockExperts.find((e) => e.id === eid)!
+    // 计划卡
+    const requestId = uid()
+    const answer = await new Promise<string>((resolve) => {
+      confirmWaiters.set(requestId, resolve)
+      emit({
+        type: 'team.plan', conversationId: id, requestId, callId, runId, round: 1, goal: '找出 10 月 A 车间订单延期的主要原因',
+        items: items.map((i) => ({ ...i, name: expertOf(i.expertId).name, avatar: expertOf(i.expertId).avatar, readOnly: !!expertOf(i.expertId).readOnly })),
+        skipped: team.members.filter((m) => m.available === false).map((m) => m.expert_id), estimateTokens: items.length * 130000, budgetTokens: 1000000,
+      } as never)
+    })
+    emit({ type: 'team.planClosed', conversationId: id, requestId } as never)
+    const { action, removed } = JSON.parse(answer) as { action: string; removed: string[]; text: string }
+    const finishTool = (output: string) => {
+      emit({ type: 'tool.finished', conversationId: id, callId, ok: true, output, decision: 'auto' })
+      list.push({ id: uid(), role: 'tool', content: output, toolCallId: callId, createdAt: now() })
+    }
+    if (action !== 'start') {
+      finishTool(action === 'revise' ? '员工要求修改计划' : '员工取消了这次团队任务')
+      const reply = action === 'revise' ? '好的，我按你的意见改一下计划再给你看。（演示里到此为止）' : '好的，这次就不派成员了。'
+      await stream(id, reply)
+      list.push({ id: uid(), role: 'assistant', content: reply, createdAt: now() })
+      emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+      emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed' })
+      return
+    }
+    const plan = items.filter((i) => !removed.includes(i.expertId)).map((i) => ({ ...i, dependsOn: i.dependsOn.filter((d) => !removed.includes(d)) }))
+    // 团队开工授权
+    await new Promise<string>((resolve) => {
+      const grantId = uid()
+      confirmWaiters.set(grantId, resolve)
+      emit({
+        type: 'tool.confirm', conversationId: id, requestId: grantId, callId,
+        reason: '这次团队任务内这些操作直接执行，不再逐条问', rationale: '', rememberable: false, effect: 'write', ruleDisplay: '',
+        bundle: ['MES · 查询工单', 'QMS · 查询返工单', 'APS · 查询排程变更'],
+      } as never)
+    })
+    emit({ type: 'team.started', conversationId: id, runId, callId, round: 1, items: plan } as never)
+    const status: Record<string, string> = Object.fromEntries(plan.map((i) => [i.expertId, i.dependsOn.length ? 'upstream' : 'waiting']))
+    const member = (eid: string, st: string, note = '', subtaskId = '') => {
+      status[eid] = st
+      emit({ type: 'team.member', conversationId: id, runId, expertId: eid, status: st, note, subtaskId, callId: `${callId}#${eid}` } as never)
+    }
+    const board = (eid: string, kind: string, text2: string) =>
+      emit({ type: 'team.board', conversationId: id, runId, expertId: eid, name: expertOf(eid).name, kind, text: text2, at: now() } as never)
+    const steps: Record<string, string[][]> = {
+      mes_analyst: [['mes.query_orders', '车间=A,B，月份=10'], ['mes.query_delay', '按工序统计']],
+      quality: [['qms.query_rework', '月份=10'], ['qms.match', '和延期单比对']],
+      plan: [['aps.query_changes', '月份=10'], ['analysis', '估算插单影响']],
+      report: [['write_file', 'D:\\报表\\10月A车间延期分析.xlsx']],
+    }
+    const results: Record<string, string> = {
+      mes_analyst: '延期 37 单，包装工序占 62%（平均晚 6.5 小时）',
+      quality: '返工 11 单，其中 7 单和延期工单重叠，多为包装破损',
+      plan: '15 日插入 2 张急单，占用包装线 9 小时产能',
+      report: '已生成「10月A车间延期分析.xlsx」',
+    }
+    const runMember = async (eid: string) => {
+      const subtaskId = stId()
+      const mcall = `${callId}#${eid}`
+      const e = expertOf(eid)
+      const started = now()
+      member(eid, 'running', '', subtaskId)
+      let seq = 0
+      emit({ type: 'expert.started', conversationId: id, callId: mcall, subtaskId, seq: ++seq, expert: { id: e.id, name: e.name, avatar: e.avatar, version: 1 }, task: plan.find((x) => x.expertId === eid)!.task, startedAt: started } as never)
+      if (eid === 'quality') {
+        await sleep(900)
+        member(eid, 'retrying', 'QMS 查询超时，自动重试（1/1）', subtaskId)
+        board(eid, 'progress', 'QMS 查询超时，调度器自动重试 1 次')
+        await sleep(700)
+        member(eid, 'running', '', subtaskId)
+      }
+      for (const [name, summary] of steps[eid] ?? []) {
+        emit({ type: 'expert.step', conversationId: id, callId: mcall, subtaskId, seq: ++seq, kind: 'tool_started', name, summary } as never)
+        await sleep(1100)
+        if (eid === 'report' && name === 'write_file') {
+          // 会改东西的成员：照常请员工确认（标明是哪位成员）
+          const innerCall = uid()
+          const req = uid()
+          emit({ type: 'expert.step', conversationId: id, callId: mcall, subtaskId, seq: ++seq, kind: 'waiting_confirmation', name, summary } as never)
+          await new Promise<string>((resolve) => {
+            confirmWaiters.set(req, resolve)
+            emit({
+              type: 'tool.confirm', conversationId: id, requestId: req, callId: innerCall, reason: '会在 D:\\报表 新建一个文件', rationale: '把团队结论整理成 Excel 报告',
+              rememberable: false, effect: 'write', ruleDisplay: '', actor: { kind: 'expert', id: e.id, name: e.name, avatar: e.avatar, subtaskId },
+            } as never)
+          })
+        }
+        emit({ type: 'expert.step', conversationId: id, callId: mcall, subtaskId, seq: ++seq, kind: 'tool_completed', name, summary, ok: true } as never)
+      }
+      const dto: SubtaskDto = {
+        id: subtaskId, callId: mcall, conversationId: id, expert: { id: e.id, name: e.name, avatar: e.avatar, version: 1 }, task: plan.find((x) => x.expertId === eid)!.task,
+        context: '', status: 'completed', summary: results[eid], findings: [{ id: 'F1', statement: results[eid], evidence: [], verification: 'supported', note: '' }],
+        openQuestions: eid === 'plan' ? ['同期有没有备用封箱机？系统里没查到'] : [], nextSuggestions: [], artifacts: [], confidence: 0.8, toolCalls: [],
+        tokens: { prompt: 98000, completion: 4200, estimated: false }, startedAt: started, finishedAt: now(), durationMs: 4000, errorCode: '', error: '', trace: null,
+      }
+      emit({ type: 'expert.finished', conversationId: id, callId: mcall, subtaskId, seq: ++seq, subtask: dto } as never)
+      board(eid, 'finding', results[eid] + '（已核验）')
+      if (eid === 'plan') board(eid, 'question', '同期有没有备用封箱机？系统里没查到')
+      if (eid === 'report') board(eid, 'file', 'D:\\报表\\10月A车间延期分析.xlsx')
+      member(eid, 'done', '达标', subtaskId)
+    }
+    // 按依赖调度：只读的同时开工，下游等上游
+    const running = new Map<string, Promise<void>>()
+    while (plan.some((i) => !['done', 'stopped'].includes(status[i.expertId]))) {
+      for (const i of plan) {
+        if (!['waiting', 'upstream'].includes(status[i.expertId]) || running.has(i.expertId)) continue
+        if (!i.dependsOn.every((d) => status[d] === 'done')) continue
+        if (i.dependsOn.length) board(i.expertId, 'read', `读取了 ${i.dependsOn.map((d) => expertOf(d).name).join('、')} 的结果`)
+        running.set(i.expertId, runMember(i.expertId).finally(() => running.delete(i.expertId)))
+      }
+      if (!running.size) break
+      await Promise.race(running.values())
+    }
+    emit({ type: 'team.round', conversationId: id, runId, results: plan.map((i) => ({ expertId: i.expertId, status: status[i.expertId], delivery: '达标', retries: i.expertId === 'quality' ? 1 : 0 })) } as never)
+    finishTool('<团队执行结果>（演示）</团队执行结果>')
+    const report = [
+      '## 团队报告 · 10 月 A 车间订单延期',
+      '',
+      '**结论**：延期主要卡在**包装工序**。15 日插入的 2 张急单占用了包装线 9 小时产能，叠加包装破损返工，造成 37 单延期中的 23 单。',
+      '',
+      '### 各成员要点',
+      `- **${expertOf('mes_analyst').name}**：${results.mes_analyst}（已核验）`,
+      `- **${expertOf('quality').name}**：${results.quality}（已核验）`,
+      `- **${expertOf('plan').name}**：${results.plan}（已核验）`,
+      '',
+      '### 交叉验证',
+      '- 一致：MES 的延期单里有 7 张和质检的返工单重叠，两边单号对得上',
+      '- 口径不同：MES 说包装平均晚 6.5 小时（每单），计划算的是占用 9 小时产能（总量），不矛盾',
+      '',
+      '### 需要你确认',
+      '- 同期有没有备用封箱机？系统里没查到',
+    ].join('\n')
+    await stream(id, report)
+    list.push({ id: uid(), role: 'assistant', content: report, createdAt: now() })
+    emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+    emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed' })
+  }
+
   // ---------- 团队（docs/team-mode.md）：模拟服务端的范围和权限 ----------
   const teamStamp = () => new Date().toISOString()
   let mockTeams: Team[] = [
@@ -810,6 +967,10 @@ export function createMockHost(): HostTransport {
     const list = messages.get(id)!
     if (addUser) list.push({ id: messageId ?? uid(), role: 'user', content: text, attachments, createdAt: now() })
 
+    if (c.teamId) {
+      await teamTask(c, list, text)
+      return
+    }
     let finalText: string
     if (/网页|浏览器|browser/i.test(text)) {
       // 开发预览：AI 浏览器在操作内部网页，右侧出现「浏览器」标签
@@ -1805,6 +1966,12 @@ export function createMockHost(): HostTransport {
         }
       case 'experts.list':
         return mockExperts.map((e) => ({ ...e }))
+      case 'team.planAnswer':
+        confirmWaiters.get(p.requestId)?.(JSON.stringify({ action: p.action, removed: p.removed ?? [], text: p.text ?? '' }))
+        confirmWaiters.delete(p.requestId)
+        return true
+      case 'team.stopMember':
+        return true
       case 'teams.list':
         return mockTeams.map((t) => ({ ...t, members: t.members.map((m) => ({ ...m })) }))
       case 'teams.save':
@@ -1820,6 +1987,8 @@ export function createMockHost(): HostTransport {
       case 'conversation.create': {
         const c = makeConversation(p.expertId ? 'agent' : p.mode)
         c.expertId = mockExperts.some((e) => e.id === p.expertId) ? p.expertId : null
+        c.teamId = !c.expertId && mockTeams.some((t) => t.id === p.teamId) ? p.teamId : null
+        if (c.teamId) c.mode = 'agent'
         c.modelId = p.modelId ?? null
         c.workspace = p.workspace ?? defaultWorkspace
         c.permission = p.permission ?? 'workspace'

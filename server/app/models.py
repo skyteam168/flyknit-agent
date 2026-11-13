@@ -877,6 +877,8 @@ class Subtask(Base):
     #: 不设外键：专家删了记录照样留着
     expert_id: Mapped[str] = mapped_column(String(40), default="")
     expert_name: Mapped[str] = mapped_column(String(100), default="")
+    #: 团队派遣时的团队 ID（docs/team-mode.md）；普通派遣为空
+    team_id: Mapped[str] = mapped_column(String(40), default="", server_default=text("''"))
     #: 员工端请求时手里的版本，和登记时服务端已发布的版本。两个不一样说明员工端还没拉到新版
     expert_version: Mapped[int] = mapped_column(Integer, default=0)
     published_version: Mapped[int] = mapped_column(Integer, default=0)

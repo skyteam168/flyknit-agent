@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Activity, Eye, FilePen, FileText, FolderTree, Globe, Info, ListChecks, Maximize2, Minimize2, Rows2, SquareTerminal, X } from '@lucide/vue'
+import { Activity, Eye, FilePen, FileText, FolderTree, Globe, Info, ListChecks, Maximize2, Minimize2, Rows2, SquareTerminal, Users, X } from '@lucide/vue'
 import { closeRightPanel, current, currentState, setPreviewWidth, setRightRatio, setRightSplit, setRightTab2, state } from '../store'
 import RightPaneBody from './RightPaneBody.vue'
 import { backgroundCount, hasBackground } from '../background'
@@ -17,12 +17,14 @@ import { backgroundCount, hasBackground } from '../background'
  */
 const { t } = useI18n()
 
-type Tab = 'document' | 'plan' | 'preview' | 'changes' | 'browser' | 'terminal' | 'files' | 'background' | 'session'
-const icons = { document: FileText, plan: ListChecks, preview: Eye, changes: FilePen, browser: Globe, terminal: SquareTerminal, files: FolderTree, background: Activity, session: Info }
+type Tab = 'team' | 'document' | 'plan' | 'preview' | 'changes' | 'browser' | 'terminal' | 'files' | 'background' | 'session'
+const icons = { team: Users, document: FileText, plan: ListChecks, preview: Eye, changes: FilePen, browser: Globe, terminal: SquareTerminal, files: FolderTree, background: Activity, session: Info }
 
 const tabs = computed<Tab[]>(() => {
   const list: Tab[] = []
   const id = current.value?.id
+  // 团队任务（docs/team-mode.md 7.5）：成员进度、共享看板
+  if (currentState.value?.team) list.push('team')
   if (id && state.docs[id]) list.push('document')
   if (currentState.value?.plan.length) list.push('plan')
   if (state.preview) list.push('preview')

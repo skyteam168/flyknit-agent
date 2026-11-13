@@ -1820,7 +1820,13 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
                 {
                     expert = null;
                 }
-                var conv = await Task.Run(() => _host.Store.Create(mode, "", modelId, workspace, permission, expert?.Id));
+                // 团队任务：只认这台电脑能用的团队（服务端下发的列表里的）；团队对话一律是「办事」模式
+                var team = expert is null && OptStr("teamId") is { } teamId ? await _host.TeamAsync(teamId, CancellationToken.None) : null;
+                if (team is not null)
+                {
+                    mode = ConversationMode.Agent;
+                }
+                var conv = await Task.Run(() => _host.Store.Create(mode, "", modelId, workspace, permission, expert?.Id, team?.Id));
                 return ConversationDto.From(conv);
             }
 
@@ -1855,6 +1861,24 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
 
             case "teams.copy":
                 return await _host.CopyTeamAsync(Str("id"), CancellationToken.None);
+
+            case "team.planAnswer":
+            {
+                // 计划卡：start = 开始执行（removed 是员工去掉的成员）；revise = 让队长改（text）；cancel = 取消
+                var action = Str("action") switch
+                {
+                    "start" => Flyknit.Core.Teams.TeamPlanAction.Start,
+                    "revise" => Flyknit.Core.Teams.TeamPlanAction.Revise,
+                    _ => Flyknit.Core.Teams.TeamPlanAction.Cancel,
+                };
+                var removed = p.TryGetProperty("removed", out var r) && r.ValueKind == JsonValueKind.Array
+                    ? r.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
+                    : new List<string>();
+                return _host.AnswerTeamPlan(Str("requestId"), new Flyknit.Core.Teams.TeamPlanAnswer(action, removed, Str("text")));
+            }
+
+            case "team.stopMember":
+                return _host.StopTeamMember(Str("conversationId"), Str("expertId"));
 
             case "conversation.rename":
                 await Task.Run(() => _host.Store.Rename(Str("id"), Str("title")));

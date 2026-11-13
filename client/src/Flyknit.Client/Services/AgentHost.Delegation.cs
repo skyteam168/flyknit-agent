@@ -36,6 +36,8 @@ public sealed partial class AgentHost
             {
                 _delegationHost ??= new DelegationHost(this);
                 _dispatcher = new ExpertDispatcher(_delegationHost, Server, Store, _delegationHost, Experts.Get, DelegationEnabled);
+                // 团队成员看「团队模式」开关，不看「派遣专家」开关（docs/team-mode.md）
+                _dispatcher.TeamsEnabled = () => TeamsOn;
             }
             return _dispatcher;
         }

@@ -112,7 +112,9 @@ const showRight = computed(
       state.sessionPanel ||
       // AI 浏览器在用、有后台命令在跑时自动显示（员工点了关闭就不再自动弹）
       ((state.browser.active || hasRunningBackground(state.currentId)) && !state.rightClosed) ||
-      (showPlan.value && !state.rightClosed)),
+      (showPlan.value && !state.rightClosed) ||
+      // 团队任务：成员进度、共享看板（员工点了关闭就不再自动弹）
+      (!!currentState.value?.team && !state.rightClosed)),
 )
 /** 有当前对话时显示对话视图，否则显示新任务首页 */
 const inConversation = computed(() => current.value !== null)

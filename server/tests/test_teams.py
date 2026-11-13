@@ -206,3 +206,43 @@ async def test_start_counts_runs(client):
     team = (await client.post("/api/v1/client/teams", headers=a, json=body())).json()
     assert (await client.post(f"/api/v1/client/teams/{team['id']}/start", headers=b)).status_code == 204
     assert (await client.get("/api/v1/client/teams", headers=a)).json()[0]["runs"] == 1
+
+
+# ---------- 团队派遣登记（第 2 期）----------
+async def register_subtask(client, headers, expert_id, team_id="", run_id="run-1"):
+    return await client.post("/api/v1/client/subtasks", headers=headers, json={
+        "run_id": run_id, "conversation_id": "c1", "expert_id": expert_id, "task": "查一下 10 月的工单延期情况", "team_id": team_id})
+
+
+async def test_team_dispatch_needs_team_mode_not_the_delegation_switch(client):
+    (_, a), _, _ = await setup(client)
+    team = (await client.post("/api/v1/client/teams", headers=a, json=body(members=("mes", "qc", "eq")))).json()
+    # 「派遣专家」开关是关的（默认），团队派遣照样能登记
+    r = await register_subtask(client, a, "mes", team["id"])
+    assert r.status_code == 201, r.text
+    # 普通派遣仍然看「派遣专家」开关
+    assert (await register_subtask(client, a, "mes", run_id="run-2")).json()["detail"]["code"] == "delegation_disabled"
+    # 团队模式关了就拒绝
+    await client.put("/api/v1/admin/security", headers=ADMIN, json={"values": {"teams": False}, "locks": {}})
+    assert (await register_subtask(client, a, "qc", team["id"], run_id="run-3")).json()["detail"]["code"] == "teams_disabled"
+
+
+async def test_team_dispatch_checks_membership_and_scope(client):
+    (_, a), _, (_, q) = await setup(client)
+    team = (await client.post("/api/v1/client/teams", headers=a, json=body(members=("mes", "qc")))).json()
+    r = await register_subtask(client, a, "eq", team["id"])
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "expert_unavailable"   # 不是团队成员
+    r = await register_subtask(client, q, "mes", team["id"])
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "team_unavailable"     # 别的部门用不了这个团队
+    r = await register_subtask(client, a, "mes", "tm_nope")
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "team_unavailable"
+
+
+async def test_team_dispatch_limit_follows_team_size(client):
+    (_, a), _, _ = await setup(client)
+    team = (await client.post("/api/v1/client/teams", headers=a, json=body(members=("mes", "qc")))).json()
+    codes = [(await register_subtask(client, a, "mes" if i % 2 else "qc", team["id"])).status_code for i in range(5)]
+    assert codes == [201, 201, 201, 201, 409]   # 2 位成员 × 2 = 4 次
+    rows = (await client.get("/api/v1/admin/subtasks", headers=ADMIN)).json()
+    items = rows["items"] if isinstance(rows, dict) else rows
+    assert all(s.get("team_id", team["id"]) == team["id"] for s in items)

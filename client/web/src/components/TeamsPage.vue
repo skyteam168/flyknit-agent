@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Copy, Pencil, Plus, Search, Trash2 } from '@lucide/vue'
+import { Copy, Pencil, Play, Plus, Search, Trash2 } from '@lucide/vue'
 import ExpertAvatar from './ExpertAvatar.vue'
 import TeamEditor from './TeamEditor.vue'
-import { copyTeam, dissolveTeam, loadTeams, state, toast } from '../store'
+import { copyTeam, dissolveTeam, loadTeams, startTeamTask, state, toast } from '../store'
 import { teamIcon } from '../teams'
 import type { Team } from '../types'
 
@@ -113,6 +113,9 @@ async function dissolve() {
           <span v-if="team.read_only">· {{ t('ui.teams.readOnly') }}</span>
         </div>
         <div class="acts">
+          <button type="button" class="btn sm primary" :disabled="team.members.filter((m) => m.available !== false).length < 1" @click="startTeamTask(team.id)">
+            <Play :size="13" /> {{ t('ui.teams.start') }}
+          </button>
           <template v-if="team.editable">
             <button type="button" class="btn sm" @click="editing = team"><Pencil :size="13" /> {{ t('ui.teams.edit') }}</button>
             <button type="button" class="btn sm ghost danger" @click="confirming = team"><Trash2 :size="13" /> {{ t('ui.teams.dissolve') }}</button>
