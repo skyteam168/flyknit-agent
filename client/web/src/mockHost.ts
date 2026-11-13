@@ -666,6 +666,20 @@ export function createMockHost(): HostTransport {
     const stepEv = (kind: 'tool_started' | 'tool_completed' | 'waiting_confirmation' | 'thinking', name: string, summary: string, ok?: boolean) =>
       emit({ type: 'expert.step', ...base, seq: ++seq, kind, name, summary, ok })
     emit({ type: 'expert.started', ...base, seq: ++seq, expert: mesExpert, task: running.task, startedAt })
+    // 派遣时的一次授权（docs/approval-p0.md 第 5 节）：专家可能要用的连接器工具开工前问一次
+    if (c.permission !== 'full') {
+      stepEv('waiting_confirmation', 'ask_expert', '派遣时一次授权')
+      await new Promise<string>((resolve) => {
+        const grantId = uid()
+        confirmWaiters.set(grantId, resolve)
+        emit({
+          type: 'tool.confirm', conversationId: id, requestId: grantId, callId,
+          reason: '这次派遣内这些操作直接执行，不再逐条问', rationale: '', rememberable: false, effect: 'write', ruleDisplay: '',
+          actor: { kind: 'expert', id: mesExpert.id, name: mesExpert.name, avatar: mesExpert.avatar, subtaskId },
+          bundle: ['MES · 查询工单', 'MES · 查询停机记录', 'ERP · 查询库存'],
+        })
+      })
+    }
     const finish = (dto: SubtaskDto) => {
       subtasks.set(subtaskId, dto)
       emit({ type: 'expert.finished', ...base, seq: ++seq, subtask: { ...dto, trace: null } })
@@ -945,6 +959,34 @@ export function createMockHost(): HostTransport {
       // 模拟一次专家派遣：派遣中 → 专家逐步执行（中间要员工确认）→ 交卷
       await delegate(c, list, text)
       return
+    } else if (c.mode === 'agent' && /合并确认|batch/i.test(text)) {
+      // 模拟同一步里三个要确认的操作合成一张卡（docs/approval-p0.md 第 7 节）
+      const lead = '我把三个月的报表移到归档目录，再删掉临时文件夹。'
+      await stream(id, lead)
+      const calls = [
+        { id: uid(), name: 'run_shell', summary: 'python D:\\工作区\\整理报表.py', reason: '这个命令的影响事先看不出来，需要确认', effect: 'unknown', mustTick: false },
+        { id: uid(), name: 'mcp__tencent-docs__create_sheet', summary: 'title：归档清单，rows：36', reason: '腾讯文档 的操作会在对方系统里生效', effect: 'write', mustTick: false },
+        { id: uid(), name: 'delete_path', summary: 'D:\\工作区\\临时', reason: '删除文件需要确认（会移入回收站）', effect: 'destructive', mustTick: true },
+      ]
+      list.push({ id: uid(), role: 'assistant', content: lead, toolCalls: calls.map((x) => ({ id: x.id, name: x.name, arguments: '{}' })), createdAt: now() })
+      emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+      for (const x of calls) emit({ type: 'tool.started', conversationId: id, callId: x.id, name: x.name, summary: x.summary, risk: 'confirm' })
+      const requestId = uid()
+      const answer = await new Promise<string>((resolve) => {
+        confirmWaiters.set(requestId, resolve)
+        emit({
+          type: 'tool.confirmBatch', conversationId: id, requestId, rationale: lead,
+          items: calls.map((x) => ({ callId: x.id, toolName: x.name, summary: x.summary, reason: x.reason, effect: x.effect, mustTick: x.mustTick, sessionable: !x.mustTick })),
+        })
+      })
+      const { allowed, rejected } = JSON.parse(answer) as { allowed: string[]; rejected: string[] }
+      for (const x of calls) {
+        const ok = allowed.includes(x.id)
+        const no = rejected.includes(x.id)
+        emit({ type: 'tool.finished', conversationId: id, callId: x.id, ok, output: ok ? '完成' : no ? '用户拒绝了这个操作' : '（执行到这里时会再单独问）', decision: ok ? 'approved' : no ? 'rejected' : 'rejected' })
+      }
+      finalText = `已执行 ${allowed.length} 项，拒绝 ${rejected.length} 项。`
+      await stream(id, finalText)
     } else if (c.mode === 'agent' && /考勤|选一下|ask/i.test(text)) {
       // 模拟一次选项提问：AI 缺信息 → 选项卡片 → 员工点选 → 接着做
       const lead = '统计全勤率之前，有两个字段我需要先确认一下。'
@@ -2048,6 +2090,10 @@ export function createMockHost(): HostTransport {
       }
       case 'tool.confirm':
         confirmWaiters.get(p.requestId)?.(p.choice)
+        confirmWaiters.delete(p.requestId)
+        return
+      case 'tool.confirmBatch':
+        confirmWaiters.get(p.requestId)?.(JSON.stringify({ allowed: p.allowed ?? [], rejected: p.rejected ?? [] }))
         confirmWaiters.delete(p.requestId)
         return
       case 'context.usage': {

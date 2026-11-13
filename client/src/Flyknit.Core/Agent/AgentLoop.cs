@@ -266,6 +266,8 @@ public sealed class AgentLoop
         var checkpoint = new RunCheckpoint { RunId = ctx.RunId };
         // 提示词注入：这一轮读到过可疑的外部内容后，除了只读操作每一步都要员工确认（见 PromptInjectionGuard）
         PromptInjectionGuard.Finding? taint = null;
+        // 合并卡上的回答：调用 ID → （当时的判定，员工的选择）。每一步开始前重新填
+        var preAnswers = new Dictionary<string, (PolicyDecision Decision, ConfirmChoice Choice)>(StringComparer.Ordinal);
         void SaveCheckpoint()
         {
             if (Checkpoint is null)
@@ -522,6 +524,10 @@ public sealed class AgentLoop
                 }
 
                 var calls = turn.ToolCalls;
+                if (!ct.IsCancellationRequested && !endRequested)
+                {
+                    await PreConfirmAsync(calls, turn.Content, ctx, ct);
+                }
                 for (var i = 0; i < calls.Count;)
                 {
                     var call = calls[i];
@@ -908,20 +914,7 @@ public sealed class AgentLoop
             string summary;
             try
             {
-                decision = tool.Assess(args, context);
-                // IT 的工具规则：只会收紧（拦下、必须确认），见 ToolRules
-                if (context.Rules is { IsEmpty: false } rules)
-                {
-                    decision = rules.Apply(call.Name, call.ArgumentsJson, decision);
-                }
-                // 污染模式：读到过疑似注入的内容后，非只读操作一律请员工确认，「以后自动」「本次都允许」也跳过
-                // 沙箱容器里的操作影响出不了容器，不拦；能带出容器的出口（推送、建 PR）照样拦
-                if (taint is not null && decision.Level != RiskLevel.Blocked && tool is not Sandbox.ISandboxedTool
-                    && !PromptInjectionGuard.StaysAutomaticWhenTainted(call.Name, decision, tool is Mcp.McpTool m ? m.IsReadOnly : PlanMode.Allows(tool)))
-                {
-                    decision = (decision.Level == RiskLevel.Auto ? PolicyDecision.Confirm(TaintReason) with { Effect = decision.Effect, Rule = decision.Rule } : decision with { Reason = TaintReason + "；" + decision.Reason })
-                        with { AlwaysAsk = true };
-                }
+                decision = Decide(call, tool, args, context);
                 summary = tool.Describe(args);
             }
             catch (Exception ex)
@@ -972,14 +965,18 @@ public sealed class AgentLoop
                 }
                 else
                 {
-                    var choice = await _confirm.ConfirmAsync(new ConfirmRequest
-                    {
-                        ConversationId = context.ConversationId,
-                        Call = call,
-                        Summary = summary,
-                        Decision = decision,
-                        Rationale = rationale,
-                    }, token);
+                    // 同一步的几个确认已经在一张合并卡上回答过（docs/approval-p0.md 第 7 节）：
+                    // 判定和当时一样才用那个回答；变严了（比如上一个调用的结果触发了污染模式）就单独再问
+                    var choice = preAnswers.Remove(call.Id, out var pre) && SameDecision(pre.Decision, decision)
+                        ? pre.Choice
+                        : await _confirm.ConfirmAsync(new ConfirmRequest
+                        {
+                            ConversationId = context.ConversationId,
+                            Call = call,
+                            Summary = summary,
+                            Decision = decision,
+                            Rationale = rationale,
+                        }, token);
                     checkpoint.Asked(choice == ConfirmChoice.Reject);
                     SaveCheckpoint();
 
@@ -1147,6 +1144,97 @@ public sealed class AgentLoop
             checkpoint.ToolFinished(call.Id, result.Ok);
             SaveCheckpoint();
             return result.Ok;
+        }
+
+        // 一个调用的最终判定：工具自己的判定 → IT 的工具规则（只收紧）→ 污染模式（只收紧）
+        PolicyDecision Decide(ToolCall call, ITool tool, JsonElement args, ToolContext context)
+        {
+            var decision = tool.Assess(args, context);
+            // IT 的工具规则：只会收紧（拦下、必须确认），见 ToolRules
+            if (context.Rules is { IsEmpty: false } rules)
+            {
+                decision = rules.Apply(call.Name, call.ArgumentsJson, decision);
+            }
+            // 污染模式：读到过疑似注入的内容后，非只读操作一律请员工确认，「以后自动」「本次都允许」也跳过
+            // 沙箱容器里的操作影响出不了容器，不拦；能带出容器的出口（推送、建 PR）照样拦
+            if (taint is not null && decision.Level != RiskLevel.Blocked && tool is not Sandbox.ISandboxedTool
+                && !PromptInjectionGuard.StaysAutomaticWhenTainted(call.Name, decision, tool is Mcp.McpTool m ? m.IsReadOnly : PlanMode.Allows(tool)))
+            {
+                decision = (decision.Level == RiskLevel.Auto ? PolicyDecision.Confirm(TaintReason) with { Effect = decision.Effect, Rule = decision.Rule } : decision with { Reason = TaintReason + "；" + decision.Reason })
+                    with { AlwaysAsk = true };
+            }
+            return decision;
+        }
+
+        // 要不要真的问员工：长期规则、本任务授权都放行不了的确认
+        bool NeedsAsking(ToolCall call, string summary, PolicyDecision decision) =>
+            decision.Level == RiskLevel.Confirm
+            && !(!decision.AlwaysAsk && _approvals.IsAllowed(decision.Rule))
+            && !(!decision.AlwaysAsk && decision.Effect != CommandEffect.Destructive && IsSessionApproved(call.Name, summary, decision.Rule));
+
+        static bool SameDecision(PolicyDecision a, PolicyDecision b) =>
+            a.Level == b.Level && a.Effect == b.Effect && a.AlwaysAsk == b.AlwaysAsk && a.Reason == b.Reason;
+
+        // 同一步里有好几个要员工确认的调用：先一起判定，合成一张卡问一次（docs/approval-p0.md 第 7 节）。
+        // 只预判、不执行、不通知界面；真正执行时每个调用照旧完整走一遍判定，和这里不一样的单独再问。
+        // 宿主不支持合并（命令行、IDE、手机端、专家的确认）时什么都不做，照旧一个一个问
+        async Task PreConfirmAsync(IReadOnlyList<ToolCall> calls, string rationale, ToolContext context, CancellationToken token)
+        {
+            preAnswers.Clear();
+            if (calls.Count < 2 || _confirm is not IBatchConfirmationHandler { CanBatch: true } batch)
+            {
+                return;
+            }
+            var asks = new List<ConfirmRequest>();
+            foreach (var call in calls)
+            {
+                if (_tools.Get(call.Name) is not { } tool)
+                {
+                    continue;
+                }
+                try
+                {
+                    using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(call.ArgumentsJson) ? "{}" : call.ArgumentsJson);
+                    var args = doc.RootElement.Clone();
+                    var decision = Decide(call, tool, args, context);
+                    var summary = tool.Describe(args);
+                    if (NeedsAsking(call, summary, decision))
+                    {
+                        asks.Add(new ConfirmRequest
+                        {
+                            ConversationId = context.ConversationId,
+                            Call = call,
+                            Summary = summary,
+                            Decision = decision,
+                            Rationale = rationale,
+                        });
+                    }
+                }
+                catch (Exception)
+                {
+                    // 参数不对、判定出错：留给执行时按原来的方式处理
+                }
+            }
+            if (asks.Count < 2)
+            {
+                return;
+            }
+            IReadOnlyDictionary<string, ConfirmChoice> answers;
+            try
+            {
+                answers = await batch.ConfirmBatchAsync(asks, token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            foreach (var ask in asks)
+            {
+                if (answers.TryGetValue(ask.Call.Id, out var choice))
+                {
+                    preAnswers[ask.Call.Id] = (ask.Decision, choice);
+                }
+            }
         }
 
         // 会话级授权的辅助函数（本地函数）：键怎么算见 SessionApprovals.KeyFor

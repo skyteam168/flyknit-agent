@@ -1136,6 +1136,104 @@ public class DelegationTests : IDisposable
         Assert.Equal(1, risky.Executed);
     }
 
+    // ---------- 派遣时一次授权（docs/approval-p0.md 第 5 节）----------
+
+    private static Flyknit.Core.Mcp.McpTool Mcp(string name, bool readOnly = false, bool destructive = false, Func<bool>? marked = null, Action? ran = null) =>
+        new("mes", "MES", new Flyknit.Core.Mcp.McpToolInfo(name, name, "", new JsonObject(), readOnly, destructive),
+            (_, _, _) => { ran?.Invoke(); return Task.FromResult(new Flyknit.Core.Mcp.McpCallResult(false, "订单 1001：包装工序延误 6.5h")); }, marked);
+
+    [Fact]
+    public async Task TheEmployeeCanAllowAnExpertsConnectorToolsOnceAtDispatch()
+    {
+        var h = new Harness();
+        var calls = 0;
+        var orders = Mcp("query_orders", ran: () => calls++);
+        var stock = Mcp("query_stock", ran: () => calls++);
+        h.Host.AllTools.Add(orders).Add(stock);
+        h.Host.Confirmer.Answer = (_, _) => Task.FromResult(ConfirmChoice.AllowForSession);
+        h.Gateway.Children(Call(orders.Name, new { }), Call(stock.Name, new { }), Call(orders.Name, new { }), Call(SubmitResultTool.ToolName, Submit()));
+        var ctx = Ctx();
+        ctx.SessionApprovals = new SessionApprovals();
+
+        await Dispatch(h, ctx);
+
+        var ask = Assert.Single(h.Host.Confirmer.Requests);              // 只在开工前问了一次
+        Assert.Equal(new[] { "MES · query_orders", "MES · query_stock" }, ask.Bundle);
+        Assert.Equal("mes", ask.Actor!.ExpertId);
+        Assert.Equal(3, calls);
+        // 只在这次派遣里有效：主助手那边没有多出授权
+        Assert.False(ctx.SessionApprovals.Contains(SessionApprovals.KeyFor(orders.Name, "", orders.Assess(JsonDocument.Parse("{}").RootElement, ctx).Rule)));
+        var audit = h.Host.AuditLog.Entries.Single(e => e.ToolName == "dispatch_grant");
+        Assert.Equal("approved", audit.Decision);
+        Assert.Equal(h.Only.Id, audit.SubtaskId);
+    }
+
+    [Fact]
+    public async Task AskMeEachTimeKeepsTheOldBehaviourAndStillRunsTheExpert()
+    {
+        var h = new Harness();
+        var orders = Mcp("query_orders");
+        h.Host.AllTools.Add(orders);
+        var n = 0;
+        // 开工前那张选「用到时逐条问我」（= Reject），之后的逐条确认都允许
+        h.Host.Confirmer.Answer = (_, _) => Task.FromResult(n++ == 0 ? ConfirmChoice.Reject : ConfirmChoice.AllowOnce);
+        h.Gateway.Children(Call(orders.Name, new { }), Call(orders.Name, new { }), Call(SubmitResultTool.ToolName, Submit()));
+
+        await Dispatch(h, Ctx());
+
+        Assert.Equal(3, h.Host.Confirmer.Requests.Count);               // 一次派遣授权 + 两次逐条
+        Assert.NotNull(h.Host.Confirmer.Requests[0].Bundle);
+        Assert.Null(h.Host.Confirmer.Requests[1].Bundle);
+        Assert.Equal("completed", h.Only.Status);
+        Assert.Equal("declined", h.Host.AuditLog.Entries.Single(e => e.ToolName == "dispatch_grant").Decision);
+    }
+
+    [Fact]
+    public async Task DestructiveReadOnlyAndItConfirmToolsAreNotInTheDispatchGrant()
+    {
+        var h = new Harness();
+        h.Host.AllTools.Add(Mcp("query_orders"))
+            .Add(Mcp("delete_order", destructive: true))                    // 对方声明会删改数据：照旧每次问
+            .Add(Mcp("list_lines", readOnly: true))                        // 对方声明只读：本来就不问
+            .Add(Mcp("query_plan", marked: () => true))                    // 管理员标了只读：本来就不问
+            .Add(Mcp("query_salary"))                                      // IT 规定必须确认：照旧每次问
+            .Add(new FakeTool("run_shell", "ok") { Risk = RiskLevel.Confirm }); // 命令不在这里
+        h.Host.Confirmer.Answer = (_, _) => Task.FromResult(ConfirmChoice.AllowForSession);
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()));
+        var ctx = Ctx();
+        var dispatch = new ToolContext
+        {
+            Policy = ctx.Policy, ConversationId = ctx.ConversationId, Workspace = ctx.Workspace, Permission = ctx.Permission,
+            RunId = ctx.RunId, Security = ctx.Security,
+            Rules = new ToolRules(new[] { new ToolRule { Name = "工资", Tools = "mcp__mes__query_salary", Action = "confirm" } }),
+        };
+
+        await Dispatch(h, dispatch);
+
+        Assert.Equal(new[] { "MES · query_orders" }, Assert.Single(h.Host.Confirmer.Requests).Bundle);
+    }
+
+    [Fact]
+    public async Task NoCardWhenThereIsNothingToGrant()
+    {
+        var h = new Harness();
+        h.Host.AllTools.Add(Mcp("list_lines", readOnly: true));
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()));
+        await Dispatch(h, Ctx());
+        Assert.Empty(h.Host.Confirmer.Requests);
+    }
+
+    [Fact]
+    public async Task ReadOnlyExpertsGetNoDispatchGrantCard()
+    {
+        var h = new Harness();
+        h.Experts["mes"].ReadOnly = true;
+        h.Host.AllTools.Add(Mcp("query_orders"));
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()));
+        await Dispatch(h, Ctx());
+        Assert.Empty(h.Host.Confirmer.Requests);
+    }
+
     [Fact]
     public async Task ReadOnlyExpertsCanUseQueryToolsTheAdminMarkedReadOnly()
     {

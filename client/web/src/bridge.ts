@@ -435,6 +435,9 @@ class Bridge {
     this.call<boolean>('chat.pending.update', { conversationId, id, text, mode })
   removePending = (conversationId: string, id: string) => this.call<boolean>('chat.pending.remove', { conversationId, id })
   confirm = (requestId: string, choice: ConfirmChoice) => this.call<void>('tool.confirm', { requestId, choice })
+  /** 合并卡的回答：allowed 允许、rejected 拒绝，都不在里面的执行到时再单独问；session = 本任务内同类不再询问 */
+  confirmBatch = (requestId: string, allowed: string[], rejected: string[], session: boolean) =>
+    this.call<void>('tool.confirmBatch', { requestId, allowed, rejected, session })
   /** 会话信息面板：最近一次回答时的上下文用量（没回答过返回 null） */
   contextUsage = (conversationId: string) => this.call<ContextUsage | null>('context.usage', { conversationId })
   /** 手动整理对话：较早的内容压成摘要 */

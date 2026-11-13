@@ -224,9 +224,17 @@ public sealed class ExpertDispatcher
                 GrantId = parent.GrantId,
                 TaskId = parent.TaskId,
                 // 员工在主助手或别的专家卡片上点过「本任务内不再询问」的，这位专家沿用（只是员工本人给过的授权，
-                // 专家能用哪些工具照旧按上面的筛选）；专家卡片上点的也记到整个任务上
-                SessionApprovals = parent.SessionApprovals,
+                // 专家能用哪些工具照旧按上面的筛选）；专家卡片上点的也记到整个任务上。下面再挂一层派遣自己的授权
             };
+            // ---- 派遣时一次授权（docs/approval-p0.md 第 5 节）----
+            // 专家这次可能要用的「要确认、但不是高危」的连接器工具，开工前列出来问一次；
+            // 员工同意了就记在这次派遣自己的那层授权上，专家跑完就失效，不往主助手那边传
+            context.SessionApprovals = new SessionApprovals(parent.SessionApprovals);
+            if (!snapshot.ReadOnly)
+            {
+                await AskDispatchGrantAsync(snapshot, setup.Tools.All.Where(guard.Allows), context, confirm, record, cts.Token);
+            }
+
             var loop = new AgentLoop(
                 new SubtaskGateway(_host.Gateway, record.Id, state),
                 tools,
@@ -393,6 +401,91 @@ public sealed class ExpertDispatcher
     }
 
     /// <summary>交给专家的任务书：专家看不到原对话，这就是它知道的全部。</summary>
+    /// <summary>
+    /// 派遣时可以一次授权的工具：连接器里要确认、但不是高危的（对方没声明只读、没被管理员标只读、没声明 destructiveHint），
+    /// 不命中 IT 的必须确认规则，员工也还没有「以后自动」或本任务授权过。
+    /// 命令、写文件、高危操作不在这里——到时候照旧单独问。
+    /// </summary>
+    internal static List<(string Tool, ApprovalCandidate Rule)> GrantCandidates(IEnumerable<ITool> tools, ToolContext context, ApprovalStore approvals)
+    {
+        var empty = JsonDocument.Parse("{}").RootElement;
+        var list = new List<(string, ApprovalCandidate)>();
+        foreach (var tool in tools)
+        {
+            if (tool is not Mcp.McpTool mcp || mcp.IsReadOnly || mcp.Info.Destructive)
+            {
+                continue;
+            }
+            var decision = mcp.Assess(empty, context);
+            if (context.Rules is { IsEmpty: false } rules)
+            {
+                decision = rules.Apply(mcp.Name, "{}", decision);
+            }
+            if (decision.Level != RiskLevel.Confirm || decision.AlwaysAsk || decision.Effect == CommandEffect.Destructive || decision.Rule is not { } rule)
+            {
+                continue;
+            }
+            if (approvals.IsAllowed(rule) || context.SessionApprovals?.Contains(SessionApprovals.KeyFor(mcp.Name, "", rule)) == true)
+            {
+                continue;
+            }
+            list.Add((mcp.Name, rule));
+        }
+        return list;
+    }
+
+    private async Task AskDispatchGrantAsync(Expert expert, IEnumerable<ITool> tools, ToolContext context, IConfirmationHandler confirm,
+        SubtaskRecord record, CancellationToken ct)
+    {
+        var candidates = GrantCandidates(tools, context, _host.Approvals);
+        if (candidates.Count == 0)
+        {
+            return; // 没有要问的就不打扰
+        }
+        var labels = candidates.Select(c => c.Rule.Display).ToList();
+        var summary = $"「{expert.Name}」这次可能要用：{string.Join("、", labels)}";
+        ConfirmChoice choice;
+        try
+        {
+            choice = await confirm.ConfirmAsync(new ConfirmRequest
+            {
+                ConversationId = context.ConversationId,
+                Call = new ToolCall(record.CallId.Length > 0 ? record.CallId : record.Id, AskExpertTool.ToolName, "{}"),
+                Summary = summary,
+                Decision = PolicyDecision.Confirm("这次派遣内这些操作直接执行，不再逐条问；命令、写文件、删除这类操作到时候照旧单独问")
+                    with { Effect = CommandEffect.Write },
+                Bundle = labels,
+            }, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        var granted = choice != ConfirmChoice.Reject;
+        if (granted)
+        {
+            foreach (var (tool, rule) in candidates)
+            {
+                context.SessionApprovals!.AddHere(SessionApprovals.KeyFor(tool, "", rule));
+            }
+        }
+        // 「逐条问我」不算拒绝：专家照常开工，用到时一个一个问
+        _host.Audit.Record(new AuditEntry
+        {
+            ConversationId = context.ConversationId,
+            ToolName = "dispatch_grant",
+            Arguments = JsonSerializer.Serialize(candidates.Select(c => c.Tool)),
+            Risk = "confirm",
+            Decision = granted ? "approved" : "declined",
+            Status = granted ? "granted" : "per_call",
+            Summary = summary,
+            SubtaskId = record.Id,
+            Actor = $"expert:{expert.Id}",
+            GrantId = context.GrantId,
+            TaskId = context.TaskId,
+        });
+    }
+
     internal static string Brief(DelegationRequest request, IReadOnlyList<string> files)
     {
         var sb = new System.Text.StringBuilder();
@@ -644,6 +737,7 @@ internal sealed class SubtaskConfirmation : IConfirmationHandler
                 Decision = request.Decision,
                 Rationale = request.Rationale,
                 Actor = _actor,
+                Bundle = request.Bundle,
             }, ct);
         }
         catch (OperationCanceledException)

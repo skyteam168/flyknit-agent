@@ -996,6 +996,29 @@ export interface ConfirmPrompt {
   effect?: string
   /** 专家在请求确认（主助手自己的调用为空） */
   actor?: ConfirmActor
+  /** 派遣时的一次授权：这位专家这次可能要用的工具（docs/approval-p0.md 第 5 节） */
+  bundle?: string[]
+}
+
+/** 合并卡里的一项（docs/approval-p0.md 第 7 节） */
+export interface BatchConfirmItem {
+  callId: string
+  toolName: string
+  summary: string
+  reason: string
+  /** read / write / destructive / unknown */
+  effect: string
+  /** 高危、读到可疑内容之后、IT 规定必须确认的：默认不勾，「全部允许」不替员工勾 */
+  mustTick: boolean
+  /** 能记进「本任务内同类不再询问」 */
+  sessionable: boolean
+}
+
+/** 同一步里几个要确认的操作合成的一张卡 */
+export interface BatchConfirm {
+  requestId: string
+  rationale: string
+  items: BatchConfirmItem[]
 }
 
 export type ConfirmChoice = 'allowOnce' | 'allowForSession' | 'allowAlways' | 'reject'
@@ -1021,7 +1044,11 @@ export type HostEvent =
       effect?: string
       /** 专家执行时请求的确认 */
       actor?: ConfirmActor
+      /** 派遣时的一次授权：列出的工具 */
+      bundle?: string[]
     }
+  | { type: 'tool.confirmBatch'; conversationId: string; requestId: string; rationale: string; items: BatchConfirmItem[]; groupId?: string }
+  | { type: 'tool.confirmBatchResolved'; conversationId: string; requestId: string }
   | {
       type: 'expert.started'
       conversationId: string

@@ -68,6 +68,8 @@ interface ConversationState {
   inputs: PendingInput[]
   /** 用户暂停了这一轮（悬浮球或输入框上的暂停） */
   paused?: boolean
+  /** 同一步里几个要确认的操作合成的一张卡（docs/approval-p0.md 第 7 节） */
+  batch?: import('./types').BatchConfirm
 }
 
 /** 读一个对话盯着的 PR */
@@ -480,6 +482,29 @@ export const current = computed(() => state.conversations.find((c) => c.id === s
 export const currentState = computed(() => (state.currentId ? convState(state.currentId) : null))
 
 /** 任意对话里待确认的操作（优先当前对话）。手机办事不抢焦点时，确认条仍要能找到。 */
+/** 等员工回答的合并卡：优先当前对话，再看别的对话 */
+export function findWaitingBatch(): { conversationId: string; batch: import('./types').BatchConfirm } | null {
+  const ids = state.currentId ? [state.currentId, ...Object.keys(state.byId).filter((id) => id !== state.currentId)] : Object.keys(state.byId)
+  for (const id of ids) {
+    const batch = state.byId[id]?.batch
+    if (batch) return { conversationId: id, batch }
+  }
+  return null
+}
+
+/** 回答合并卡。allowed 里的执行；rejected 里的拒绝；都不在的执行到时再单独问 */
+export async function answerBatch(conversationId: string, allowed: string[], rejected: string[], session: boolean) {
+  const s = convState(conversationId)
+  const batch = s.batch
+  if (!batch) return
+  s.batch = undefined
+  for (const id of rejected) {
+    const t = s.tools[id]
+    if (t) t.state = 'rejected'
+  }
+  await bridge.confirmBatch(batch.requestId, allowed, rejected, session).catch(fail)
+}
+
 export function findWaitingConfirm(exclude?: Set<string>): { conversationId: string; tool: ToolActivity } | null {
   const pick = (id: string) => {
     if (exclude?.has(id)) return null
@@ -1637,8 +1662,10 @@ export async function answerConfirm(conversationId: string, callId: string, choi
   const tool = convState(conversationId).tools[callId]
   if (!tool?.confirm) return
   const requestId = tool.confirm.requestId
+  // 派遣时的一次授权选「逐条问我」不是拒绝：专家照常开工
+  const bundle = !!tool.confirm.bundle
   tool.confirm = undefined
-  tool.state = choice === 'reject' ? 'rejected' : 'running'
+  tool.state = choice === 'reject' && !bundle ? 'rejected' : 'running'
   await bridge.confirm(requestId, choice).catch(fail)
 }
 
@@ -1861,6 +1888,7 @@ function finishRun(s: ConversationState, conversationId: string) {
   s.busy = false
   s.stopping = false
   s.paused = false
+  s.batch = undefined
   void loadChanges(conversationId)
   s.draft = null
   for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
@@ -1930,7 +1958,8 @@ function onHostEvent(e: HostEvent) {
         }
       }
       t.state = 'waiting'
-      if (e.actor) t.actor = e.actor
+      // 派遣时的一次授权挂在主助手那次 ask_expert 上：不把它标成专家自己的调用
+      if (e.actor && !e.bundle) t.actor = e.actor
       t.confirm = {
         requestId: e.requestId,
         reason: e.reason,
@@ -1939,7 +1968,17 @@ function onHostEvent(e: HostEvent) {
         ruleDisplay: e.ruleDisplay,
         effect: e.effect ?? 'unknown',
         actor: e.actor,
+        bundle: e.bundle,
       }
+      break
+    }
+    case 'tool.confirmBatch':
+      markRunning(e.conversationId).batch = { requestId: e.requestId, rationale: e.rationale, items: e.items }
+      break
+    case 'tool.confirmBatchResolved': {
+      // 在系统通知里回答了，或者任务停了
+      const s = convState(e.conversationId)
+      if (s.batch?.requestId === e.requestId) s.batch = undefined
       break
     }
     case 'expert.started':
@@ -2052,8 +2091,9 @@ function onHostEvent(e: HostEvent) {
       // 在系统通知里确认或拒绝
       const t = convState(e.conversationId).tools[e.callId]
       if (t) {
+        const bundle = !!t.confirm?.bundle
         t.confirm = undefined
-        t.state = e.choice === 'reject' ? 'rejected' : 'running'
+        t.state = e.choice === 'reject' && !bundle ? 'rejected' : 'running'
       }
       break
     }

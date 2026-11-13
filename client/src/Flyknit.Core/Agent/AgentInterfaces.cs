@@ -35,6 +35,31 @@ public sealed class ConfirmRequest
 
     /// <summary>谁在请求：为空是主助手自己；派遣出去的专家在干活时填专家。</summary>
     public ConfirmActor? Actor { get; init; }
+
+    /// <summary>
+    /// 派遣时的一次授权（docs/approval-p0.md 第 5 节）：这位专家这次可能要用的工具（「MES · 查询工单」）。
+    /// 不为空时卡片是「这次派遣内都直接执行 / 用到时逐条问我」，不是针对某一个调用。老界面不认这个字段，照普通确认显示。
+    /// </summary>
+    public IReadOnlyList<string>? Bundle { get; init; }
+
+    /// <summary>合并卡上这一项要员工自己勾（高危、污染模式、IT 规定必须确认的），「全部允许」不包括它。</summary>
+    public bool MustTick => Decision.Effect == Security.CommandEffect.Destructive || Decision.AlwaysAsk;
+}
+
+/// <summary>
+/// 能把同一步里的几个确认合成一张卡问一次的宿主（桌面端界面）。
+/// 命令行、IDE、手机端、专家子任务的确认不实现它，照旧一个一个问。
+/// </summary>
+public interface IBatchConfirmationHandler
+{
+    /// <summary>现在能不能合并（比如外面包了一层、里面那层不支持时为 false）。</summary>
+    bool CanBatch { get; }
+
+    /// <summary>
+    /// 一次问好几个。返回 调用 ID → 选择；没出现在结果里的 = 员工没表态，执行到它时再单独问。
+    /// 「全部允许」不能替员工勾 <see cref="ConfirmRequest.MustTick"/> 的项。
+    /// </summary>
+    Task<IReadOnlyDictionary<string, ConfirmChoice>> ConfirmBatchAsync(IReadOnlyList<ConfirmRequest> requests, CancellationToken ct);
 }
 
 /// <summary>请求确认的专家（确认卡片上显示「XX 专家 请求执行」）。</summary>
