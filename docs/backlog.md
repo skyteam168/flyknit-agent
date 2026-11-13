@@ -269,6 +269,8 @@ D 的「运维代理顺带装 WebView2 运行时」也依赖这个。
 
 ### C4. 第 4 期：并行写（隔离）
 
+> 实施方案：`docs/c4-parallel-writes.md`（11-13，待确认）。
+
 **交付**：
 - 多个会改文件的 Worker 同时干活时，每个在自己的隔离环境里：本机 Docker 沙箱（沙箱第一期已有，一个 Worker 一个容器）
   或独立 git worktree + 任务分支；产出用 PR 交回，由主对话 / Router 汇总。
