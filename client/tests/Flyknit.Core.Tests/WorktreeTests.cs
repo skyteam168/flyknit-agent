@@ -57,12 +57,16 @@ public sealed class WorktreeTests : IDisposable
         Git(_repo, "config", "user.name", "t");
         Git(_repo, "config", "user.email", "t@example.com");
         Git(_repo, "config", "commit.gpgsign", "false");
+        // Windows 上 git 默认 core.autocrlf=true，检出到 worktree 时会把 \n 换成 \r\n：测试只关心内容，关掉转换（worktree 共享这份配置）
+        Git(_repo, "config", "core.autocrlf", "false");
         File.WriteAllText(Path.Combine(_repo, "report.cs"), "// v1\n");
         File.WriteAllText(Path.Combine(_repo, "readme.md"), "hi\n");
         Git(_repo, "add", "-A");
         Git(_repo, "commit", "-q", "-m", "init");
         Git(_repo, "remote", "add", "origin", "https://github.com/acme/app.git");
     }
+
+    private static string Lf(string s) => s.Replace("\r\n", "\n");
 
     private static void Commit(string dir, string file, string content)
     {
@@ -82,7 +86,7 @@ public sealed class WorktreeTests : IDisposable
         Assert.NotEqual(a.Branch, b.Branch);
         Assert.NotEqual(a.Path, b.Path);
         Assert.False(a.Path.StartsWith(_repo, StringComparison.OrdinalIgnoreCase));            // 不在员工的工作区里
-        Assert.Equal("hi\n", File.ReadAllText(Path.Combine(a.Path, "readme.md")));             // 未提交的改动不带过去
+        Assert.Equal("hi\n", Lf(File.ReadAllText(Path.Combine(a.Path, "readme.md"))));         // 未提交的改动不带过去
 
         Commit(a.Path, "report.cs", "// fix A\n");
         Commit(b.Path, "report.cs", "// fix B\n");
@@ -90,8 +94,8 @@ public sealed class WorktreeTests : IDisposable
         Assert.Equal("// fix A", Git(_repo, "show", $"{a.Branch}:report.cs"));
         Assert.Equal("// fix B", Git(_repo, "show", $"{b.Branch}:report.cs"));
         Assert.Equal("main", Git(_repo, "rev-parse", "--abbrev-ref", "HEAD"));                  // 员工当前分支不变
-        Assert.Equal("// v1\n", File.ReadAllText(Path.Combine(_repo, "report.cs")).Replace("\r\n", "\n"));
-        Assert.Equal("员工自己没提交的改动\n", File.ReadAllText(Path.Combine(_repo, "readme.md")));
+        Assert.Equal("// v1\n", Lf(File.ReadAllText(Path.Combine(_repo, "report.cs"))));
+        Assert.Equal("员工自己没提交的改动\n", Lf(File.ReadAllText(Path.Combine(_repo, "readme.md"))));
 
         // 两件都改了 report.cs：找出来
         var files = new Dictionary<string, IReadOnlyList<string>>
