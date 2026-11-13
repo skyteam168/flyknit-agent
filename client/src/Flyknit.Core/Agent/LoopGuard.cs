@@ -208,7 +208,8 @@ public sealed class LoopGuard
         方法不奏效就换一种；需要用户提供信息或确认就停下来问。确实还在推进就继续。
         """;
 
-    private static string Signature(ToolCall call)
+    /// <summary>调用签名：工具名 + 规范化参数（去掉超时这类不影响「是不是同一个操作」的参数）。看门狗判断新操作也用它。</summary>
+    public static string Signature(ToolCall call)
     {
         // 参数按 JSON 规范化，避免空格、字段顺序不同被当成不同的调用
         string args;

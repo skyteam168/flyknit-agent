@@ -186,6 +186,12 @@ public sealed class AgentLoop
     /// </summary>
     public Action<string>? Checkpoint { get; init; }
 
+    /// <summary>
+    /// 外部的提醒（看门狗，docs/c3-watchdog.md）：每一步的工具都执行完后取一次，有就附在这一步最后一个工具结果后面，
+    /// 和 <see cref="LoopGuard"/> 的提醒同一个位置；不新增消息、不打断工具调用。宿主按会话提供，取走即清空。
+    /// </summary>
+    public Func<string?>? Advisory { get; init; }
+
     public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
@@ -608,6 +614,11 @@ public sealed class AgentLoop
                         请用一两段话告诉用户：卡在哪一步、已经试过什么、需要用户提供什么信息或做什么操作。
                         """);
                     return Result(AgentStopReason.Stuck);
+                }
+                if (Advisory?.Invoke() is { Length: > 0 } advisory
+                    && newMessages.LastOrDefault(m => m.Role == ChatRole.Tool) is { } advised)
+                {
+                    advised.Content += advisory;
                 }
                 var done = step + 1;
                 if (_options.CheckpointInterval > 0 && done % _options.CheckpointInterval == 0 && done < _options.MaxSteps
