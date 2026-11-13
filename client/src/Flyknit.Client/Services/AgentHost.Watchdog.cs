@@ -188,20 +188,20 @@ public sealed partial class AgentHost
                 _advisories[conversationId] = WatchdogJudge.ReminderText(j);
                 w.Signals.Restart(); // 提醒后再给 N 分钟看看
                 w.Stage = "reminded";
-                Audit(conversationId, w.TaskId, "reminded", why);
+                AuditWatchdog(conversationId, w.TaskId, "reminded", why);
                 WatchdogNotice?.Invoke(drifting ? "任务可能跑偏了" : "任务可能卡住了", $"{title}：{why}", conversationId);
                 break;
             case WatchAction.Notify:
                 w.Signals.Restart();
                 w.Stage = "notified";
-                Audit(conversationId, w.TaskId, "notified", why);
+                AuditWatchdog(conversationId, w.TaskId, "notified", why);
                 WatchdogNotice?.Invoke("任务还是没有进展", $"{title}：{why}。可以在任务中心停止它", conversationId);
                 break;
             case WatchAction.Stop:
                 w.Stage = "stopped";
                 var reason = drifting ? "看门狗：偏离了目标" : "看门狗：长时间没有进展";
                 Ledger.NoteOutcome(conversationId, TaskEvent.Fail, reason);
-                Audit(conversationId, w.TaskId, "stopped", why);
+                AuditWatchdog(conversationId, w.TaskId, "stopped", why);
                 Log.Info($"看门狗停下了对话 {conversationId}：{why}");
                 Stop(conversationId); // 和员工点「停止」一样：已发出的工具调用补结果
                 WatchdogNotice?.Invoke("任务已被看门狗停下", $"{title}：{why}", conversationId);
@@ -214,7 +214,7 @@ public sealed partial class AgentHost
         Events?.Post(new { type = "task.watchdog", conversationId, taskId = w.TaskId, watchdog = WatchdogDto(conversationId, w.TaskId) });
 
     /// <summary>看门狗的动作进审计：工具名 / actor 记 watchdog，status 记做了什么（提醒 / 再通知 / 停下），摘要是原因。</summary>
-    private void Audit(string conversationId, string taskId, string what, string why)
+    private void AuditWatchdog(string conversationId, string taskId, string what, string why)
     {
         try
         {
