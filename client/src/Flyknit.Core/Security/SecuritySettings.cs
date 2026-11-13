@@ -108,6 +108,15 @@ public sealed class SecuritySettings
 
     /// <summary>多久没进展算可疑（分钟，默认 10，长任务模式 ×2）。</summary>
     public const string WatchdogMinutes = "watchdog_minutes";
+
+    /// <summary>调度（docs/c2-router.md）：钉钉 / 企业微信的追问归到原任务、问进度按账本回复、重复事件合并。默认关。</summary>
+    public const string Router = "router";
+
+    /// <summary>调度：一句话里的几件事给拆分建议，员工确认后分开做。默认关。</summary>
+    public const string RouterSplit = "router_split";
+
+    /// <summary>分开做时同时做几件（1～3，默认 1 = 一件接一件）；大于 1 时写操作全局排队。</summary>
+    public const string RouterParallel = "router_parallel";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字

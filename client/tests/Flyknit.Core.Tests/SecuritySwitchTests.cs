@@ -221,6 +221,10 @@ public class SecuritySwitchTests
             SecuritySettings.Watchdog,
             SecuritySettings.WatchdogAutoStop,
             SecuritySettings.WatchdogMinutes,
+            // AgentHost.Router 读这三项：钉钉追问归档 / 问进度 / 事件合并；拆分建议；分开做时同时做几件（见 RouterTests）
+            SecuritySettings.Router,
+            SecuritySettings.RouterSplit,
+            SecuritySettings.RouterParallel,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
