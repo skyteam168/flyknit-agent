@@ -23,10 +23,10 @@ public sealed class AgentLoop
     private readonly ApprovalStore _approvals;
 
     /// <summary>
-    /// 会话级临时授权：本次任务内同类操作不再询问。
-    /// Key 格式："{tool}:{pattern}" 例如 "run_shell:python" 或 "run_shell:npm"
+    /// 会话级临时授权：本次任务内同类操作不再询问。ToolContext 没带进来时用这一份；
+    /// 带进来的（主助手的那份）由派出去的专家、子代理共用，见 <see cref="SessionApprovals"/>。
     /// </summary>
-    private readonly HashSet<string> _sessionApprovals = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SessionApprovals _sessionApprovals = new();
 
     /// <summary>本轮已经报过的产出文件，避免同一个文件反复出现在界面上。</summary>
     private readonly HashSet<string> _outputs = new(StringComparer.OrdinalIgnoreCase);
@@ -228,6 +228,8 @@ public sealed class AgentLoop
     {
         var newMessages = new List<ChatMessage>();
         var trace = new Trace(ctx.ConversationId);
+        // 这次任务的「本任务内不再询问」：上层（主助手）带了就用上层的，派出去的专家、子代理经 ToolContext 拿到同一份
+        ctx.SessionApprovals ??= _sessionApprovals;
         // 发给模型的工具：外部服务工具多时只发已加载的（每一步重新算，load_tools 之后下一步就带上）
         JsonArray? ToolsNow() => useTools
             ? new JsonArray(ToolExposure.Visible(_tools.All, ctx.LoadedTools, history).Select(t => (JsonNode)ToolRegistry.Definition(t)).ToArray())
@@ -964,7 +966,7 @@ public sealed class AgentLoop
                 }
                 // 2. 检查会话级临时授权（本次任务内同类操作）。高危的从不自动放行：
                 //    授权按程序名记（"python"、"git status"），同一个程序的删除、改系统设置照样要问
-                else if (!decision.AlwaysAsk && decision.Effect != CommandEffect.Destructive && IsSessionApproved(call.Name, summary))
+                else if (!decision.AlwaysAsk && decision.Effect != CommandEffect.Destructive && IsSessionApproved(call.Name, summary, decision.Rule))
                 {
                     decisionText = "session";
                 }
@@ -1000,7 +1002,7 @@ public sealed class AgentLoop
                     // 4. 处理会话级临时授权（AllowForSession）
                     else if (choice == ConfirmChoice.AllowForSession && decision.Effect != CommandEffect.Destructive)
                     {
-                        AddSessionApproval(call.Name, summary);
+                        AddSessionApproval(call.Name, summary, decision.Rule);
                     }
                     decisionText = "approved";
                 }
@@ -1147,37 +1149,12 @@ public sealed class AgentLoop
             return result.Ok;
         }
 
-        // 会话级授权的辅助函数（本地函数，不需要访问修饰符）
-        string SessionApprovalKey(string toolName, string summary)
-        {
-            var prefix = ExtractCommandPrefix(summary);
-            return $"{toolName}:{prefix}".ToLowerInvariant();
-        }
+        // 会话级授权的辅助函数（本地函数）：键怎么算见 SessionApprovals.KeyFor
+        bool IsSessionApproved(string toolName, string summary, ApprovalCandidate? rule) =>
+            ctx.SessionApprovals!.Contains(SessionApprovals.KeyFor(toolName, summary, rule));
 
-        string ExtractCommandPrefix(string summary)
-        {
-            if (string.IsNullOrWhiteSpace(summary)) return "*";
-            var parts = summary.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0) return "*";
-            var exe = Path.GetFileNameWithoutExtension(parts[0].Trim('"', '\''));
-            if (parts.Length > 1 && exe is "npm" or "pip" or "git" or "dotnet" or "docker" or "yarn" or "pnpm")
-            {
-                return $"{exe} {parts[1]}";
-            }
-            return exe;
-        }
-
-        bool IsSessionApproved(string toolName, string summary)
-        {
-            var key = SessionApprovalKey(toolName, summary);
-            return _sessionApprovals.Contains(key);
-        }
-
-        void AddSessionApproval(string toolName, string summary)
-        {
-            var key = SessionApprovalKey(toolName, summary);
-            _sessionApprovals.Add(key);
-        }
+        void AddSessionApproval(string toolName, string summary, ApprovalCandidate? rule) =>
+            ctx.SessionApprovals!.Add(SessionApprovals.KeyFor(toolName, summary, rule));
     }
     /// <summary>一个已经判定、确认过的工具调用，等着执行；Ready 为 false 时结果已经写好了。</summary>
     private sealed class PreparedCall

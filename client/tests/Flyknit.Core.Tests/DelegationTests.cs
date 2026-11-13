@@ -1137,6 +1137,61 @@ public class DelegationTests : IDisposable
     }
 
     [Fact]
+    public async Task ExpertsReuseWhatTheEmployeeAllowedForThisTask()
+    {
+        // docs/approval-p0.md 第 4 节：主助手那边点过「本任务内不再询问」的，派出去的专家不再问
+        var h = new Harness();
+        var rule = new ApprovalCandidate("mes_lookup", "*", "mes_lookup", "mes_lookup", "*", "MES · 查询");
+        var lookup = new FakeTool("mes_lookup", "订单 1001：包装工序延误 6.5h") { Risk = RiskLevel.Confirm, Rule = rule };
+        h.Host.AllTools.Add(lookup);
+        h.Gateway.Children(Call("mes_lookup", new { }), Call("mes_lookup", new { }), Call(SubmitResultTool.ToolName, Submit()));
+        var ctx = Ctx();
+        ctx.SessionApprovals = new SessionApprovals();
+        ctx.SessionApprovals.Add(SessionApprovals.KeyFor("mes_lookup", "", rule));
+
+        await Dispatch(h, ctx);
+
+        Assert.Empty(h.Host.Confirmer.Requests);
+        Assert.Equal(2, lookup.Executed);
+    }
+
+    [Fact]
+    public async Task WhatTheEmployeeAllowsOnAnExpertCardCountsForTheWholeTask()
+    {
+        var h = new Harness();
+        var rule = new ApprovalCandidate("mes_lookup", "*", "mes_lookup", "mes_lookup", "*", "MES · 查询");
+        var lookup = new FakeTool("mes_lookup", "订单 1001：包装工序延误 6.5h") { Risk = RiskLevel.Confirm, Rule = rule };
+        h.Host.AllTools.Add(lookup);
+        h.Host.Confirmer.Answer = (_, _) => Task.FromResult(ConfirmChoice.AllowForSession);
+        h.Gateway.Children(Call("mes_lookup", new { }), Call("mes_lookup", new { }), Call(SubmitResultTool.ToolName, Submit()));
+        var ctx = Ctx();
+        ctx.SessionApprovals = new SessionApprovals();
+
+        await Dispatch(h, ctx);
+
+        Assert.Single(h.Host.Confirmer.Requests);   // 专家第一次问，第二次沿用
+        Assert.True(ctx.SessionApprovals.Contains(SessionApprovals.KeyFor("mes_lookup", "", rule)));   // 主助手之后也不再问
+    }
+
+    [Fact]
+    public async Task SharedApprovalsDoNotGiveExpertsToolsTheyAreNotAllowedToUse()
+    {
+        var h = new Harness();
+        h.Experts["mes"].DisallowedTools = new List<string> { "mes_change" };
+        var rule = new ApprovalCandidate("mes_change", "*", "mes_change", "mes_change", "*", "MES · 修改");
+        var change = new FakeTool("mes_change", "改好了") { Risk = RiskLevel.Confirm, Rule = rule };
+        h.Host.AllTools.Add(change);
+        h.Gateway.Children(Call("mes_change", new { }), Call(SubmitResultTool.ToolName, Submit("needs_input")));
+        var ctx = Ctx();
+        ctx.SessionApprovals = new SessionApprovals();
+        ctx.SessionApprovals.Add(SessionApprovals.KeyFor("mes_change", "", rule));
+
+        await Dispatch(h, ctx);
+
+        Assert.Equal(0, change.Executed);
+    }
+
+    [Fact]
     public void ParallelBudgetReservationsNeverOverlap()
     {
         var budget = new RunBudget { MaxTokens = 500_000 };

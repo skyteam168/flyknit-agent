@@ -223,6 +223,9 @@ public sealed class ExpertDispatcher
                 Rules = parent.Rules,
                 GrantId = parent.GrantId,
                 TaskId = parent.TaskId,
+                // 员工在主助手或别的专家卡片上点过「本任务内不再询问」的，这位专家沿用（只是员工本人给过的授权，
+                // 专家能用哪些工具照旧按上面的筛选）；专家卡片上点的也记到整个任务上
+                SessionApprovals = parent.SessionApprovals,
             };
             var loop = new AgentLoop(
                 new SubtaskGateway(_host.Gateway, record.Id, state),
