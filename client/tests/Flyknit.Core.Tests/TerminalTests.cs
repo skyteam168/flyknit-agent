@@ -122,7 +122,9 @@ public sealed class TerminalTests : IDisposable
     public async Task ALongForegroundCommandMovesToTheBackgroundInsteadOfBeingKilled()
     {
         var ctx = Ctx();
-        var r = await new RunShellTool().ExecuteAsync(Args(new { command = TickForever, timeout_seconds = 1 }), ctx, default);
+        // Windows 上 PowerShell 冷启动在 CI 机器上有时就要 1 秒多：超时给 5 秒，保证转后台前已经输出了 ready
+        // （命令本身永远不会结束，照样会转到后台；11-13 CI 上 1 秒偶尔不够）
+        var r = await new RunShellTool().ExecuteAsync(Args(new { command = TickForever, timeout_seconds = Win ? 5 : 1 }), ctx, default);
 
         Assert.True(r.Ok, r.Output);
         Assert.Contains("已转到后台", r.Output);
