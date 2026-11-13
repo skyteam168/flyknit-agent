@@ -17,13 +17,18 @@ namespace Flyknit.Core.Mcp;
 public sealed class McpTool : ITool, IParallelTool
 {
     private readonly Func<string, JsonNode?, CancellationToken, Task<McpCallResult>> _call;
+    private readonly Func<bool>? _markedReadOnly;
 
-    public McpTool(string serverId, string serverName, McpToolInfo info, Func<string, JsonNode?, CancellationToken, Task<McpCallResult>> call)
+    /// <param name="markedReadOnly">管理员在后台把这个工具标成只读了没有（docs/approval-p0.md 第 6 节）。
+    /// 每次判定时现查：管理员改了标注，员工端下次拉到连接器配置就生效，不用重连。</param>
+    public McpTool(string serverId, string serverName, McpToolInfo info, Func<string, JsonNode?, CancellationToken, Task<McpCallResult>> call,
+        Func<bool>? markedReadOnly = null)
     {
         ServerId = serverId;
         ServerName = serverName;
         Info = info;
         _call = call;
+        _markedReadOnly = markedReadOnly;
         Name = McpNames.ToolName(serverId, info.Name);
         var text = info.Description.Length > 1000 ? info.Description[..1000] + "…" : info.Description;
         Description = $"[{serverName}] {(text.Length > 0 ? text : info.Title.Length > 0 ? info.Title : info.Name)}";
@@ -37,8 +42,14 @@ public sealed class McpTool : ITool, IParallelTool
     public string Description { get; }
     public JsonObject Parameters => Info.InputSchema;
 
-    /// <summary>对方声明只读的可以和相邻的只读调用同时跑（查几个页面、读几个文件）；会改东西的照旧一个一个来。</summary>
-    public bool CanRunInParallel(JsonElement args) => Info.ReadOnly;
+    /// <summary>
+    /// 只读：对方声明了 readOnlyHint，或者管理员在后台标成了只读。
+    /// 管理员的标注只补对方没写的：对方声明了 destructiveHint 的，标了也不算——以对方说的「会删改数据」为准。
+    /// </summary>
+    public bool IsReadOnly => Info.ReadOnly || (!Info.Destructive && _markedReadOnly?.Invoke() == true);
+
+    /// <summary>只读的可以和相邻的只读调用同时跑（查几个页面、读几个文件）；会改东西的照旧一个一个来。</summary>
+    public bool CanRunInParallel(JsonElement args) => IsReadOnly;
 
     /// <summary>一次结果里最多收几张图片（再多的只在文字里说明）。</summary>
     public const int MaxImages = 4;
@@ -51,6 +62,10 @@ public sealed class McpTool : ITool, IParallelTool
         if (Info.ReadOnly)
         {
             return PolicyDecision.Auto($"{ServerName} 声明为只读操作");
+        }
+        if (IsReadOnly)
+        {
+            return PolicyDecision.Auto($"管理员把「{ServerName} · {(Info.Title.Length > 0 ? Info.Title : Info.Name)}」标为只读");
         }
         var reason = $"{ServerName} 的操作会在对方系统里生效";
         if (Info.Destructive)

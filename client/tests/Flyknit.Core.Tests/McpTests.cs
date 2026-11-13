@@ -170,6 +170,57 @@ public class McpTests
         Assert.False(store.IsAllowed(MakeTool(false, false, "create_sheet_v2").Assess(args, Ctx()).Rule));
     }
 
+    // ---------- 管理员标的只读（docs/approval-p0.md 第 6 节）----------
+
+    private static McpTool Marked(bool declaredReadOnly, bool destructive, Func<bool> marked) =>
+        new("mes", "MES", new McpToolInfo("query_orders", "查询工单", "", new JsonObject(), declaredReadOnly, destructive),
+            (_, _, _) => Task.FromResult(new McpCallResult(false, "ok")), marked);
+
+    [Fact]
+    public void AToolTheAdminMarkedReadOnlyRunsWithoutAsking()
+    {
+        var args = JsonDocument.Parse("{}").RootElement;
+        var tool = Marked(false, false, () => true);
+        var decision = tool.Assess(args, Ctx());
+        Assert.Equal(RiskLevel.Auto, decision.Level);
+        Assert.Contains("管理员", decision.Reason);
+        Assert.True(tool.IsReadOnly);
+        Assert.True(tool.CanRunInParallel(args));          // 和对方自己声明只读的一样，可以和相邻的只读调用同时跑
+        Assert.True(Flyknit.Core.Agent.PlanMode.Allows(tool));
+    }
+
+    [Fact]
+    public void TheAdminMarkCannotOverrideADestructiveDeclaration()
+    {
+        var tool = Marked(false, true, () => true);
+        var decision = tool.Assess(JsonDocument.Parse("{}").RootElement, Ctx());
+        Assert.Equal(RiskLevel.Confirm, decision.Level);
+        Assert.Equal(CommandEffect.Destructive, decision.Effect);
+        Assert.False(tool.IsReadOnly);
+    }
+
+    [Fact]
+    public void UnmarkedToolsStillAskAndTheMarkIsReadEveryTime()
+    {
+        var marked = false;
+        var tool = Marked(false, false, () => marked);
+        var args = JsonDocument.Parse("{}").RootElement;
+        Assert.Equal(RiskLevel.Confirm, tool.Assess(args, Ctx()).Level);
+        marked = true;                                      // 管理员改了标注、员工端拉到新配置：不用重连就生效
+        Assert.Equal(RiskLevel.Auto, tool.Assess(args, Ctx()).Level);
+        marked = false;                                     // 取消标注也立即生效
+        Assert.Equal(RiskLevel.Confirm, tool.Assess(args, Ctx()).Level);
+    }
+
+    [Fact]
+    public void VendorsFromOldServersHaveNoReadOnlyTools()
+    {
+        var vendor = JsonSerializer.Deserialize<McpVendor>("""{"id":"mes","name":"MES"}""")!;
+        Assert.Empty(vendor.ReadonlyTools);
+        vendor = JsonSerializer.Deserialize<McpVendor>("""{"id":"mes","name":"MES","readonly_tools":["query_orders"]}""")!;
+        Assert.Equal(new[] { "query_orders" }, vendor.ReadonlyTools);
+    }
+
     [Fact]
     public async Task ToolErrorsComeBackAsFailedResults()
     {

@@ -56,7 +56,7 @@ def _admin_out(v: McpVendor) -> McpVendorOut:
         headers=v.headers or {}, auth=v.auth, fields=v.fields or [],
         preset_masked={k: mask(val) for k, val in _preset(v).items() if val},
         oauth=v.oauth or {}, examples=v.examples or [], timeout_ms=v.timeout_ms,
-        skip_tls_verify=bool(v.skip_tls_verify),
+        skip_tls_verify=bool(v.skip_tls_verify), readonly_tools=list(v.readonly_tools or []),
         sort_order=v.sort_order, enabled=v.enabled, updated_at=v.updated_at,
     )
 
@@ -74,7 +74,8 @@ def _client_out(v: McpVendor) -> McpClientVendorOut:
         headers=v.headers or {}, auth=v.auth, fields=fields, preset=preset,
         needs_input=mcp_catalog.needs_input(fields, preset),
         oauth=v.oauth or {}, examples=v.examples or [], timeout_ms=v.timeout_ms,
-        skip_tls_verify=bool(v.skip_tls_verify), updated_at=v.updated_at,
+        skip_tls_verify=bool(v.skip_tls_verify), readonly_tools=list(v.readonly_tools or []),
+        updated_at=v.updated_at,
     )
 
 
@@ -92,6 +93,8 @@ def _apply(v: McpVendor, data: McpVendorIn) -> None:
         setattr(v, name, getattr(data, name))
     if v.transport == "stdio":
         v.skip_tls_verify = False
+    if data.readonly_tools is not None:
+        _set_readonly(v, data.readonly_tools)
     v.url = v.url.strip()
     v.command = v.command.strip()
     v.examples = [e.strip() for e in data.examples if e.strip()][:8]
@@ -107,6 +110,20 @@ def _apply(v: McpVendor, data: McpVendorIn) -> None:
         keys = {f.key for f in data.fields}
         merged = {k: val for k, val in merged.items() if k in keys}
         v.preset_enc = encrypt(json.dumps(merged, ensure_ascii=False)) if merged else ""
+
+
+def _set_readonly(v: McpVendor, names: list[str]) -> None:
+    """管理员标的只读工具：去空、去重，最多 200 个。放宽了员工端的确认，所以改动记一条日志。"""
+    cleaned: list[str] = []
+    for n in names:
+        n = n.strip()[:200]
+        if n and n not in cleaned:
+            cleaned.append(n)
+    cleaned = cleaned[:200]
+    before = list(v.readonly_tools or [])
+    if cleaned != before:
+        log.info("MCP 连接器 %s 的只读工具改为 %s（原来 %s）", v.id, cleaned, before)
+    v.readonly_tools = cleaned
 
 
 # ---------- 管理端 ----------
@@ -153,6 +170,8 @@ async def patch_vendor(vendor_id: str, data: McpVendorPatch, session: AsyncSessi
         v.enabled = data.enabled
     if data.sort_order is not None:
         v.sort_order = data.sort_order
+    if data.readonly_tools is not None:
+        _set_readonly(v, data.readonly_tools)
     await session.commit()
     config_events.bump()
     return _admin_out(v)

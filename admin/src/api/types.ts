@@ -144,6 +144,8 @@ export interface McpVendor {
   timeout_ms: number
   /** 内网自签 HTTPS：跳过证书校验。正式公网证书请保持 false */
   skip_tls_verify: boolean
+  /** 标成只读的工具（对方工具原名）：员工端用它们不再每次确认；对方声明会删改数据的标了也不生效 */
+  readonly_tools: string[]
   sort_order: number
   enabled: boolean
   updated_at: string
@@ -177,7 +179,8 @@ export interface McpTestResult {
   ok: boolean
   server_name: string
   server_version: string
-  tools: { name: string; description: string }[]
+  /** read_only / destructive：对方自己在工具上的声明（老服务端没有） */
+  tools: { name: string; description: string; read_only?: boolean; destructive?: boolean }[]
   error: string
 }
 

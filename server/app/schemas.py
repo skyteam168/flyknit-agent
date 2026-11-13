@@ -674,6 +674,8 @@ class McpVendorIn(BaseModel):
     examples: list[str] = []
     timeout_ms: int = Field(default=60000, ge=5000, le=600000)
     skip_tls_verify: bool = False
+    #: 管理员标成只读的工具（对方工具原名）。不传 = 不改（老后台保存时不会把标注清掉）
+    readonly_tools: list[str] | None = None
     sort_order: int = 0
     enabled: bool = True
 
@@ -681,6 +683,7 @@ class McpVendorIn(BaseModel):
 class McpVendorPatch(BaseModel):
     enabled: bool | None = None
     sort_order: int | None = None
+    readonly_tools: list[str] | None = None
 
 
 class McpVendorOut(BaseModel):
@@ -714,6 +717,7 @@ class McpVendorOut(BaseModel):
     examples: list[str] = []
     timeout_ms: int = 60000
     skip_tls_verify: bool = False
+    readonly_tools: list[str] = []
     sort_order: int = 0
     enabled: bool = True
     updated_at: datetime
@@ -752,6 +756,8 @@ class McpClientVendorOut(BaseModel):
     examples: list[str] = []
     timeout_ms: int = 60000
     skip_tls_verify: bool = False
+    #: 管理员标成只读的工具；老员工端不认这个字段，照旧每次确认
+    readonly_tools: list[str] = []
     updated_at: datetime
 
 

@@ -1137,6 +1137,24 @@ public class DelegationTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadOnlyExpertsCanUseQueryToolsTheAdminMarkedReadOnly()
+    {
+        // 只读专家遇到要确认的操作直接拦下；对方没声明只读的查询工具，管理员标了以后就能用了
+        var h = new Harness();
+        h.Experts["mes"].ReadOnly = true;
+        var calls = 0;
+        var query = new Flyknit.Core.Mcp.McpTool("mes", "MES", new Flyknit.Core.Mcp.McpToolInfo("query_orders", "", "", new JsonObject(), false, false),
+            (_, _, _) => { calls++; return Task.FromResult(new Flyknit.Core.Mcp.McpCallResult(false, "订单 1001：包装工序延误 6.5h")); }, () => true);
+        h.Host.AllTools.Add(query);
+        h.Gateway.Children(Call(query.Name, new { }), Call(SubmitResultTool.ToolName, Submit()));
+
+        await Dispatch(h, Ctx());
+
+        Assert.Empty(h.Host.Confirmer.Requests);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public async Task ExpertsReuseWhatTheEmployeeAllowedForThisTask()
     {
         // docs/approval-p0.md 第 4 节：主助手那边点过「本任务内不再询问」的，派出去的专家不再问

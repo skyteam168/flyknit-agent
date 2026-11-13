@@ -917,7 +917,7 @@ public sealed class AgentLoop
                 // 污染模式：读到过疑似注入的内容后，非只读操作一律请员工确认，「以后自动」「本次都允许」也跳过
                 // 沙箱容器里的操作影响出不了容器，不拦；能带出容器的出口（推送、建 PR）照样拦
                 if (taint is not null && decision.Level != RiskLevel.Blocked && tool is not Sandbox.ISandboxedTool
-                    && !PromptInjectionGuard.StaysAutomaticWhenTainted(call.Name, decision, tool is Mcp.McpTool m ? m.Info.ReadOnly : PlanMode.Allows(tool)))
+                    && !PromptInjectionGuard.StaysAutomaticWhenTainted(call.Name, decision, tool is Mcp.McpTool m ? m.IsReadOnly : PlanMode.Allows(tool)))
                 {
                     decision = (decision.Level == RiskLevel.Auto ? PolicyDecision.Confirm(TaintReason) with { Effect = decision.Effect, Rule = decision.Rule } : decision with { Reason = TaintReason + "；" + decision.Reason })
                         with { AlwaysAsk = true };

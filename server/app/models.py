@@ -704,6 +704,9 @@ class McpVendor(Base):
     timeout_ms: Mapped[int] = mapped_column(Integer, default=60000)
     #: 仅 http/sse：对方是内网自签 HTTPS 时勾上，跳过证书校验。正式公网证书请保持关闭。
     skip_tls_verify: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: 管理员标成只读的工具（对方工具原名）：对方没声明 readOnlyHint 的查询类工具，员工端不再每次确认。
+    #: 对方声明了 destructiveHint 的员工端不认这个标注。老行升级后是 NULL，按空处理（docs/approval-p0.md 第 6 节）
+    readonly_tools: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接配置

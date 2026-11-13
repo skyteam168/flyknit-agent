@@ -209,6 +209,9 @@ def initialize_reply(request):
     event = json.dumps({"jsonrpc": "2.0", "id": body["id"], "result": {"tools": [
         {"name": "create_sheet", "description": "新建在线表格"},
         {"name": "read_doc", "description": "读取文档内容"},
+        {"name": "query_sheet", "description": "查表格", "annotations": {"readOnlyHint": True}},
+        {"name": "delete_doc", "description": "删除文档", "annotations": {"destructiveHint": True}},
+        {"name": "odd", "description": "注解不是对象", "annotations": "x"},
     ]}})
     return httpx.Response(200, text=f"event: message\ndata: {event}\n\n", headers={"Content-Type": "text/event-stream"})
 
@@ -223,7 +226,11 @@ async def test_admin_can_test_a_connection(client):
     out = r.json()
     assert out["ok"] is True, out
     assert out["server_name"] == "tencent-docs"
-    assert [t["name"] for t in out["tools"]] == ["create_sheet", "read_doc"]
+    assert [t["name"] for t in out["tools"]] == ["create_sheet", "read_doc", "query_sheet", "delete_doc", "odd"]
+    # 对方自己的声明带给后台：已声明只读的不用标；声明会删改数据的标了也不生效
+    flags = {t["name"]: (t["read_only"], t["destructive"]) for t in out["tools"]}
+    assert flags == {"create_sheet": (False, False), "read_doc": (False, False), "query_sheet": (True, False),
+                     "delete_doc": (False, True), "odd": (False, False)}
 
 
 @respx.mock
@@ -248,3 +255,34 @@ async def test_connection_test_asks_for_missing_values_and_skips_local_processes
 
 def test_sse_parsing_joins_multiline_data():
     assert mcp_catalog.sse_data("data: a\ndata: b\n\nevent: x\ndata:c\n\n") == ["a\nb", "c"]
+
+
+# ---------- 只读工具（docs/approval-p0.md 第 6 节）----------
+async def test_readonly_tools_default_empty_and_reach_devices(client, device_headers):
+    out = await create(client)
+    assert out["readonly_tools"] == []
+    assert (await client.get("/api/v1/client/mcp/vendors", headers=device_headers)).json()[0]["readonly_tools"] == []
+
+    r = await client.patch("/api/v1/admin/mcp/vendors/tencent-docs", headers=ADMIN,
+                           json={"readonly_tools": [" read_doc ", "read_doc", "", "list_docs"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["readonly_tools"] == ["read_doc", "list_docs"]   # 去空格、去重、去空
+    device_view = (await client.get("/api/v1/client/mcp/vendors", headers=device_headers)).json()[0]
+    assert device_view["readonly_tools"] == ["read_doc", "list_docs"]
+
+
+async def test_saving_the_form_without_readonly_tools_keeps_them(client):
+    """老后台保存表单时不带这个字段：不能把管理员标好的清掉。"""
+    await create(client, readonly_tools=["read_doc"])
+    r = await client.put("/api/v1/admin/mcp/vendors/tencent-docs", headers=ADMIN, json={**TENCENT_DOCS, "description": "改了介绍"})
+    assert r.json()["readonly_tools"] == ["read_doc"]
+    r = await client.put("/api/v1/admin/mcp/vendors/tencent-docs", headers=ADMIN, json={**TENCENT_DOCS, "readonly_tools": []})
+    assert r.json()["readonly_tools"] == []
+
+
+async def test_devices_cannot_mark_tools_readonly(client, device_headers):
+    await create(client)
+    r = await client.patch("/api/v1/admin/mcp/vendors/tencent-docs", headers=device_headers, json={"readonly_tools": ["create_sheet"]})
+    assert r.status_code in (401, 403)
+    assert (await client.get("/api/v1/client/mcp/vendors", headers=device_headers)).json()[0]["readonly_tools"] == []
+

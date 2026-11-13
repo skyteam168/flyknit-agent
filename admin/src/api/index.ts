@@ -159,7 +159,7 @@ export const api = {
   mcpVendors: () => get<McpVendor[]>('/mcp/vendors'),
   createMcpVendor: (body: McpVendorIn) => post<McpVendor>('/mcp/vendors', body),
   updateMcpVendor: (id: string, body: McpVendorIn) => put<McpVendor>(`/mcp/vendors/${encodeURIComponent(id)}`, body),
-  patchMcpVendor: (id: string, body: Partial<{ enabled: boolean; sort_order: number }>) =>
+  patchMcpVendor: (id: string, body: Partial<{ enabled: boolean; sort_order: number; readonly_tools: string[] }>) =>
     patch<McpVendor>(`/mcp/vendors/${encodeURIComponent(id)}`, body),
   deleteMcpVendor: (id: string) => del(`/mcp/vendors/${encodeURIComponent(id)}`),
   parseMcpConfig: (text: string) => post<McpDraft[]>('/mcp/parse', { text }),
