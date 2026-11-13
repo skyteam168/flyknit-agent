@@ -280,6 +280,76 @@ public sealed class PullRequestTests : IDisposable
         Assert.Equal("stopped", watcher.Stop(watcher.Watch("c1", _dir, Status(), false).Id)!.EndedReason);
     }
 
+    [Fact]
+    public async Task WatchingAPrSubscribesTheConversationUntilItEnds()
+    {
+        var store = new ConversationStore(Path.Combine(_dir, "s.db"));
+        var conv = store.Create(ConversationMode.Agent, "改日报").Id;
+        var now = new DateTimeOffset(2026, 11, 8, 10, 0, 0, TimeSpan.Zero);
+        var next = Status();
+        var watcher = new PrWatcher(store.PrWatches, (_, _, _) => Task.FromResult(next), () => now, store.Subscriptions);
+
+        var w = watcher.Watch(conv, _dir, Status("pending"), autoFix: true);
+        var sub = Assert.Single(store.Subscriptions.For(conv));
+        Assert.True(sub.Active);
+        Assert.Equal(Flyknit.Core.Tasks.SubscriptionKinds.PullRequest, sub.Kind);
+        Assert.Equal(w.Id, sub.Selector);
+        Assert.Equal("PR #7 fix", sub.Label);
+        watcher.Watch(conv, _dir, Status("pending"), true);                    // 同一个 PR 再盯一次：不重复订
+        Assert.Single(store.Subscriptions.For(conv));
+
+        // 合并了：订阅跟着结束，记下原因
+        now = now.AddMinutes(51);
+        next = Status(state: "MERGED");
+        await watcher.CheckDueAsync(default);
+        var ended = Assert.Single(store.Subscriptions.For(conv));
+        Assert.False(ended.Active);
+        Assert.Equal("merged", ended.EndedReason);
+
+        // 员工停掉：订阅结束成 stopped
+        var w2 = watcher.Watch(conv, _dir, Status() with { Number = 8 }, false);
+        watcher.Stop(w2.Id);
+        Assert.Equal("stopped", store.Subscriptions.For(conv).Single(s => s.Selector == w2.Id).EndedReason);
+        Assert.Null(store.Subscriptions.Find(Flyknit.Core.Tasks.SubscriptionKinds.PullRequest, w2.Id));
+    }
+
+    [Fact]
+    public void StartupSyncBackfillsOldWatchesAndEndsOrphanedSubscriptions()
+    {
+        var store = new ConversationStore(Path.Combine(_dir, "sync.db"));
+        var conv = store.Create(ConversationMode.Agent, "x").Id;
+        var now = DateTimeOffset.Now;
+        // 升级前就在盯的 PR：没有订阅
+        var old = new PrWatcher(store.PrWatches, now: () => now).Watch(conv, _dir, Status(), true);
+        Assert.Empty(store.Subscriptions.For(conv));
+        // 订阅还挂着、PR 记录已经不盯了
+        var gone = new PrWatcher(store.PrWatches, now: () => now).Watch(conv, _dir, Status() with { Number = 9 }, true);
+        store.Subscriptions.Subscribe(conv, Flyknit.Core.Tasks.SubscriptionKinds.PullRequest, gone.Id, "PR #9");
+        store.PrWatches.Save(gone with { EndedReason = "closed" });
+        // 订阅指向的记录根本不存在
+        store.Subscriptions.Subscribe(conv, Flyknit.Core.Tasks.SubscriptionKinds.PullRequest, "pw_missing", "PR #10");
+
+        new PrWatcher(store.PrWatches, now: () => now, subscriptions: store.Subscriptions).SyncSubscriptions();
+
+        var subs = store.Subscriptions.For(conv);
+        Assert.True(subs.Single(s => s.Selector == old.Id).Active);
+        Assert.Equal("closed", subs.Single(s => s.Selector == gone.Id).EndedReason);
+        Assert.Equal("stopped", subs.Single(s => s.Selector == "pw_missing").EndedReason);
+    }
+
+    [Fact]
+    public void SubscriptionFailuresDoNotStopWatching()
+    {
+        var store = new ConversationStore(Path.Combine(_dir, "f.db"));
+        var failures = 0;
+        // 对话不存在：订阅表的外键会拒，但盯 PR 照常
+        var watcher = new PrWatcher(store.PrWatches, subscriptions: store.Subscriptions);
+        watcher.SubscriptionFailed += _ => failures++;
+        var w = watcher.Watch("no-such-conversation", _dir, Status(), true);
+        Assert.True(store.PrWatches.Get(w.Id)!.Active);
+        Assert.Equal(1, failures);
+    }
+
     // ---------- 工具 ----------
 
     private ToolContext Ctx(PermissionMode mode = PermissionMode.Workspace) => new()

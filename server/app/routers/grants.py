@@ -20,7 +20,8 @@ from ..models import AdminUser, ChannelBinding, ChannelMessage, Device, Instruct
 client_router = APIRouter(prefix="/api/v1/client/grants", tags=["grants"])
 admin_router = APIRouter(prefix="/api/v1/admin/grants", tags=["grants"], dependencies=[Depends(require_admin)])
 
-ORIGINS = ("mobile", "dingtalk", "wecom", "instruction", "schedule", "event")
+#: folder：文件夹监视（以前借用 event）；pr：盯 PR 的自动修复。和 schedule 一样是本机发起的，服务端没有记录可核对
+ORIGINS = ("mobile", "dingtalk", "wecom", "instruction", "schedule", "event", "folder", "pr")
 PERMISSION_RANK = {"readonly": 0, "workspace": 1, "full": 2}
 #: 服务端自己有记录、可以核对的来源
 CHANNELS = ("mobile", "dingtalk", "wecom")

@@ -1987,6 +1987,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "pr.stop":
                 return _host.StopPrWatch(Str("id")) is { } stopped ? AgentHost.PrDto(stopped) : null;
 
+            case "subscriptions.list":
+                return _host.SubscriptionsOf(Str("conversationId")).Select(AgentHost.SubscriptionDto).ToList();
+
+            case "subscriptions.cancel":
+                return _host.CancelSubscription(Str("conversationId"), Str("id"));
+
             case "pr.autoFix":
                 return _host.SetPrAutoFix(Str("id"), Bool("on")) is { } changed ? AgentHost.PrDto(changed) : null;
 
@@ -2173,6 +2179,13 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "runs.list":
                 return await RunsListAsync();
+
+            // 任务中心按任务列（docs/c1-unified-tasks.md 第 6 节）
+            case "tasks.list":
+                return _host.TasksList();
+
+            case "tasks.stop":
+                return _host.StopTask(Str("id"));
 
             case "runs.resume":
                 _host.ResumeInterrupted(Str("conversationId"), _settings.ResolveUiLanguage(), this, this);

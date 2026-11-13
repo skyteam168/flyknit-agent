@@ -148,6 +148,9 @@ public sealed class AuditEntry
 
     /// <summary>远程 / 定时 / 事件任务依据的授权记录；员工自己发起的为空。</summary>
     [JsonPropertyName("grant_id")] public string GrantId { get; set; } = "";
+
+    /// <summary>所属任务（本机任务账本的 tasks.id）。老服务端不认这个字段，忽略即可。</summary>
+    [JsonPropertyName("task_id")] public string TaskId { get; set; } = "";
 }
 
 /// <summary>后台下发给本机、要由 AI agent 执行的一条指令。</summary>

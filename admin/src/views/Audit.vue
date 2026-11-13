@@ -17,6 +17,8 @@ const devices = ref<Device[]>([])
 const loading = ref(false)
 const decision = ref('')
 const deviceId = ref<number | null>(null)
+/** 按任务编号筛：同一件事（跨好几轮、等确认、续跑）里的操作一次看全 */
+const taskId = ref('')
 const page = ref(1)
 const hasMore = ref(false)
 
@@ -27,6 +29,7 @@ async function load() {
     const list = await api.audit({
       decision: decision.value || undefined,
       device_id: deviceId.value,
+      task_id: taskId.value.trim() || undefined,
       limit: PAGE_SIZE + 1,
       offset: (page.value - 1) * PAGE_SIZE,
     })
@@ -35,6 +38,10 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+function byTask(id: string) {
+  taskId.value = id
+  search()
 }
 function search() {
   page.value = 1
@@ -57,6 +64,7 @@ const RISK_LABELS: Record<string, { label: string; type: 'danger' | 'warning' | 
 // ---------- 任务授权：远程 / 定时 / 事件任务的「谁让做、做到哪」 ----------
 const ORIGIN_LABELS: Record<string, string> = {
   mobile: '手机', dingtalk: '钉钉', wecom: '企业微信', instruction: '指令中心', schedule: '定时任务', event: '事件触发',
+  folder: '文件夹监视', pr: 'PR 自动修复',
 }
 const PERMISSION_LABELS: Record<string, string> = { readonly: '仅可查看', workspace: '工作区内修改', full: '完全权限' }
 const grants = ref<Record<string, TaskGrant>>({})
@@ -86,6 +94,7 @@ async function doExport() {
     await api.exportAudit({
       decision: decision.value || undefined,
       device_id: deviceId.value,
+      task_id: taskId.value.trim() || undefined,
       since: range.value?.[0],
       until: range.value?.[1],
     })
@@ -111,6 +120,7 @@ async function doExport() {
         <el-select v-model="deviceId" placeholder="全部设备" clearable filterable style="width: 200px" @change="search">
           <el-option v-for="d in devices" :key="d.id" :value="d.id" :label="`${d.machine_name}${d.user_name ? ` · ${d.user_name}` : ''}`" />
         </el-select>
+        <el-input v-model="taskId" placeholder="任务编号" clearable style="width: 200px" @change="search" @clear="search" />
         <el-button :icon="Refresh" :loading="loading" @click="load" />
         <el-button type="primary" :icon="Download" @click="exportDialog = true">导出 CSV</el-button>
       </div>
@@ -134,6 +144,10 @@ async function doExport() {
                 <pre>{{ row.summary }}</pre>
               </div>
               <div v-if="row.conversation_id" class="muted">会话 <code>{{ row.conversation_id }}</code></div>
+              <div v-if="row.task_id" class="muted">
+                任务 <code>{{ row.task_id }}</code>
+                <el-button v-if="taskId !== row.task_id" link type="primary" @click="byTask(row.task_id)">只看这个任务的操作</el-button>
+              </div>
               <div v-if="row.mcp_source" class="muted">
                 连接器来源：{{ row.mcp_source === 'global' ? '后台手工配置' : row.mcp_source === 'unknown' ? '未知（连接器已删除）' : row.mcp_source.replace(/^plugin:/, '插件 ') }}
               </div>

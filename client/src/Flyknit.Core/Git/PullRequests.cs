@@ -556,13 +556,62 @@ public sealed class PrWatcher : IPrWatchRegistry
     private readonly PrWatchStore _store;
     private readonly Func<string, int, CancellationToken, Task<PrStatus>> _view;
     private readonly Func<DateTimeOffset> _now;
+    private readonly Flyknit.Core.Tasks.ThreadSubscriptionStore? _subscriptions;
 
-    public PrWatcher(PrWatchStore store, Func<string, int, CancellationToken, Task<PrStatus>>? view = null, Func<DateTimeOffset>? now = null)
+    /// <param name="subscriptions">对话订阅（docs/c1-unified-tasks.md）：盯着的 PR 记成这个对话的订阅，员工在会话信息里看得到、能取消</param>
+    public PrWatcher(PrWatchStore store, Func<string, int, CancellationToken, Task<PrStatus>>? view = null, Func<DateTimeOffset>? now = null,
+        Flyknit.Core.Tasks.ThreadSubscriptionStore? subscriptions = null)
     {
         _store = store;
         _view = view ?? ((dir, n, ct) => GhCli.ViewAsync(dir, n, ct));
         _now = now ?? (() => DateTimeOffset.Now);
+        _subscriptions = subscriptions;
     }
+
+    /// <summary>订阅记录的写入失败（日志用）。订阅只是登记，失败不挡盯 PR 本身。</summary>
+    public event Action<Exception>? SubscriptionFailed;
+
+    public static string SubscriptionLabel(PrWatch w) => w.Title.Length > 0 ? $"PR #{w.Number} {w.Title}" : $"PR #{w.Number}";
+
+    private void Subscribe(PrWatch w) => Book(s => s.Subscribe(w.ConversationId, Flyknit.Core.Tasks.SubscriptionKinds.PullRequest, w.Id, SubscriptionLabel(w)));
+
+    private void Unsubscribe(PrWatch w) => Book(s => s.End(Flyknit.Core.Tasks.SubscriptionKinds.PullRequest, w.Id, w.EndedReason));
+
+    private void Book(Action<Flyknit.Core.Tasks.ThreadSubscriptionStore> action)
+    {
+        if (_subscriptions is null)
+        {
+            return;
+        }
+        try
+        {
+            action(_subscriptions);
+        }
+        catch (Exception ex)
+        {
+            SubscriptionFailed?.Invoke(ex);
+        }
+    }
+
+    /// <summary>
+    /// 启动时对一遍：升级前就在盯的 PR 补上订阅；PR 已经不盯了（或记录没了）的订阅结束掉。
+    /// </summary>
+    public void SyncSubscriptions() => Book(s =>
+    {
+        var watches = _store.All();
+        foreach (var w in watches.Where(w => w.Active))
+        {
+            s.Subscribe(w.ConversationId, Flyknit.Core.Tasks.SubscriptionKinds.PullRequest, w.Id, SubscriptionLabel(w));
+        }
+        foreach (var sub in s.ActiveOfKind(Flyknit.Core.Tasks.SubscriptionKinds.PullRequest))
+        {
+            var w = watches.FirstOrDefault(x => x.Id == sub.Selector);
+            if (w is not { Active: true })
+            {
+                s.End(sub.Kind, sub.Selector, w?.EndedReason is { Length: > 0 } r ? r : "stopped");
+            }
+        }
+    });
 
     public PrWatchStore Store => _store;
 
@@ -585,6 +634,7 @@ public sealed class PrWatcher : IPrWatchRegistry
             NextCheckAt = now.AddMinutes(PrWatchPolicy.DefaultIntervalMinutes),
             CreatedAt = now,
         });
+        Subscribe(watch);
         Watched?.Invoke(watch);
         return watch;
     }
@@ -623,6 +673,10 @@ public sealed class PrWatcher : IPrWatchRegistry
             next = next with { AutoFixes = watch.AutoFixes + 1 };
         }
         _store.Save(next);
+        if (watch.Active && !next.Active)
+        {
+            Unsubscribe(next); // 合并、关闭、盯满 14 天：订阅跟着结束
+        }
         return new PrCheckOutcome(next, events, fix);
     }
 
@@ -634,6 +688,7 @@ public sealed class PrWatcher : IPrWatchRegistry
         }
         var stopped = w with { EndedReason = "stopped" };
         _store.Save(stopped);
+        Unsubscribe(stopped);
         return stopped;
     }
 

@@ -369,6 +369,8 @@ export interface AuditLog {
   actor?: string
   /** 远程 / 定时 / 事件任务依据的授权记录 */
   grant_id?: string
+  /** 员工端任务账本的任务编号（同一件事跨好几轮）；老员工端为空 */
+  task_id?: string
   /** MCP 工具当时的连接器来源：global / plugin:<插件>@<版本> / unknown */
   mcp_source?: string
   occurred_at: string

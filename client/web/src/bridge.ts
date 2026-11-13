@@ -12,6 +12,8 @@ import type {
   RepoInfo,
   RefCard,
   PrWatchView,
+  SubscriptionView,
+  TaskView,
   SandboxStatus,
   SlashCommand,
   PluginInfo,
@@ -367,6 +369,9 @@ class Bridge {
   prList = (conversationId: string) => this.call<PrWatchView[]>('pr.list', { conversationId })
   prCheck = (id: string) => this.call<PrWatchView | null>('pr.check', { id }, undefined, 120_000)
   prStop = (id: string) => this.call<PrWatchView | null>('pr.stop', { id })
+  /** 会话信息：这个对话订阅的外部事件（本期只有盯着的 PR） */
+  subscriptions = (conversationId: string) => this.call<SubscriptionView[]>('subscriptions.list', { conversationId })
+  cancelSubscription = (conversationId: string, id: string) => this.call<boolean>('subscriptions.cancel', { conversationId, id })
   prAutoFix = (id: string, on: boolean) => this.call<PrWatchView | null>('pr.autoFix', { id, on })
   searchWorkspace = (conversationId: string, query: string) =>
     this.call<{ truncated: boolean; entries: WorkspaceEntry[] }>('workspace.search', { conversationId, query }, undefined, 30_000)
@@ -399,6 +404,9 @@ class Bridge {
   setPlanMode = (id: string, on: boolean) => this.call<boolean>('conversation.setPlanMode', { id, on })
   /** 任务中心：正在跑的、上次没跑完的、最近跑完的 */
   listRuns = () => this.call<RunsList>('runs.list')
+  /** 任务中心：按任务列（来源、发起人、授权、轮数、token） */
+  listTasks = () => this.call<TaskView[]>('tasks.list')
+  stopTask = (id: string) => this.call<boolean>('tasks.stop', { id })
   /** 接着做上次没做完的任务 */
   resumeRun = (conversationId: string) => this.call<void>('runs.resume', { conversationId })
   /** 上次没做完的任务：不用了，不再提示 */

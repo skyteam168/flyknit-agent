@@ -100,6 +100,8 @@ export function createMockHost(): HostTransport {
   const stopped = new Set<string>()
   /** 开发预览的插话：正在回答的对话、各对话待发的话 */
   const runningConvs = new Set<string>()
+  /** 模拟：任务中心里停掉的任务 */
+  const stoppedTasks = new Set<string>()
   const dismissedRuns = new Set<string>()
   const revertedMock = new Set<string>()
   const MOCK_XLSX = 'D:\\日报\\2026-09\\汇总.xlsx'
@@ -1892,6 +1894,43 @@ export function createMockHost(): HostTransport {
           })),
         }
       }
+      case 'tasks.list': {
+        const list = [...conversations.values()].filter((c) => !c.deletedAt)
+        const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
+        const conv = (i: number) => list[i % Math.max(1, list.length)]
+        const base = (id: string, i: number) => ({
+          id,
+          conversationId: conv(i)?.id ?? '',
+          conversationTitle: conv(i)?.title ?? '',
+          stopReason: '',
+          createdAt: ago(3600_000 * (i + 1)),
+          startedAt: ago(3600_000 * (i + 1)),
+          finishedAt: null as string | null,
+          live: false,
+          grant: null as { permission: string; workspace: string } | null,
+        })
+        const tasks = [
+          ...[...runningConvs].map((id, i) => ({
+            ...base(`t-live-${i}`, 0), conversationId: id, conversationTitle: conversations.get(id)?.title ?? '',
+            origin: 'ui', title: conversations.get(id)?.title || '新任务', requestedBy: '员工本人', state: 'running', runs: 1,
+            tokensUsed: 18_400, tokenBudget: 0, startedAt: ago(95_000), live: true,
+          })),
+          { ...base('t-mobile', 1), origin: 'mobile', title: '把今天的产量表发给我', requestedBy: '手机：张工', state: 'waiting_confirm', runs: 1,
+            tokensUsed: 9_200, tokenBudget: 500_000, grant: { permission: 'workspace', workspace: 'D:\\生产日报' } },
+          { ...base('t-int', 2), origin: 'ui', title: '本周 3 号线停机排行', requestedBy: '员工本人', state: 'interrupted', runs: 2,
+            tokensUsed: 64_000, tokenBudget: 0 },
+          { ...base('t-sched', 3), origin: 'schedule', title: '每日 8 点汇总产量', requestedBy: '定时任务：每日产量', state: 'done', runs: 1,
+            tokensUsed: 21_300, tokenBudget: 0, finishedAt: ago(5 * 3600_000), grant: { permission: 'workspace', workspace: 'D:\\生产日报' } },
+          { ...base('t-pr', 4), origin: 'pr', title: 'PR #42 自动修复', requestedBy: '盯 PR #42', state: 'failed', stopReason: '任务额度用完', runs: 3,
+            tokensUsed: 500_000, tokenBudget: 500_000, finishedAt: ago(26 * 3600_000), grant: { permission: 'workspace', workspace: 'D:\\repo\\report' } },
+          { ...base('t-ins', 5), origin: 'instruction', title: '清点共享盘里的旧报表', requestedBy: '指令中心', state: 'stopped', stopReason: '已停止', runs: 1,
+            tokensUsed: 3_100, tokenBudget: 0, finishedAt: ago(30 * 3600_000), grant: { permission: 'readonly', workspace: 'E:\\共享' } },
+        ]
+        return tasks.map((t) => (stoppedTasks.has(t.id) ? { ...t, state: 'stopped', stopReason: '员工在任务中心停止', live: false, finishedAt: now() } : t))
+      }
+      case 'tasks.stop':
+        stoppedTasks.add(p.id)
+        return true
       case 'runs.dismiss':
         dismissedRuns.add(p.conversationId)
         return
@@ -2051,6 +2090,13 @@ export function createMockHost(): HostTransport {
       case 'pr.stop':
       case 'pr.autoFix':
         return null
+      case 'subscriptions.list':
+        return [
+          { id: 's1', kind: 'pr', label: 'PR #42 修复日报导出', createdAt: new Date(Date.now() - 3600_000).toISOString(), active: true, endedAt: null, endedReason: '' },
+          { id: 's0', kind: 'pr', label: 'PR #37 加月报模板', createdAt: new Date(Date.now() - 86400_000 * 3).toISOString(), active: false, endedAt: new Date(Date.now() - 86400_000).toISOString(), endedReason: 'merged' },
+        ]
+      case 'subscriptions.cancel':
+        return true
       case 'workspace.list': {
         await sleep(120)
         const tree: Record<string, [string, boolean, number][]> = {

@@ -263,7 +263,7 @@ export const api = {
   deleteEventTrigger: (id: string) => del(`/event-triggers/${encodeURIComponent(id)}`),
   grants: (query: { device_id?: number; conversation_id?: string; origin?: string; limit?: number }) =>
     get<TaskGrant[]>('/grants', query),
-  audit: (query: { decision?: string; device_id?: number | null; conversation_id?: string; limit: number; offset: number }) =>
+  audit: (query: { decision?: string; device_id?: number | null; conversation_id?: string; task_id?: string; limit: number; offset: number }) =>
     get<AuditLog[]>('/audit', query),
 
   // 聊天记录：列表只有元数据；取正文会在服务端留痕
@@ -271,7 +271,7 @@ export const api = {
     get<ChatConversation[]>('/chats', query),
   readChat: (conversationId: string) => get<ChatRecord[]>(`/chats/${encodeURIComponent(conversationId)}`),
   chatAccess: (limit = 200) => get<ChatAccess[]>('/chat-access', { limit }),
-  exportAudit: (query: { decision?: string; device_id?: number | null; since?: string; until?: string }) =>
+  exportAudit: (query: { decision?: string; device_id?: number | null; task_id?: string; since?: string; until?: string }) =>
     download('/audit/export', query, 'audit.csv'),
 
   // 运维代理与下发任务

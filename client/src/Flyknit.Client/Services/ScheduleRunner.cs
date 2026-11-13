@@ -182,13 +182,16 @@ public sealed class ScheduleRunner : IDisposable
             }
             // 授权记录：定时任务按任务里设的权限和工作区跑，跑完收回（OnRunFinished）
             var text = files is { Count: > 0 } ? FolderWatch.Describe(task.Instructions, files) : task.Instructions;
+            // 任务账本：每次到点 / 每批新文件是一件新的事
             if (files is { Count: > 0 })
             {
-                _host.IssueGrant(conv, "event", $"folder:{task.Id}", $"文件夹监视：{task.Name}", text);
+                var (grant, _) = _host.IssueGrant(conv, "folder", task.Id, $"文件夹监视：{task.Name}", text);
+                _host.ExpectTask(Flyknit.Core.Tasks.TaskOrigins.Folder, conv, task.Name, task.Id, $"文件夹监视：{task.Name}", grant);
             }
             else
             {
-                _host.IssueGrant(conv, "schedule", task.Id, $"定时任务：{task.Name}", text);
+                var (grant, _) = _host.IssueGrant(conv, "schedule", task.Id, $"定时任务：{task.Name}", text);
+                _host.ExpectTask(Flyknit.Core.Tasks.TaskOrigins.Schedule, conv, task.Name, task.Id, $"定时任务：{task.Name}", grant);
             }
             task.LastConversationId = conv.Id;
             Store.Save(task);

@@ -215,6 +215,8 @@ public class SecuritySwitchTests
             SecuritySettings.SandboxMemoryGb,
             // AgentHost.RunTokenLimit 读这一项填 AgentOptions.MaxRunTokens（长任务 ×5）；撞到 token 上限时长任务自动接着做
             SecuritySettings.RunTokenBudget,
+            // AgentHost.RefreshTaskBudget 读这一项填 TaskLedger.DefaultBudget；每轮按任务剩余预算收紧 MaxRunTokens（见 TaskLedgerTests）
+            SecuritySettings.TaskTokenBudget,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

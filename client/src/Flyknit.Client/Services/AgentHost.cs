@@ -58,6 +58,9 @@ public sealed partial class AgentHost : IDisposable
 
     public FlyknitServerClient Server { get; }
     public ConversationStore Store { get; }
+
+    /// <summary>任务账本：每件事从哪来、按什么授权、跑了几轮、用了多少 token（docs/c1-unified-tasks.md）。</summary>
+    public Flyknit.Core.Tasks.TaskLedger Ledger { get; }
     public MemoryStore Memory { get; }
     public SkillCatalog Skills { get; }
     public SkillService SkillManager { get; }
@@ -313,6 +316,9 @@ public sealed partial class AgentHost : IDisposable
         _ = Task.Run(() => ToolOutputSpill.Prune(ToolOutputRoot));
         Server = new FlyknitServerClient(ProxyFactory.CreateHttpClient(settings), settings.ServerUrl, settings.DeviceToken);
         Store = new ConversationStore(AppPaths.Database);
+        // 任务账本（VNext 第 1 期）：上次没收尾的任务标成中断，升级前没跑完的对话补成任务
+        Ledger = new Flyknit.Core.Tasks.TaskLedger(Store.Tasks, (what, ex) => Log.Warn(what, ex));
+        Ledger.RecoverAfterRestart();
         // 记忆条目和会话放在同一个数据库里（数据目录），md 文件仍在记忆目录，可以直接编辑
         Memory = new MemoryStore(AppPaths.Memory, AppPaths.Database);
         Memory.SensitiveRejected += (kind, findings) => Log.Warn($"一条{MemoryStore.HeaderOf(kind)}含{string.Join("、", findings)}，没有记入记忆");
@@ -506,6 +512,7 @@ public sealed partial class AgentHost : IDisposable
             WebSearchEnabled = config.WebSearchEnabled;
             // IT 的工具规则：下一轮任务起生效（正在跑的这一轮用开始时的那份）
             ToolRules = new Flyknit.Core.Security.ToolRules(config.ToolRules);
+            RefreshTaskBudget();
             _configTimer.Change(TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
             // 顺带把本机信息报上去。配置拉得到就说明在线，两件事本来就是同一个信号。
             // 失败不影响对话，所以吞掉异常，不改 Connected。
@@ -898,6 +905,10 @@ public sealed partial class AgentHost : IDisposable
                 history.AddRange(window);
             }
 
+            // 任务账本：这一轮记在哪个任务下（排队的话、自动续跑、中断续跑接着记在原任务下）
+            var runId = Guid.NewGuid().ToString("N");
+            _nextRunKind.TryRemove(id, out var runKind);
+            var ticket = Ledger.BeginRun(id, Store.Get(id)?.Title ?? conv.Title, runId, runKind ?? Flyknit.Core.Tasks.RunKinds.First);
             var ctx = new ToolContext
             {
                 Policy = _policy,
@@ -908,7 +919,8 @@ public sealed partial class AgentHost : IDisposable
                 Workspace = workspace,
                 Permission = permission,
                 GrantId = grant?.Id ?? "",
-                RunId = Guid.NewGuid().ToString("N"),
+                TaskId = ticket?.TaskId ?? "",
+                RunId = runId,
                 Memory = Memory,
                 Episodes = Episodes,
                 Skills = Skills,
@@ -993,7 +1005,9 @@ public sealed partial class AgentHost : IDisposable
                 tools = Flyknit.Core.Agent.PlanMode.Filter(tools);
             }
             runTools = tools;
-            var loop = new AgentLoop(Server, tools, confirm, _auditSink, AgentOptionsFor(conv), Approvals)
+            // 问员工确认时任务记成「等确认」；单次运行的 token 上限不超过任务还剩的预算
+            var ledgerConfirm = new Flyknit.Core.Tasks.LedgerConfirmation(confirm, waiting => Ledger.Waiting(id, waiting));
+            var loop = new AgentLoop(Server, tools, ledgerConfirm, _auditSink, AgentOptionsFor(conv, ticket?.RemainingBudget), Approvals)
             {
                 Interjections = InterjectionsFor(id),
                 Pause = PauseGateFor(id),
@@ -1023,6 +1037,7 @@ public sealed partial class AgentHost : IDisposable
                 });
             }
             Store.AddMessages(id, result.NewMessages);
+            Ledger.EndRun(id, result.StopReason, result.Usage?.PromptTokens ?? 0, result.Usage?.CompletionTokens ?? 0, answer?.Id);
             QueueAutoContinue(conv, result);
             if (answer is not null)
             {
@@ -1081,12 +1096,14 @@ public sealed partial class AgentHost : IDisposable
         {
             // 还没进 Agent 循环（语义检索等准备步骤）就按了停止：和循环里停止一样，算正常结束，不报错
             Log.Info($"对话 {id} 在准备阶段被停止");
+            Ledger.EndRun(id, AgentStopReason.Cancelled, 0, 0, null);
             events.Post(new { type = "chat.done", conversationId = id, stopReason = AgentStopReason.Cancelled.ToString() });
             RunFinished?.Invoke(new RunFinishedInfo(id, Store.Get(id)?.Title ?? "", "", AgentStopReason.Cancelled));
         }
         catch (Exception ex)
         {
             Log.Error($"对话 {id} 运行失败", ex);
+            Ledger.EndRun(id, null, 0, 0, null, ex.Message);
             if (ex is Flyknit.Core.Sandbox.SandboxException)
             {
                 // 沙箱没起来：界面别一直停在「正在准备」
@@ -1108,6 +1125,11 @@ public sealed partial class AgentHost : IDisposable
             if (!_remoteRuns.ContainsKey(id))
             {
                 ContinuePending(id);
+            }
+            // 没有接着跑的了（排队的话、自动续跑都没有）：这件事到此结束，任务按最后一轮的结果收尾
+            if (!IsRunning(id))
+            {
+                Ledger.Finish(id);
             }
         }
     }
@@ -1161,11 +1183,12 @@ public sealed partial class AgentHost : IDisposable
         return _sceneVision.TryGetValue(scene, out var vision) && vision;
     }
 
-    private AgentOptions AgentOptionsFor(Conversation? conv = null) => new()
+    /// <param name="taskRemaining">这一轮所属任务还剩多少 token 预算（null = 任务不限）</param>
+    private AgentOptions AgentOptionsFor(Conversation? conv = null, long? taskRemaining = null) => new()
     {
         InlineToolImages = InlineToolImagesFor(conv),
         MaxSteps = LongModeOn(conv) ? Math.Max(_settings.ResolveAgentMaxSteps(), LongModeSteps) : _settings.ResolveAgentMaxSteps(),
-        MaxRunTokens = RunTokenLimit(LongModeOn(conv)),
+        MaxRunTokens = Flyknit.Core.Tasks.TaskLedger.CapRunTokens(RunTokenLimit(LongModeOn(conv)), taskRemaining),
         PlanGuidance = Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
         VerifyOutputs = Security.On(Flyknit.Core.Security.SecuritySettings.VerifyOutputs),
         // 太长的工具结果落盘：按对话分文件夹，放在临时目录里（7 天后清掉）
@@ -1463,6 +1486,7 @@ public sealed partial class AgentHost : IDisposable
         {
             return new InstructionOutcome(false, "", refused, conv.Id);
         }
+        ExpectTask(Flyknit.Core.Tasks.TaskOrigins.Instruction, conv, conv.Title, reference, "指令中心", grant);
         try
         {
             return await RunInstructionCoreAsync(conv, prompt, confirm, ct);
@@ -1578,6 +1602,8 @@ public sealed partial class AgentHost : IDisposable
             context.Compacted += info => Store.SetSummary(conv.Id, info.Summary, info.UptoMessageId);
             var history = new List<ChatMessage> { ChatMessage.System(context.SystemPrompt), user };
 
+            var headlessRun = Guid.NewGuid().ToString("N");
+            var headlessTicket = Ledger.BeginRun(conv.Id, conv.Title, headlessRun, Flyknit.Core.Tasks.RunKinds.First);
             var ctx = new ToolContext
             {
                 Policy = _policy,
@@ -1588,6 +1614,8 @@ public sealed partial class AgentHost : IDisposable
                 Workspace = workspace,
                 Permission = permission,
                 GrantId = grant?.Id ?? "",
+                TaskId = headlessTicket?.TaskId ?? "",
+                RunId = headlessRun,
                 Memory = Memory,
                 Episodes = Episodes,
                 Skills = Skills,
@@ -1599,7 +1627,7 @@ public sealed partial class AgentHost : IDisposable
                 Security = Security,
             };
 
-            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(conv), Approvals)
+            var loop = new AgentLoop(Server, Tools, confirm, _auditSink, AgentOptionsFor(conv, headlessTicket?.RemainingBudget), Approvals)
             {
                 Interjections = InterjectionsFor(conv.Id),
                 Pause = PauseGateFor(conv.Id),
@@ -1607,6 +1635,8 @@ public sealed partial class AgentHost : IDisposable
             };
             var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
             Store.AddMessages(conv.Id, result.NewMessages);
+            Ledger.EndRun(conv.Id, result.StopReason, result.Usage?.PromptTokens ?? 0, result.Usage?.CompletionTokens ?? 0,
+                result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Id);
             if (result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant) is { } done)
             {
                 RecordSkillRun(conv.Id, done.Id, result.NewMessages, result.StopReason == AgentStopReason.Completed, scheduledPrompt.SkillsPreloaded);
@@ -1622,6 +1652,7 @@ public sealed partial class AgentHost : IDisposable
         catch (Exception ex)
         {
             Log.Error($"执行下发指令失败（会话 {conv.Id}）", ex);
+            Ledger.EndRun(conv.Id, null, 0, 0, null, ex.Message);
             return new InstructionOutcome(false, "", ex.Message, conv.Id);
         }
         finally
@@ -1631,6 +1662,7 @@ public sealed partial class AgentHost : IDisposable
             MarkRunEnded(conv.Id);
             EndProgress(conv.Id);
             ActiveRunsChanged?.Invoke(_runs.Count);
+            Ledger.Finish(conv.Id);
         }
     }
 

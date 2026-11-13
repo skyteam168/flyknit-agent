@@ -106,6 +106,12 @@ public sealed partial class AgentHost
         {
             return;
         }
+        // 这件事（任务）的 token 预算已经用完：不再自动接着做，停下等员工（任务记成「任务额度用完」）
+        if (!Ledger.CanContinue(conv.Id))
+        {
+            Log.Info($"对话 {conv.Id} 所属任务的 token 预算用完，不再自动续跑");
+            return;
+        }
         var n = _autoContinues.AddOrUpdate(conv.Id, 1, (_, x) => x + 1);
         if (n > MaxAutoContinues)
         {
@@ -114,6 +120,7 @@ public sealed partial class AgentHost
         }
         Log.Info($"对话 {conv.Id} 长任务模式：{(result.StopReason == AgentStopReason.MaxSteps ? "走到步数上限" : "token 用到上限")}，自动接着做（第 {n}/{MaxAutoContinues} 次）");
         Inbox.Add(conv.Id, $"继续（长任务模式自动接着做，第 {n}/{MaxAutoContinues} 次）。先对照计划看看已经完成了哪些、还差什么，再接着做。", RunInbox.Queue, front: true);
+        _nextRunKind[conv.Id] = Flyknit.Core.Tasks.RunKinds.AutoContinue;
     }
 
     // ---------- 中断的任务 ----------
@@ -154,5 +161,9 @@ public sealed partial class AgentHost
     }
 
     /// <summary>员工选了「不用了」：不再提示。</summary>
-    public void DismissInterrupted(string conversationId) => MarkRunEnded(conversationId);
+    public void DismissInterrupted(string conversationId)
+    {
+        Ledger.Abandon(conversationId, "员工放弃续跑");
+        MarkRunEnded(conversationId);
+    }
 }

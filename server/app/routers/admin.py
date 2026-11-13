@@ -659,6 +659,7 @@ async def list_audit(
     decision: str | None = None,
     device_id: int | None = None,
     conversation_id: str | None = None,
+    task_id: str | None = None,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     reader: AdminUser | None = Depends(chat_reader_or_none),
@@ -675,6 +676,9 @@ async def list_audit(
         q = q.where(AuditLog.device_id == device_id)
     if conversation_id:
         q = q.where(AuditLog.conversation_id == conversation_id)
+    if task_id:
+        # 同一件事（任务）的所有操作：跨好几轮、带自动续跑的也能一次看全
+        q = q.where(AuditLog.task_id == task_id)
     rows = (await session.scalars(q)).all()
 
     if reader is None:
@@ -702,6 +706,7 @@ _AUDIT_COLUMNS = (
     ("actor", "执行者"),
     ("subtask_id", "派遣记录"),
     ("grant_id", "任务授权"),
+    ("task_id", "任务编号"),
     ("mcp_source", "连接器来源"),
 )
 _EXPORT_MAX_ROWS = 200_000
@@ -726,6 +731,7 @@ def _csv_cell(value) -> str:
 async def export_audit(
     decision: str | None = None,
     device_id: int | None = None,
+    task_id: str | None = None,
     since: date | None = Query(None, description="起始日期（含），按 UTC"),
     until: date | None = Query(None, description="结束日期（含），按 UTC"),
     reader: AdminUser | None = Depends(chat_reader_or_none),
@@ -751,6 +757,8 @@ async def export_audit(
             q = q.where(AuditLog.decision == decision)
         if device_id:
             q = q.where(AuditLog.device_id == device_id)
+        if task_id:
+            q = q.where(AuditLog.task_id == task_id)
         if since:
             q = q.where(AuditLog.occurred_at >= datetime.combine(since, dtime.min, tzinfo=timezone.utc))
         if until:

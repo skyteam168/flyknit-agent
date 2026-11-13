@@ -97,6 +97,8 @@ public sealed class SecuritySettings
 
     /// <summary>单次任务 token 上限，单位万 tokens。0 表示不限；长任务模式按 5 倍算。</summary>
     public const string RunTokenBudget = "run_token_budget";
+    /// <summary>单个任务（同一串运行合计）的 token 上限，单位万 tokens，0 = 不限（docs/c1-unified-tasks.md 第 7 节）。</summary>
+    public const string TaskTokenBudget = "task_token_budget";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字
