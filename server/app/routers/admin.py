@@ -731,6 +731,7 @@ def _csv_cell(value) -> str:
 async def export_audit(
     decision: str | None = None,
     device_id: int | None = None,
+    task_id: str | None = None,
     since: date | None = Query(None, description="起始日期（含），按 UTC"),
     until: date | None = Query(None, description="结束日期（含），按 UTC"),
     reader: AdminUser | None = Depends(chat_reader_or_none),
@@ -756,6 +757,8 @@ async def export_audit(
             q = q.where(AuditLog.decision == decision)
         if device_id:
             q = q.where(AuditLog.device_id == device_id)
+        if task_id:
+            q = q.where(AuditLog.task_id == task_id)
         if since:
             q = q.where(AuditLog.occurred_at >= datetime.combine(since, dtime.min, tzinfo=timezone.utc))
         if until:

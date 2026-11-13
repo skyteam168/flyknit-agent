@@ -96,3 +96,8 @@ async def test_audit_carries_the_task_and_can_be_filtered_by_it(client, device_h
     assert sorted(x["tool_name"] for x in rows) == ["read_file", "write_file"]
     everything = (await client.get("/api/v1/admin/audit", headers=ADMIN)).json()
     assert {x["task_id"] for x in everything} == {"t-aaa", "t-bbb", ""}
+    # 导出和列表一样能按任务筛
+    csv = await client.get("/api/v1/admin/audit/export", headers=ADMIN, params={"task_id": "t-bbb"})
+    assert csv.status_code == 200
+    body = csv.content.decode("utf-8-sig")
+    assert "run_shell" in body and "write_file" not in body and "任务编号" in body
