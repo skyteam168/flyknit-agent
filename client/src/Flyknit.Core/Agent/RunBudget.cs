@@ -30,6 +30,12 @@ public sealed class RunBudget
     /// <summary>用到这个比例时提醒一次收尾。</summary>
     public double TokenNudgeRatio { get; init; } = 0.7;
 
+    /// <summary>
+    /// 用到上限后宿主会自动接着做（长任务模式）。这时 70% 的提醒不能叫模型「收尾」——
+    /// 模型照做、这一轮按「完成」结束，自动续跑就不会接上，长任务提前结束（11-13 实测：长任务看起来被单次上限卡住）。
+    /// </summary>
+    public bool AutoContinues { get; init; }
+
     /// <summary>连续这么多轮没有新进展：提醒一次。</summary>
     public int NoProgressNudgeAt { get; init; } = 4;
 
@@ -164,12 +170,19 @@ public sealed class RunBudget
         if (MaxTokens > 0 && !_tokenNudged && Tokens >= MaxTokens * TokenNudgeRatio)
         {
             _tokenNudged = true;
-            note = $"""
+            note = AutoContinues
+                ? $"""
 
 
-                【系统提醒】这一轮已经用了 {Tokens:N0} tokens（上限 {MaxTokens:N0}）。请抓紧收尾：只做完成目标必需的步骤，
-                已经达成目标就直接总结回答，不要再做额外的检查和美化。
-                """;
+                    【系统提醒】这一轮已经用了 {Tokens:N0} tokens（上限 {MaxTokens:N0}）。到上限时这一轮会暂停，然后自动接着做：
+                    先把手上这一步做完，用 update_plan 记好已经完成了哪些；不要为了省额度跳过必需的步骤或提前结束。
+                    """
+                : $"""
+
+
+                    【系统提醒】这一轮已经用了 {Tokens:N0} tokens（上限 {MaxTokens:N0}）。请抓紧收尾：只做完成目标必需的步骤，
+                    已经达成目标就直接总结回答，不要再做额外的检查和美化。
+                    """;
             return BudgetVerdict.Nudge;
         }
         if (Replans >= ReplanNudgeAt && !_replanNudged)

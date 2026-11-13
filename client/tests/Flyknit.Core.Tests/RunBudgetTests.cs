@@ -169,6 +169,81 @@ public class RunBudgetTests : IDisposable
     }
 
     [Fact]
+    public void LongTasksAreNotToldToWrapUpBeforeTheyAutoContinue()
+    {
+        // 11-13 实测：长任务看起来被单次 token 上限卡住——70% 时叫模型「收尾」，模型照做、这一轮按「完成」结束，
+        // 自动续跑（只认步数上限 / token 用到上限）就不会接上
+        var normal = new RunBudget { MaxTokens = 1000 };
+        normal.AddModelCall(new TokenUsage(700, 10));
+        Assert.Equal(BudgetVerdict.Nudge, normal.Check(out var plain));
+        Assert.Contains("收尾", plain);
+
+        var longTask = new RunBudget { MaxTokens = 1000, AutoContinues = true };
+        longTask.AddModelCall(new TokenUsage(700, 10));
+        Assert.Equal(BudgetVerdict.Nudge, longTask.Check(out var keepGoing));
+        Assert.DoesNotContain("收尾", keepGoing);
+        Assert.Contains("自动接着做", keepGoing);
+        Assert.Contains("update_plan", keepGoing);
+        Assert.Equal(BudgetVerdict.Ok, longTask.Check(out _));         // 只提醒一次
+
+        longTask.AddModelCall(new TokenUsage(300, 10));
+        Assert.Equal(BudgetVerdict.Stop, longTask.Check(out _));         // 到上限照样停（停下后宿主自动续跑）
+        Assert.True(longTask.StoppedByTokens);
+    }
+
+    [Fact]
+    public async Task TheLoopPassesTheLongTaskFlagToItsBudget()
+    {
+        // 每次调模型都报 400 tokens，上限 1000：第二次调用前到 80%，提醒附在工具结果后面
+        var gateway = new UsageGateway(400,
+            new ChatTurn { ToolCalls = new[] { new ToolCall("c1", "list_dir", System.Text.Json.JsonSerializer.Serialize(new { path = _dir })) } },
+            new ChatTurn { ToolCalls = new[] { new ToolCall("c2", "list_dir", System.Text.Json.JsonSerializer.Serialize(new { path = _dir })) } },
+            new ChatTurn { Content = "完成" });
+        var ctx = new ToolContext
+        {
+            Policy = CommandPolicy.Default(),
+            ConversationId = "c1",
+            Workspace = _dir,
+            Permission = PermissionMode.Workspace,
+            Security = new SecuritySettings(new Dictionary<string, SecurityItem> { [SecuritySettings.Sandbox] = new() { Value = false, Locked = true } }),
+        };
+        var loop = new AgentLoop(gateway, ToolRegistry.CreateDefault(), new NoConfirm(), options: new AgentOptions { MaxRunTokens = 1000, AutoContinues = true });
+        await loop.RunAsync(new List<ChatMessage> { ChatMessage.User("看看") }, Scenes.Agent, ctx, new NullObserver(), true, CancellationToken.None);
+        var reminded = gateway.Seen.SelectMany(m => m).Where(m => m.Role == ChatRole.Tool).Select(m => m.Content).FirstOrDefault(c => c.Contains("系统提醒"));
+        Assert.NotNull(reminded);
+        Assert.Contains("自动接着做", reminded);
+        Assert.DoesNotContain("收尾", reminded);
+    }
+
+    private sealed class UsageGateway(int perCall, params ChatTurn[] turns) : IChatGateway
+    {
+        private readonly Queue<ChatTurn> _turns = new(turns);
+        public List<List<ChatMessage>> Seen { get; } = new();
+        public Task<ChatTurn> CompleteAsync(ChatRequest request, IStreamSink? sink, CancellationToken ct)
+        {
+            Seen.Add(request.Messages.ToList());
+            var t = _turns.Count > 0 ? _turns.Dequeue() : new ChatTurn { Content = "完成" };
+            return Task.FromResult(new ChatTurn { Content = t.Content, ToolCalls = t.ToolCalls, Usage = new TokenUsage(perCall, 0) });
+        }
+    }
+
+    private sealed class NoConfirm : IConfirmationHandler
+    {
+        public Task<ConfirmChoice> ConfirmAsync(ConfirmRequest request, CancellationToken ct) => Task.FromResult(ConfirmChoice.Reject);
+    }
+
+    private sealed class NullObserver : IAgentObserver
+    {
+        public void OnContent(string delta) { }
+        public void OnReasoning(string delta) { }
+        public void OnAssistantMessage(ChatMessage message) { }
+        public void OnToolStarted(ToolCall call, string summary, PolicyDecision decision) { }
+        public void OnToolFinished(ToolCall call, ToolResult result, string decision) { }
+        public void OnToolMessage(ChatMessage message) { }
+        public void OnPlanUpdated(IReadOnlyList<PlanItem> plan) { }
+    }
+
+    [Fact]
     public void ReplanningOverAndOverGetsOneReminder()
     {
         var budget = new RunBudget { ReplanNudgeAt = 2 };

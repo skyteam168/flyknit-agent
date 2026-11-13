@@ -1198,6 +1198,10 @@ public sealed partial class AgentHost : IDisposable
         InlineToolImages = InlineToolImagesFor(conv),
         MaxSteps = LongModeOn(conv) ? Math.Max(_settings.ResolveAgentMaxSteps(), LongModeSteps) : _settings.ResolveAgentMaxSteps(),
         MaxRunTokens = Flyknit.Core.Tasks.TaskLedger.CapRunTokens(RunTokenLimit(LongModeOn(conv)), taskRemaining),
+        // 长任务模式用到 token 上限后会自动接着做（QueueAutoContinue）：快到上限时别叫模型收尾。钉钉 / 手机发来的不续
+        // （续跑次数用完、任务预算用完时不会再续：照常提醒收尾）
+        AutoContinues = conv is not null && LongModeOn(conv) && !_remoteRuns.ContainsKey(conv.Id)
+            && _autoContinues.GetValueOrDefault(conv.Id) < MaxAutoContinues && Ledger.CanContinue(conv.Id),
         PlanGuidance = Security.On(Flyknit.Core.Security.SecuritySettings.PlanGuidance),
         VerifyOutputs = Security.On(Flyknit.Core.Security.SecuritySettings.VerifyOutputs),
         // 太长的工具结果落盘：按对话分文件夹，放在临时目录里（7 天后清掉）

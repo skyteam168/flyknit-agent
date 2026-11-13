@@ -249,7 +249,7 @@ public sealed class AgentLoop
         var replanHintedThisStreak = false;
         var outputProblems = 0;
         var outputProblemsAtEnd = 0;
-        var budget = new RunBudget { MaxTokens = _options.MaxRunTokens };
+        var budget = new RunBudget { MaxTokens = _options.MaxRunTokens, AutoContinues = _options.AutoContinues };
         ctx.Budget = budget; // 派遣专家时据此预留额度，专家用掉的再记回来
         ctx.ToolNames = () => _tools.All.Select(t => t.Name).ToList();
         var endRequested = false; // 专家交卷：本次运行到此为止

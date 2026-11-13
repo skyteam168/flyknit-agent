@@ -103,6 +103,12 @@ public sealed class AgentOptions
     /// </summary>
     public long MaxRunTokens { get; init; } = DefaultMaxRunTokens;
 
+    /// <summary>
+    /// 用到 token 上限后宿主会自动接着做（长任务模式，且不是钉钉 / 手机发来的任务）：快到上限时提醒模型「记好进度、会接着做」，
+    /// 而不是「收尾」（见 <see cref="RunBudget.AutoContinues"/>）。
+    /// </summary>
+    public bool AutoContinues { get; init; }
+
     public const long DefaultMaxRunTokens = 2_000_000;
 
     /// <summary>每隔多少步提醒模型对照计划自查一次（不停下）。0 表示不提醒。</summary>
