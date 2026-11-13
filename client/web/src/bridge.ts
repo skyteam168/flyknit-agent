@@ -12,6 +12,7 @@ import type {
   RepoInfo,
   RefCard,
   PrWatchView,
+  SubscriptionView,
   SandboxStatus,
   SlashCommand,
   PluginInfo,
@@ -367,6 +368,9 @@ class Bridge {
   prList = (conversationId: string) => this.call<PrWatchView[]>('pr.list', { conversationId })
   prCheck = (id: string) => this.call<PrWatchView | null>('pr.check', { id }, undefined, 120_000)
   prStop = (id: string) => this.call<PrWatchView | null>('pr.stop', { id })
+  /** 会话信息：这个对话订阅的外部事件（本期只有盯着的 PR） */
+  subscriptions = (conversationId: string) => this.call<SubscriptionView[]>('subscriptions.list', { conversationId })
+  cancelSubscription = (conversationId: string, id: string) => this.call<boolean>('subscriptions.cancel', { conversationId, id })
   prAutoFix = (id: string, on: boolean) => this.call<PrWatchView | null>('pr.autoFix', { id, on })
   searchWorkspace = (conversationId: string, query: string) =>
     this.call<{ truncated: boolean; entries: WorkspaceEntry[] }>('workspace.search', { conversationId, query }, undefined, 30_000)

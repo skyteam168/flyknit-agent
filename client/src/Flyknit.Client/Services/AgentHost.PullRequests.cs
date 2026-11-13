@@ -33,8 +33,11 @@ public sealed partial class AgentHost
         {
             if (_prWatcher is null)
             {
-                var watcher = new PrWatcher(Store.PrWatches);
+                var watcher = new PrWatcher(Store.PrWatches, subscriptions: Store.Subscriptions);
                 watcher.Watched += PostPr;
+                watcher.SubscriptionFailed += ex => Log.Warn("记录对话订阅失败", ex);
+                // 升级前就在盯的 PR 补上订阅；不再盯的订阅结束掉
+                watcher.SyncSubscriptions();
                 _prWatcher = watcher;
             }
             return _prWatcher;
@@ -106,6 +109,44 @@ public sealed partial class AgentHost
     }
 
     public IReadOnlyList<PrWatch> PrWatchesOf(string conversationId) => Store.PrWatches.OfConversation(conversationId);
+
+    /// <summary>会话信息里的「订阅」：这个对话盯着的外部事件（本期只有 PR）。</summary>
+    public IReadOnlyList<Flyknit.Core.Tasks.ThreadSubscription> SubscriptionsOf(string conversationId)
+    {
+        _ = PullRequests; // 第一次打开时顺带对一遍账
+        return Store.Subscriptions.For(conversationId);
+    }
+
+    /// <summary>员工在会话信息里取消订阅：PR 就是不再盯（和 PR 卡片上点「停止」一样）。只认这个对话自己的订阅。</summary>
+    public bool CancelSubscription(string conversationId, string subscriptionId)
+    {
+        var sub = Store.Subscriptions.For(conversationId).FirstOrDefault(x => x.Id == subscriptionId && x.Active);
+        if (sub is null)
+        {
+            return false;
+        }
+        if (sub.Kind == Flyknit.Core.Tasks.SubscriptionKinds.PullRequest)
+        {
+            if (StopPrWatch(sub.Selector) is null)
+            {
+                // 盯 PR 的记录已经不在进行中：订阅也结束掉，别一直挂着
+                Store.Subscriptions.End(sub.Kind, sub.Selector, "stopped");
+            }
+            return true;
+        }
+        return Store.Subscriptions.End(sub.Kind, sub.Selector, "stopped");
+    }
+
+    internal static object SubscriptionDto(Flyknit.Core.Tasks.ThreadSubscription s) => new
+    {
+        id = s.Id,
+        kind = s.Kind,
+        label = s.Label,
+        createdAt = s.CreatedAt,
+        active = s.Active,
+        endedAt = s.EndedAt,
+        endedReason = s.EndedReason,
+    };
 
     private void HandlePr(PrCheckOutcome outcome)
     {

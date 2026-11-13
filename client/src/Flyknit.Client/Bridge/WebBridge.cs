@@ -1987,6 +1987,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "pr.stop":
                 return _host.StopPrWatch(Str("id")) is { } stopped ? AgentHost.PrDto(stopped) : null;
 
+            case "subscriptions.list":
+                return _host.SubscriptionsOf(Str("conversationId")).Select(AgentHost.SubscriptionDto).ToList();
+
+            case "subscriptions.cancel":
+                return _host.CancelSubscription(Str("conversationId"), Str("id"));
+
             case "pr.autoFix":
                 return _host.SetPrAutoFix(Str("id"), Bool("on")) is { } changed ? AgentHost.PrDto(changed) : null;
 

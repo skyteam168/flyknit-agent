@@ -2051,6 +2051,13 @@ export function createMockHost(): HostTransport {
       case 'pr.stop':
       case 'pr.autoFix':
         return null
+      case 'subscriptions.list':
+        return [
+          { id: 's1', kind: 'pr', label: 'PR #42 修复日报导出', createdAt: new Date(Date.now() - 3600_000).toISOString(), active: true, endedAt: null, endedReason: '' },
+          { id: 's0', kind: 'pr', label: 'PR #37 加月报模板', createdAt: new Date(Date.now() - 86400_000 * 3).toISOString(), active: false, endedAt: new Date(Date.now() - 86400_000).toISOString(), endedReason: 'merged' },
+        ]
+      case 'subscriptions.cancel':
+        return true
       case 'workspace.list': {
         await sleep(120)
         const tree: Record<string, [string, boolean, number][]> = {

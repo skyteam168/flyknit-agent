@@ -106,6 +106,22 @@ public sealed class ThreadSubscriptionStore
         return cmd.ExecuteNonQuery() > 0;
     }
 
+    /// <summary>某一种的全部进行中订阅（启动时和事件源对账用）。</summary>
+    public IReadOnlyList<ThreadSubscription> ActiveOfKind(string kind)
+    {
+        using var c = _open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT id, conversation_id, kind, selector, label, created_at, ended_at, ended_reason FROM thread_subscriptions WHERE kind = $kind AND ended_at IS NULL";
+        cmd.Parameters.AddWithValue("$kind", kind);
+        using var r = cmd.ExecuteReader();
+        var list = new List<ThreadSubscription>();
+        while (r.Read())
+        {
+            list.Add(Read(r));
+        }
+        return list;
+    }
+
     /// <summary>这个对话的订阅（进行中的在前）。</summary>
     public IReadOnlyList<ThreadSubscription> For(string conversationId)
     {

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ChevronDown, ChevronRight, Folder, Plug, Shield, Sparkles, WandSparkles, X } from '@lucide/vue'
+import { BellRing, ChevronDown, ChevronRight, Folder, Plug, Shield, Sparkles, WandSparkles, X } from '@lucide/vue'
 import { compactConversation, current, currentState, loadContextUsage, state, toast, toggleSessionPanel } from '../store'
 import { convFiles, extLabel, outputFiles, uploadedFiles } from '../conversationFiles'
 import { toolLabel } from '../subtasks'
 import { kindIcon } from '../libraryIcons'
-import type { ContextPart, LibraryItem } from '../types'
+import { bridge } from '../bridge'
+import type { ContextPart, LibraryItem, SubscriptionView } from '../types'
 
 /**
  * 右侧「会话信息」面板：这个对话在哪个工作区、什么权限、用的哪个模型；对话记忆（上下文）用了多少、
@@ -89,6 +90,34 @@ const files = computed(() => [
 ])
 function viewFile(group: string, list: LibraryItem[], item: LibraryItem) {
   convFiles.viewing = { title: group, items: [...list], id: item.id }
+}
+
+/** 订阅：这个对话盯着的外部事件（本期只有 PR）。PR 卡片有变化（pr.updated）时重读一遍 */
+const subscriptions = ref<SubscriptionView[]>([])
+async function loadSubscriptions() {
+  const id = current.value?.id
+  if (!id || current.value?.mode !== 'agent') {
+    subscriptions.value = []
+    return
+  }
+  try {
+    const list = await bridge.subscriptions(id)
+    if (current.value?.id === id) subscriptions.value = list ?? []
+  } catch {
+    subscriptions.value = []
+  }
+}
+watch(() => [current.value?.id, current.value ? state.prs[current.value.id] : undefined], () => void loadSubscriptions(), { immediate: true, deep: true })
+const activeSubs = computed(() => subscriptions.value.filter((s) => s.active))
+const endedSubs = computed(() => subscriptions.value.filter((s) => !s.active).slice(0, 5))
+function endedLabel(s: SubscriptionView) {
+  const key = `ui.session.subscriptionEnded.${s.endedReason}`
+  return te(key) ? t(key) : t('ui.session.subscriptionEnded.stopped')
+}
+async function cancelSub(s: SubscriptionView) {
+  if (!current.value || !window.confirm(t('ui.session.cancelSubscriptionConfirm'))) return
+  if (await bridge.cancelSubscription(current.value.id, s.id)) toast(t('ui.session.subscriptionCancelled'))
+  await loadSubscriptions()
 }
 
 async function compact() {
@@ -221,6 +250,23 @@ async function compact() {
         </div>
       </section>
 
+      <!-- 订阅：盯着的外部事件，有动静回到这个对话 -->
+      <section v-if="current?.mode === 'agent'" class="card">
+        <div class="sec-title"><span>{{ t('ui.session.subscriptions') }}</span></div>
+        <p v-if="subscriptions.length === 0" class="muted small">{{ t('ui.session.noSubscriptions') }}</p>
+        <template v-else>
+          <p v-if="activeSubs.length" class="muted small">{{ t('ui.session.subscriptionsHint') }}</p>
+          <div v-for="s in activeSubs" :key="s.id" class="kv">
+            <BellRing :size="14" /><span class="v" :title="s.label">{{ s.label }}</span>
+            <button type="button" class="link right" @click="cancelSub(s)">{{ t('ui.session.cancelSubscription') }}</button>
+          </div>
+          <div v-for="s in endedSubs" :key="s.id" class="kv gone">
+            <BellRing :size="14" /><span class="v" :title="s.label">{{ s.label }}</span>
+            <span class="muted small right">{{ endedLabel(s) }}</span>
+          </div>
+        </template>
+      </section>
+
       <!-- 本对话的文件 -->
       <section class="card">
         <div class="sec-title"><span>{{ t('ui.session.files') }}</span></div>
@@ -335,7 +381,11 @@ async function compact() {
   margin-left: auto;
 }
 .right {
+  flex: none;
   margin-left: auto;
+}
+.kv.gone {
+  opacity: 0.6;
 }
 .muted {
   color: var(--ink-soft);

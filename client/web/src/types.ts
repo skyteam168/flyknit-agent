@@ -1270,6 +1270,18 @@ export interface RefCard {
 export type PrCheckState = 'pass' | 'fail' | 'pending' | 'skip'
 
 /** 盯着的一个 PR */
+/** 对话订阅的外部事件（会话信息里列出、能取消）。本期只有盯着的 PR（kind = 'pr'） */
+export interface SubscriptionView {
+  id: string
+  kind: string
+  label: string
+  createdAt: string
+  active: boolean
+  endedAt: string | null
+  /** merged / closed / stopped / expired */
+  endedReason: string
+}
+
 export interface PrWatchView {
   id: string
   conversationId: string
