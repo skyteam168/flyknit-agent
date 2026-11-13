@@ -1063,7 +1063,71 @@ class Team(Base):
     scope_devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     #: 被选来开始任务的次数（只算次数，不存内容）
     runs: Mapped[int] = mapped_column(Integer, default=0)
+    #: 当队长的专家（空 = 主助手自己当）：队长带上这位专家的工作方式和限制（只收紧），不是成员
+    leader_expert_id: Mapped[str] = mapped_column(String(40), default="", server_default=text("''"))
+    #: 示例任务（最多 5 条），员工点一下就带着这句话开始
+    examples: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     dissolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dissolved_by: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class TeamRun(Base):
+    """
+    一次团队任务的结果数字（docs/team-mode.md 第 10 节「怎样保证它有价值」）：给后台统计页用。
+    只存数字和员工的评价、一句话反馈，不存对话正文、成员交卷和看板（那些只在员工电脑本地）。
+    run_id 是员工端这一轮的编号，同一台电脑上唯一；同一轮多次上报按最后一次算。
+    """
+
+    __tablename__ = "team_runs"
+    __table_args__ = (UniqueConstraint("device_id", "run_id", name="uq_team_runs_device_run"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(40))
+    device_id: Mapped[int] = mapped_column(Integer, index=True)
+    team_id: Mapped[str] = mapped_column(String(40), index=True)
+    #: 上报时这台电脑登记的部门（统计按部门看）
+    department: Mapped[str] = mapped_column(String(200), default="", server_default=text("''"))
+    #: 计划里的成员数、交卷（含部分达标）、没完成、被停止
+    planned: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    completed: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    failed: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    stopped: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    #: 有没有补派（第 2 轮）
+    reassigned: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    #: 成员用掉的 token（不含队长）
+    tokens: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    #: finished / stopped / failed / interrupted
+    status: Mapped[str] = mapped_column(String(16), default="finished", server_default=text("'finished'"))
+    #: 员工评价：1 = 👍，-1 = 👎，0 = 没评
+    rating: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    feedback: Mapped[str] = mapped_column(String(200), default="", server_default=text("''"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class TeamNote(Base):
+    """
+    团队经验（团队积累）：做法、数据口径、数据源、踩过的坑。下次这个团队开工时作为参考资料给队长。
+
+    - 谁能看：看得到这个团队的电脑（和团队同一个范围）；
+    - 谁能写：队长（team_note 工具）、员工、IT；写入前服务端再查一遍密码、密钥、令牌，查到整条拒收；
+    - 谁能删：写的那台电脑、团队的创建人、IT。
+    只记可复用的经验，不记业务数据结果（结果在员工本地的对话里）。
+    """
+
+    __tablename__ = "team_notes"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    team_id: Mapped[str] = mapped_column(String(40), index=True)
+    #: 经验正文（属性不叫 text：会挡住类里用到的 sqlalchemy.text）
+    content: Mapped[str] = mapped_column(String(300))
+    #: method（做法）/ source（数据源、口径）/ pitfall（坑）/ other
+    kind: Mapped[str] = mapped_column(String(12), default="method", server_default=text("'method'"))
+    #: leader（队长记的）/ employee（员工加的）/ it
+    source: Mapped[str] = mapped_column(String(12), default="employee", server_default=text("'employee'"))
+    device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    author: Mapped[str] = mapped_column(String(200), default="", server_default=text("''"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

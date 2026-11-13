@@ -1034,6 +1034,10 @@ class TeamIn(BaseModel):
     model_id: int | None = None
     disabled_tools: list[Literal["shell", "write", "browser", "mcp", "developer"]] = []
     read_only: bool = False
+    #: 当队长的专家（空 = 主助手）；不能同时是成员
+    leader_expert_id: ClipOrEmpty(40) = ""
+    #: 示例任务，最多 5 条
+    examples: list[ClipOrEmpty(200)] = Field(default=[], max_length=5)
     #: department = 本部门共享；personal = 只我自己
     share: Literal["department", "personal"] = "department"
     #: 改的时候带上读到的 updated_at，防止两个人同时改互相覆盖；新建不用
@@ -1051,6 +1055,8 @@ class TeamAdminIn(BaseModel):
     model_id: int | None = None
     disabled_tools: list[Literal["shell", "write", "browser", "mcp", "developer"]] = []
     read_only: bool = False
+    leader_expert_id: ClipOrEmpty(40) = ""
+    examples: list[ClipOrEmpty(200)] = Field(default=[], max_length=5)
     scope_departments: list[str] = []
     scope_devices: list[int] = []
 
@@ -1079,8 +1085,110 @@ class TeamOut(BaseModel):
     #: 这台电脑能不能改、解散（员工端：只有建的人）
     editable: bool = False
     runs: int = 0
+    leader_expert_id: str = ""
+    #: 队长专家这台电脑现在能不能用（不能用时由主助手当队长）
+    leader_available: bool = False
+    examples: list[str] = []
     created_at: datetime
     updated_at: datetime
+
+
+class TeamRunIn(BaseModel):
+    """员工端上报一次团队任务的结果数字（不含任何正文）。"""
+
+    run_id: str = Field(min_length=1, max_length=40)
+    planned: int = Field(default=0, ge=0, le=50)
+    completed: int = Field(default=0, ge=0, le=50)
+    failed: int = Field(default=0, ge=0, le=50)
+    stopped: int = Field(default=0, ge=0, le=50)
+    reassigned: bool = False
+    tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    duration_seconds: int = Field(default=0, ge=0, le=7 * 86400)
+    status: Literal["finished", "stopped", "failed", "interrupted"] = "finished"
+
+
+class TeamRatingIn(BaseModel):
+    #: 1 = 👍，-1 = 👎，0 = 撤回评价
+    rating: Literal[-1, 0, 1]
+    feedback: ClipOrEmpty(200) = ""
+
+
+class TeamNoteIn(BaseModel):
+    text: str = Field(min_length=2, max_length=300)
+    kind: Literal["method", "source", "pitfall", "other"] = "method"
+    #: leader = 队长用 team_note 记的；employee = 员工自己加的
+    source: Literal["leader", "employee"] = "employee"
+
+
+class TeamNoteOut(BaseModel):
+    id: str
+    team_id: str
+    text: str
+    kind: str
+    source: str
+    author: str = ""
+    created_at: datetime
+    #: 这台电脑能不能删（写的人、团队创建人；管理端总是能）
+    deletable: bool = False
+
+
+class TeamStatOut(BaseModel):
+    """一个团队在统计区间里的表现（后台统计页）。"""
+
+    team_id: str
+    name: str
+    source: str
+    department: str = ""
+    dissolved: bool = False
+    #: 上报过结果的团队任务数
+    runs: int = 0
+    planned: int = 0
+    completed: int = 0
+    #: 交卷成员 / 计划成员
+    completion_rate: float = 0
+    #: 补派过的任务占比
+    reassign_rate: float = 0
+    avg_tokens: int = 0
+    avg_seconds: int = 0
+    up: int = 0
+    down: int = 0
+    notes: int = 0
+
+
+class TeamRunAdminOut(BaseModel):
+    run_id: str
+    device_id: int
+    device_name: str = ""
+    department: str = ""
+    planned: int
+    completed: int
+    failed: int
+    stopped: int
+    reassigned: bool
+    tokens: int
+    duration_seconds: int
+    status: str
+    rating: int
+    feedback: str = ""
+    created_at: datetime
+
+
+class TeamTemplateRole(BaseModel):
+    #: 这个位置要什么样的专家（IT 照着挑）
+    role: str
+    note: str = ""
+
+
+class TeamTemplateOut(BaseModel):
+    key: str
+    name: str
+    description: str
+    icon: str
+    leader_note: str
+    roles: list[TeamTemplateRole]
+    examples: list[str]
+    disabled_tools: list[str] = []
+    read_only: bool = False
 
 
 class TeamAdminOut(TeamOut):
