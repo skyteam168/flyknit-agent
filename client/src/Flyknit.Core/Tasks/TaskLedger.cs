@@ -22,6 +22,7 @@ public sealed class TaskLedger
     private readonly Action<string, Exception?> _warn;
     private readonly ConcurrentDictionary<string, TriggerEvent> _pending = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Current> _current = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _adopted = new(StringComparer.Ordinal);
 
     private sealed class Current
     {
@@ -47,8 +48,18 @@ public sealed class TaskLedger
     /// <summary>入口登记一次触发：这个对话下一次开始跑时开新任务。</summary>
     public void Expect(TriggerEvent trigger) => _pending[trigger.ConversationId] = trigger;
 
+    /// <summary>
+    /// 这个对话下一次开始跑时，记在一个已经建好的任务下（一句话拆开的几件事：任务预先建成「等待开始」，
+    /// 任务中心和汇总卡里一开始就看得到全部几件）。
+    /// </summary>
+    public void Adopt(string conversationId, string taskId) => _adopted[conversationId] = taskId;
+
     /// <summary>入口登记了但没跑起来（被拒、出错）：撤掉。</summary>
-    public void Forget(string conversationId) => _pending.TryRemove(conversationId, out _);
+    public void Forget(string conversationId)
+    {
+        _pending.TryRemove(conversationId, out _);
+        _adopted.TryRemove(conversationId, out _);
+    }
 
     public sealed record Ticket(string TaskId, string RunId, string Kind, long? RemainingBudget);
 
@@ -61,7 +72,12 @@ public sealed class TaskLedger
         try
         {
             TaskRecord task;
-            if (_pending.TryRemove(conversationId, out var trigger))
+            if (_adopted.TryRemove(conversationId, out var adoptedId) && _store.Get(adoptedId) is { State: TaskState.Pending } adopted)
+            {
+                task = adopted;
+                kind = RunKinds.First;
+            }
+            else if (_pending.TryRemove(conversationId, out var trigger))
             {
                 // 新的外部任务来了：这个对话里还没结束的旧任务（多半是中断了没续跑的）就此结束
                 if (_store.OpenFor(conversationId) is { } old)

@@ -683,6 +683,8 @@ export interface AppInfo {
   sandboxed: boolean
   /** IT 允不允许开长任务模式 */
   longTasks?: boolean
+  /** IT 打开了「一句话里的几件事分开做」（docs/c2-router.md 3.3） */
+  routerSplit?: boolean
   /** IT 打开了「开发者工具」：办事模式有 grep / git 工具，输入框能用 /init */
   developerTools?: boolean
   /** IT 打开了「沙箱任务」（还要开发者工具）：输入框显示「沙箱」开关 */
@@ -725,6 +727,29 @@ export interface RecentRunInfo {
   steps: number
   toolCalls: number
   finishedAt: string
+}
+
+/** 拆分建议里的一件事 */
+export interface SplitItemView {
+  title: string
+  instruction: string
+}
+
+/** 原对话的汇总卡：一句话拆开的一组事 */
+export interface GroupView {
+  groupId: string
+  items: {
+    taskId: string
+    conversationId: string
+    title: string
+    state: TaskState
+    stopReason: string
+    runs: number
+    tokensUsed: number
+    step: string
+    done: number
+    total: number
+  }[]
 }
 
 /** 任务中心的一条任务（任务账本，docs/c1-unified-tasks.md） */
@@ -1003,6 +1028,7 @@ export type HostEvent =
   | { type: 'chat.notice'; conversationId: string; text: string }
   | { type: 'chat.pending'; conversationId: string; items: PendingInput[] }
   | { type: 'pr.updated'; conversationId: string; watch: PrWatchView }
+  | { type: 'group.updated'; conversationId: string; groupId: string; finished?: boolean }
   | { type: 'task.watchdog'; conversationId: string; taskId: string; watchdog: TaskView['watchdog'] }
   | { type: 'sandbox.state'; conversationId: string; state: SandboxState; message: string; container: string; branch: string; base: string }
   | { type: 'chat.paused'; conversationId: string; paused: boolean }
@@ -1055,7 +1081,7 @@ export type HostEvent =
   | { type: 'shell.request'; action: 'ask' | 'summarize' | 'translate' | 'workspace'; attachments?: AttachmentRef[]; path?: string }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
-      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'developerTools' | 'sandboxTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
+      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'routerSplit' | 'developerTools' | 'sandboxTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
     >)
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }

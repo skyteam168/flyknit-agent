@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SplitOffer from './SplitOffer.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -676,6 +677,7 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
 
 <template>
   <div class="composer-wrap" :class="{ home: props.home }">
+    <SplitOffer />
     <CompactingCard v-if="!props.home" />
     <ConfirmBar v-if="!props.home" />
     <AskBar v-if="!props.home" />

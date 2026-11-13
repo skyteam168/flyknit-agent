@@ -1403,6 +1403,13 @@ const zh = {
       revertOk: "还原",
       revertedToast: "已还原 {n} 个文件",
     },
+    router: {
+      offerTitle: '看起来是 {n} 件事，要分开做吗？',
+      offerHint: '分开做：每件事在自己的对话里做，这里汇总进度、合并确认；就当一件做：照常发送。',
+      split: '分开做', keepOne: '就当一件做',
+      groupTitle: '分成了 {n} 件事', groupDone: '已结束 {done}/{n}',
+      confirmTitle: '{n} 个操作等你确认', allowAllSafe: '全部允许（不含高危）', allow: '允许', reject: '拒绝', destructive: '高危',
+    },
     tasks: {
       title: '任务中心',
       startupToast: '有 {n} 个任务上次没做完，可以在「任务中心」接着做',
@@ -3172,6 +3179,13 @@ const vi: Messages = {
       revertOk: "Khôi phục",
       revertedToast: "Đã khôi phục {n} tệp",
     },
+    router: {
+      offerTitle: 'Có vẻ đây là {n} việc, tách ra làm riêng không?',
+      offerHint: 'Tách ra: mỗi việc làm trong một hội thoại riêng, ở đây tổng hợp tiến độ và gộp các xác nhận; Làm như một việc: gửi bình thường.',
+      split: 'Tách ra làm', keepOne: 'Làm như một việc',
+      groupTitle: 'Đã chia thành {n} việc', groupDone: 'Đã xong {done}/{n}',
+      confirmTitle: '{n} thao tác chờ bạn xác nhận', allowAllSafe: 'Cho phép tất cả (trừ thao tác nguy hiểm)', allow: 'Cho phép', reject: 'Từ chối', destructive: 'Nguy hiểm',
+    },
     tasks: {
       title: 'Trung tâm công việc',
       startupToast: 'Có {n} việc lần trước chưa xong, có thể làm tiếp trong «Trung tâm công việc»',
@@ -4938,6 +4952,13 @@ const en: Messages = {
       confirmBody: "{n} files will go back to how they were before this turn: new files move to the Recycle Bin, edited and deleted ones are restored.",
       revertOk: "Undo",
       revertedToast: "Undid {n} files",
+    },
+    router: {
+      offerTitle: 'This looks like {n} separate tasks. Do them separately?',
+      offerHint: 'Separately: each task runs in its own conversation; progress and confirmations are gathered here. As one: send it as usual.',
+      split: 'Do separately', keepOne: 'Do as one',
+      groupTitle: 'Split into {n} tasks', groupDone: '{done}/{n} finished',
+      confirmTitle: '{n} actions need your confirmation', allowAllSafe: 'Allow all (except high-risk)', allow: 'Allow', reject: 'Reject', destructive: 'High risk',
     },
     tasks: {
       title: 'Task center',

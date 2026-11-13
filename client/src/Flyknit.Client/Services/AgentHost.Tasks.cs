@@ -20,9 +20,10 @@ public sealed partial class AgentHost
     /// 入口登记：这个对话下一次开始跑时开新任务（手机、钉钉、企业微信、指令中心、定时任务、文件夹监视、事件、PR 自动修复）。
     /// 员工自己在窗口里说话不用登记：没登记的按「员工本人」的一串记。
     /// </summary>
-    public void ExpectTask(string origin, Flyknit.Core.Storage.Conversation conv, string title, string reference, string requestedBy, TaskGrant? grant)
+    /// <param name="sender">渠道发送人（钉钉 / 企业微信账号、事件触发器名）：调度只在同一个人的任务里找追问归属</param>
+    public void ExpectTask(string origin, Flyknit.Core.Storage.Conversation conv, string title, string reference, string requestedBy, TaskGrant? grant, string sender = "")
     {
-        Ledger.Expect(new TriggerEvent(origin, conv.Id, title, reference, requestedBy, grant?.Id));
+        Ledger.Expect(new TriggerEvent(origin, conv.Id, title, reference, requestedBy, grant?.Id, Sender: sender));
     }
 
     /// <summary>登记了但没跑起来（服务端拒收、出错）：撤掉登记。</summary>

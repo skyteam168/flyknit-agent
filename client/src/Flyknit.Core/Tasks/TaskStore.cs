@@ -319,6 +319,16 @@ public sealed class TaskStore
         return ReadAll(cmd);
     }
 
+    /// <summary>引用完全相同的任务，按创建顺序（一句话拆开的几件事：引用是 split:原对话）。</summary>
+    public IReadOnlyList<TaskRecord> WithReference(string reference)
+    {
+        using var c = _open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"SELECT {Columns} FROM tasks WHERE reference = $r ORDER BY created_at, rowid";
+        cmd.Parameters.AddWithValue("$r", reference);
+        return ReadAll(cmd);
+    }
+
     private static List<TaskRecord> ReadAll(SqliteCommand cmd)
     {
         using var r = cmd.ExecuteReader();

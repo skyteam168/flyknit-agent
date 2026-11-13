@@ -104,6 +104,8 @@ export function createMockHost(): HostTransport {
   const stoppedTasks = new Set<string>()
   /** 模拟：看门狗提醒后点了「不用管」的任务 */
   const watchdogDismissed = new Set<string>()
+  /** 模拟：拆开的几组事（原对话 → 组） */
+  const mockGroups = new Map<string, { groupId: string; items: { taskId: string; conversationId: string; title: string; state: string; stopReason: string; runs: number; tokensUsed: number; step: string; done: number; total: number }[] }[]>()
   const dismissedRuns = new Set<string>()
   const revertedMock = new Set<string>()
   const MOCK_XLSX = 'D:\\日报\\2026-09\\汇总.xlsx'
@@ -1162,6 +1164,7 @@ export function createMockHost(): HostTransport {
           micAvailable: true,
           sandboxed: true,
           developerTools: true,
+          routerSplit: true,
           sandboxTasks: true,
           notificationSound: 'none',
           fontScale: 1,
@@ -1939,6 +1942,47 @@ export function createMockHost(): HostTransport {
       case 'tasks.stop':
         stoppedTasks.add(p.id)
         return true
+      case 'router.suggestSplit': {
+        // 模拟：编号列表的每一行算一件
+        const lines = String(p.text).split('\n').map((l: string) => l.trim()).filter((l: string) => /^(\d+[.、)）]|[-*•])/.test(l))
+        if (lines.length < 2) return null
+        await sleep(400)
+        return lines.map((l: string) => {
+          const instruction = l.replace(/^(\d+[.、)）]|[-*•])\s*/, '')
+          return { title: instruction.slice(0, 12), instruction }
+        })
+      }
+      case 'router.split': {
+        const parent = conversations.get(p.conversationId)!
+        const groupId = 'g' + uid()
+        const items = (p.items as { title: string; instruction: string }[]).map((it, i, all) => {
+          const c = makeConversation('agent')
+          c.title = `${i + 1}/${all.length} · ${it.title}`
+          c.titleSource = 'manual'
+          c.workspace = parent.workspace
+          conversations.set(c.id, c)
+          messages.set(c.id, [])
+          const states = ['running', 'pending', 'pending']
+          return { taskId: 't' + uid(), conversationId: c.id, title: c.title, state: states[i] ?? 'pending', stopReason: '', runs: i === 0 ? 1 : 0,
+            tokensUsed: i === 0 ? 8_400 : 0, step: i === 0 ? '读取 D:\\日报 里的表格' : '', done: i === 0 ? 1 : 0, total: i === 0 ? 3 : 0 }
+        })
+        mockGroups.set(parent.id, [...(mockGroups.get(parent.id) ?? []), { groupId, items }])
+        const user: UiMessage = { id: uid(), role: 'user', content: p.text, attachments: [], createdAt: now() }
+        const plan: UiMessage = { id: uid(), role: 'assistant', content: `这段话里有 ${items.length} 件事，分开来做：\n\n${items.map((x, i) => `${i + 1}. ${x.title.split(' · ')[1]}`).join('\n')}\n\n每件事在自己的对话里做，下面的卡片能看到各自的进度；全部做完后在这里汇总。`, attachments: [], createdAt: now() }
+        messages.get(parent.id)!.push(user, plan)
+        // 第一件要确认一个写操作：汇总卡里出现合并确认
+        setTimeout(() => {
+          const first = items[0]
+          emit({ type: 'tool.started', conversationId: first.conversationId, callId: 'cf1', name: 'write_file', summary: '写入 D:\\日报\\10月汇总.xlsx', risk: 'confirm' } as never)
+          emit({ type: 'tool.confirm', conversationId: first.conversationId, requestId: 'rq1', callId: 'cf1', reason: '会新建文件', effect: 'write', groupId } as never)
+          emit({ type: 'tool.started', conversationId: first.conversationId, callId: 'cf2', name: 'delete_path', summary: '删除 D:\\日报\\临时', risk: 'confirm' } as never)
+          emit({ type: 'tool.confirm', conversationId: first.conversationId, requestId: 'rq2', callId: 'cf2', reason: '会删除文件', effect: 'destructive', groupId } as never)
+          emit({ type: 'group.updated', conversationId: parent.id, groupId })
+        }, 300)
+        return groupId
+      }
+      case 'router.groups':
+        return mockGroups.get(p.conversationId) ?? []
       case 'tasks.watchdogDismiss':
         watchdogDismissed.add(p.id)
         return true
