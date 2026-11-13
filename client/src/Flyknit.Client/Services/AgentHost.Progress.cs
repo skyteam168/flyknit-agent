@@ -64,6 +64,7 @@ public sealed partial class AgentHost
         {
             return false;
         }
+        WatchHold(conversationId, true); // 暂停期间不算没进展
         Log.Info($"暂停任务 {conversationId}");
         PostPaused(conversationId, true);
         RunStatusChanged?.Invoke();
@@ -79,6 +80,7 @@ public sealed partial class AgentHost
             return false;
         }
         gate.TrySetResult();
+        WatchHold(conversationId, false);
         if (notify)
         {
             Log.Info($"继续任务 {conversationId}");

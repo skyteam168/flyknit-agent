@@ -106,6 +106,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
             longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
             developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
+            routerSplit = _host.RouterSplitOn,
             sandboxTasks = _host.SandboxSwitchOn,
             webSearchEnabled = _host.WebSearchEnabled,
             deepThinking = _settings.DeepThinking,
@@ -303,6 +304,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             rememberable = request.Decision.Rememberable,
             ruleDisplay = request.Decision.Rule?.Display ?? "",
             effect = request.Decision.Effect.ToString().ToLowerInvariant(),
+            // 一句话拆开的几件事：同一组的确认在原对话的汇总卡里合成一张（docs/c2-router.md 3.3）
+            groupId = _host.GroupIdOf(request.ConversationId),
             // 派遣出去的专家在请求：卡片上标明是哪位专家、要执行什么
             actor = request.Actor is { } actor
                 ? new { kind = "expert", id = actor.ExpertId, name = actor.Name, avatar = actor.Avatar, subtaskId = actor.SubtaskId, toolName = request.Call.Name, summary = request.Summary }
@@ -507,6 +510,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     contextDetails = _host.Security.On(Flyknit.Core.Security.SecuritySettings.ContextDetails, fallback: true),
                     longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
                     developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
+                    routerSplit = _host.RouterSplitOn,
                     sandboxTasks = _host.SandboxSwitchOn,
                     webSearchEnabled = _host.WebSearchEnabled,
                     deepThinking = _settings.DeepThinking,
@@ -2186,6 +2190,32 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
 
             case "tasks.stop":
                 return _host.StopTask(Str("id"));
+
+            // 调度（docs/c2-router.md 3.3）：拆分建议 → 员工点「分开做」→ 原对话的汇总卡
+            case "router.suggestSplit":
+            {
+                var items = await _host.SuggestSplitAsync(Str("text"), CancellationToken.None);
+                return items?.Select(i => new { title = i.Title, instruction = i.Instruction }).ToList();
+            }
+
+            case "router.split":
+            {
+                var items = (p.ValueKind == JsonValueKind.Object && p.TryGetProperty("items", out var splitItems) && splitItems.ValueKind == JsonValueKind.Array
+                        ? splitItems.EnumerateArray().ToList() : new List<JsonElement>())
+                    .Where(i => i.ValueKind == JsonValueKind.Object)
+                    .Select(i => new Flyknit.Core.Router.SplitItem(
+                        i.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString()! : "",
+                        i.TryGetProperty("instruction", out var x) && x.ValueKind == JsonValueKind.String ? x.GetString()! : ""))
+                    .ToList();
+                return _host.StartSplit(Str("conversationId"), Str("text"), items, _settings.ResolveUiLanguage(), this, this);
+            }
+
+            case "router.groups":
+                return _host.GroupsOf(Str("conversationId"));
+
+            // 看门狗提醒后员工点「不用管」：这个任务后面不再提醒
+            case "tasks.watchdogDismiss":
+                return _host.DismissWatchdog(Str("id"));
 
             case "runs.resume":
                 _host.ResumeInterrupted(Str("conversationId"), _settings.ResolveUiLanguage(), this, this);

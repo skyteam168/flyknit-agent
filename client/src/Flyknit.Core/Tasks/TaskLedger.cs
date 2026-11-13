@@ -22,6 +22,7 @@ public sealed class TaskLedger
     private readonly Action<string, Exception?> _warn;
     private readonly ConcurrentDictionary<string, TriggerEvent> _pending = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Current> _current = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _adopted = new(StringComparer.Ordinal);
 
     private sealed class Current
     {
@@ -31,6 +32,8 @@ public sealed class TaskLedger
         public AgentStopReason? LastStop { get; set; }
         public string Message { get; set; } = "";
         public bool Ended { get; set; }
+        /// <summary>收尾时用这个结果，不按最后一轮的停止原因推（看门狗停掉的：记失败和原因，不记「已停止」）。</summary>
+        public (TaskEvent Event, string Reason)? Override { get; set; }
     }
 
     public TaskLedger(TaskStore store, Action<string, Exception?>? warn = null)
@@ -45,8 +48,18 @@ public sealed class TaskLedger
     /// <summary>入口登记一次触发：这个对话下一次开始跑时开新任务。</summary>
     public void Expect(TriggerEvent trigger) => _pending[trigger.ConversationId] = trigger;
 
+    /// <summary>
+    /// 这个对话下一次开始跑时，记在一个已经建好的任务下（一句话拆开的几件事：任务预先建成「等待开始」，
+    /// 任务中心和汇总卡里一开始就看得到全部几件）。
+    /// </summary>
+    public void Adopt(string conversationId, string taskId) => _adopted[conversationId] = taskId;
+
     /// <summary>入口登记了但没跑起来（被拒、出错）：撤掉。</summary>
-    public void Forget(string conversationId) => _pending.TryRemove(conversationId, out _);
+    public void Forget(string conversationId)
+    {
+        _pending.TryRemove(conversationId, out _);
+        _adopted.TryRemove(conversationId, out _);
+    }
 
     public sealed record Ticket(string TaskId, string RunId, string Kind, long? RemainingBudget);
 
@@ -59,7 +72,12 @@ public sealed class TaskLedger
         try
         {
             TaskRecord task;
-            if (_pending.TryRemove(conversationId, out var trigger))
+            if (_adopted.TryRemove(conversationId, out var adoptedId) && _store.Get(adoptedId) is { State: TaskState.Pending } adopted)
+            {
+                task = adopted;
+                kind = RunKinds.First;
+            }
+            else if (_pending.TryRemove(conversationId, out var trigger))
             {
                 // 新的外部任务来了：这个对话里还没结束的旧任务（多半是中断了没续跑的）就此结束
                 if (_store.OpenFor(conversationId) is { } old)
@@ -100,6 +118,17 @@ public sealed class TaskLedger
         {
             _warn("记录任务开始失败", ex);
             return null;
+        }
+    }
+
+    /// <summary>
+    /// 先定好这件事怎么收尾（看门狗停掉任务前调）：之后的 Finish 用它，而不是按「被停止」记成已停止。
+    /// </summary>
+    public void NoteOutcome(string conversationId, TaskEvent e, string reason)
+    {
+        if (_current.TryGetValue(conversationId, out var c))
+        {
+            c.Override = (e, reason);
         }
     }
 
@@ -161,7 +190,7 @@ public sealed class TaskLedger
             {
                 return;
             }
-            var (e, reason) = Outcome(c.LastStop, c.Message, task.BudgetExhausted);
+            var (e, reason) = c.Override ?? Outcome(c.LastStop, c.Message, task.BudgetExhausted);
             _store.Transition(task.Id, e, reason);
         }, "记录任务结束失败");
     }

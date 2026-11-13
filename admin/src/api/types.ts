@@ -192,6 +192,10 @@ export interface Device {
   created_at: string
   last_seen: string | null
   signed_out_at?: string | null
+  /** 看门狗心跳：正在跑的任务个数；有任务在跑却超过 10 分钟没心跳 = 失联（stalled） */
+  running_count?: number
+  heartbeat_at?: string | null
+  stalled?: boolean
   domain: string
   ip_addresses: string
   observed_ip: string

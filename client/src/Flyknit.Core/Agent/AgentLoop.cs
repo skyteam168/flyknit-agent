@@ -186,6 +186,18 @@ public sealed class AgentLoop
     /// </summary>
     public Action<string>? Checkpoint { get; init; }
 
+    /// <summary>
+    /// 外部的提醒（看门狗，docs/c3-watchdog.md）：每一步的工具都执行完后取一次，有就附在这一步最后一个工具结果后面，
+    /// 和 <see cref="LoopGuard"/> 的提醒同一个位置；不新增消息、不打断工具调用。宿主按会话提供，取走即清空。
+    /// </summary>
+    public Func<string?>? Advisory { get; init; }
+
+    /// <summary>
+    /// 写操作全局排队（docs/c2-router.md 3.3）：宿主在「几件事同时做」时给一把共用的锁，不是只读的工具执行前先拿锁。
+    /// 为空（默认）时不排队，和以前一样。
+    /// </summary>
+    public WriteGate? WriteGate { get; init; }
+
     public AgentLoop(IChatGateway gateway, ToolRegistry tools, IConfirmationHandler confirm, IAuditSink? audit = null, AgentOptions? options = null, ApprovalStore? approvals = null)
     {
         _gateway = gateway;
@@ -609,6 +621,11 @@ public sealed class AgentLoop
                         """);
                     return Result(AgentStopReason.Stuck);
                 }
+                if (Advisory?.Invoke() is { Length: > 0 } advisory
+                    && newMessages.LastOrDefault(m => m.Role == ChatRole.Tool) is { } advised)
+                {
+                    advised.Content += advisory;
+                }
                 var done = step + 1;
                 if (_options.CheckpointInterval > 0 && done % _options.CheckpointInterval == 0 && done < _options.MaxSteps
                     && newMessages.LastOrDefault(m => m.Role == ChatRole.Tool) is { } last)
@@ -988,7 +1005,7 @@ public sealed class AgentLoop
                     decisionText = "approved";
                 }
             }
-            return new PreparedCall(call, tool, args, decisionText, audit, step);
+            return new PreparedCall(call, tool, args, decisionText, audit, step) { Effect = decision.Effect };
         }
 
         // 真正执行。调用 ID 在第一个 await 之前交给工具，几个同时执行的工具各拿各的
@@ -1008,6 +1025,8 @@ public sealed class AgentLoop
                 {
                     summary = p.Call.Name;
                 }
+                // 几件事同时做：写操作排队，一次一个（等锁时被停止就直接放弃这一步）
+                using var held = WriteGate is not null && p.Effect != CommandEffect.Read ? await WriteGate.AcquireAsync(token) : null;
                 checkpoint.ToolStarted(p.Call.Id, p.Call.Name, summary);
                 SaveCheckpoint();
                 return await p.Tool.ExecuteAsync(p.Args, context, timeout.Token);
@@ -1187,6 +1206,8 @@ public sealed class AgentLoop
         public AuditEntry? Audit { get; }
         public Trace.StepTimer? Step { get; }
         public bool Ready { get; }
+        /// <summary>这一步的副作用分级：不是只读的，在 <see cref="AgentLoop.WriteGate"/> 打开时要排队。</summary>
+        public CommandEffect Effect { get; init; } = CommandEffect.Read;
         public bool Ok { get; }
     }
 

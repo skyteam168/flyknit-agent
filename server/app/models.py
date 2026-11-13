@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -70,6 +71,29 @@ class Device(Base):
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 看门狗心跳（docs/c3-watchdog.md 第 4 节）：员工端有任务在跑时每 2 分钟报一次。
+    #: 只存任务编号和来源的 JSON（最多 20 条），不存标题和内容；没任务时报一次空的。
+    running_tasks: Mapped[str] = mapped_column(Text, default="[]", server_default=text("'[]'"))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    #: 有任务在跑、却这么久没心跳，就算失联（心跳每 2 分钟一次，留足余量）
+    HEARTBEAT_STALE_AFTER = timedelta(minutes=10)
+
+    @property
+    def running_count(self) -> int:
+        try:
+            items = json.loads(self.running_tasks or "[]")
+        except ValueError:
+            return 0
+        return len(items) if isinstance(items, list) else 0
+
+    @property
+    def stalled(self) -> bool:
+        """上次心跳时有任务在跑，之后超过 10 分钟没动静：电脑关机、断网或程序崩了。"""
+        if self.running_count == 0 or self.heartbeat_at is None:
+            return False
+        at = self.heartbeat_at if self.heartbeat_at.tzinfo else self.heartbeat_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - at > self.HEARTBEAT_STALE_AFTER
 
     # 资产台账：客户端定期重报，不是注册时采一次就完
     domain: Mapped[str] = mapped_column(String(200), default="")

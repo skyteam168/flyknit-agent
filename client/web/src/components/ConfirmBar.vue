@@ -2,14 +2,19 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle, Check, Hand, HelpCircle, X } from '@lucide/vue'
-import { answerConfirm, findWaitingConfirm, mcpToolLabel, subtaskById } from '../store'
+import { answerConfirm, findWaitingConfirm, mcpToolLabel, state, subtaskById } from '../store'
 import ExpertAvatar from './ExpertAvatar.vue'
 
 // 停靠在输入框上方的确认条：等待确认的操作始终可见，不会被输入框挡住
 const { t, te } = useI18n()
 
 /** 不限当前对话：手机办事常在侧栏另一条会话里等确认 */
-const pending = computed(() => findWaitingConfirm())
+/**
+ * 在拆分的原对话里，子任务的确认已经合在汇总卡里（GroupCard），这里就不再重复弹一张（docs/c2-router.md 3.3）。
+ * 别的对话、别处的确认照旧在这里。
+ */
+const groupChildren = computed(() => new Set((state.currentId ? state.groups[state.currentId] ?? [] : []).flatMap((g) => g.items.map((i) => i.conversationId))))
+const pending = computed(() => findWaitingConfirm(groupChildren.value))
 const tool = computed(() => pending.value?.tool ?? null)
 const conversationId = computed(() => pending.value?.conversationId ?? '')
 /** 专家在请求确认：员工要知道是哪位专家在问 */

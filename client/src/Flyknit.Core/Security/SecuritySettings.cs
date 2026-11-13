@@ -99,6 +99,24 @@ public sealed class SecuritySettings
     public const string RunTokenBudget = "run_token_budget";
     /// <summary>单个任务（同一串运行合计）的 token 上限，单位万 tokens，0 = 不限（docs/c1-unified-tasks.md 第 7 节）。</summary>
     public const string TaskTokenBudget = "task_token_budget";
+
+    /// <summary>看门狗（docs/c3-watchdog.md）：定时检查进行中的任务有没有进展。默认关。</summary>
+    public const string Watchdog = "watchdog";
+
+    /// <summary>看门狗提醒后仍没进展就自动停下。默认关（只提醒、通知）。</summary>
+    public const string WatchdogAutoStop = "watchdog_auto_stop";
+
+    /// <summary>多久没进展算可疑（分钟，默认 10，长任务模式 ×2）。</summary>
+    public const string WatchdogMinutes = "watchdog_minutes";
+
+    /// <summary>调度（docs/c2-router.md）：钉钉 / 企业微信的追问归到原任务、问进度按账本回复、重复事件合并。默认关。</summary>
+    public const string Router = "router";
+
+    /// <summary>调度：一句话里的几件事给拆分建议，员工确认后分开做。默认关。</summary>
+    public const string RouterSplit = "router_split";
+
+    /// <summary>分开做时同时做几件（1～3，默认 1 = 一件接一件）；大于 1 时写操作全局排队。</summary>
+    public const string RouterParallel = "router_parallel";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字

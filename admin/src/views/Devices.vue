@@ -377,11 +377,18 @@ function summaryText(): string {
         <el-table-column label="版本" width="90" prop="client_version" sortable>
           <template #default="{ row }">{{ row.client_version ? `v${row.client_version}` : '—' }}</template>
         </el-table-column>
-        <el-table-column label="最后在线" width="120" prop="last_seen" sortable>
+        <el-table-column label="最后在线" width="150" prop="last_seen" sortable>
           <template #default="{ row }">
             <el-tooltip :content="dateTime(row.last_seen)" placement="top">
               <span>{{ relative(row.last_seen) }}</span>
             </el-tooltip>
+            <!-- 看门狗心跳：有任务在跑；有任务在跑却十几分钟没心跳 = 失联（关机、断网或程序崩了） -->
+            <div v-if="row.stalled">
+              <el-tooltip :content="`最后心跳 ${dateTime(row.heartbeat_at ?? null)}`" placement="top">
+                <el-tag size="small" type="danger">失联（有任务在跑）</el-tag>
+              </el-tooltip>
+            </div>
+            <div v-else-if="row.running_count" class="running-hint">进行中 {{ row.running_count }} 个任务</div>
           </template>
         </el-table-column>
         <el-table-column label="今日 Token" width="100" align="right">
@@ -769,5 +776,9 @@ powershell -ExecutionPolicy Bypass -File install-agent.ps1 `
 }
 .src-tag {
   margin: 0 4px 4px 0;
+}
+.running-hint {
+  color: var(--el-color-primary);
+  font-size: 12px;
 }
 </style>

@@ -217,6 +217,14 @@ public class SecuritySwitchTests
             SecuritySettings.RunTokenBudget,
             // AgentHost.RefreshTaskBudget 读这一项填 TaskLedger.DefaultBudget；每轮按任务剩余预算收紧 MaxRunTokens（见 TaskLedgerTests）
             SecuritySettings.TaskTokenBudget,
+            // AgentHost.Watchdog 读这三项：关着（默认）时不检查；自动停止默认关；阈值分钟数（见 WatchdogTests）
+            SecuritySettings.Watchdog,
+            SecuritySettings.WatchdogAutoStop,
+            SecuritySettings.WatchdogMinutes,
+            // AgentHost.Router 读这三项：钉钉追问归档 / 问进度 / 事件合并；拆分建议；分开做时同时做几件（见 RouterTests）
+            SecuritySettings.Router,
+            SecuritySettings.RouterSplit,
+            SecuritySettings.RouterParallel,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

@@ -98,11 +98,19 @@ class PairOut(MeOut):
     token: str
 
 
+def _computer_online(device: Device) -> bool:
+    """
+    电脑在不在：通道连着，而且不是「有任务在跑却十几分钟没心跳」（docs/c3-watchdog.md 第 4 节）。
+    后者多半是电脑关机、断网或程序崩了，手机上显示成「电脑离线」，员工别再干等。
+    """
+    return channels.online(device.id) and not device.stalled
+
+
 def _me(mobile: MobileDevice, device: Device, cfg: dict, web_search_enabled: bool = False) -> dict:
     return {
         "id": mobile.id, "name": mobile.name,
         "computer": {"machine_name": device.machine_name, "user_name": device.user_name,
-                     "online": channels.online(device.id)},
+                     "online": _computer_online(device)},
         "approvals": bool(cfg["allow_approval"]),
         "web_search_enabled": bool(web_search_enabled),
     }
@@ -355,7 +363,10 @@ async def socket(ws: WebSocket, token: str = Query(default="")):
             msg = await ws.receive_json()
             kind = msg.get("type") if isinstance(msg, dict) else None
             if kind == "ping":
-                await hub.send_ws(mobile.id, ws, {"type": "pong", "online": channels.online(device.id)})
+                # 心跳会变：每次重读这台电脑（看是不是「有任务在跑却没心跳」）
+                async with sessionmaker() as fresh_session:
+                    fresh = await fresh_session.get(Device, device.id)
+                await hub.send_ws(mobile.id, ws, {"type": "pong", "online": _computer_online(fresh or device)})
             elif kind == "chat":
                 rid = str(msg.get("id") or "")[:64]
                 if rid in chats and not chats[rid].done():

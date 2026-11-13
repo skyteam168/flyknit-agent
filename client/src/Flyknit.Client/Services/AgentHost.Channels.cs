@@ -64,7 +64,7 @@ public sealed partial class AgentHost
         }
         // 任务账本：一条远程消息是一件新的事
         ExpectTask(origin, conv, Store.Get(conv.Id)?.Title ?? conv.Title, reference,
-            $"{ChannelName(channel)}：{(sender.Length > 0 ? sender : "远程")}", grant);
+            $"{ChannelName(channel)}：{(sender.Length > 0 ? sender : "远程")}", grant, sender);
         if (rehearsal)
         {
             MarkRehearsal(conv.Id); // 只读调研、列出会做的修改（见 PlanMode.RehearsalGuide）

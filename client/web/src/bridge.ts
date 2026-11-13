@@ -13,6 +13,8 @@ import type {
   RefCard,
   PrWatchView,
   SubscriptionView,
+  SplitItemView,
+  GroupView,
   TaskView,
   SandboxStatus,
   SlashCommand,
@@ -407,6 +409,13 @@ class Bridge {
   /** 任务中心：按任务列（来源、发起人、授权、轮数、token） */
   listTasks = () => this.call<TaskView[]>('tasks.list')
   stopTask = (id: string) => this.call<boolean>('tasks.stop', { id })
+  /** 看门狗提醒后点「不用管」：这个任务后面不再提醒 */
+  dismissWatchdog = (id: string) => this.call<boolean>('tasks.watchdogDismiss', { id })
+  /** 调度：一句话像有好几件事时的拆分建议（null = 不建议拆） */
+  suggestSplit = (text: string) => this.call<SplitItemView[] | null>('router.suggestSplit', { text }, undefined, 45_000)
+  /** 员工点了「分开做」：返回组编号 */
+  startSplit = (conversationId: string, text: string, items: SplitItemView[]) => this.call<string>('router.split', { conversationId, text, items })
+  routerGroups = (conversationId: string) => this.call<GroupView[]>('router.groups', { conversationId })
   /** 接着做上次没做完的任务 */
   resumeRun = (conversationId: string) => this.call<void>('runs.resume', { conversationId })
   /** 上次没做完的任务：不用了，不再提示 */

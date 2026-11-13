@@ -25,6 +25,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
 import TasksPage from './components/TasksPage.vue'
+import GroupCard from './components/GroupCard.vue'
 import PluginsPage from './components/PluginsPage.vue'
 import ChangesDialog from './components/ChangesDialog.vue'
 import SideChatPanel from './components/SideChatPanel.vue'
@@ -331,6 +332,8 @@ onBeforeUnmount(() => {
             <span v-else>{{ t('ui.experts.withdrawn') }}</span>
           </div>
           <MessageList />
+          <!-- 一句话拆开的几件事：进度汇总 + 合并确认（docs/c2-router.md 3.3） -->
+          <GroupCard />
           <SideChatPanel v-if="state.sideChat.open && current && current.mode !== 'translate'" />
           <Composer ref="composer" />
         </div>

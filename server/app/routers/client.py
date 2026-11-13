@@ -1,6 +1,7 @@
 """客户端使用的接口：设备注册、拉取配置、上报审计。"""
 
 import hmac
+import json
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -20,6 +21,7 @@ from sqlalchemy.orm import joinedload
 
 from ..models import AuditLog, Device, DevicePolicy, EnrollmentTicket, McpVendor, ModelConfig, SkillPackage
 from ..schemas import (
+    HeartbeatIn,
     SCENES,
     SkillOut,
     UsageOut,
@@ -161,6 +163,21 @@ async def heartbeat(
     device.observed_ip = _client_ip(request)
     # 以前每次登录都新建一行，同一台电脑同一个员工的旧行在这里并过来（用量相加）
     await device_identity.merge_duplicates(session, device)
+    await session.commit()
+
+
+@router.post("/client/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+async def heartbeat(
+    data: HeartbeatIn,
+    device: Device = Depends(require_device),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    看门狗心跳（docs/c3-watchdog.md 第 4 节）：员工端有任务在跑时每 2 分钟一次，最后一个任务结束后再报一次空的。
+    只记任务编号和来源，不记标题和内容；服务端不会据此替员工端停任务。
+    """
+    device.running_tasks = json.dumps([{"task_id": t.task_id, "origin": t.origin} for t in data.running], ensure_ascii=False)
+    device.heartbeat_at = datetime.now(timezone.utc)
     await session.commit()
 
 

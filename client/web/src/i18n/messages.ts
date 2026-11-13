@@ -1403,6 +1403,13 @@ const zh = {
       revertOk: "还原",
       revertedToast: "已还原 {n} 个文件",
     },
+    router: {
+      offerTitle: '看起来是 {n} 件事，要分开做吗？',
+      offerHint: '分开做：每件事在自己的对话里做，这里汇总进度、合并确认；就当一件做：照常发送。',
+      split: '分开做', keepOne: '就当一件做',
+      groupTitle: '分成了 {n} 件事', groupDone: '已结束 {done}/{n}',
+      confirmTitle: '{n} 个操作等你确认', allowAllSafe: '全部允许（不含高危）', allow: '允许', reject: '拒绝', destructive: '高危',
+    },
     tasks: {
       title: '任务中心',
       startupToast: '有 {n} 个任务上次没做完，可以在「任务中心」接着做',
@@ -1439,6 +1446,7 @@ const zh = {
       stopConfirm: '停止这个任务？正在做的这一步会停下，已经做完的不会撤回。',
       stopped: '已停止',
       conversation: '对话：{title}',
+      watchdog: { stalled: '可能卡住了', drifting: '可能跑偏了', dismiss: '不用管', stoppedBecause: '看门狗停下了这个任务：{reason}' },
       origin: { remote: '这是钉钉 / 企业微信 / 手机发来的任务，接着做的结果只在电脑上', headless: '这是定时任务或后台指令' },
       outcome: {
         Completed: '已完成',
@@ -3171,6 +3179,13 @@ const vi: Messages = {
       revertOk: "Khôi phục",
       revertedToast: "Đã khôi phục {n} tệp",
     },
+    router: {
+      offerTitle: 'Có vẻ đây là {n} việc, tách ra làm riêng không?',
+      offerHint: 'Tách ra: mỗi việc làm trong một hội thoại riêng, ở đây tổng hợp tiến độ và gộp các xác nhận; Làm như một việc: gửi bình thường.',
+      split: 'Tách ra làm', keepOne: 'Làm như một việc',
+      groupTitle: 'Đã chia thành {n} việc', groupDone: 'Đã xong {done}/{n}',
+      confirmTitle: '{n} thao tác chờ bạn xác nhận', allowAllSafe: 'Cho phép tất cả (trừ thao tác nguy hiểm)', allow: 'Cho phép', reject: 'Từ chối', destructive: 'Nguy hiểm',
+    },
     tasks: {
       title: 'Trung tâm công việc',
       startupToast: 'Có {n} việc lần trước chưa xong, có thể làm tiếp trong «Trung tâm công việc»',
@@ -3207,6 +3222,7 @@ const vi: Messages = {
       stopConfirm: 'Dừng việc này? Bước đang làm sẽ dừng lại, những gì đã làm xong sẽ không bị hoàn tác.',
       stopped: 'Đã dừng',
       conversation: 'Hội thoại: {title}',
+      watchdog: { stalled: 'Có thể đang bị kẹt', drifting: 'Có thể đang đi chệch hướng', dismiss: 'Bỏ qua', stoppedBecause: 'Trình giám sát đã dừng việc này: {reason}' },
       origin: { remote: 'Việc gửi từ DingTalk / WeCom / điện thoại, kết quả làm tiếp chỉ có trên máy tính', headless: 'Việc theo lịch hoặc lệnh chạy nền' },
       outcome: {
         Completed: 'Đã xong',
@@ -4937,6 +4953,13 @@ const en: Messages = {
       revertOk: "Undo",
       revertedToast: "Undid {n} files",
     },
+    router: {
+      offerTitle: 'This looks like {n} separate tasks. Do them separately?',
+      offerHint: 'Separately: each task runs in its own conversation; progress and confirmations are gathered here. As one: send it as usual.',
+      split: 'Do separately', keepOne: 'Do as one',
+      groupTitle: 'Split into {n} tasks', groupDone: '{done}/{n} finished',
+      confirmTitle: '{n} actions need your confirmation', allowAllSafe: 'Allow all (except high-risk)', allow: 'Allow', reject: 'Reject', destructive: 'High risk',
+    },
     tasks: {
       title: 'Task center',
       startupToast: "{n} task(s) didn't finish last time. Continue them from the Task center",
@@ -4973,6 +4996,7 @@ const en: Messages = {
       stopConfirm: 'Stop this task? The current step stops; work already done is not undone.',
       stopped: 'Stopped',
       conversation: 'Conversation: {title}',
+      watchdog: { stalled: 'May be stuck', drifting: 'May be off track', dismiss: 'Ignore', stoppedBecause: 'Stopped by the watchdog: {reason}' },
       origin: { remote: 'Sent from DingTalk / WeCom / phone; continuing shows the result on this PC only', headless: 'Scheduled task or background instruction' },
       outcome: {
         Completed: 'Done',

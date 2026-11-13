@@ -319,6 +319,7 @@ public sealed partial class AgentHost : IDisposable
         // 任务账本（VNext 第 1 期）：上次没收尾的任务标成中断，升级前没跑完的对话补成任务
         Ledger = new Flyknit.Core.Tasks.TaskLedger(Store.Tasks, (what, ex) => Log.Warn(what, ex));
         Ledger.RecoverAfterRestart();
+        RecoverSplits(); // 上次拆开、还没轮到的几件：记成停止（C2，docs/c2-router.md）
         // 记忆条目和会话放在同一个数据库里（数据目录），md 文件仍在记忆目录，可以直接编辑
         Memory = new MemoryStore(AppPaths.Memory, AppPaths.Database);
         Memory.SensitiveRejected += (kind, findings) => Log.Warn($"一条{MemoryStore.HeaderOf(kind)}含{string.Join("、", findings)}，没有记入记忆");
@@ -1013,9 +1014,15 @@ public sealed partial class AgentHost : IDisposable
                 Pause = PauseGateFor(id),
                 Persist = PersistFor(id),
                 Checkpoint = json => Store.SetRunState(id, json),
+                // 看门狗的提醒（docs/c3-watchdog.md）：附在下一个工具结果后面
+                Advisory = AdvisoryFor(id),
+                // 几件事同时做时写操作排队（docs/c2-router.md 3.3）；默认一件接一件时为空
+                WriteGate = WriteGateFor(id),
             };
             var extraBody = ChatExtraBody(conv);
-            var result = await loop.RunAsync(history, scene, ctx, observer, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context, extraBody);
+            // 看门狗开着时顺带把这一轮的事件记成进展信号；关着时就是原来的观察者
+            IAgentObserver runObserver = conv.Mode == ConversationMode.Agent ? WatchObserver(id, ticket?.TaskId, text, observer) : observer;
+            var result = await loop.RunAsync(history, scene, ctx, runObserver, useTools: conv.Mode == ConversationMode.Agent, cts.Token, modelId, context, extraBody);
             // 把本轮产出的文件和执行链路挂到最后一条回答上，重开会话时还能查
             var answer = result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant);
             if (observer.Outputs.Count > 0)
@@ -1130,6 +1137,8 @@ public sealed partial class AgentHost : IDisposable
             if (!IsRunning(id))
             {
                 Ledger.Finish(id);
+                EndWatch(id);
+                GroupRunSettled(id); // 一句话拆开的几件：开下一件 / 全部结束后汇总
             }
         }
     }
@@ -1632,8 +1641,10 @@ public sealed partial class AgentHost : IDisposable
                 Interjections = InterjectionsFor(conv.Id),
                 Pause = PauseGateFor(conv.Id),
                 Persist = PersistFor(conv.Id),
+                Advisory = AdvisoryFor(conv.Id),
             };
-            var result = await loop.RunAsync(history, Scenes.Agent, ctx, new HeadlessObserver(), useTools: true, cts.Token, conv.ModelId, context);
+            var result = await loop.RunAsync(history, Scenes.Agent, ctx, WatchObserver(conv.Id, headlessTicket?.TaskId, user.Content, new HeadlessObserver()),
+                useTools: true, cts.Token, conv.ModelId, context);
             Store.AddMessages(conv.Id, result.NewMessages);
             Ledger.EndRun(conv.Id, result.StopReason, result.Usage?.PromptTokens ?? 0, result.Usage?.CompletionTokens ?? 0,
                 result.NewMessages.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Id);
@@ -1663,6 +1674,7 @@ public sealed partial class AgentHost : IDisposable
             EndProgress(conv.Id);
             ActiveRunsChanged?.Invoke(_runs.Count);
             Ledger.Finish(conv.Id);
+            EndWatch(conv.Id);
         }
     }
 

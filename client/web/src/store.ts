@@ -3,6 +3,8 @@ import { bridge } from './bridge'
 import { forHost, isTextAttachment, utf8Base64 } from './pasted'
 import { applyLanguage, i18n } from './i18n'
 import type {
+  GroupView,
+  SplitItemView,
   PrWatchView,
   SandboxStatus,
   SlashCommand,
@@ -123,6 +125,10 @@ export const state = reactive({
   update: null as UpdateInfo | null,
   toast: '' as string,
   /** 主区域显示什么：对话（含新任务首页）、资料库，或者专家列表 */
+  /** 拆分建议（docs/c2-router.md 3.3）：员工一句话里像有好几件事，等员工选「分开做」还是「就当一件做」 */
+  splitOffer: null as null | { text: string; items: SplitItemView[]; busy: boolean },
+  /** 每个对话拆出来的几组事（原对话的汇总卡） */
+  groups: {} as Record<string, GroupView[]>,
   view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
@@ -471,8 +477,9 @@ export const current = computed(() => state.conversations.find((c) => c.id === s
 export const currentState = computed(() => (state.currentId ? convState(state.currentId) : null))
 
 /** 任意对话里待确认的操作（优先当前对话）。手机办事不抢焦点时，确认条仍要能找到。 */
-export function findWaitingConfirm(): { conversationId: string; tool: ToolActivity } | null {
+export function findWaitingConfirm(exclude?: Set<string>): { conversationId: string; tool: ToolActivity } | null {
   const pick = (id: string) => {
+    if (exclude?.has(id)) return null
     const hit = Object.values(convState(id).tools).find((x) => x.state === 'waiting' && x.confirm)
     return hit ? { conversationId: id, tool: hit } : null
   }
@@ -1267,36 +1274,121 @@ export async function quickReply(text: string) {
  * 发送一条消息。返回 false 表示没发出去、界面上也没留下这条消息（例如新对话没建成），
  * 输入框要把文字放回去，免得用户辛苦打的字丢了。
  */
-export async function send(text: string): Promise<boolean> {
+/** 当前对话；还在「新任务」页面就按选好的模式、工作区、权限新建一个（发送、拆分都用） */
+async function ensureConversation(): Promise<string> {
+  if (state.currentId) return state.currentId
+  const c = await bridge.createConversation(
+    draftMode.expertId ? 'agent' : draftMode.mode,
+    draftMode.modelId,
+    selectedWorkspace.value || null,
+    draftMode.permission,
+    draftMode.expertId,
+  )
+  if (draftMode.mode === 'translate') {
+    await bridge.setTranslate(c.id, draftMode.translateFrom, draftMode.translateTo)
+    c.translateFrom = draftMode.translateFrom
+    c.translateTo = draftMode.translateTo
+  }
+  if (draftMode.longMode && c.mode === 'agent' && (await bridge.setLongMode(c.id, true).catch(() => false))) c.longMode = true
+  if (draftMode.planMode && c.mode === 'agent' && (await bridge.setPlanMode(c.id, true).catch(() => false))) state.planMode[c.id] = true
+  if (draftMode.sandbox && c.mode === 'agent') {
+    const r = await bridge.setSandbox(c.id, true).catch(() => ({ ok: false, message: '' }))
+    if (r.ok) c.sandbox = true
+    else if (r.message) toast(r.message)
+  }
+  state.conversations.unshift(c)
+  const id = c.id
+  state.currentId = id
+  convState(id).loaded = true
+  return id
+}
+
+/**
+ * 拆分建议：IT 开了「分开做」、是办事对话、没带附件、不是专家对话时，问宿主要不要拆（宿主先用程序筛，像好几件事才问模型）。
+ * 有建议就先不发，弹卡片让员工选。返回 true = 这句话交给卡片处理了。
+ */
+async function offerSplit(body: string): Promise<boolean> {
+  if (!state.app?.routerSplit || !body || state.pending.length > 0) return false
+  const c = current.value
+  const mode = c ? c.mode : draftMode.expertId ? 'expert' : draftMode.mode
+  if (mode !== 'agent' || c?.expertId || (c && convState(c.id).busy)) return false
+  const items = await bridge.suggestSplit(body).catch(() => null)
+  if (!items || items.length < 2) return false
+  state.splitOffer = { text: body, items, busy: false }
+  return true
+}
+
+/** 拆分卡上点「分开做」：原对话记下原话、变成汇总，每件事开一个子对话 */
+export async function acceptSplit() {
+  const offer = state.splitOffer
+  if (!offer || offer.busy) return
+  offer.busy = true
+  try {
+    const id = await ensureConversation()
+    await bridge.startSplit(id, offer.text, offer.items)
+    state.splitOffer = null
+    await refreshList()
+    await reloadMessages(id)
+    await loadGroups(id)
+  } catch (e) {
+    offer.busy = false
+    fail(e)
+  }
+}
+
+/** 拆分卡上点「就当一件做」：照常发送 */
+export async function declineSplit() {
+  const offer = state.splitOffer
+  if (!offer) return
+  state.splitOffer = null
+  await send(offer.text, { noSplit: true })
+}
+
+/** 宿主往这个对话里写了消息、但不是一轮运行（拆分说明、汇总）：从库里重读，不经过「运行中」的事件 */
+async function reloadMessages(conversationId: string) {
+  const s = convState(conversationId)
+  try {
+    s.messages = await bridge.loadMessages(conversationId)
+    s.loaded = true
+  } catch {
+    // 下次打开对话时再读
+    s.loaded = false
+  }
+}
+
+export async function loadGroups(conversationId: string) {
+  try {
+    state.groups[conversationId] = (await bridge.routerGroups(conversationId)) ?? []
+  } catch {
+    state.groups[conversationId] = []
+  }
+}
+
+/** 这几个对话里等员工确认的操作（汇总卡里合成一张确认卡） */
+export function pendingConfirmsOf(conversationIds: string[]) {
+  const list: { conversationId: string; callId: string; name: string; summary: string; effect: string; reason: string }[] = []
+  for (const id of conversationIds) {
+    const s = state.byId[id]
+    if (!s) continue
+    for (const t of Object.values(s.tools)) {
+      if (t.state === 'waiting' && t.confirm) {
+        list.push({ conversationId: id, callId: t.callId, name: t.name, summary: t.summary, effect: t.confirm.effect ?? 'unknown', reason: t.confirm.reason })
+      }
+    }
+  }
+  return list
+}
+
+export async function send(text: string, opts?: { noSplit?: boolean }): Promise<boolean> {
   await waitPastes() // 粘贴的图片还在后台保存：等它存好再发，不然附件没有路径
   const body = text.trim()
   if (!body && state.pending.length === 0) return false
+  // 一句话里像有好几件事（IT 打开了「分开做」）：先给拆分建议，员工选了再发（docs/c2-router.md 3.3）
+  if (!opts?.noSplit && (await offerSplit(body))) return true
   let id = state.currentId
   try {
     if (!id) {
-      const c = await bridge.createConversation(
-        draftMode.expertId ? 'agent' : draftMode.mode,
-        draftMode.modelId,
-        selectedWorkspace.value || null,
-        draftMode.permission,
-        draftMode.expertId,
-      )
-      if (draftMode.mode === 'translate') {
-        await bridge.setTranslate(c.id, draftMode.translateFrom, draftMode.translateTo)
-        c.translateFrom = draftMode.translateFrom
-        c.translateTo = draftMode.translateTo
-      }
-      if (draftMode.longMode && c.mode === 'agent' && (await bridge.setLongMode(c.id, true).catch(() => false))) c.longMode = true
-      if (draftMode.planMode && c.mode === 'agent' && (await bridge.setPlanMode(c.id, true).catch(() => false))) state.planMode[c.id] = true
-      if (draftMode.sandbox && c.mode === 'agent') {
-        const r = await bridge.setSandbox(c.id, true).catch(() => ({ ok: false, message: '' }))
-        if (r.ok) c.sandbox = true
-        else if (r.message) toast(r.message)
-      }
-      state.conversations.unshift(c)
-      id = c.id
-      state.currentId = id
-      convState(id).loaded = true
+      id = await ensureConversation()
     }
     const s = convState(id)
     if (s.busy) return false
@@ -1999,6 +2091,17 @@ function onHostEvent(e: HostEvent) {
       break
     case 'chat.paused':
       convState(e.conversationId).paused = e.paused
+      break
+    case 'group.updated':
+      // 拆开的几件事有进展：原对话的汇总卡、侧栏（新开的子对话）跟着刷新；全部结束时汇总写进了原对话，重读消息
+      void loadGroups(e.conversationId)
+      if (e.finished) void reloadMessages(e.conversationId)
+      void refreshList()
+      refreshRunsSoon()
+      break
+    case 'task.watchdog':
+      // 看门狗提醒 / 停下了一个任务：任务中心跟着刷新
+      refreshRunsSoon()
       break
     case 'pr.updated': {
       const list = state.prs[e.conversationId] ?? []

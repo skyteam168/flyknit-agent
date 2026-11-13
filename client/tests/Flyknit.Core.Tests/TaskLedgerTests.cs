@@ -84,6 +84,39 @@ public sealed class TaskLedgerTests : IDisposable
     }
 
     [Fact]
+    public void AWatchdogStopIsRecordedAsAFailureWithItsReason()
+    {
+        var t = _ledger.BeginRun(_conv, "x", "r1", RunKinds.First)!;
+        _ledger.NoteOutcome(_conv, TaskEvent.Fail, "看门狗：长时间没有进展");
+        _ledger.EndRun(_conv, AgentStopReason.Cancelled, 10, 2, null);   // 看门狗走的是正常的停止
+        _ledger.Finish(_conv);
+        var task = _store.Tasks.Get(t.TaskId)!;
+        Assert.Equal(TaskState.Failed, task.State);
+        Assert.Equal("看门狗：长时间没有进展", task.StopReason);
+        _ledger.NoteOutcome(_conv, TaskEvent.Fail, "没在跑");             // 没在跑的对话：不做事、不抛
+    }
+
+    [Fact]
+    public void AnAdoptedPendingTaskIsUsedInsteadOfANewOne()
+    {
+        var pre = _store.Tasks.Create(new TriggerEvent(TaskOrigins.Ui, _conv, "1/3 · 合并日报", Reference: "split:c0", RequestedBy: "员工本人", GroupId: "g1"));
+        _ledger.Adopt(_conv, pre.Id);
+        var t = _ledger.BeginRun(_conv, "x", "r1", RunKinds.First)!;
+        Assert.Equal(pre.Id, t.TaskId);
+        var task = _store.Tasks.Get(pre.Id)!;
+        Assert.Equal(TaskState.Running, task.State);
+        Assert.Equal("g1", task.GroupId);
+
+        // 预建的任务已经被停掉了（任务中心里停了还没轮到的那件）：不再用它，照常开新任务
+        _ledger.EndRun(_conv, AgentStopReason.Completed, 1, 1, null);
+        _ledger.Finish(_conv);
+        var stopped = _store.Tasks.Create(new TriggerEvent(TaskOrigins.Ui, _conv, "2/3", GroupId: "g1"));
+        _store.Tasks.Transition(stopped.Id, TaskEvent.Stop, "员工在任务中心停止");
+        _ledger.Adopt(_conv, stopped.Id);
+        Assert.NotEqual(stopped.Id, _ledger.BeginRun(_conv, "x", "r2", RunKinds.First)!.TaskId);
+    }
+
+    [Fact]
     public void TheTaskCentreStopsOnlyIdleTasks()
     {
         var t = _ledger.BeginRun(_conv, "x", "r1", RunKinds.First)!;

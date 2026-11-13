@@ -476,6 +476,18 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         await EnsureOk(resp, ct);
     }
 
+    /// <summary>
+    /// 心跳（docs/c3-watchdog.md 第 4 节）：有任务在跑时每 2 分钟报一次正在跑的任务——只报编号和来源，不报标题和内容。
+    /// 服务端据此判断「有任务在跑的电脑是不是失联了」。旧服务端没有这个接口（404），调用方忽略失败即可。
+    /// </summary>
+    public async Task HeartbeatAsync(IReadOnlyList<(string TaskId, string Origin)> running, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/heartbeat");
+        req.Content = JsonContent.Create(new { running = running.Select(r => new { task_id = r.TaskId, origin = r.Origin }) });
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
     /// <summary>拉取后台下发、还没执行的指令。</summary>
     public async Task<List<ClientInstruction>> PollInstructionsAsync(CancellationToken ct)
     {

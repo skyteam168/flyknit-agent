@@ -69,6 +69,10 @@ public static class Purposes
     public const string Enhance = "enhance";
     /// <summary>任务进行中的「顺便问一句」。</summary>
     public const string SideChat = "sidechat";
+    /// <summary>看门狗：任务一直在动却没进展时，请便宜模型判断是不是卡住 / 跑偏了。</summary>
+    public const string Watchdog = "watchdog";
+    /// <summary>调度（Router）：钉钉追问归档、问进度、事件合并、一句话拆成几件事的建议。</summary>
+    public const string Router = "router";
 }
 
 public sealed class WebSource

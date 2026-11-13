@@ -94,7 +94,12 @@ public sealed class ChannelRelay : IDisposable
                 failures = 0;
                 foreach (var task in list)
                 {
-                    await HandleAsync(task, token);
+                    if (!_host.RouterOn)
+                    {
+                        await HandleAsync(task, task.ConversationId, token); // 调度关着：和以前一样，一条一条办
+                        continue;
+                    }
+                    await RouteAsync(task, token);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -114,14 +119,86 @@ public sealed class ChannelRelay : IDisposable
         }
     }
 
-    private async Task HandleAsync(ChannelTask task, CancellationToken token)
+    /// <summary>
+    /// 调度开着（docs/c2-router.md 3.1）：收消息和执行分开。追问、问进度、重复事件马上回复，不排队；
+    /// 新的事和要在原对话里接着做的，交给执行队列——仍然一次一件、按到达顺序。
+    /// </summary>
+    private async Task RouteAsync(ChannelTask task, CancellationToken token)
+    {
+        StartExecutor(token);
+        AgentHost.ChannelRoute route;
+        try
+        {
+            route = await _host.RouteChannelMessageAsync(task, token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"调度钉钉消息 {task.Id} 失败，按新任务办", ex);
+            route = new AgentHost.ChannelRoute(false, "", task.ConversationId);
+        }
+        if (!route.Done)
+        {
+            _queue.Writer.TryWrite((task, route.ConversationId));
+            return;
+        }
+        try
+        {
+            await _host.Server.FinishChannelAsync(task.Id, true, route.Answer, "", route.ConversationId, token);
+            Log.Info($"钉钉消息 {task.Id} 由调度直接回复");
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"回报钉钉消息 {task.Id} 失败", ex);
+        }
+    }
+
+    private readonly System.Threading.Channels.Channel<(ChannelTask Task, string ConversationId)> _queue =
+        System.Threading.Channels.Channel.CreateUnbounded<(ChannelTask, string)>(new System.Threading.Channels.UnboundedChannelOptions { SingleReader = true });
+    private int _executorStarted;
+
+    /// <summary>执行队列：一次一件、按到达顺序（和调度关着时一样）。</summary>
+    private void StartExecutor(CancellationToken token)
+    {
+        if (Interlocked.Exchange(ref _executorStarted, 1) == 1)
+        {
+            return;
+        }
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (var (task, conversationId) in _queue.Reader.ReadAllAsync(token))
+                {
+                    await HandleAsync(task, conversationId, token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Log.Error("钉钉消息执行队列出错", ex);
+                Interlocked.Exchange(ref _executorStarted, 0);
+            }
+        });
+    }
+
+    private async Task HandleAsync(ChannelTask task, string conversationId, CancellationToken token)
     {
         try
         {
             var who = task.Sender.Length > 0 ? task.Sender : "你";
             var where = AgentHost.ChannelName(task.Channel);
             _notify($"{where}消息", $"{who} 在{where}里让 FlyknitBuddy 办事：{Short(task.Text)}");
-            var outcome = await _host.RunChannelMessageAsync(task.Text, task.Sender, task.ConversationId, token, task.Channel, task.Id,
+            var outcome = await _host.RunChannelMessageAsync(task.Text, task.Sender, conversationId, token, task.Channel, task.Id,
                 task.Permission, task.Rehearsal);
             await _host.Server.FinishChannelAsync(task.Id, outcome.Ok, outcome.Answer, outcome.Error, outcome.ConversationId, token);
             Log.Info($"钉钉消息 {task.Id} 回报完成 ok={outcome.Ok}");

@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from
 import { useI18n } from 'vue-i18n'
 import {
   CalendarClock, CircleAlert, CircleCheck, CircleStop, FolderSearch, GitPullRequest, Hand, ListChecks, LoaderCircle, MessageSquare,
-  Pause, Play, RotateCcw, ScrollText, Smartphone, Square, X, Zap,
+  Pause, Play, RotateCcw, ScrollText, ShieldAlert, Smartphone, Square, X, Zap,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { dismissInterrupted, fail, loadRuns, openConversation, resumeInterrupted, state, toast } from '../store'
@@ -113,6 +113,10 @@ async function stopTask(x: TaskView) {
   })
 }
 const resume = (x: TaskView) => act(() => resumeInterrupted(x.conversationId))
+/** 看门狗：提醒过还在跑的显示「可能卡住了 / 跑偏了」和「不用管」；停下的显示原因 */
+const watchdogWarn = (x: TaskView) => !!x.watchdog && (x.watchdog.stage === 'reminded' || x.watchdog.stage === 'notified') && !finished(x)
+const watchdogTitle = (x: TaskView) => t(x.watchdog?.verdict === 'drifting' ? 'ui.tasks.watchdog.drifting' : 'ui.tasks.watchdog.stalled')
+const dismissWatchdog = (x: TaskView) => act(() => bridge.dismissWatchdog(x.id))
 const dismiss = (x: TaskView) => act(() => dismissInterrupted(x.conversationId))
 </script>
 
@@ -163,6 +167,12 @@ const dismiss = (x: TaskView) => act(() => dismissInterrupted(x.conversationId))
               <span :style="{ width: `${Math.round((liveRun(x)!.done / liveRun(x)!.total) * 100)}%` }" />
             </div>
           </template>
+          <div v-if="watchdogWarn(x)" class="watchdog">
+            <ShieldAlert :size="14" />
+            <span class="what"><strong>{{ watchdogTitle(x) }}</strong>{{ x.watchdog!.reason ? `：${x.watchdog!.reason}` : '' }}</span>
+            <button type="button" class="link" @click="dismissWatchdog(x)">{{ t('ui.tasks.watchdog.dismiss') }}</button>
+          </div>
+          <p v-else-if="x.watchdog?.stage === 'stopped' && x.watchdog.reason" class="step"><ShieldAlert :size="12" /> {{ t('ui.tasks.watchdog.stoppedBecause', { reason: x.watchdog.reason }) }}</p>
           <p v-if="finished(x) && x.stopReason" class="step">{{ x.stopReason }}</p>
           <p v-if="x.conversationTitle && x.conversationTitle !== x.title" class="step muted">{{ t('ui.tasks.conversation', { title: x.conversationTitle }) }}</p>
           <div class="row actions">
@@ -505,5 +515,29 @@ h2 {
 .card.st-stopped,
 .card.st-failed {
   background: var(--cloth-sunk, var(--cloth));
+}
+.watchdog {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--amber, #d97706) 12%, transparent);
+  color: var(--amber, #d97706);
+  font-size: var(--t-sm);
+}
+.watchdog .what {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+}
+.watchdog .link {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--indigo);
+  cursor: pointer;
+  font-size: var(--t-sm);
 }
 </style>

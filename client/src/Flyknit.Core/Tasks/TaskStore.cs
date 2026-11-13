@@ -109,7 +109,9 @@ public sealed record TriggerEvent(
     string Reference = "",
     string RequestedBy = "",
     string? GrantId = null,
-    long TokenBudget = 0);
+    long TokenBudget = 0,
+    string Sender = "",
+    string GroupId = "");
 
 public sealed record TaskRecord
 {
@@ -129,6 +131,10 @@ public sealed record TaskRecord
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? StartedAt { get; init; }
     public DateTimeOffset? FinishedAt { get; init; }
+    /// <summary>渠道发送人（钉钉 / 企业微信的账号）：Router 只在同一个人的任务里找追问归属（docs/c2-router.md）。</summary>
+    public string Sender { get; init; } = "";
+    /// <summary>一句话拆开的几件事共用一个组编号；空 = 不属于任何组。</summary>
+    public string GroupId { get; init; } = "";
 
     /// <summary>预算用完了：不该再开新的 Run。</summary>
     public bool BudgetExhausted => TokenBudget > 0 && TokensUsed >= TokenBudget;
@@ -208,10 +214,32 @@ public sealed class TaskStore
             CREATE INDEX IF NOT EXISTS ix_runs_task ON runs (task_id, started_at);
             """;
         cmd.ExecuteNonQuery();
+        // 第 2 期（Router）加的列：只加不删
+        AddColumn(c, "sender", "TEXT NOT NULL DEFAULT ''");
+        AddColumn(c, "group_id", "TEXT NOT NULL DEFAULT ''");
+        using var ix = c.CreateCommand();
+        ix.CommandText = "CREATE INDEX IF NOT EXISTS ix_tasks_sender ON tasks (origin, sender, created_at); CREATE INDEX IF NOT EXISTS ix_tasks_group ON tasks (group_id)";
+        ix.ExecuteNonQuery();
+    }
+
+    private static void AddColumn(SqliteConnection c, string column, string definition)
+    {
+        using (var check = c.CreateCommand())
+        {
+            check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = $n";
+            check.Parameters.AddWithValue("$n", column);
+            if (Convert.ToInt32(check.ExecuteScalar(), CultureInfo.InvariantCulture) > 0)
+            {
+                return;
+            }
+        }
+        using var alter = c.CreateCommand();
+        alter.CommandText = $"ALTER TABLE tasks ADD COLUMN {column} {definition}";
+        alter.ExecuteNonQuery();
     }
 
     private const string Columns =
-        "id, conversation_id, origin, reference, title, requested_by, grant_id, status, token_budget, tokens_used, runs, stop_reason, created_at, started_at, finished_at";
+        "id, conversation_id, origin, reference, title, requested_by, grant_id, status, token_budget, tokens_used, runs, stop_reason, created_at, started_at, finished_at, sender, group_id";
 
     public TaskRecord Create(TriggerEvent trigger)
     {
@@ -227,12 +255,14 @@ public sealed class TaskStore
             State = TaskState.Pending,
             TokenBudget = Math.Max(0, trigger.TokenBudget),
             CreatedAt = _now(),
+            Sender = Clip(trigger.Sender, 200),
+            GroupId = Clip(trigger.GroupId, 40),
         };
         using var c = _open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = $"""
             INSERT INTO tasks ({Columns})
-            VALUES ($id, $conv, $origin, $ref, $title, $by, $grant, $status, $budget, 0, 0, '', $at, NULL, NULL)
+            VALUES ($id, $conv, $origin, $ref, $title, $by, $grant, $status, $budget, 0, 0, '', $at, NULL, NULL, $sender, $group)
             """;
         cmd.Parameters.AddWithValue("$id", task.Id);
         cmd.Parameters.AddWithValue("$conv", task.ConversationId);
@@ -244,8 +274,70 @@ public sealed class TaskStore
         cmd.Parameters.AddWithValue("$status", TaskStateMachine.ToText(task.State));
         cmd.Parameters.AddWithValue("$budget", task.TokenBudget);
         cmd.Parameters.AddWithValue("$at", task.CreatedAt.ToString("O"));
+        cmd.Parameters.AddWithValue("$sender", task.Sender);
+        cmd.Parameters.AddWithValue("$group", task.GroupId);
         cmd.ExecuteNonQuery();
         return task;
+    }
+
+    /// <summary>
+    /// 同一个来源、同一个发送人的任务：没结束的，加上 since 之后结束的，新的在前，最多 limit 个（Router 找追问归属的候选）。
+    /// 发送人为空时不返回任何任务——不知道是谁发的，就不往别人的任务里归。
+    /// </summary>
+    public IReadOnlyList<TaskRecord> ForSender(string origin, string sender, DateTimeOffset since, int limit = 8)
+    {
+        if (sender.Length == 0)
+        {
+            return Array.Empty<TaskRecord>();
+        }
+        using var c = _open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT {Columns} FROM tasks
+            WHERE origin = $origin AND sender = $sender
+              AND (status IN ('pending', 'running', 'waiting_confirm', 'interrupted') OR COALESCE(finished_at, created_at) >= $since)
+            ORDER BY created_at DESC LIMIT $n
+            """;
+        cmd.Parameters.AddWithValue("$origin", origin);
+        cmd.Parameters.AddWithValue("$sender", sender);
+        cmd.Parameters.AddWithValue("$since", since.ToString("O"));
+        cmd.Parameters.AddWithValue("$n", limit);
+        return ReadAll(cmd);
+    }
+
+    /// <summary>一组（一句话拆开的几件事），按创建顺序。</summary>
+    public IReadOnlyList<TaskRecord> OfGroup(string groupId)
+    {
+        if (groupId.Length == 0)
+        {
+            return Array.Empty<TaskRecord>();
+        }
+        using var c = _open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"SELECT {Columns} FROM tasks WHERE group_id = $g ORDER BY created_at, rowid";
+        cmd.Parameters.AddWithValue("$g", groupId);
+        return ReadAll(cmd);
+    }
+
+    /// <summary>引用完全相同的任务，按创建顺序（一句话拆开的几件事：引用是 split:原对话）。</summary>
+    public IReadOnlyList<TaskRecord> WithReference(string reference)
+    {
+        using var c = _open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"SELECT {Columns} FROM tasks WHERE reference = $r ORDER BY created_at, rowid";
+        cmd.Parameters.AddWithValue("$r", reference);
+        return ReadAll(cmd);
+    }
+
+    private static List<TaskRecord> ReadAll(SqliteCommand cmd)
+    {
+        using var r = cmd.ExecuteReader();
+        var list = new List<TaskRecord>();
+        while (r.Read())
+        {
+            list.Add(Read(r));
+        }
+        return list;
     }
 
     public TaskRecord? Get(string id)
@@ -435,6 +527,8 @@ public sealed class TaskStore
         CreatedAt = Time(r.GetString(12)),
         StartedAt = r.IsDBNull(13) ? null : Time(r.GetString(13)),
         FinishedAt = r.IsDBNull(14) ? null : Time(r.GetString(14)),
+        Sender = r.GetString(15),
+        GroupId = r.GetString(16),
     };
 
     private static DateTimeOffset Time(string s) => DateTimeOffset.Parse(s, CultureInfo.InvariantCulture);
