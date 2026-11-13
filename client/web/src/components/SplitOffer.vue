@@ -18,6 +18,7 @@ const { t } = useI18n()
       <button type="button" class="x" :title="t('ui.router.keepOne')" @click="declineSplit"><X :size="14" /></button>
     </div>
     <p class="hint">{{ t('ui.router.offerHint') }}</p>
+    <p v-if="state.splitOffer.isolation" class="iso">{{ t(`ui.router.isolation.${state.splitOffer.isolation}`) }}</p>
     <ol>
       <li v-for="(it, i) in state.splitOffer.items" :key="i">
         <strong>{{ it.title }}</strong>
@@ -85,6 +86,11 @@ li .muted {
 .final .muted {
   display: block;
   color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.iso {
+  margin: -2px 0 6px;
+  color: var(--indigo);
   font-size: var(--t-xs);
 }
 .actions {

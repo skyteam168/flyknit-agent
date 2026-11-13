@@ -127,7 +127,7 @@ export const state = reactive({
   toast: '' as string,
   /** 主区域显示什么：对话（含新任务首页）、资料库，或者专家列表 */
   /** 拆分建议（docs/c2-router.md 3.3）：员工一句话里像有好几件事，等员工选「分开做」还是「就当一件做」 */
-  splitOffer: null as null | { text: string; items: SplitItemView[]; final: SplitItemView | null; busy: boolean },
+  splitOffer: null as null | { text: string; items: SplitItemView[]; final: SplitItemView | null; isolation: string; busy: boolean },
   /** 每个对话拆出来的几组事（原对话的汇总卡） */
   groups: {} as Record<string, GroupView[]>,
   /** 排队中（还没轮到）的拆分子对话：侧栏标「排队中」，打开时显示占位说明 */
@@ -1325,9 +1325,10 @@ async function offerSplit(body: string): Promise<boolean> {
   const c = current.value
   const mode = c ? c.mode : draftMode.expertId ? 'expert' : draftMode.mode
   if (mode !== 'agent' || c?.expertId || (c && convState(c.id).busy)) return false
-  const suggestion = await bridge.suggestSplit(body).catch(() => null)
+  const where = c ? { conversationId: c.id } : { workspace: selectedWorkspace.value || undefined, sandbox: draftMode.sandbox }
+  const suggestion = await bridge.suggestSplit(body, where).catch(() => null)
   if (!suggestion || suggestion.items.length < 2) return false
-  state.splitOffer = { text: body, items: suggestion.items, final: suggestion.final ?? null, busy: false }
+  state.splitOffer = { text: body, items: suggestion.items, final: suggestion.final ?? null, isolation: suggestion.isolation ?? '', busy: false }
   return true
 }
 

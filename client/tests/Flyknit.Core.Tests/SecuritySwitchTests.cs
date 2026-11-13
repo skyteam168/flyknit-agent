@@ -225,6 +225,8 @@ public class SecuritySwitchTests
             SecuritySettings.Router,
             SecuritySettings.RouterSplit,
             SecuritySettings.RouterParallel,
+            // AgentHost.IsolationForAsync 读这一项：拆开的几件在独立的沙箱 / worktree 里各自改代码（见 WorktreeTests）
+            SecuritySettings.IsolatedWrites,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

@@ -2195,8 +2195,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             case "router.suggestSplit":
             {
                 var suggestion = await _host.SuggestSplitAsync(Str("text"), CancellationToken.None);
+                // 会怎么隔离（沙箱 / 独立工作副本 / 不隔离）：当前对话用它自己的工作区和沙箱开关，新对话用界面上选的
+                var conv = _host.Store.Get(Str("conversationId"));
+                var isolation = suggestion is null ? "" : await _host.IsolationHintAsync(conv?.Workspace ?? OptStr("workspace"), conv?.Sandbox ?? Bool("sandbox"));
                 return suggestion is null ? null : new
                 {
+                    isolation,
                     items = suggestion.Items!.Select(i => new { title = i.Title, instruction = i.Instruction }).ToList(),
                     final = suggestion.Final is { } f ? new { title = f.Title, instruction = f.Instruction } : null,
                 };
@@ -2218,7 +2222,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     final = new Flyknit.Core.Router.SplitItem(
                         fin.TryGetProperty("title", out var ft) && ft.ValueKind == JsonValueKind.String ? ft.GetString()! : "", finalText);
                 }
-                return _host.StartSplit(Str("conversationId"), Str("text"), items, final, _settings.ResolveUiLanguage(), this, this);
+                return await _host.StartSplitAsync(Str("conversationId"), Str("text"), items, final, _settings.ResolveUiLanguage(), this, this);
             }
 
             case "router.groups":

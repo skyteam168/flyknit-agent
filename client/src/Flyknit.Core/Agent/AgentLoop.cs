@@ -1026,7 +1026,9 @@ public sealed class AgentLoop
                     summary = p.Call.Name;
                 }
                 // 几件事同时做：写操作排队，一次一个（等锁时被停止就直接放弃这一步）
-                using var held = WriteGate is not null && p.Effect != CommandEffect.Read ? await WriteGate.AcquireAsync(token) : null;
+                // 沙箱工具在容器里执行、碰不到员工电脑，几件同时改各在各的容器里：不排队（docs/c4-parallel-writes.md）
+                using var held = WriteGate is not null && p.Effect != CommandEffect.Read && p.Tool is not Flyknit.Core.Sandbox.ISandboxedTool
+                    ? await WriteGate.AcquireAsync(token) : null;
                 checkpoint.ToolStarted(p.Call.Id, p.Call.Name, summary);
                 SaveCheckpoint();
                 return await p.Tool.ExecuteAsync(p.Args, context, timeout.Token);

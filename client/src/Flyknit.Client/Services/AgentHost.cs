@@ -320,6 +320,7 @@ public sealed partial class AgentHost : IDisposable
         Ledger = new Flyknit.Core.Tasks.TaskLedger(Store.Tasks, (what, ex) => Log.Warn(what, ex));
         Ledger.RecoverAfterRestart();
         RecoverSplits(); // 上次拆开、还没轮到的几件：记成停止（C2，docs/c2-router.md）
+        StartWorktreeCleanup(); // 拆开的几件用过的独立工作副本：PR 结束或 7 天没动静后清掉（C4）
         // 记忆条目和会话放在同一个数据库里（数据目录），md 文件仍在记忆目录，可以直接编辑
         Memory = new MemoryStore(AppPaths.Memory, AppPaths.Database);
         Memory.SensitiveRejected += (kind, findings) => Log.Warn($"一条{MemoryStore.HeaderOf(kind)}含{string.Join("、", findings)}，没有记入记忆");
@@ -922,6 +923,8 @@ public sealed partial class AgentHost : IDisposable
                 GrantId = grant?.Id ?? "",
                 TaskId = ticket?.TaskId ?? "",
                 RunId = runId,
+                // 拆开的那一件在独立工作副本里：只能推它自己的 flyknit/ 分支（docs/c4-parallel-writes.md）
+                IsolatedBranch = IsolatedBranchFor(id),
                 Memory = Memory,
                 Episodes = Episodes,
                 Skills = Skills,

@@ -413,7 +413,9 @@ class Bridge {
   /** 看门狗提醒后点「不用管」：这个任务后面不再提醒 */
   dismissWatchdog = (id: string) => this.call<boolean>('tasks.watchdogDismiss', { id })
   /** 调度：一句话像有好几件事时的拆分建议（null = 不建议拆） */
-  suggestSplit = (text: string) => this.call<{ items: SplitItemView[]; final: SplitItemView | null } | null>('router.suggestSplit', { text }, undefined, 45_000)
+  /** isolation：拆开后每件在哪改（sandbox / worktree / 空 = 不隔离），见 docs/c4-parallel-writes.md */
+  suggestSplit = (text: string, where: { conversationId?: string; workspace?: string; sandbox?: boolean } = {}) =>
+    this.call<{ items: SplitItemView[]; final: SplitItemView | null; isolation?: string } | null>('router.suggestSplit', { text, ...where }, undefined, 45_000)
   /** 员工点了「分开做」：返回组编号。final = 等前面几件做完后在原对话里做的最后一步（汇总、报告） */
   startSplit = (conversationId: string, text: string, items: SplitItemView[], final: SplitItemView | null) =>
     this.call<string>('router.split', { conversationId, text, items, final })

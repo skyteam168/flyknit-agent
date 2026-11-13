@@ -168,6 +168,11 @@ public sealed class ToolContext
     /// <summary>这次运行（员工的一句话引起的一轮）的 ID。派遣专家按它计次。</summary>
     public string RunId { get; init; } = "";
 
+    /// <summary>
+    /// 这一轮在拆分子任务的独立工作副本里（docs/c4-parallel-writes.md）：只能推这个 flyknit/ 分支、在它上面建 PR。为空 = 普通工作区。
+    /// </summary>
+    public string IsolatedBranch { get; init; } = "";
+
     /// <summary>这次运行的预算，由 AgentLoop 开始运行时填上。派遣专家前据此预留额度。</summary>
     public Agent.RunBudget? Budget { get; set; }
 
@@ -283,6 +288,7 @@ public sealed class ToolContext
         Permission = (PermissionMode)Math.Min((int)Permission, (int)permission),
         GrantId = GrantId,
         TaskId = TaskId,
+        IsolatedBranch = IsolatedBranch,
         RunId = runId,
         LoadedTools = new HashSet<string>(LoadedTools, StringComparer.Ordinal),
         Rules = Rules,
