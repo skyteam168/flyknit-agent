@@ -128,6 +128,15 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
     /// <summary>盯着的 PR。</summary>
     public Git.PrWatchStore PrWatches => _prWatches ??= new Git.PrWatchStore(Open);
 
+    private Flyknit.Core.Tasks.TaskStore? _tasks;
+    private Flyknit.Core.Tasks.ThreadSubscriptionStore? _subscriptions;
+
+    /// <summary>任务账本（VNext 第 1 期，docs/c1-unified-tasks.md）。</summary>
+    public Flyknit.Core.Tasks.TaskStore Tasks => _tasks ??= new Flyknit.Core.Tasks.TaskStore(Open);
+
+    /// <summary>对话订阅的外部事件（盯着的 PR）。</summary>
+    public Flyknit.Core.Tasks.ThreadSubscriptionStore Subscriptions => _subscriptions ??= new Flyknit.Core.Tasks.ThreadSubscriptionStore(Open);
+
     private Scheduling.ScheduledTaskStore? _schedules;
 
     private SqliteConnection Open()
@@ -247,6 +256,9 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         Security.TaskGrantStore.Migrate(c);
         // 盯着的 PR（定时查 CI、冲突、评审）
         Git.PrWatchStore.Migrate(c);
+        // VNext 第 1 期：任务、运行记录、对话订阅（只加表）
+        Flyknit.Core.Tasks.TaskStore.Migrate(c);
+        Flyknit.Core.Tasks.ThreadSubscriptionStore.Migrate(c);
 
         // v0.7：每轮任务的结果（任务效果统计：完成率、步数、产出文件问题，打开/关闭规划提醒和产出检查前后对比用）
         using var runs = c.CreateCommand();
