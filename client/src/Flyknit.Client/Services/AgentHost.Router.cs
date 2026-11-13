@@ -446,6 +446,40 @@ public sealed partial class AgentHost
             }).ToList();
     }
 
+    /// <summary>
+    /// 排队中的拆分子对话（还没轮到的那几件）：侧栏标「排队中」，打开对话时显示占位说明，不让员工以为卡住了。
+    /// 一次查完，返回对话编号、第几件 / 共几件、原对话。
+    /// </summary>
+    public IReadOnlyList<object> QueuedSplits()
+    {
+        try
+        {
+            return Store.Tasks.List(0)
+                .Where(t => t.State == TaskState.Pending && t.Reference.StartsWith("split:", StringComparison.Ordinal))
+                .GroupBy(t => (t.Reference, t.GroupId))
+                .SelectMany(g =>
+                {
+                    var siblings = Store.Tasks.WithReference(g.Key.Reference).Where(x => x.GroupId == g.Key.GroupId).ToList();
+                    var parentId = g.Key.Reference["split:".Length..];
+                    var parentTitle = Store.Get(parentId)?.Title ?? "";
+                    return g.Select(t => (object)new
+                    {
+                        conversationId = t.ConversationId,
+                        index = siblings.FindIndex(x => x.Id == t.Id) + 1,
+                        total = siblings.Count,
+                        parentId,
+                        parentTitle,
+                    });
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("读取排队中的拆分任务失败", ex);
+            return Array.Empty<object>();
+        }
+    }
+
     private void PostGroup(SplitGroup group, bool finished = false) =>
         group.Events.Post(new { type = "group.updated", conversationId = group.ParentId, groupId = group.GroupId, finished });
 

@@ -15,6 +15,7 @@ import type {
   SubscriptionView,
   SplitItemView,
   GroupView,
+  QueuedView,
   TaskView,
   SandboxStatus,
   SlashCommand,
@@ -417,6 +418,8 @@ class Bridge {
   startSplit = (conversationId: string, text: string, items: SplitItemView[], final: SplitItemView | null) =>
     this.call<string>('router.split', { conversationId, text, items, final })
   routerGroups = (conversationId: string) => this.call<GroupView[]>('router.groups', { conversationId })
+  /** 排队中（还没轮到）的拆分子对话 */
+  routerQueued = () => this.call<QueuedView[]>('router.queued')
   /** 接着做上次没做完的任务 */
   resumeRun = (conversationId: string) => this.call<void>('runs.resume', { conversationId })
   /** 上次没做完的任务：不用了，不再提示 */

@@ -735,6 +735,15 @@ export interface SplitItemView {
   instruction: string
 }
 
+/** 排队中的拆分子对话：还没轮到 */
+export interface QueuedView {
+  conversationId: string
+  index: number
+  total: number
+  parentId: string
+  parentTitle: string
+}
+
 /** 原对话的汇总卡：一句话拆开的一组事 */
 export interface GroupView {
   groupId: string

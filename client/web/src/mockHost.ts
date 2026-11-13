@@ -1987,6 +1987,16 @@ export function createMockHost(): HostTransport {
       }
       case 'router.groups':
         return mockGroups.get(p.conversationId) ?? []
+      case 'router.queued':
+        return [...mockGroups.entries()].flatMap(([parentId, groups]) =>
+          groups.flatMap((g) => g.items.filter((i) => i.state === 'pending').map((i) => ({
+            conversationId: i.conversationId,
+            index: g.items.indexOf(i) + 1,
+            total: g.items.length,
+            parentId,
+            parentTitle: conversations.get(parentId)?.title || '新对话',
+          }))),
+        )
       case 'tasks.watchdogDismiss':
         watchdogDismissed.add(p.id)
         return true

@@ -19,6 +19,7 @@ import {
   UsersRound,
   Languages,
   LoaderCircle,
+  Clock,
   MessageSquare,
   MessageSquarePlus,
   MoreHorizontal,
@@ -66,6 +67,9 @@ import {
   toast,
   togglePin, openConnectors, openSchedules, openSkills,
 } from '../store'
+
+/** 一句话拆开、还没轮到的那几件：侧栏标「排队中」（不在跑、但不是没人管） */
+const isQueued = (id: string) => runStatus(id) === 'idle' && !!state.queued[id]
 import type { Conversation, Mode } from '../types'
 
 const emit = defineEmits<{ navigate: [] }>()
@@ -617,8 +621,9 @@ onBeforeUnmount(() => {
                 @dragend="onDragEnd"
                 @dragover="onItemDragOver(c, $event)"
               >
-                <span class="status" :class="runStatus(c.id)">
+                <span class="status" :class="[runStatus(c.id), { queued: isQueued(c.id) }]">
                   <LoaderCircle v-if="runStatus(c.id) === 'running'" :size="15" class="spin" />
+                  <Clock v-else-if="isQueued(c.id)" :size="15" />
                   <Hand v-else-if="runStatus(c.id) === 'waiting'" :size="15" />
                   <ExpertAvatar v-else-if="expertOf(c)" :avatar="expertOf(c)!.avatar" :name="expertOf(c)!.name" :id="expertOf(c)!.id" :size="17" />
                   <component :is="modeIcon[c.mode]" v-else :size="15" />
@@ -637,7 +642,7 @@ onBeforeUnmount(() => {
                 <span v-else class="title">{{ c.title || t('sidebar.untitled') }}</span>
                 <Pin v-if="c.pinned && editingId !== c.id" :size="12" class="pin-mark" />
                 <span v-if="editingId !== c.id" class="time">
-                  {{ runStatus(c.id) === 'waiting' ? t('ui.status.waiting') : ago(c.updatedAt) }}
+                  {{ runStatus(c.id) === 'waiting' ? t('ui.status.waiting') : isQueued(c.id) ? t('ui.router.queued') : ago(c.updatedAt) }}
                 </span>
                 <button type="button" class="more" :aria-label="t('menu.rename')" @click.stop="openMenu(c, $event)">
                   <MoreHorizontal :size="16" />
@@ -673,8 +678,9 @@ onBeforeUnmount(() => {
             @dragend="onDragEnd"
             @dragover="onItemDragOver(c, $event)"
           >
-            <span class="status" :class="runStatus(c.id)">
+            <span class="status" :class="[runStatus(c.id), { queued: isQueued(c.id) }]">
               <LoaderCircle v-if="runStatus(c.id) === 'running'" :size="15" class="spin" />
+                  <Clock v-else-if="isQueued(c.id)" :size="15" />
               <Hand v-else-if="runStatus(c.id) === 'waiting'" :size="15" />
               <ExpertAvatar v-else-if="expertOf(c)" :avatar="expertOf(c)!.avatar" :name="expertOf(c)!.name" :id="expertOf(c)!.id" :size="17" />
               <component :is="modeIcon[c.mode]" v-else :size="15" />
@@ -693,7 +699,7 @@ onBeforeUnmount(() => {
             <span v-else class="title">{{ c.title || t('sidebar.untitled') }}</span>
             <Pin v-if="c.pinned && editingId !== c.id" :size="12" class="pin-mark" />
             <span v-if="editingId !== c.id" class="time">
-              {{ runStatus(c.id) === 'waiting' ? t('ui.status.waiting') : ago(c.updatedAt) }}
+              {{ runStatus(c.id) === 'waiting' ? t('ui.status.waiting') : isQueued(c.id) ? t('ui.router.queued') : ago(c.updatedAt) }}
             </span>
             <button type="button" class="more" :aria-label="t('menu.rename')" @click.stop="openMenu(c, $event)">
               <MoreHorizontal :size="16" />
@@ -1100,6 +1106,9 @@ onBeforeUnmount(() => {
 }
 .status.running {
   color: var(--indigo);
+}
+.status.queued {
+  color: var(--ink-faint);
 }
 .status.waiting {
   color: var(--amber);
