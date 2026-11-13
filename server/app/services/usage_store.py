@@ -32,7 +32,7 @@ SCENES = ("agent", "code", "chat", "translate", "vision", "title", "asr", "embed
           "schedule", "channel", "instruction", "mobile")
 
 # 模型调用的用途（客户端 Gateway/Purposes.cs 同步）。认不出的记成 other，不带的记成 turn
-PURPOSES = ("turn", "compact", "session_memory", "reflect", "memory", "title", "enhance", "sidechat", "other")
+PURPOSES = ("turn", "compact", "session_memory", "reflect", "memory", "title", "enhance", "sidechat", "watchdog", "other")
 
 
 def clean_purpose(value: object) -> str:

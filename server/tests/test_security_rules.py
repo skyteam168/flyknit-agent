@@ -108,6 +108,10 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "run_token_budget",
         # 客户端 AgentHost.RefreshTaskBudget 读它：任务账本里每个新任务的 token 预算（同一串运行合计）
         "task_token_budget",
+        # 客户端 AgentHost.Watchdog 读这三项：看门狗开不开、提醒后自动停不停、多久没进展算可疑
+        "watchdog",
+        "watchdog_auto_stop",
+        "watchdog_minutes",
         # 客户端 AgentHost 读它决定这一轮有没有浏览器工具
         "browser_tools",
         # 客户端读它决定能不能在后台启动命令（run_shell background=true、shell_output、shell_stop）

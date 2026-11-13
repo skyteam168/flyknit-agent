@@ -225,6 +225,10 @@ class DeviceOut(BaseModel):
     legal_agreed: str = ""
     #: 员工在客户端退出了登录（这条设备记录不会再上线）
     signed_out_at: datetime | None = None
+    #: 看门狗心跳：正在跑的任务个数、最后一次心跳；有任务在跑却超过 10 分钟没心跳 = 失联
+    running_count: int = 0
+    heartbeat_at: datetime | None = None
+    stalled: bool = False
 
 
 class DevicePatch(BaseModel):
@@ -247,6 +251,19 @@ class SmbOut(BaseModel):
     username: str
     password_set: bool
     share_root: str
+
+
+# ---------- 看门狗心跳 ----------
+class HeartbeatTask(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    task_id: Clip(40)
+    origin: Clip(20) = "ui"
+
+
+class HeartbeatIn(BaseModel):
+    """员工端有任务在跑时每 2 分钟一次：只带任务编号和来源，不带标题和内容（多余字段丢掉）。"""
+    model_config = ConfigDict(extra="ignore")
+    running: list[HeartbeatTask] = Field(default_factory=list, max_length=20)
 
 
 # ---------- 审计 ----------

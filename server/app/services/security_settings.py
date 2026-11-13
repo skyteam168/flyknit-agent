@@ -157,6 +157,24 @@ SETTINGS: tuple[Setting, ...] = (
              "这一轮也不会超过剩下的额度，任务记成「任务额度用完」；员工再说话算新任务。单次任务的上限照样生效。默认 0 = 不限。",
     ),
     Setting(
+        key="watchdog", kind="bool", default=False, locked=True,
+        title="看门狗：检查任务有没有进展",
+        risk="打开后，员工端每分钟看一眼正在跑的任务：一直在动、却十几分钟没有新进展（没有新操作、计划没推进、没产出文件）时，"
+             "请便宜模型（title 场景，用量记在「看门狗」用途下）看一眼是不是卡住或跑偏了，是就提醒 AI 换办法、通知员工。"
+             "命令执行中（编译、跑测试）、等员工确认、暂停时不计时。关着时只有原来的「同一个操作反复做」检测。",
+    ),
+    Setting(
+        key="watchdog_auto_stop", kind="bool", default=False, locked=True,
+        title="看门狗：提醒后仍没进展就自动停下",
+        risk="需要先打开「看门狗」。打开后，提醒过一次、再过一段时间程序和模型仍都认定没进展的任务会被自动停下（和员工点停止一样，"
+             "已经做完的不会撤回），任务记成「看门狗：长时间没有进展」。关着时只提醒和通知，由员工决定停不停。模型判断失败时从不自动停。",
+    ),
+    Setting(
+        key="watchdog_minutes", kind="int", default=10, locked=True,
+        title="看门狗：多久没进展算可疑（分钟）", minimum=5, maximum=60,
+        risk="任务一直在动、却连续这么多分钟没有新进展，才请模型判断。长任务模式的对话按 2 倍算。调小会更早提醒，也更容易误报。",
+    ),
+    Setting(
         key="run_token_budget", kind="int", default=200, locked=True,
         title="单次任务 token 上限（万）", minimum=0, maximum=100000,
         risk="一次办事任务（员工说一句话引起的一轮）最多用多少 token，输入 + 输出累计，单位万；用到 70% 提醒 AI 收尾，用完就停下总结、等员工说「继续」。"
