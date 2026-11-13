@@ -318,7 +318,7 @@
 
 ### 8.3 员工端宿主和界面
 
-- `AgentHost.Teams.cs`（新）：
+- 团队作为功能模块接入（见 `docs/extension-architecture.md`，实现以第 14 节为准）：
   - 团队列表、开工；
   - 计划卡的确认、修改、取消；
   - 调度器的事件转成界面事件。
@@ -402,4 +402,8 @@
 - **看板只在内存**：`TeamBoard` 随本次运行存在，只追加；员工端重启后面板按对话记录重建，看板内容不恢复。下游成员拿到的上游结果按「资料」包裹，不当指令。
 - **团队授权**：开工前的一次性授权复用派遣授权卡（`ConfirmRequest.Bundle`），只覆盖可记成规则的连接器读操作；高危操作不进卡片。
 - **重试**：只对「没能向服务器登记」、崩溃、未运行、未交结果这几类瞬时失败重试一次。
-- **服务端校验**：派遣带 `team_id` 时检查 `teams` 开关、团队可见范围（`services/team_scope.py`）和成员资格，每次团队运行上限 `min(人数×2, 16)` 个子任务；这些都不依赖提示词。
+- **服务端校验**：派遣带 `team_id` 时检查 `teams` 开关、团队可见范围和成员资格，每次团队运行上限 `min(人数×2, 16)` 个子任务（`services/team_service.py` 的 `check_dispatch`）；这些都不依赖提示词。
+- **作为功能模块**（`docs/extension-architecture.md`）：底座不认识团队。
+  - Core 的 `Teams/TeamFeature.cs` 同时是运行扩展（队长提示词、`team_plan` / `team_assign`、团队模型和用量上限、这一轮不出场派遣专家和子代理）和界面桥模块（`teams.*`、`team.planAnswer`、`team.stopMember`）；
+  - 派专家用通用的 `DispatchConstraints`；
+  - 界面在 `client/web/src/features/teams/`。

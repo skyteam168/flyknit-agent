@@ -36,8 +36,6 @@ public sealed partial class AgentHost
             {
                 _delegationHost ??= new DelegationHost(this);
                 _dispatcher = new ExpertDispatcher(_delegationHost, Server, Store, _delegationHost, Experts.Get, DelegationEnabled);
-                // 团队成员看「团队模式」开关，不看「派遣专家」开关（docs/team-mode.md）
-                _dispatcher.TeamsEnabled = () => TeamsOn;
             }
             return _dispatcher;
         }
@@ -45,36 +43,6 @@ public sealed partial class AgentHost
 
     /// <summary>子任务进度推给界面（专家和子代理共用一种卡片）。</summary>
     private IDelegationEvents DelegationEvents => _delegationHost ??= new DelegationHost(this);
-
-    /// <summary>
-    /// 这一轮给主助手的候选专家：只在普通的办事对话里、开关开着时才有（专家对话里不派遣别的专家）。
-    /// 返回提示词段落和要加的工具；没有候选时两样都没有，主助手和以前一模一样。
-    /// </summary>
-    private (string Prompt, AskExpertTool? Tool) DelegationFor(Conversation conv, Expert? expert, string query,
-        IReadOnlyDictionary<string, double>? semantic)
-    {
-        if (conv.Mode != ConversationMode.Agent || expert is not null || !DelegationEnabled())
-        {
-            return ("", null);
-        }
-        var candidates = ExpertCandidates.Pick(Experts.All, query, semantic);
-        if (candidates.Count == 0)
-        {
-            return ("", null);
-        }
-        return (ExpertCandidates.PromptSection(candidates), new AskExpertTool(Dispatcher, candidates));
-    }
-
-    /// <summary>挑候选专家用的文字：员工这句话，加上一句之前说的（「继续」「那 B 车间呢」这种要靠上一句）。</summary>
-    private static string DelegationQuery(IReadOnlyList<ChatMessage> stored, string text)
-    {
-        var previous = stored.Where(m => m.Role == ChatRole.User).Reverse().Skip(1).FirstOrDefault()?.Content ?? "";
-        if (previous.Length > 200)
-        {
-            previous = previous[..200];
-        }
-        return previous.Length > 0 ? $"{text}\n{previous}" : text;
-    }
 
     /// <summary>语义匹配要比的额外文字：技能，开关开着时再加上专家名片。</summary>
     private IReadOnlyDictionary<string, string> SemanticExtras()

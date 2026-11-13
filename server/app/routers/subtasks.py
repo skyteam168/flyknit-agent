@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import chat_reader_or_none, require_admin, require_device
-from ..models import AdminAccess, AdminUser, Device, Expert, Subtask, Team
+from ..models import AdminAccess, AdminUser, Device, Expert, Subtask
 from ..schemas import (
     SubtaskAdminOut,
     SubtaskCancelIn,
@@ -26,8 +26,7 @@ from ..schemas import (
     SubtaskStateOut,
     SubtaskTokens,
 )
-from ..services import device_security, expert_registry, item_scope, plugin_scope, subtask_store
-from ..services.team_scope import visible as team_visible
+from ..services import expert_registry, item_scope, plugin_scope, subtask_store, team_service
 from ..services.subtask_store import utc
 
 log = logging.getLogger("flyknit.subtasks")
@@ -63,18 +62,13 @@ async def _mine(session: AsyncSession, subtask_id: str, device: Device) -> Subta
 @client_router.post("", response_model=SubtaskCreatedOut, status_code=201)
 async def create_subtask(data: SubtaskCreateIn, device: Device = Depends(require_device),
                          session: AsyncSession = Depends(get_session)):
-    # 团队派遣（docs/team-mode.md）：看团队模式开关和成员资格，不看「派遣专家」开关；次数按团队人数算
-    team = None
+    # 团队派遣（docs/team-mode.md）：规则在团队模块里（开关、范围、成员资格、次数），不看「派遣专家」开关
     limit = subtask_store.MAX_PER_RUN
     if data.team_id:
-        team = await session.get(Team, data.team_id)
-        if not (await device_security.effective_for(session, device))["teams"]["value"]:
-            raise _reject(403, "teams_disabled", "IT 没有开启团队模式")
-        if team is None or not team_visible(team, device):
-            raise _reject(403, "team_unavailable", "这个团队不存在、已解散或不在你的使用范围内")
-        if data.expert_id not in {m.get("expert_id") for m in (team.members or [])}:
-            raise _reject(403, "expert_unavailable", "这位专家不是这个团队的成员")
-        limit = subtask_store.team_limit(len(team.members or []))
+        try:
+            limit = await team_service.check_dispatch(session, device, data.team_id, data.expert_id)
+        except team_service.DispatchDenied as denied:
+            raise _reject(403, denied.kind, denied.message) from None
     elif not await subtask_store.delegation_enabled(session, device):
         raise _reject(403, "delegation_disabled", "IT 没有开启「派遣专家」")
     e = await session.get(Expert, data.expert_id)

@@ -21,7 +21,7 @@ from ..db import get_session
 from ..deps import admin_name, require_admin, require_device
 from ..models import Device, Expert, ModelConfig, Team
 from ..schemas import TeamAdminIn, TeamAdminOut, TeamIn, TeamMemberOut, TeamOut
-from ..services import config_events, department_store, device_security, item_scope, plugin_scope, team_scope
+from ..services import config_events, department_store, device_security, item_scope, plugin_scope, team_service
 
 log = logging.getLogger("flyknit.teams")
 admin_router = APIRouter(prefix="/api/v1/admin/teams", tags=["teams"], dependencies=[Depends(require_admin)])
@@ -51,7 +51,7 @@ async def _usable_experts(session: AsyncSession, device: Device | None) -> set[s
 
 
 def _visible(team: Team, device: Device) -> bool:
-    return team_scope.visible(team, device)
+    return team_service.visible(team, device)
 
 
 def _members_out(team: Team, usable: set[str]) -> list[TeamMemberOut]:

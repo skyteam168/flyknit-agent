@@ -1,19 +1,20 @@
 using Flyknit.Core.Mcp;
-using Flyknit.Core.Tools;
-
-namespace Flyknit.Core.Teams;
+namespace Flyknit.Core.Tools;
 
 /// <summary>
-/// 团队能关掉的工具类别（docs/team-mode.md 第 5 节）。只能收紧：关掉的类别从成员专家的工具里去掉，
-/// 专家原来就没有的不会因此多出来。
+/// 工具类别：给「按类别关掉一批工具」用（团队设置、派遣约束等，见 <see cref="Experts.Delegation.DispatchConstraints"/>）。
+/// 只用于收紧：关掉的类别从工具表里去掉，原来没有的不会因此多出来。
 /// </summary>
-public static class TeamToolKinds
+public static class ToolKinds
 {
     public const string Shell = "shell";
     public const string Write = "write";
     public const string Browser = "browser";
     public const string Mcp = "mcp";
     public const string Developer = "developer";
+
+    /// <summary>认识的全部类别（外部传进来的只收这些，和服务端一致）。</summary>
+    public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.Ordinal) { Shell, Write, Browser, Mcp, Developer };
 
     private static readonly HashSet<string> ShellTools = new(StringComparer.Ordinal) { "run_shell", "shell_output", "shell_stop", "open_app" };
     private static readonly HashSet<string> WriteTools = new(StringComparer.Ordinal) { "write_file", "edit_file", "multi_edit", "delete_path" };

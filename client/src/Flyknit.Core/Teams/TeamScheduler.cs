@@ -77,7 +77,7 @@ public sealed class TeamScheduler
 
     /// <param name="runId">这次团队任务的 ID（面板事件用）。</param>
     /// <param name="callId">队长那次 team_plan / team_assign 调用的 ID；每位成员的子任务用「callId#专家」，界面据此把步骤挂到面板上。</param>
-    public async Task<IReadOnlyList<TeamMemberResult>> RunAsync(string runId, string callId, TeamPlan plan, Team team, TeamDispatch dispatch,
+    public async Task<IReadOnlyList<TeamMemberResult>> RunAsync(string runId, string callId, TeamPlan plan, Team team, DispatchConstraints dispatch,
         TeamBoard board, ToolContext parent, CancellationToken ct)
     {
         var items = plan.Items.ToList();
@@ -184,7 +184,7 @@ public sealed class TeamScheduler
         return items.Select(i => results[i.ExpertId]).ToList();
     }
 
-    private async Task<TeamMemberResult> RunMemberAsync(string runId, string callId, TeamPlanItem item, Team team, TeamDispatch dispatch,
+    private async Task<TeamMemberResult> RunMemberAsync(string runId, string callId, TeamPlanItem item, Team team, DispatchConstraints dispatch,
         TeamBoard board, ToolContext parent, CancellationToken ct, Action<TeamMemberUpdate> report)
     {
         var id = item.ExpertId;

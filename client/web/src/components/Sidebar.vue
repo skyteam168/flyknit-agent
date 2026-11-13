@@ -43,6 +43,7 @@ import ConfirmDialog from './ConfirmDialog.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
 import Popover from './Popover.vue'
 import { openLibrary } from '../library'
+import { openTeams } from '../features/teams/store'
 import {
   addWorkspace,
   deleteConversation,
@@ -52,7 +53,6 @@ import {
   newConversationIn,
   openConversation,
   openExperts,
-  openTeams,
   openPlugins, openTasks,
   purgeConversation,
   refreshList,

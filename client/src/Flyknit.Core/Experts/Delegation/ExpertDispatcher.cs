@@ -11,22 +11,9 @@ namespace Flyknit.Core.Experts.Delegation;
 
 /// <summary>主助手要派遣的一件事（ask_expert 的参数）。</summary>
 /// <param name="CallId">主助手那次 ask_expert 调用的 ID。几位只读专家同时跑时，<see cref="ToolContext.CurrentCallId"/> 会被后面的覆盖，所以在工具入口就取走。</param>
+/// <param name="Constraints">调用方另加的约束（团队等编排插件），null = 普通派遣。</param>
 public sealed record DelegationRequest(string ExpertId, string Task, string Context, IReadOnlyList<string> Files, string CallId = "",
-    TeamDispatch? Team = null);
-
-/// <summary>
-/// 团队派遣（docs/team-mode.md）：成员按团队的设置再收紧一层——只会更严：
-/// 关掉的工具类别从专家工具里去掉、只读团队压成只读、专家没被 IT 指定模型时才用团队模型。
-/// </summary>
-/// <param name="MaxPerRun">这次团队任务最多派遣几次（服务端按团队人数另算，以服务端为准）。</param>
-/// <param name="PreGranted">团队开工授权里员工已经同意的（会话授权的键），这次派遣直接用，不再单独出派遣授权卡。</param>
-public sealed record TeamDispatch(
-    string TeamId,
-    int? ModelId,
-    IReadOnlyList<string> DisabledKinds,
-    bool ReadOnly,
-    int MaxPerRun,
-    IReadOnlyCollection<string> PreGranted);
+    DispatchConstraints? Constraints = null);
 
 /// <summary>
 /// 派遣专家的全过程：登记 → 预留预算 → 搭专家的运行环境 → 跑 → 收卷、核验 → 收尾、存档、交回主助手。
@@ -69,9 +56,6 @@ public sealed class ExpertDispatcher
 
     public DelegationLimits Limits { get; }
 
-    /// <summary>团队模式开关（安全中心 teams）。团队成员看它，不看「派遣专家」开关；关掉时正在跑的成员停下。</summary>
-    public Func<bool> TeamsEnabled { get; set; } = () => false;
-
     /// <summary>管理员关掉了派遣开关：正在跑的子任务全部取消（之后的工具调用、模型调用都不再进行）。</summary>
     public void CancelAll(string reason)
     {
@@ -91,10 +75,10 @@ public sealed class ExpertDispatcher
     public async Task<(ToolResult Result, SubtaskRecord? Record)> DispatchDetailedAsync(DelegationRequest request, ToolContext parent, CancellationToken ct)
     {
         // ---- 1. 派遣前的检查：不通过的不登记、不计次 ----
-        var enabled = request.Team is null ? _enabled : TeamsEnabled;
+        var enabled = request.Constraints?.Enabled ?? _enabled;
         if (!enabled())
         {
-            return (ToolResult.Fail(request.Team is null ? "管理员没有开启「派遣专家」，这件事请自己完成。" : "管理员没有开启团队模式。"), null);
+            return (ToolResult.Fail(request.Constraints?.Enabled is null ? "管理员没有开启「派遣专家」，这件事请自己完成。" : request.Constraints.DisabledMessage), null);
         }
         var expert = _experts(request.ExpertId);
         if (expert is null || !expert.AllowDelegate)
@@ -106,7 +90,7 @@ public sealed class ExpertDispatcher
             return (ToolResult.Fail("task 太短了。专家看不到这段对话，请把目标、背景、范围、要交回什么写完整。"), null);
         }
         var runId = parent.RunId.Length > 0 ? parent.RunId : parent.ConversationId;
-        var maxPerRun = request.Team?.MaxPerRun ?? Limits.MaxPerRun;
+        var maxPerRun = maxPerRunFor(request);
         if (_perRun.TryGetValue(runId, out var used) && used >= maxPerRun)
         {
             return (ToolResult.Fail($"这一轮已经派遣了 {used} 次，到达上限。剩下的请自己完成，或者先回复员工。"), null);
@@ -140,13 +124,8 @@ public sealed class ExpertDispatcher
 
         // 专家配置在派遣这一刻定下来：之后后台改了专家，这次子任务照样按当时的版本跑完，记录里也能查到
         var snapshot = Clone(expert);
-        if (request.Team is { } team)
-        {
-            // 团队的设置只会更严：在专家快照上再收紧一层，之后的工具筛选、只读、确认都照专家的逻辑走
-            snapshot.TeamDisabledKinds = team.DisabledKinds.Distinct(StringComparer.Ordinal).ToList();
-            snapshot.ReadOnly = snapshot.ReadOnly || team.ReadOnly;
-            snapshot.ModelId ??= team.ModelId;
-        }
+        // 调用方的约束只会更严：在专家快照上再收紧一层
+        request.Constraints?.ApplyTo(snapshot);
         var brief = Brief(request, files);
 
         // ---- 2. 服务端登记：开关、专家状态、次数以服务端为准 ----
@@ -155,7 +134,7 @@ public sealed class ExpertDispatcher
         {
             ticket = await _registry.RegisterAsync(new SubtaskRegistration(
                 runId, parent.ConversationId, snapshot.Id, snapshot.Version, brief, cap, (int)Limits.Timeout.TotalSeconds,
-                request.Team?.TeamId ?? ""), ct);
+                request.Constraints?.GroupId ?? ""), ct);
         }
         catch (DelegationRejectedException ex)
         {
@@ -262,9 +241,9 @@ public sealed class ExpertDispatcher
             // 专家这次可能要用的「要确认、但不是高危」的连接器工具，开工前列出来问一次；
             // 员工同意了就记在这次派遣自己的那层授权上，专家跑完就失效，不往主助手那边传
             context.SessionApprovals = new SessionApprovals(parent.SessionApprovals);
-            if (request.Team is { } granted)
+            if (request.Constraints is { GrantedUpfront: true } granted)
             {
-                // 团队开工时员工已经一次授权过：记在这位成员这次派遣的那层，不再单独出派遣授权卡
+                // 调用方开工时员工已经统一授权过：记在这次派遣的那层，不再单独出派遣授权卡
                 foreach (var key in granted.PreGranted)
                 {
                     context.SessionApprovals.AddHere(key);
@@ -475,10 +454,10 @@ public sealed class ExpertDispatcher
     }
 
     /// <summary>
-    /// 团队开工授权（docs/team-mode.md 第 6 节 ③）：这位成员按团队收紧后，可能要用的「要确认、但不是高危」的连接器工具。
-    /// 只读成员不算（它遇到要确认的操作本来就直接拦下）。
+    /// 开工前统一授权用（例如团队开工，docs/team-mode.md 第 6 节 ③）：这位专家按约束收紧后，可能要用的
+    /// 「要确认、但不是高危」的连接器工具。只读的不算（它遇到要确认的操作本来就直接拦下）。
     /// </summary>
-    public List<(string Tool, ApprovalCandidate Rule)> TeamGrantCandidates(string expertId, TeamDispatch team, ToolContext parent)
+    public List<(string Tool, ApprovalCandidate Rule)> GrantCandidates(string expertId, DispatchConstraints constraints, ToolContext parent)
     {
         var expert = _experts(expertId);
         if (expert is null)
@@ -486,8 +465,7 @@ public sealed class ExpertDispatcher
             return new();
         }
         var snapshot = Clone(expert);
-        snapshot.TeamDisabledKinds = team.DisabledKinds.ToList();
-        snapshot.ReadOnly = snapshot.ReadOnly || team.ReadOnly;
+        constraints.ApplyTo(snapshot);
         if (snapshot.ReadOnly)
         {
             return new();
@@ -672,7 +650,7 @@ public sealed class ExpertDispatcher
     };
 
     /// <summary>派遣开关在专家干活时被关掉：取消这次子任务。</summary>
-    private int maxPerRunFor(DelegationRequest request) => request.Team?.MaxPerRun ?? Limits.MaxPerRun;
+    private int maxPerRunFor(DelegationRequest request) => request.Constraints?.MaxPerRun ?? Limits.MaxPerRun;
 
     private IDisposable WatchSwitch(SubtaskState state, CancellationTokenSource cts, Func<bool> enabled) =>
         new Timer(_ =>

@@ -22,13 +22,6 @@ from . import chat_archive, security_settings, settings_store
 
 #: 同一设备同一次主任务最多派几次（失败、超时、取消的都算）
 MAX_PER_RUN = 3
-
-#: 团队任务的派遣次数：每位成员两次（首次 + 一次重试或补派），最多 16 次
-TEAM_MAX_PER_RUN = 16
-
-
-def team_limit(members: int) -> int:
-    return max(1, min(members * 2, TEAM_MAX_PER_RUN))
 TOKEN_CAP_RANGE = (1000, 400_000)
 TIMEOUT_RANGE = (60, 900)
 #: 交卷全文序列化后的上限

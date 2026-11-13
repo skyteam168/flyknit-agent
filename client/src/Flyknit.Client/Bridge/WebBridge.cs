@@ -110,9 +110,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
             longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
             developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
             routerSplit = _host.RouterSplitOn,
-            teams = _host.TeamsOn,
-            teamCreate = _host.TeamCreateOn,
-            teamMaxMembers = _host.TeamMaxMembers,
+            teams = _host.Teams.On,
+            teamCreate = _host.Teams.CreateOn,
+            teamMaxMembers = _host.Teams.MaxMembers,
             sandboxTasks = _host.SandboxSwitchOn,
             webSearchEnabled = _host.WebSearchEnabled,
             deepThinking = _settings.DeepThinking,
@@ -560,6 +560,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
         string? OptStr(string name) => Str(name) is { Length: > 0 } v ? v : null;
         int? Int(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
 
+        // 功能模块注册的方法（docs/extension-architecture.md）：新功能的界面接口放在自己的模块里，不再往下面这个大 switch 里加
+        if (_host.BridgeModules.TryGet(method, out var module))
+        {
+            return await module.HandleAsync(method, new Flyknit.Core.Hosting.BridgeArgs(p), CancellationToken.None);
+        }
+
         switch (method)
         {
             case "app.init":
@@ -599,9 +605,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
                     longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
                     developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
                     routerSplit = _host.RouterSplitOn,
-                    teams = _host.TeamsOn,
-                    teamCreate = _host.TeamCreateOn,
-                    teamMaxMembers = _host.TeamMaxMembers,
+                    teams = _host.Teams.On,
+                    teamCreate = _host.Teams.CreateOn,
+                    teamMaxMembers = _host.Teams.MaxMembers,
                     sandboxTasks = _host.SandboxSwitchOn,
                     webSearchEnabled = _host.WebSearchEnabled,
                     deepThinking = _settings.DeepThinking,
@@ -1821,7 +1827,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
                     expert = null;
                 }
                 // 团队任务：只认这台电脑能用的团队（服务端下发的列表里的）；团队对话一律是「办事」模式
-                var team = expert is null && OptStr("teamId") is { } teamId ? await _host.TeamAsync(teamId, CancellationToken.None) : null;
+                var team = expert is null && OptStr("teamId") is { } teamId ? await _host.Teams.FindAsync(teamId, CancellationToken.None) : null;
                 if (team is not null)
                 {
                     mode = ConversationMode.Agent;
@@ -1841,44 +1847,6 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
 
             case "experts.list":
                 return _host.Experts.Callable.Select(ExpertDto.From).ToList();
-
-            // ---------- 团队（docs/team-mode.md）----------
-            case "teams.list":
-                return await _host.TeamsAsync(CancellationToken.None);
-
-            case "teams.save":
-            {
-                var input = p.TryGetProperty("team", out var t)
-                    ? t.Deserialize<Flyknit.Core.Teams.TeamInput>() ?? new Flyknit.Core.Teams.TeamInput()
-                    : new Flyknit.Core.Teams.TeamInput();
-                var id = OptStr("id");
-                return await _host.SaveTeamAsync(string.IsNullOrWhiteSpace(id) ? null : id, input, CancellationToken.None);
-            }
-
-            case "teams.dissolve":
-                await _host.DissolveTeamAsync(Str("id"), CancellationToken.None);
-                return null;
-
-            case "teams.copy":
-                return await _host.CopyTeamAsync(Str("id"), CancellationToken.None);
-
-            case "team.planAnswer":
-            {
-                // 计划卡：start = 开始执行（removed 是员工去掉的成员）；revise = 让队长改（text）；cancel = 取消
-                var action = Str("action") switch
-                {
-                    "start" => Flyknit.Core.Teams.TeamPlanAction.Start,
-                    "revise" => Flyknit.Core.Teams.TeamPlanAction.Revise,
-                    _ => Flyknit.Core.Teams.TeamPlanAction.Cancel,
-                };
-                var removed = p.TryGetProperty("removed", out var r) && r.ValueKind == JsonValueKind.Array
-                    ? r.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
-                    : new List<string>();
-                return _host.AnswerTeamPlan(Str("requestId"), new Flyknit.Core.Teams.TeamPlanAnswer(action, removed, Str("text")));
-            }
-
-            case "team.stopMember":
-                return _host.StopTeamMember(Str("conversationId"), Str("expertId"));
 
             case "conversation.rename":
                 await Task.Run(() => _host.Store.Rename(Str("id"), Str("title")));

@@ -50,10 +50,10 @@ public sealed class Expert
     [JsonPropertyName("disallowed_tools")] public List<string> DisallowedTools { get; set; } = new();
 
     /// <summary>
-    /// 团队关掉的工具类别（docs/team-mode.md，见 <see cref="Teams.TeamToolKinds"/>）。只在团队派遣时由派遣方填，
-    /// 不来自服务端的专家配置；和 DisallowedTools 一样只会去掉工具。
+    /// 派遣方另外关掉的工具类别（见 <see cref="ToolKinds"/>、<see cref="Delegation.DispatchConstraints"/>）。
+    /// 只在派遣时填在专家快照上，不来自服务端的专家配置；和 DisallowedTools 一样只会去掉工具。
     /// </summary>
-    [JsonPropertyName("team_disabled_kinds")] public List<string> TeamDisabledKinds { get; set; } = new();
+    [JsonPropertyName("constraint_disabled_kinds")] public List<string> ConstraintDisabledKinds { get; set; } = new();
 
     /// <summary>只读：权限压到「仅可查看」，并去掉写文件、删文件。</summary>
     [JsonPropertyName("read_only")] public bool ReadOnly { get; set; }
@@ -87,7 +87,7 @@ public static class ExpertRuntime
         {
             return false;
         }
-        if (expert.TeamDisabledKinds.Any(kind => Teams.TeamToolKinds.Matches(kind, tool)))
+        if (expert.ConstraintDisabledKinds.Any(kind => ToolKinds.Matches(kind, tool)))
         {
             return false;
         }

@@ -98,7 +98,7 @@ public class TeamTests
         Id = "tm_1", Name = "交付分析组", Members = ids.Select(i => new TeamMember { ExpertId = i, Note = i == "mes" ? "只看 A 车间" : "" }).ToList(),
     };
 
-    private static TeamDispatch Settings(Team t) => new(t.Id, null, t.DisabledTools, t.ReadOnly, 16, Array.Empty<string>());
+    private static DispatchConstraints Settings(Team t) => new() { GroupId = t.Id, Enabled = () => true, DisabledKinds = t.DisabledTools, ReadOnly = t.ReadOnly, MaxPerRun = 16, GrantedUpfront = true };
 
     private static ToolContext Ctx() => new()
     {
@@ -311,13 +311,13 @@ public class TeamTests
     [InlineData("unknown", "run_shell", false)]
     public void ToolKindsMatchTheRightTools(string kind, string tool, bool matches)
     {
-        Assert.Equal(matches, TeamToolKinds.Matches(kind, new Named(tool)));
+        Assert.Equal(matches, Flyknit.Core.Tools.ToolKinds.Matches(kind, new Named(tool)));
     }
 
     [Fact]
-    public void TeamDisabledKindsOnlyRemoveTools()
+    public void ConstraintDisabledKindsOnlyRemoveTools()
     {
-        var expert = new Expert { Id = "e", Name = "E", DisallowedTools = new() { "write_file" }, TeamDisabledKinds = new() { "shell" } };
+        var expert = new Expert { Id = "e", Name = "E", DisallowedTools = new() { "write_file" }, ConstraintDisabledKinds = new() { "shell" } };
         Assert.False(ExpertRuntime.Allows(expert, new Named("run_shell")));    // 团队关掉的
         Assert.False(ExpertRuntime.Allows(expert, new Named("write_file")));   // 专家原来就没有的仍然没有
         Assert.True(ExpertRuntime.Allows(expert, new Named("read_file")));

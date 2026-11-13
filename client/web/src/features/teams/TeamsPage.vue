@@ -2,11 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Copy, Pencil, Play, Plus, Search, Trash2 } from '@lucide/vue'
-import ExpertAvatar from './ExpertAvatar.vue'
+import ExpertAvatar from '../../components/ExpertAvatar.vue'
 import TeamEditor from './TeamEditor.vue'
-import { copyTeam, dissolveTeam, loadTeams, startTeamTask, state, toast } from '../store'
-import { teamIcon } from '../teams'
-import type { Team } from '../types'
+import { state, toast } from '../../store'
+import { copyTeam, dissolveTeam, loadTeams, startTeamTask, teams } from './store'
+import { teamIcon } from './meta'
+import type { Team } from '../../types'
 
 /**
  * 团队（docs/team-mode.md 7.2）：把几位专家组成团队，给团队一件事，主助手当队长列计划、派活、汇总。
@@ -25,7 +26,7 @@ const expertName = (id: string) => expertOf(id)?.name ?? id
 
 const shown = computed(() => {
   const q = query.value.trim().toLowerCase()
-  return state.teams.filter((team) => {
+  return teams.list.filter((team) => {
     if (filter.value === 'mine' && !team.editable) return false
     if (filter.value === 'department' && team.source !== 'department') return false
     if (filter.value === 'it' && team.source !== 'it') return false
@@ -81,7 +82,7 @@ async function dissolve() {
       </label>
     </div>
 
-    <p v-if="state.teamsLoading && !state.teams.length" class="empty">{{ t('ui.teams.loading') }}</p>
+    <p v-if="teams.loading && !teams.list.length" class="empty">{{ t('ui.teams.loading') }}</p>
     <div v-else class="grid">
       <article v-for="team in shown" :key="team.id" class="tcard">
         <div class="row1">

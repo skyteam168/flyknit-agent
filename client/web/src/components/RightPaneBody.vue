@@ -9,7 +9,7 @@ import TerminalTab from './TerminalTab.vue'
 import DocumentTab from './DocumentTab.vue'
 import BackgroundTab from './BackgroundTab.vue'
 import FilesTab from './FilesTab.vue'
-import TeamPanel from './TeamPanel.vue'
+import TeamPanel from '../features/teams/TeamPanel.vue'
 
 /** 右侧面板里的一格：按标签显示对应的内容（分屏时上下两格各用一个） */
 defineProps<{ tab: string }>()

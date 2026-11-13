@@ -2,9 +2,10 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronRight, Square } from '@lucide/vue'
-import ExpertAvatar from './ExpertAvatar.vue'
-import { currentState, current, openSubtaskDetail, state, stopTeamMember } from '../store'
-import type { TeamMemberView } from '../types'
+import ExpertAvatar from '../../components/ExpertAvatar.vue'
+import { current, currentState, openSubtaskDetail, state } from '../../store'
+import { currentTeamRun, stopTeamMember } from './store'
+import type { TeamMemberView } from '../../types'
 
 /**
  * 团队面板（docs/team-mode.md 7.5）：右侧面板里的「团队」标签。
@@ -16,7 +17,7 @@ const { t } = useI18n()
 const tab = ref<'members' | 'board'>('members')
 const open = ref<Record<string, boolean>>({})
 
-const run = computed(() => currentState.value?.team ?? null)
+const run = computed(() => currentTeamRun.value)
 const members = computed<TeamMemberView[]>(() => {
   const r = run.value
   if (!r) return []

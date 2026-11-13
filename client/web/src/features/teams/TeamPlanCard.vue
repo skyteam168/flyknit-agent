@@ -2,8 +2,9 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ClipboardList, Play, X } from '@lucide/vue'
-import ExpertAvatar from './ExpertAvatar.vue'
-import { answerTeamPlan, currentState, current } from '../store'
+import ExpertAvatar from '../../components/ExpertAvatar.vue'
+import { current } from '../../store'
+import { answerTeamPlan, currentTeamRun } from './store'
 
 /**
  * 分工计划卡（docs/team-mode.md 7.4）：队长提交计划后停在输入框上方，员工看过才执行。
@@ -11,7 +12,7 @@ import { answerTeamPlan, currentState, current } from '../store'
  * - 点「开始执行」之前不会动任何东西。
  */
 const { t } = useI18n()
-const pending = computed(() => currentState.value?.team?.pending ?? null)
+const pending = computed(() => currentTeamRun.value?.pending ?? null)
 const removed = ref<string[]>([])
 const revising = ref(false)
 const reviseText = ref('')

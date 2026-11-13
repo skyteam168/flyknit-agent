@@ -20,8 +20,6 @@ import type {
   TerminalRun,
   ConfirmChoice,
   Expert,
-  Team,
-  TeamInput,
   McpVendor,
   Conversation,
   HostEvent,
@@ -72,8 +70,6 @@ interface ConversationState {
   paused?: boolean
   /** 同一步里几个要确认的操作合成的一张卡（docs/approval-p0.md 第 7 节） */
   batch?: import('./types').BatchConfirm
-  /** 团队任务（docs/team-mode.md）：计划卡、成员进度、看板 */
-  team?: import('./types').TeamRunView
 }
 
 /** 读一个对话盯着的 PR */
@@ -139,9 +135,6 @@ export const state = reactive({
   /** 排队中（还没轮到）的拆分子对话：侧栏标「排队中」，打开时显示占位说明 */
   queued: {} as Record<string, QueuedView>,
   view: 'chat' as 'chat' | 'library' | 'experts' | 'teams' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
-  /** 团队（docs/team-mode.md）：打开「团队」页时从服务端取 */
-  teams: [] as Team[],
-  teamsLoading: false,
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
   /** 每个对话里每一轮改动的文件（打开对话、一轮结束时取） */
@@ -936,89 +929,6 @@ export function openExperts() {
   void loadExperts()
 }
 
-// ---------- 团队（docs/team-mode.md）----------
-export function openTeams() {
-  state.view = 'teams'
-  void loadExperts()
-  void loadTeams()
-}
-
-export async function loadTeams() {
-  state.teamsLoading = true
-  try {
-    state.teams = await bridge.listTeams()
-  } catch (e) {
-    fail(e)
-  } finally {
-    state.teamsLoading = false
-  }
-}
-
-/** 保存团队：成功返回保存后的团队；失败（重名、成员不在范围内、别人刚改过……）提示服务端的原话，返回 null */
-export async function saveTeam(id: string | null, input: TeamInput): Promise<Team | null> {
-  try {
-    const saved = await bridge.saveTeam(id, input)
-    await loadTeams()
-    return saved
-  } catch (e) {
-    fail(e)
-    return null
-  }
-}
-
-export async function dissolveTeam(id: string) {
-  try {
-    await bridge.dissolveTeam(id)
-    state.teams = state.teams.filter((t) => t.id !== id)
-  } catch (e) {
-    fail(e)
-  }
-}
-
-/** 团队卡片上点「开始任务」：进入这个团队的新对话（发第一句话时才真正创建） */
-export function startTeamTask(id: string) {
-  newConversation('agent')
-  draftMode.teamId = id
-  window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
-}
-
-/** 当前对话（或新对话草稿）的团队 */
-export const currentTeam = computed<Team | null>(() => {
-  const id = current.value ? current.value.teamId : draftMode.teamId
-  return id ? (state.teams.find((t) => t.id === id) ?? null) : null
-})
-
-/** 回答计划卡 */
-export async function answerTeamPlan(conversationId: string, action: 'start' | 'revise' | 'cancel', removed: string[] = [], text = '') {
-  const run = convState(conversationId).team
-  const pending = run?.pending
-  if (!run || !pending) return
-  run.pending = null
-  await bridge.teamPlanAnswer(pending.requestId, action, removed, text).catch(fail)
-}
-
-/** 面板上停掉某一位成员（其余照常） */
-export async function stopTeamMember(conversationId: string, expertId: string) {
-  await bridge.stopTeamMember(conversationId, expertId).catch(fail)
-}
-
-function teamRun(s: ConversationState, runId: string) {
-  if (!s.team || s.team.runId !== runId) {
-    s.team = { runId, pending: null, members: {}, order: [], board: [], startedAt: new Date().toISOString(), finished: false }
-  }
-  return s.team
-}
-
-export async function copyTeam(id: string): Promise<Team | null> {
-  try {
-    const team = await bridge.copyTeam(id)
-    await loadTeams()
-    return team
-  } catch (e) {
-    fail(e)
-    return null
-  }
-}
 
 /** 呼叫专家：进入这位专家的新对话（发第一句话时才真正创建，和新任务一样） */
 export function callExpert(id: string, prompt?: string) {
@@ -1963,12 +1873,39 @@ function readAsDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+// ---------- 功能模块（docs/extension-architecture.md）----------
+
+/**
+ * 一个界面功能模块（如团队）接进底座的方式：订阅某一类宿主事件、在一轮结束时收尾、在应用设置变了时跟着变。
+ * 模块自己管自己的状态，底座不认识具体功能。模块在 features/index.ts 里登记。
+ */
+export interface Feature {
+  id: string
+  /** 订阅的事件类型前缀（如 'team.'），匹配上的事件只交给这个模块 */
+  eventPrefix?: string
+  onEvent?: (e: HostEvent) => void
+  /** 一轮结束（正常结束、出错、停止） */
+  onRunFinished?: (conversationId: string) => void
+  /** 宿主推来的应用设置（安全中心开关等）变了 */
+  onAppChanged?: () => void
+}
+
+const features: Feature[] = []
+
+export function registerFeature(feature: Feature) {
+  if (features.some((f) => f.id === feature.id)) throw new Error(`功能模块重复登记：${feature.id}`)
+  const prefix = feature.eventPrefix
+  if (prefix && features.some((f) => f.eventPrefix && (f.eventPrefix.startsWith(prefix) || prefix.startsWith(f.eventPrefix))))
+    throw new Error(`功能模块事件前缀冲突：${prefix}`)
+  features.push(feature)
+}
+
 // ---------- 宿主事件 ----------
 /**
  * 不是从界面发起的运行（定时任务「立即运行」、宿主让打开的对话、后台指令）：
  * 收到第一段输出时补上「运行中」，这样草稿能显示出来，也能点停止。
  */
-function markRunning(conversationId: string): ConversationState {
+export function markRunning(conversationId: string): ConversationState {
   const s = convState(conversationId)
   if (!s.busy) {
     s.busy = true
@@ -1984,11 +1921,7 @@ function finishRun(s: ConversationState, conversationId: string) {
   s.stopping = false
   s.paused = false
   s.batch = undefined
-  if (s.team) {
-    s.team.pending = null
-    s.team.finished = true
-    for (const m of Object.values(s.team.members)) if (!['done', 'failed', 'stopped'].includes(m.status)) m.status = 'stopped'
-  }
+  for (const f of features) f.onRunFinished?.(conversationId)
   void loadChanges(conversationId)
   s.draft = null
   for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
@@ -2000,6 +1933,13 @@ function finishRun(s: ConversationState, conversationId: string) {
 }
 
 function onHostEvent(e: HostEvent) {
+  // 功能模块订阅的事件（按类型前缀）交给模块自己处理
+  for (const f of features) {
+    if (f.eventPrefix && f.onEvent && e.type.startsWith(f.eventPrefix)) {
+      f.onEvent(e)
+      return
+    }
+  }
   switch (e.type) {
     case 'chat.delta': {
       const s = markRunning(e.conversationId)
@@ -2069,62 +2009,6 @@ function onHostEvent(e: HostEvent) {
         effect: e.effect ?? 'unknown',
         actor: e.actor,
         bundle: e.bundle,
-      }
-      break
-    }
-    case 'team.plan': {
-      const run = teamRun(markRunning(e.conversationId), e.runId)
-      run.pending = {
-        requestId: e.requestId, callId: e.callId, runId: e.runId, round: e.round, goal: e.goal, items: e.items,
-        skipped: e.skipped, estimateTokens: e.estimateTokens, budgetTokens: e.budgetTokens,
-      }
-      run.finished = false
-      break
-    }
-    case 'team.planClosed': {
-      const run = convState(e.conversationId).team
-      if (run?.pending?.requestId === e.requestId) run.pending = null
-      break
-    }
-    case 'team.started': {
-      const run = teamRun(convState(e.conversationId), e.runId)
-      for (const item of e.items) {
-        run.members[item.expertId] = {
-          expertId: item.expertId, status: item.dependsOn.length ? 'upstream' : 'waiting', note: '', callId: `${e.callId}#${item.expertId}`,
-          subtaskId: '', task: item.task, done: item.done, dependsOn: item.dependsOn,
-        }
-        if (!run.order.includes(item.expertId)) run.order.push(item.expertId)
-      }
-      run.finished = false
-      // 团队开工：右侧面板切到「团队」
-      state.rightTab = 'team'
-      state.rightClosed = false
-      break
-    }
-    case 'team.member': {
-      const run = convState(e.conversationId).team
-      const m = run?.runId === e.runId ? run.members[e.expertId] : undefined
-      if (m) {
-        m.status = e.status
-        m.note = e.note
-        if (e.subtaskId) m.subtaskId = e.subtaskId
-        if (e.status === 'retrying') m.retries = (m.retries ?? 0) + 1
-      }
-      break
-    }
-    case 'team.board': {
-      const run = convState(e.conversationId).team
-      if (run?.runId === e.runId) run.board.push({ expertId: e.expertId, name: e.name, kind: e.kind, text: e.text, at: e.at })
-      break
-    }
-    case 'team.round': {
-      const run = convState(e.conversationId).team
-      if (run?.runId === e.runId) {
-        for (const r of e.results) {
-          const m = run.members[r.expertId]
-          if (m) m.delivery = r.delivery
-        }
-        run.finished = Object.values(run.members).every((m) => ['done', 'failed', 'stopped'].includes(m.status))
       }
       break
     }
@@ -2220,7 +2104,6 @@ function onHostEvent(e: HostEvent) {
         if (e.longTasks !== undefined) state.app.longTasks = e.longTasks
         if (e.routerSplit !== undefined) state.app.routerSplit = e.routerSplit
         if (e.teams !== undefined) state.app.teams = e.teams
-        if (e.teams === false && state.view === 'teams') state.view = 'chat'
         if (e.teamCreate !== undefined) state.app.teamCreate = e.teamCreate
         if (e.teamMaxMembers !== undefined) state.app.teamMaxMembers = e.teamMaxMembers
         if (e.developerTools !== undefined) state.app.developerTools = e.developerTools
@@ -2228,6 +2111,7 @@ function onHostEvent(e: HostEvent) {
         if (e.webSearchEnabled !== undefined) state.app.webSearchEnabled = e.webSearchEnabled
         if (e.deepThinking !== undefined) state.app.deepThinking = e.deepThinking
         if (e.webSearch !== undefined) state.app.webSearch = e.webSearch
+        for (const f of features) f.onAppChanged?.()
       }
       break
     case 'tool.ask': {

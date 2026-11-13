@@ -58,7 +58,4 @@ public sealed class TeamInput
 
     /// <summary>改的时候带上读到的 updated_at，别人先改过就会被拒绝（409）。</summary>
     [JsonPropertyName("updated_at")] public DateTimeOffset? UpdatedAt { get; set; }
-
-    /// <summary>工具类别只认这几种（和服务端一致），其余丢掉。</summary>
-    public static readonly IReadOnlySet<string> ToolKinds = new HashSet<string>(StringComparer.Ordinal) { "shell", "write", "browser", "mcp", "developer" };
 }

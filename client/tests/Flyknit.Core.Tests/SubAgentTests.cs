@@ -140,7 +140,7 @@ public sealed class SubAgentTests : IDisposable
         var runner = new SubAgentRunner(_gateway, _confirm, () => new AgentOptions(), null, null, _store, _events, limits);
         var tools = ToolRegistry.CreateDefault();
         tools.Add(new AskUserTool(new NoAnswer()));
-        tools.Add(new SpawnAgentTool(runner, () => tools, Scenes.Agent, null, null, forceReadOnly));
+        tools.Add(new SpawnAgentTool(runner, () => tools, Scenes.Agent, () => null, null, forceReadOnly));
         return (tools, runner);
     }
 

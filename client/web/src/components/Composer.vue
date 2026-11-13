@@ -45,7 +45,8 @@ import WorkspacePicker from './WorkspacePicker.vue'
 import PermissionPicker from './PermissionPicker.vue'
 import ConfirmBar from './ConfirmBar.vue'
 import BatchConfirm from './BatchConfirm.vue'
-import TeamPlanCard from './TeamPlanCard.vue'
+import TeamPlanCard from '../features/teams/TeamPlanCard.vue'
+import { currentTeam } from '../features/teams/store'
 import AskBar from './AskBar.vue'
 import CompactingCard from './CompactingCard.vue'
 import UsageWarning from './UsageWarning.vue'
@@ -59,7 +60,6 @@ import {
   cancelSpeech,
   current,
   currentExpert,
-  currentTeam,
   currentState,
   draftMode,
   finishSpeech,

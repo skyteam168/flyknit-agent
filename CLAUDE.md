@@ -138,8 +138,10 @@ flyknitbuddy/
 | 目标 | 改哪里 |
 | --- | --- |
 | 新内置工具 | `Flyknit.Core/Tools` + 注册 + 测试；专家 `disallowed` 文档如需说明一并更新 |
+| 新编排能力（团队这类，改每轮办事） | 功能模块，按 `docs/extension-architecture.md`：Core 写 `IRunExtension` + 单测，界面接口用 `IBridgeModule`，web 放 `features/<功能>/` 用 `registerFeature`，服务端规则放 `services/<功能>_service.py`；**不要**在 `RunAsync`、`WebBridge` 的 switch、`store.ts` 里加功能分支 |
+| 派专家时另加限制 | `DispatchConstraints`（只会更严），不给派遣器加参数 |
 | 新预览类型 | `Flyknit.Core/Preview` Provider |
-| 新桥接 API/事件 | `bridge.ts` + `WebBridge.cs` + `types` |
+| 新桥接 API/事件 | `bridge.ts` + `types`；宿主侧属于某个功能的放它的 `IBridgeModule`，底座通用的才进 `WebBridge.cs` |
 | 新管理配置项 | server settings/security_settings + admin 视图 + client 拉取与生效点 |
 | 新场景模型 | 后台场景配置 + gateway/model_router；客户端只传场景名 |
 | 技能包 | 社区 `SKILL.md` 标准；服务端库 + 客户端 `Skills/`；拒绝 zip slip 与危险脚本 |
@@ -166,7 +168,7 @@ flyknitbuddy/
 ## 9. 文档优先级
 
 1. 本文件（开发规则）
-2. `docs/architecture.md`（与代码绑定的架构约定）
+2. `docs/architecture.md`（与代码绑定的架构约定）、`docs/extension-architecture.md`（底座与功能模块）
 3. `docs/expert-delegation-contract.md`（派遣三方契约）
 4. 根目录 `README.md`（部署与功能说明）
 5. `mobile/README.md`（手机端打包与联调）
@@ -174,6 +176,8 @@ flyknitbuddy/
 架构文档与代码冲突时：**以代码 + 测试为准**，并应回头改文档。
 
 ## 10. 给 Agent 的行为要求
+
+- 底座保持简单：先想能不能用技能、连接器、专家配置做；要写代码的新能力做成功能模块（`docs/extension-architecture.md`），不往底座里加分支。
 
 - 先定位正确层级（Core / Client / web / server / admin / mobile），再改；跨层契约一次改齐。
 - 优先最小改动；复用现有 `ITool`、Policy、Preview、桥接模式。

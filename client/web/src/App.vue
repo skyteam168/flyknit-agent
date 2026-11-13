@@ -24,7 +24,8 @@ import ImageViewer from './components/ImageViewer.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
-import TeamsPage from './components/TeamsPage.vue'
+import TeamsPage from './features/teams/TeamsPage.vue'
+import { currentTeamRun } from './features/teams/store'
 import TasksPage from './components/TasksPage.vue'
 import GroupCard from './components/GroupCard.vue'
 import PluginsPage from './components/PluginsPage.vue'
@@ -114,7 +115,7 @@ const showRight = computed(
       ((state.browser.active || hasRunningBackground(state.currentId)) && !state.rightClosed) ||
       (showPlan.value && !state.rightClosed) ||
       // 团队任务：成员进度、共享看板（员工点了关闭就不再自动弹）
-      (!!currentState.value?.team && !state.rightClosed)),
+      (!!currentTeamRun.value && !state.rightClosed)),
 )
 /** 有当前对话时显示对话视图，否则显示新任务首页 */
 const inConversation = computed(() => current.value !== null)

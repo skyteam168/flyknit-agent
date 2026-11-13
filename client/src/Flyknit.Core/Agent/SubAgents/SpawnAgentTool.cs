@@ -31,13 +31,14 @@ public sealed class SpawnAgentTool : ITool, ILongRunningTool, IParallelTool
     private readonly SubAgentRunner _runner;
     private readonly Func<ToolRegistry> _parentTools;
     private readonly string _scene;
-    private readonly int? _modelId;
+    private readonly Func<int?> _modelId;
     private readonly IReadOnlyDictionary<string, JsonNode?>? _extraBody;
     private readonly bool _forceReadOnly;
 
     /// <param name="forceReadOnly">计划模式、预演：这一轮不许改东西，子代理也只能只读。</param>
     /// <param name="parentTools">主助手这一轮的工具表（取的时候再取：本工具自己也在里面，子代理会去掉它）。</param>
-    public SpawnAgentTool(SubAgentRunner runner, Func<ToolRegistry> parentTools, string scene, int? modelId,
+    /// <param name="modelId">主助手这一轮的模型（取的时候再取：运行扩展准备时模型还没最后定下来）。</param>
+    public SpawnAgentTool(SubAgentRunner runner, Func<ToolRegistry> parentTools, string scene, Func<int?> modelId,
         IReadOnlyDictionary<string, JsonNode?>? extraBody = null, bool forceReadOnly = false)
     {
         _forceReadOnly = forceReadOnly;
@@ -98,7 +99,7 @@ public sealed class SpawnAgentTool : ITool, ILongRunningTool, IParallelTool
             // 几个子代理同时跑时 CurrentCallId 会被后面的覆盖，在第一个 await 之前取走
             CallId: ctx.CurrentCallId);
         var history = request.Fork ? ctx.ForkHistory?.Invoke() : null;
-        return _runner.RunAsync(request, _parentTools(), history, _scene, _modelId, _extraBody, ctx, ct);
+        return _runner.RunAsync(request, _parentTools(), history, _scene, _modelId(), _extraBody, ctx, ct);
     }
 }
 

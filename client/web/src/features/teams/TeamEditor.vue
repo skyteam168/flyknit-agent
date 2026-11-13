@@ -2,10 +2,11 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X } from '@lucide/vue'
-import ExpertAvatar from './ExpertAvatar.vue'
-import { loadModels, saveTeam, state, toast } from '../store'
-import { TEAM_ICONS, TEAM_TOOL_KINDS } from '../teams'
-import type { Team, TeamInput, TeamToolKind } from '../types'
+import ExpertAvatar from '../../components/ExpertAvatar.vue'
+import { loadModels, state, toast } from '../../store'
+import { saveTeam } from './store'
+import { TEAM_ICONS, TEAM_TOOL_KINDS } from './meta'
+import type { Team, TeamInput, TeamToolKind } from '../../types'
 
 /**
  * 新建 / 编辑团队（docs/team-mode.md 7.3）：两步——先选成员（2～上限位专家），再填团队设置。

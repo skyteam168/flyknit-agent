@@ -47,8 +47,11 @@ public interface ITeamHost
 /// </summary>
 public sealed class TeamSession
 {
-    public TeamSession(Team team, string runId, TeamScheduler scheduler, ITeamHost host, ExpertDispatcher dispatcher, Func<string, Expert?> experts)
+    /// <param name="enabled">团队模式开关：成员派遣看它，不看「派遣专家」开关；关掉时正在跑的成员停下。</param>
+    public TeamSession(Team team, string runId, TeamScheduler scheduler, ITeamHost host, ExpertDispatcher dispatcher, Func<string, Expert?> experts,
+        Func<bool> enabled)
     {
+        Enabled = enabled;
         Team = team;
         RunId = runId;
         Scheduler = scheduler;
@@ -58,6 +61,7 @@ public sealed class TeamSession
     }
 
     public Team Team { get; }
+    public Func<bool> Enabled { get; }
     public string RunId { get; }
     public TeamScheduler Scheduler { get; }
     public ITeamHost Host { get; }
@@ -84,7 +88,19 @@ public sealed class TeamSession
     /// <summary>这次团队任务最多派遣几次：每位成员两次（首次 + 一次重试或补派），最多 16（服务端同样限制）。</summary>
     public int MaxPerRun => Math.Clamp(Team.Members.Count * 2, 1, 16);
 
-    public TeamDispatch DispatchSettings() => new(Team.Id, Team.ModelId, Team.DisabledTools, Team.ReadOnly, MaxPerRun, Granted.ToList());
+    /// <summary>成员派遣的约束：团队设置只收紧专家；服务端按团队编号再核对开关、范围、成员和次数。</summary>
+    public DispatchConstraints DispatchSettings() => new()
+    {
+        GroupId = Team.Id,
+        Enabled = Enabled,
+        DisabledMessage = "管理员没有开启团队模式。",
+        ModelId = Team.ModelId,
+        DisabledKinds = Team.DisabledTools,
+        ReadOnly = Team.ReadOnly,
+        MaxPerRun = MaxPerRun,
+        GrantedUpfront = true,
+        PreGranted = Granted.ToList(),
+    };
 }
 
 /// <summary>两个队长工具共用：出卡、授权、调度、整理结果。</summary>
@@ -123,7 +139,7 @@ internal static class TeamRound
         // ---- 团队开工授权：全队可能要用的连接器操作合成一张卡（只问还没授权过的）----
         var settings = session.DispatchSettings();
         var candidates = plan.Items
-            .SelectMany(i => session.Dispatcher.TeamGrantCandidates(i.ExpertId, settings, ctx))
+            .SelectMany(i => session.Dispatcher.GrantCandidates(i.ExpertId, settings, ctx))
             .Where(c => !session.Granted.Contains(SessionApprovals.KeyFor(c.Tool, "", c.Rule)))
             .GroupBy(c => SessionApprovals.KeyFor(c.Tool, "", c.Rule), StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
