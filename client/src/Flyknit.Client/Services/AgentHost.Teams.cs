@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Flyknit.Core.Agent;
 using Flyknit.Core.Chat;
 using Flyknit.Core.Security;
+using Flyknit.Core.Storage;
 using Flyknit.Core.Teams;
 
 namespace Flyknit.Client.Services;
