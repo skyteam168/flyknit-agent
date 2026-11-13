@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { X } from '@lucide/vue'
+import { Plus, Trash2, X } from '@lucide/vue'
 import ExpertAvatar from '../../components/ExpertAvatar.vue'
 import { loadModels, state, toast } from '../../store'
-import { saveTeam } from './store'
+import { addTeamNote, deleteTeamNote, loadTeamNotes, saveTeam } from './store'
 import { TEAM_ICONS, TEAM_TOOL_KINDS } from './meta'
-import type { Team, TeamInput, TeamToolKind } from '../../types'
+import type { Team, TeamInput, TeamNote, TeamToolKind } from '../../types'
 
 /**
  * 新建 / 编辑团队（docs/team-mode.md 7.3）：两步——先选成员（2～上限位专家），再填团队设置。
@@ -31,13 +31,47 @@ const form = reactive<TeamInput>({
   model_id: props.team?.model_id ?? null,
   disabled_tools: props.team ? [...props.team.disabled_tools] : [],
   read_only: props.team?.read_only ?? false,
+  leader_expert_id: props.team?.leader_expert_id ?? '',
+  examples: props.team ? [...(props.team.examples ?? [])] : [],
   share: props.team?.source === 'personal' ? 'personal' : 'department',
   updated_at: props.team?.updated_at ?? null,
 })
 
 onMounted(() => {
   if (!state.models.length) void loadModels()
+  if (props.team) void refreshNotes()
 })
+
+// ---------- 队长专家、示例任务 ----------
+/** 能当队长的专家：不是成员（队长不派自己） */
+const leaderChoices = computed(() => state.experts.filter((e) => !picked(e.id)))
+const newExample = ref('')
+function addExample() {
+  const text = newExample.value.trim().replace(/\s+/g, ' ')
+  if (!text || form.examples.includes(text) || form.examples.length >= 5) return
+  form.examples = [...form.examples, text]
+  newExample.value = ''
+}
+
+// ---------- 团队经验（团队积累）：只有已经存在的团队才有 ----------
+const notes = ref<TeamNote[]>([])
+const noteText = ref('')
+const noteKind = ref<TeamNote['kind']>('method')
+async function refreshNotes() {
+  if (props.team) notes.value = await loadTeamNotes(props.team.id)
+}
+async function addNote() {
+  const text = noteText.value.trim()
+  if (!props.team || text.length < 2) return
+  const note = await addTeamNote(props.team.id, text, noteKind.value)
+  if (note) {
+    notes.value = [note, ...notes.value]
+    noteText.value = ''
+  }
+}
+async function removeNote(n: TeamNote) {
+  if (props.team && (await deleteTeamNote(props.team.id, n.id))) notes.value = notes.value.filter((x) => x.id !== n.id)
+}
 
 const categories = computed(() => [...new Set(state.experts.map((e) => e.category || t('ui.experts.other')))])
 const candidates = computed(() => {
@@ -77,7 +111,9 @@ async function save() {
   }
   saving.value = true
   try {
-    const saved = await saveTeam(props.team?.id ?? null, { ...form, name: form.name.trim() })
+    // 成员里选了原来的队长：队长不能同时是成员，清掉
+    const leader = picked(form.leader_expert_id) ? '' : form.leader_expert_id
+    const saved = await saveTeam(props.team?.id ?? null, { ...form, leader_expert_id: leader, name: form.name.trim() })
     if (saved) {
       toast(t('ui.teams.editor.saved', { name: saved.name }))
       emit('close')
@@ -186,6 +222,38 @@ async function save() {
             <small>{{ t('ui.teams.editor.leaderNoteHelp') }}</small>
           </div>
 
+          <label class="k" for="team-leader-expert">{{ t('ui.teams.editor.leaderExpert') }}</label>
+          <div>
+            <select id="team-leader-expert" v-model="form.leader_expert_id">
+              <option value="">{{ t('ui.teams.editor.leaderDefault') }}</option>
+              <option v-for="e in leaderChoices" :key="e.id" :value="e.id">{{ e.name }}</option>
+            </select>
+            <small>{{ t('ui.teams.editor.leaderExpertHelp') }}</small>
+          </div>
+
+          <span class="k">{{ t('ui.teams.editor.examples') }}</span>
+          <div>
+            <ul class="exlist">
+              <li v-for="(ex, i) in form.examples" :key="ex">
+                <span>{{ ex }}</span>
+                <button type="button" class="icon" :aria-label="t('ui.teams.editor.removeExample')" @click="form.examples = form.examples.filter((_, j) => j !== i)">
+                  <X :size="13" />
+                </button>
+              </li>
+            </ul>
+            <div v-if="form.examples.length < 5" class="exadd">
+              <input
+                id="team-example"
+                v-model="newExample"
+                maxlength="200"
+                :placeholder="t('ui.teams.editor.examplePlaceholder')"
+                @keydown.enter.prevent="addExample"
+              />
+              <button type="button" class="btn sm" :disabled="!newExample.trim()" @click="addExample"><Plus :size="13" /> {{ t('ui.teams.editor.addExample') }}</button>
+            </div>
+            <small>{{ t('ui.teams.editor.examplesHelp') }}</small>
+          </div>
+
           <label class="k" for="team-model">{{ t('ui.teams.editor.model') }}</label>
           <div>
             <select id="team-model" v-model="form.model_id">
@@ -214,6 +282,31 @@ async function save() {
             <label><input v-model="form.share" type="radio" value="department" /> {{ deptName ? t('ui.teams.editor.shareDeptNamed', { dept: deptName }) : t('ui.teams.editor.shareDept') }}</label>
             <label><input v-model="form.share" type="radio" value="personal" /> {{ t('ui.teams.editor.sharePersonal') }}</label>
           </div>
+
+          <template v-if="team">
+            <span class="k">{{ t('ui.teams.notes.title') }}</span>
+            <div>
+              <small>{{ t('ui.teams.notes.help') }}</small>
+              <div class="exadd">
+                <select v-model="noteKind" class="kind" :aria-label="t('ui.teams.notes.kindLabel')">
+                  <option v-for="k in ['method', 'source', 'pitfall', 'other']" :key="k" :value="k">{{ t(`ui.teams.notes.kind.${k}`) }}</option>
+                </select>
+                <input id="team-note" v-model="noteText" maxlength="300" :placeholder="t('ui.teams.notes.placeholder')" @keydown.enter.prevent="addNote" />
+                <button type="button" class="btn sm" :disabled="noteText.trim().length < 2" @click="addNote"><Plus :size="13" /> {{ t('ui.teams.notes.add') }}</button>
+              </div>
+              <ul class="notes">
+                <li v-for="n in notes" :key="n.id">
+                  <span class="nk">{{ t(`ui.teams.notes.kind.${n.kind}`) }}</span>
+                  <span class="nt">{{ n.text }}</span>
+                  <small>{{ t(`ui.teams.notes.source.${n.source}`) }}{{ n.author ? ' · ' + n.author : '' }}</small>
+                  <button v-if="n.deletable" type="button" class="icon" :aria-label="t('ui.teams.notes.delete')" @click="removeNote(n)">
+                    <Trash2 :size="13" />
+                  </button>
+                </li>
+              </ul>
+              <p v-if="!notes.length" class="none">{{ t('ui.teams.notes.empty') }}</p>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -548,5 +641,65 @@ h4 {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;
   }
+}
+.exlist,
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.exlist li,
+.notes li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: var(--t-sm);
+}
+.exlist li span,
+.notes .nt {
+  flex: 1;
+  min-width: 0;
+}
+.notes small {
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+.notes .nk {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--indigo) 12%, transparent);
+  color: var(--indigo);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+}
+.exadd {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0;
+}
+.exadd input {
+  flex: 1;
+  min-width: 0;
+}
+.exadd .kind {
+  width: auto;
+}
+.icon {
+  display: inline-flex;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+.none {
+  margin: 4px 0 0;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
 }
 </style>

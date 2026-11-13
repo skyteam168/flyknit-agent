@@ -3,7 +3,7 @@
  * 模拟会话存储、流式回复、工具调用与确认流程，便于在没有 Windows 的情况下开发界面。
  */
 import type { HostTransport } from './bridge'
-import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, SubtaskDto, Team, TeamInput, TerminalRun, UiMessage } from './types'
+import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, SubtaskDto, Team, TeamInput, TeamNote, TeamRunRecord, TerminalRun, UiMessage } from './types'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -560,8 +560,12 @@ export function createMockHost(): HostTransport {
       status[eid] = st
       emit({ type: 'team.member', conversationId: id, runId, expertId: eid, status: st, note, subtaskId, callId: `${callId}#${eid}` } as never)
     }
-    const board = (eid: string, kind: string, text2: string) =>
-      emit({ type: 'team.board', conversationId: id, runId, expertId: eid, name: expertOf(eid).name, kind, text: text2, at: now() } as never)
+    const boardItems: { expertId: string; name: string; kind: string; text: string; at: string }[] = []
+    const board = (eid: string, kind: string, text2: string) => {
+      const item = { expertId: eid, name: expertOf(eid).name, kind, text: text2, at: now() }
+      boardItems.push(item)
+      emit({ type: 'team.board', conversationId: id, runId, ...item } as never)
+    }
     const steps: Record<string, string[][]> = {
       mes_analyst: [['mes.query_orders', '车间=A,B，月份=10'], ['mes.query_delay', '按工序统计']],
       quality: [['qms.query_rework', '月份=10'], ['qms.match', '和延期单比对']],
@@ -653,28 +657,57 @@ export function createMockHost(): HostTransport {
     await stream(id, report)
     list.push({ id: uid(), role: 'assistant', content: report, createdAt: now() })
     emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+    // 队长记一条团队经验（团队积累）
+    const note = { id: 'tn_' + uid().slice(0, 6), team_id: team.id, text: '包装线产能要按插单后重算，不能用月初排程的数字', kind: 'pitfall' as const, source: 'leader' as const, author: '', created_at: now(), deletable: true }
+    mockNotes[team.id] = [note, ...(mockNotes[team.id] ?? [])]
+    board('report', 'progress', `队长记了一条团队经验：${note.text}`)
+    // 一轮结束：宿主把存好的面板数据推给界面（关掉再打开、重启后照样能看）
+    const record: TeamRunRecord = {
+      runId, conversationId: id, teamId: team.id, teamName: team.name, goal: '找出 10 月 A 车间订单延期的主要原因',
+      startedAt: now(), finishedAt: now(), finished: true, interrupted: false, autoStarted: false, rounds: 1, reassigned: false,
+      tokens: 409000, rating: 0, feedback: '', notes: 1,
+      members: plan.map((i) => ({
+        expertId: i.expertId, name: expertOf(i.expertId).name, status: status[i.expertId], note: '', callId: `${callId}#${i.expertId}`, subtaskId: '',
+        task: i.task, done: i.done, dependsOn: i.dependsOn, delivery: '达标', retries: i.expertId === 'quality' ? 1 : 0,
+      })),
+      board: boardItems,
+    }
+    mockTeamRuns[id] = record
+    emit({ type: 'team.record', conversationId: id, record } as never)
     emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed' })
   }
 
   // ---------- 团队（docs/team-mode.md）：模拟服务端的范围和权限 ----------
   const teamStamp = () => new Date().toISOString()
+  /** 本地存的团队面板数据（对话 ID → 最近一次）、团队经验（团队 ID → 列表） */
+  const mockTeamRuns: Record<string, TeamRunRecord> = {}
+  const mockNotes: Record<string, TeamNote[]> = {
+    tm_d1: [
+      { id: 'tn_1', team_id: 'tm_d1', text: 'MES 的延期按计划完工日算，不按客户交期算', kind: 'source', source: 'leader', author: '', created_at: teamStamp(), deletable: true },
+      { id: 'tn_2', team_id: 'tm_d1', text: '查返工要先按批次号对齐，QMS 的工单号和 MES 不一样', kind: 'pitfall', source: 'employee', author: 'li.na', created_at: teamStamp(), deletable: false },
+    ],
+  }
   let mockTeams: Team[] = [
     {
       id: 'tm_it1', name: '月报小组', description: '每月 3 号前出上月经营报告', icon: 'chart', leader_note: '',
       members: [{ expert_id: 'mes_analyst', note: '' }, { expert_id: 'quality', note: '' }, { expert_id: 'report', note: '' }],
       model_id: null, disabled_tools: [], read_only: true, source: 'it', owner_name: 'IT', department: '', editable: false, runs: 41,
+      leader_expert_id: '', leader_available: false, examples: ['出一份上个月的经营月报'],
       created_at: teamStamp(), updated_at: teamStamp(),
     },
     {
       id: 'tm_d1', name: '交付分析组', description: '查订单延期的原因，给出改进建议', icon: 'truck', leader_note: '结论先行，报告用表格。',
       members: [{ expert_id: 'mes_analyst', note: '只看 A、B 车间' }, { expert_id: 'quality', note: '' }, { expert_id: 'plan', note: '' }, { expert_id: 'report', note: '' }],
       model_id: null, disabled_tools: [], read_only: false, source: 'department', owner_name: 'nguyen.van.a', department: '质检部', editable: true, runs: 14,
+      leader_expert_id: '', leader_available: false,
+      examples: ['查一下 10 月 A 车间订单为什么延期这么多，给出主要原因和改进建议', '本周交期风险最高的 10 张订单卡在哪道工序'],
       created_at: teamStamp(), updated_at: teamStamp(),
     },
     {
       id: 'tm_d2', name: '客诉追溯组', description: '按客户投诉追到批次和发运', icon: 'search', leader_note: '',
       members: [{ expert_id: 'quality', note: '' }, { expert_id: 'erp_helper', note: '' }, { expert_id: 'ghost', note: '', available: false }],
       model_id: null, disabled_tools: ['shell'], read_only: false, source: 'department', owner_name: 'li.na', department: '质检部', editable: false, runs: 5,
+      leader_expert_id: 'mes_analyst', leader_available: true, examples: [],
       created_at: teamStamp(), updated_at: teamStamp(),
     },
   ]
@@ -690,8 +723,10 @@ export function createMockHost(): HostTransport {
       members: input.members.map((m) => ({ expert_id: m.expert_id, note: m.note, available: true })), model_id: input.model_id,
       disabled_tools: input.disabled_tools, read_only: input.read_only, source: input.share === 'personal' ? 'personal' : 'department',
       owner_name: 'nguyen.van.a', department: input.share === 'personal' ? '' : '质检部', editable: true, runs: base?.runs ?? 0,
+      leader_expert_id: input.leader_expert_id ?? '', leader_available: !!input.leader_expert_id, examples: input.examples ?? [],
       created_at: base?.created_at ?? teamStamp(), updated_at: teamStamp(),
     }
+    if (team.leader_expert_id && team.members.some((m) => m.expert_id === team.leader_expert_id)) throw new Error('队长不能同时是成员')
     mockTeams = base ? mockTeams.map((t) => (t.id === id ? team : t)) : [...mockTeams, team]
     return team
   }
@@ -1972,6 +2007,26 @@ export function createMockHost(): HostTransport {
         return true
       case 'team.stopMember':
         return true
+      case 'team.run':
+        return mockTeamRuns[p.conversationId] ?? null
+      case 'team.rate': {
+        const r = mockTeamRuns[p.conversationId]
+        if (!r || r.runId !== p.runId) return null
+        r.rating = p.rating
+        r.feedback = p.rating ? String(p.feedback ?? '').slice(0, 200) : ''
+        return { ...r }
+      }
+      case 'team.notes':
+        return [...(mockNotes[p.teamId] ?? [])]
+      case 'team.addNote': {
+        if (/密码|password|token/i.test(p.text)) throw new Error('经验里有密码，不能记')
+        const note: TeamNote = { id: 'tn_' + uid().slice(0, 6), team_id: p.teamId, text: p.text, kind: p.kind, source: 'employee', author: 'nguyen.van.a', created_at: now(), deletable: true }
+        mockNotes[p.teamId] = [note, ...(mockNotes[p.teamId] ?? [])]
+        return note
+      }
+      case 'team.deleteNote':
+        mockNotes[p.teamId] = (mockNotes[p.teamId] ?? []).filter((n) => n.id !== p.noteId)
+        return
       case 'teams.list':
         return mockTeams.map((t) => ({ ...t, members: t.members.map((m) => ({ ...m })) }))
       case 'teams.save':

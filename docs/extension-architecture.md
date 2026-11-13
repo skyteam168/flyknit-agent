@@ -40,6 +40,7 @@
 | Core | 工具类别 `ToolKinds` | `Flyknit.Core/Tools/ToolKinds.cs` | 按类别（命令 / 写文件 / 浏览器 / 连接器 / 开发者工具）关掉一批工具 |
 | 宿主 | 界面桥模块 `IBridgeModule` | `Flyknit.Core/Hosting/BridgeModules.cs` | 声明自己处理哪些界面方法；`WebBridge` 先查注册表，查不到才走自己的 `switch` |
 | Web | 功能模块 `registerFeature` | `client/web/src/store.ts`、`client/web/src/features/` | 订阅一类宿主事件（按前缀）、一轮结束时收尾、应用设置变了时跟着变；状态放在模块自己的 `reactive` 里 |
+| Core | 功能模块自己的表 `ConversationStore.ConnectionFactory` | `Flyknit.Core/Storage/ConversationStore.cs` | 功能自己的本地数据（如团队面板数据 `team_runs`）：和会话同一个库，表名带功能前缀，表由模块自己建，迁移只加不删 |
 | 服务端 | 功能服务 | `server/app/services/<功能>_service.py` | 功能规则（开关、范围、次数）集中在服务里；路由只调一个函数 |
 
 ### 3.1 运行扩展
@@ -60,6 +61,8 @@ public interface IRunExtension<in TScope> where TScope : RunScope
   - 模型的优先级是：对话指定 → 专家指定 → 扩展给的；
   - 有多个上限时取最小的。
 - **出场顺序**：按注册顺序问。先出场的扩展排除掉的，后面的不再问；后出场的扩展排除掉先出场的，先出场的那份作废，并调用它的收尾。
+- **只收紧的钩子**：`RunContribution.AllowTool`（筛这一轮的工具表，所有扩展都同意才留）、`CapPermission`（把权限压低；给了更宽的也不认），例如专家当团队队长时按它的限制收紧。
+- **没人看着的运行**：`RunScope.Unattended`（定时任务、文件夹监视、事件触发）。扩展只能据此跳过「看一眼再开始」这类非安全环节；确认照常走，没人回答按拒绝。
 - **晚绑定**：`RunScope.Binding` 里的工具表、模型要组装完才知道。扩展加的工具在执行时再取，例如子代理要继承主助手最终的工具表。
 - **收尾**：`RunAssembly.Dispose()` 在 `finally` 里调用。不管成功、失败还是停止，每个扩展的 `OnEnd` 都会被调用，且只调一次。
 

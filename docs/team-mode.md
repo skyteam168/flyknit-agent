@@ -407,3 +407,20 @@
   - Core 的 `Teams/TeamFeature.cs` 同时是运行扩展（队长提示词、`team_plan` / `team_assign`、团队模型和用量上限、这一轮不出场派遣专家和子代理）和界面桥模块（`teams.*`、`team.planAnswer`、`team.stopMember`）；
   - 派专家用通用的 `DispatchConstraints`；
   - 界面在 `client/web/src/features/teams/`。
+
+## 15. 第 3 期及后续（已落地）
+
+都按功能模块的方式加（`docs/extension-architecture.md`），底座只多了几个通用的、只收紧的扩展点。
+
+| 能力 | 做法 | 位置 |
+| --- | --- | --- |
+| 面板数据保存 | 计划、成员状态、看板、结果、评价随事件实时存本地（团队模块自己的表 `team_runs`，每个对话留最近 20 次）；打开对话时界面向宿主要回来。成员交卷的结论是业务数据，只存员工电脑 | Core `Teams/TeamRunRecord.cs`；界面桥 `team.run`；事件 `team.record` |
+| 中断续做 | 程序中途关掉：再打开时标「中断」、没做完的算停下、上报一次。再次开工时，同一位成员、同一项任务（任务和交付标准都相同）已交卷的直接沿用，不重做 | `TeamScheduler.Reuse`、`TeamFeature.ReuseFrom` |
+| 评价与统计 | 报告后 👍 / 👎 + 一句话；一轮结束把数字（成员数、交卷、失败、停止、补派、token、耗时、状态）报给服务端，不报正文。评价先补报再评；后台「效果统计」按团队看完成率、补派率、平均用量和耗时、👍 比例，「效果」里看每次任务和反馈 | 服务端 `team_runs`；后台 Teams 页 |
+| IT 模板 | 交付延期分析、月度经营报告、客诉追溯三个模板：职责、队长要求、每个位置要什么样的专家、示例任务；专家由 IT 在本厂挑 | `services/team_templates.py`；后台「从模板新建」 |
+| 示例任务 | 每个团队最多 5 条；员工在团队卡片上点一下，带着这句话进入团队对话（发送前可改） | `teams.examples` |
+| 队长专家 | 团队可以指定一位专家当队长：带上它的工作方式、知识和模型；工具和权限按它的限制收紧（`RunContribution.AllowTool` / `CapPermission`，只收紧）。队长不能同时是成员；这台电脑用不了那位专家时由主助手当 | `teams.leader_expert_id`；`TeamFeature.PrepareAsync` |
+| 团队经验 | 队长写完报告后用 `team_note` 记可复用的做法、口径、坑（每次最多 3 条）；员工、IT 也能加。下次开工时最近 20 条作为参考资料（不是指令）给队长。写入前员工端和服务端各查一遍密码、密钥、令牌（整条拒收），手机号、身份证号打码；跟着团队的范围走；写的人、团队创建人、IT 能删；每队最多 200 条 | 服务端 `team_notes`；Core `TeamNoteTool` |
+| 定时团队任务 | 定时任务可以交给团队（`scheduled_tasks.team_id`）。到点后建团队对话，分工计划自动开始（`RunScope.Unattended`）；开工授权和成员的确认照常问，没人回答按拒绝处理 | `ScheduleRunner`、`TeamSession.AutoStart` |
+
+不做的：成员之间直接对话、常驻在线自己找活的团队、手机端发起团队任务、命令行和 IDE 里用团队。

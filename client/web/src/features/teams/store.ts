@@ -1,7 +1,8 @@
-import { computed, reactive } from 'vue'
+import { computed, nextTick, reactive, watch } from 'vue'
 import { bridge } from '../../bridge'
-import { current, draftMode, fail, loadExperts, markRunning, newConversation, registerFeature, state } from '../../store'
-import type { HostEvent, Team, TeamInput, TeamRunView } from '../../types'
+import { current, draftMode, fail, fillInput, loadExperts, markRunning, newConversation, registerFeature, state, toast } from '../../store'
+import type { HostEvent, Team, TeamInput, TeamMemberState, TeamNote, TeamRunRecord, TeamRunView } from '../../types'
+import { i18n } from '../../i18n'
 
 /**
  * 团队模式（docs/team-mode.md）在界面上的状态和操作：团队列表、团队任务的计划卡、成员进度、看板。
@@ -66,11 +67,44 @@ export async function copyTeam(id: string): Promise<Team | null> {
   }
 }
 
-/** 团队卡片上点「开始任务」：进入这个团队的新对话（发第一句话时才真正创建） */
-export function startTeamTask(id: string) {
+/** 团队卡片上点「开始任务」（或点某条示例任务）：进入这个团队的新对话，发第一句话时才真正创建 */
+export function startTeamTask(id: string, text = '') {
   newConversation('agent')
   draftMode.teamId = id
-  window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+  void nextTick(() => {
+    if (text) fillInput(text)
+    window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+  })
+}
+
+// ---------- 团队经验（团队积累）----------
+
+export async function loadTeamNotes(teamId: string): Promise<TeamNote[]> {
+  try {
+    return await bridge.listTeamNotes(teamId)
+  } catch (e) {
+    fail(e)
+    return []
+  }
+}
+
+export async function addTeamNote(teamId: string, text: string, kind: TeamNote['kind']): Promise<TeamNote | null> {
+  try {
+    return await bridge.addTeamNote(teamId, text, kind)
+  } catch (e) {
+    fail(e)
+    return null
+  }
+}
+
+export async function deleteTeamNote(teamId: string, noteId: string): Promise<boolean> {
+  try {
+    await bridge.deleteTeamNote(teamId, noteId)
+    return true
+  } catch (e) {
+    fail(e)
+    return false
+  }
 }
 
 /** 当前对话（或新对话草稿）的团队 */
@@ -96,6 +130,49 @@ export async function answerTeamPlan(conversationId: string, action: 'start' | '
 /** 面板上停掉某一位成员（其余照常） */
 export async function stopTeamMember(conversationId: string, expertId: string) {
   await bridge.stopTeamMember(conversationId, expertId).catch(fail)
+}
+
+/** 宿主存在本地的面板数据 → 面板用的样子 */
+function fromRecord(r: TeamRunRecord): TeamRunView {
+  const members: TeamRunView['members'] = {}
+  for (const m of r.members) {
+    members[m.expertId] = {
+      expertId: m.expertId, status: m.status as TeamMemberState, note: m.note, callId: m.callId, subtaskId: m.subtaskId,
+      task: m.task, done: m.done, dependsOn: m.dependsOn, delivery: m.delivery, retries: m.retries, reused: m.reused,
+    }
+  }
+  return {
+    runId: r.runId, pending: null, members, order: r.members.map((m) => m.expertId), board: r.board, startedAt: r.startedAt,
+    finished: r.finished, goal: r.goal, interrupted: r.interrupted, autoStarted: r.autoStarted, rating: r.rating, feedback: r.feedback,
+    tokens: r.tokens, notes: r.notes,
+  }
+}
+
+/** 打开一个团队对话：面板不在内存里时向宿主要本地存的那份（关掉再打开、重启后照样能看） */
+export async function loadTeamRun(conversationId: string) {
+  if (teams.runs[conversationId]) return
+  try {
+    const record = await bridge.getTeamRun(conversationId)
+    if (record && !teams.runs[conversationId]) teams.runs[conversationId] = fromRecord(record)
+  } catch {
+    // 老版本宿主没有这个接口：面板照旧从这一轮的事件开始
+  }
+}
+
+/** 对团队报告评价：👍 = 1，👎 = -1，再点一次撤回 = 0 */
+export async function rateTeamRun(conversationId: string, rating: number, feedback = '') {
+  const run = teams.runs[conversationId]
+  if (!run) return
+  try {
+    const saved = await bridge.rateTeamRun(conversationId, run.runId, rating, feedback)
+    if (saved) {
+      run.rating = saved.rating
+      run.feedback = saved.feedback
+      toast(i18n.global.t(rating ? 'ui.teamRun.rated' : 'ui.teamRun.unrated'))
+    }
+  } catch (e) {
+    fail(e)
+  }
 }
 
 function runOf(conversationId: string, runId: string): TeamRunView {
@@ -134,6 +211,8 @@ function onTeamEvent(e: HostEvent) {
         if (!run.order.includes(item.expertId)) run.order.push(item.expertId)
       }
       run.finished = false
+      if (e.round === 1 && e.goal) run.goal = e.goal
+      if (e.autoStarted) run.autoStarted = true
       // 团队开工：右侧面板切到「团队」
       state.rightTab = 'team'
       state.rightClosed = false
@@ -155,6 +234,11 @@ function onTeamEvent(e: HostEvent) {
       if (run?.runId === e.runId) run.board.push({ expertId: e.expertId, name: e.name, kind: e.kind, text: e.text, at: e.at })
       break
     }
+    case 'team.record': {
+      // 一轮结束：宿主存好的那份为准（含沿用、评价、经验条数）
+      teams.runs[e.conversationId] = fromRecord(e.record)
+      break
+    }
     case 'team.round': {
       const run = teams.runs[e.conversationId]
       if (run?.runId === e.runId) {
@@ -168,6 +252,15 @@ function onTeamEvent(e: HostEvent) {
     }
   }
 }
+
+// 打开团队对话时把本地存的面板数据拿回来
+watch(
+  () => (current.value?.teamId ? current.value.id : null),
+  (id) => {
+    if (id) void loadTeamRun(id)
+  },
+  { immediate: true },
+)
 
 registerFeature({
   id: 'teams',

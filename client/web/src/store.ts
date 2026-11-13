@@ -233,6 +233,11 @@ export const state = reactive({
 /** 转写出来的文字送到输入框（Composer 挂的这个事件） */
 const SpeechTextEvent = 'flyknit:speech-text'
 
+/** 往输入框里填一句话（不发出去，员工改好再发）：和语音转写走同一个口子 */
+export function fillInput(text: string) {
+  window.dispatchEvent(new CustomEvent(SpeechTextEvent, { detail: text }))
+}
+
 export function onSpeechText(handler: (text: string) => void) {
   const fn = (e: Event) => handler((e as CustomEvent<string>).detail)
   window.addEventListener(SpeechTextEvent, fn)

@@ -60,6 +60,8 @@ import type {
   Expert,
   Team,
   TeamInput,
+  TeamNote,
+  TeamRunRecord,
   HostEvent,
   Mode,
   ModelInfo,
@@ -221,6 +223,13 @@ class Bridge {
   saveTeam = (id: string | null, team: TeamInput) => this.call<Team>('teams.save', { id: id ?? '', team })
   dissolveTeam = (id: string) => this.call<void>('teams.dissolve', { id })
   copyTeam = (id: string) => this.call<Team>('teams.copy', { id })
+  /** 这个对话最近一次团队任务（本地存的面板数据） */
+  getTeamRun = (conversationId: string) => this.call<TeamRunRecord | null>('team.run', { conversationId })
+  rateTeamRun = (conversationId: string, runId: string, rating: number, feedback: string) =>
+    this.call<TeamRunRecord | null>('team.rate', { conversationId, runId, rating, feedback })
+  listTeamNotes = (teamId: string) => this.call<TeamNote[]>('team.notes', { teamId })
+  addTeamNote = (teamId: string, text: string, kind: TeamNote['kind']) => this.call<TeamNote>('team.addNote', { teamId, text, kind })
+  deleteTeamNote = (teamId: string, noteId: string) => this.call<void>('team.deleteNote', { teamId, noteId })
   /** 计划卡：start（removed = 去掉的成员）/ revise（text = 让队长怎么改）/ cancel */
   teamPlanAnswer = (requestId: string, action: 'start' | 'revise' | 'cancel', removed: string[], text: string) =>
     this.call<boolean>('team.planAnswer', { requestId, action, removed, text })

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ChevronRight, Square } from '@lucide/vue'
+import { ChevronRight, Square, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import ExpertAvatar from '../../components/ExpertAvatar.vue'
 import { current, currentState, openSubtaskDetail, state } from '../../store'
-import { currentTeamRun, stopTeamMember } from './store'
+import { currentTeamRun, rateTeamRun, stopTeamMember } from './store'
 import type { TeamMemberView } from '../../types'
 
 /**
@@ -45,12 +45,34 @@ function subtask(m: TeamMemberView) {
 function isWaiting(m: TeamMemberView) {
   return subtask(m)?.status === 'waiting_confirmation'
 }
-const tokens = computed(() =>
-  members.value.reduce((sum, m) => {
+const tokens = computed(() => {
+  const live = members.value.reduce((sum, m) => {
     const r = subtask(m)?.result
     return sum + (r ? r.tokens.prompt + r.tokens.completion : 0)
-  }, 0),
-)
+  }, 0)
+  // 重新打开对话时子任务卡片可能还没恢复：用宿主存下来的总数
+  return live || run.value?.tokens || 0
+})
+
+// ---------- 评价（docs/team-mode.md 第 10 节）----------
+const feedback = ref('')
+const choosing = ref(0)
+function pick(r: number) {
+  const id = current.value?.id
+  if (!id || !run.value) return
+  if (run.value.rating === r && !choosing.value) {
+    void rateTeamRun(id, 0) // 再点一次：撤回
+    return
+  }
+  choosing.value = r
+  feedback.value = run.value.rating === r ? (run.value.feedback ?? '') : ''
+}
+function sendRating() {
+  const id = current.value?.id
+  if (!id || !choosing.value) return
+  void rateTeamRun(id, choosing.value, feedback.value.trim())
+  choosing.value = 0
+}
 function expertOf(id: string) {
   return state.experts.find((e) => e.id === id)
 }
@@ -93,6 +115,9 @@ const time = (iso: string) => {
       </div>
       <div class="bar"><i :style="{ width: pct + '%' }" /></div>
       <div v-if="tokens" class="lbl">{{ t('ui.teamRun.panel.tokens', { n: (tokens / 10000).toFixed(1) }) }}</div>
+      <p v-if="run.interrupted" class="notice warn">{{ t('ui.teamRun.panel.interrupted') }}</p>
+      <p v-else-if="run.autoStarted" class="notice">{{ t('ui.teamRun.panel.autoStarted') }}</p>
+      <p v-if="run.notes" class="notice">{{ t('ui.teamRun.panel.notesRecorded', { n: run.notes }) }}</p>
     </div>
     <div class="tabs" role="tablist">
       <button type="button" role="tab" :aria-pressed="tab === 'members'" @click="tab = 'members'">{{ t('ui.teamRun.panel.members') }}</button>
@@ -109,6 +134,7 @@ const time = (iso: string) => {
             <b>{{ nameOf(m.expertId) }}</b>
             <small>{{ line(m) }}</small>
           </span>
+          <span v-if="m.reused" class="reused">{{ t('ui.teamRun.panel.reused') }}</span>
           <span class="st" :class="statusKey(m)">{{ t(`ui.teamRun.panel.status.${statusKey(m)}`) }}</span>
           <ChevronRight :size="14" class="chev" />
         </button>
@@ -146,6 +172,41 @@ const time = (iso: string) => {
         </div>
       </div>
       <p v-if="!board.length" class="empty">{{ t('ui.teamRun.panel.boardEmpty') }}</p>
+    </div>
+
+    <div v-if="run.finished && members.length && !currentState?.busy" class="rate">
+      <span class="q">{{ run.rating ? t('ui.teamRun.panel.ratedAs') : t('ui.teamRun.panel.rateQuestion') }}</span>
+      <button
+        type="button"
+        class="thumb"
+        :class="{ on: (choosing || run.rating) === 1 }"
+        :aria-pressed="run.rating === 1"
+        :title="t('ui.teamRun.panel.rateUp')"
+        @click="pick(1)"
+      >
+        <ThumbsUp :size="15" />
+      </button>
+      <button
+        type="button"
+        class="thumb"
+        :class="{ on: (choosing || run.rating) === -1 }"
+        :aria-pressed="run.rating === -1"
+        :title="t('ui.teamRun.panel.rateDown')"
+        @click="pick(-1)"
+      >
+        <ThumbsDown :size="15" />
+      </button>
+      <p v-if="run.feedback && !choosing" class="fb">“{{ run.feedback }}”</p>
+      <div v-if="choosing" class="fbrow">
+        <input
+          id="team-feedback"
+          v-model="feedback"
+          maxlength="200"
+          :placeholder="choosing === 1 ? t('ui.teamRun.panel.feedbackUp') : t('ui.teamRun.panel.feedbackDown')"
+          @keydown.enter.prevent="sendRating"
+        />
+        <button type="button" class="btn sm primary" @click="sendRating">{{ t('ui.teamRun.panel.sendRating') }}</button>
+      </div>
     </div>
   </section>
 </template>
@@ -391,5 +452,72 @@ const time = (iso: string) => {
   .chev {
     transition: none;
   }
+}
+.notice {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+}
+.notice.warn {
+  color: var(--amber);
+}
+.reused {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--indigo) 12%, transparent);
+  color: var(--indigo);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+}
+.rate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  font-size: var(--t-sm);
+}
+.rate .q {
+  margin-right: auto;
+  color: var(--ink-soft);
+}
+.thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--cloth);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.thumb.on {
+  border-color: var(--indigo);
+  color: var(--indigo);
+}
+.fb {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.fbrow {
+  display: flex;
+  flex-basis: 100%;
+  gap: 6px;
+}
+.fbrow input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--cloth);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-sm);
 }
 </style>

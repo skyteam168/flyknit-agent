@@ -356,6 +356,8 @@ export interface ScheduledTask {
   catchUp: boolean
   /** 预演：只读调研，列出会做的修改，不真的执行 */
   rehearsal: boolean
+  /** 交给哪个团队做（空 = 普通办事）；到点后分工计划自动开始 */
+  teamId?: string | null
   nextRunAt: string | null
   lastRunAt: string | null
   /** ok / rehearsed / failed / stopped / running */
@@ -1059,7 +1061,8 @@ export type HostEvent =
   | { type: 'tool.confirmBatchResolved'; conversationId: string; requestId: string }
   | ({ type: 'team.plan'; conversationId: string } & TeamPlanPending)
   | { type: 'team.planClosed'; conversationId: string; requestId: string }
-  | { type: 'team.started'; conversationId: string; runId: string; callId: string; round: number; items: { expertId: string; task: string; done: string; dependsOn: string[] }[] }
+  | { type: 'team.started'; conversationId: string; runId: string; callId: string; round: number; goal?: string; autoStarted?: boolean; items: { expertId: string; task: string; done: string; dependsOn: string[] }[] }
+  | { type: 'team.record'; conversationId: string; record: TeamRunRecord }
   | { type: 'team.member'; conversationId: string; runId: string; expertId: string; status: TeamMemberState; note: string; subtaskId: string; callId: string }
   | ({ type: 'team.board'; conversationId: string; runId: string } & TeamBoardItem)
   | { type: 'team.round'; conversationId: string; runId: string; results: { expertId: string; status: string; delivery: string; retries: number }[] }
@@ -1487,8 +1490,49 @@ export interface Team {
   /** 这台电脑能不能改、解散（只有建的人） */
   editable: boolean
   runs: number
+  /** 当队长的专家（空 = 主助手） */
+  leader_expert_id: string
+  /** 队长专家这台电脑现在能不能用 */
+  leader_available: boolean
+  /** 示例任务（最多 5 条） */
+  examples: string[]
   created_at: string
   updated_at: string
+}
+
+/** 团队经验（团队积累）：做法、口径、注意事项；开工时作为参考资料给队长 */
+export interface TeamNote {
+  id: string
+  team_id: string
+  text: string
+  kind: 'method' | 'source' | 'pitfall' | 'other'
+  /** leader（队长记的）/ employee / it */
+  source: 'leader' | 'employee' | 'it'
+  author: string
+  created_at: string
+  deletable: boolean
+}
+
+/** 宿主存在本地的一次团队任务（关掉再打开、重启后面板照样能看） */
+export interface TeamRunRecord {
+  runId: string
+  conversationId: string
+  teamId: string
+  teamName: string
+  goal: string
+  startedAt: string
+  finishedAt: string | null
+  finished: boolean
+  interrupted: boolean
+  autoStarted: boolean
+  rounds: number
+  reassigned: boolean
+  tokens: number
+  rating: number
+  feedback: string
+  notes: number
+  members: (Omit<TeamMemberView, 'status'> & { status: string; name: string; reused?: boolean })[]
+  board: TeamBoardItem[]
 }
 export interface TeamInput {
   name: string
@@ -1499,6 +1543,8 @@ export interface TeamInput {
   model_id: number | null
   disabled_tools: TeamToolKind[]
   read_only: boolean
+  leader_expert_id: string
+  examples: string[]
   share: 'department' | 'personal'
   updated_at?: string | null
 }
@@ -1538,6 +1584,8 @@ export interface TeamMemberView {
   dependsOn: string[]
   delivery?: string
   retries?: number
+  /** 沿用了中断前已交卷的结果 */
+  reused?: boolean
 }
 export interface TeamBoardItem {
   expertId: string
@@ -1556,4 +1604,14 @@ export interface TeamRunView {
   board: TeamBoardItem[]
   startedAt: string
   finished: boolean
+  goal?: string
+  /** 程序中途关掉、没有正常收尾 */
+  interrupted?: boolean
+  /** 定时任务：没人确认，计划自动开始 */
+  autoStarted?: boolean
+  rating?: number
+  feedback?: string
+  tokens?: number
+  /** 这次队长记的团队经验条数 */
+  notes?: number
 }

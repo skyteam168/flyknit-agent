@@ -999,6 +999,65 @@ export interface TeamIn {
   read_only: boolean
   scope_departments: string[]
   scope_devices: number[]
+  /** 当队长的专家（空 = 主助手）；不能同时是成员 */
+  leader_expert_id: string
+  /** 示例任务，最多 5 条 */
+  examples: string[]
+}
+export interface TeamNote {
+  id: string
+  team_id: string
+  text: string
+  kind: 'method' | 'source' | 'pitfall' | 'other'
+  source: 'leader' | 'employee' | 'it'
+  author: string
+  created_at: string
+  deletable: boolean
+}
+export interface TeamStat {
+  team_id: string
+  name: string
+  source: 'it' | 'department' | 'personal'
+  department: string
+  dissolved: boolean
+  runs: number
+  planned: number
+  completed: number
+  completion_rate: number
+  reassign_rate: number
+  avg_tokens: number
+  avg_seconds: number
+  up: number
+  down: number
+  notes: number
+}
+export interface TeamRunRow {
+  run_id: string
+  device_id: number
+  device_name: string
+  department: string
+  planned: number
+  completed: number
+  failed: number
+  stopped: number
+  reassigned: boolean
+  tokens: number
+  duration_seconds: number
+  status: 'finished' | 'stopped' | 'failed' | 'interrupted'
+  rating: number
+  feedback: string
+  created_at: string
+}
+export interface TeamTemplate {
+  key: string
+  name: string
+  description: string
+  icon: string
+  leader_note: string
+  roles: { role: string; note: string }[]
+  examples: string[]
+  disabled_tools: TeamToolKind[]
+  read_only: boolean
 }
 export interface Team extends TeamIn {
   id: string

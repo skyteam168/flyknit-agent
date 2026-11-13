@@ -93,7 +93,10 @@ async function dissolve() {
         <p v-if="team.description" class="desc">{{ team.description }}</p>
         <div class="meta">
           <span class="stack">
-            <span class="leader" :title="t('ui.teams.leader')">{{ t('ui.teams.leaderShort') }}</span>
+            <span
+              class="leader"
+              :title="team.leader_expert_id && team.leader_available ? t('ui.teams.leaderExpert', { name: expertName(team.leader_expert_id) }) : t('ui.teams.leader')"
+            >{{ team.leader_expert_id && team.leader_available ? expertName(team.leader_expert_id).slice(0, 2) : t('ui.teams.leaderShort') }}</span>
             <ExpertAvatar
               v-for="m in team.members.slice(0, 6)"
               :key="m.expert_id"
@@ -112,6 +115,19 @@ async function dissolve() {
           <span>{{ team.source === 'it' ? t('ui.teams.byIt') : t('ui.teams.by', { name: team.owner_name }) }}</span>
           <span v-if="team.runs">· {{ t('ui.teams.runs', { n: team.runs }) }}</span>
           <span v-if="team.read_only">· {{ t('ui.teams.readOnly') }}</span>
+        </div>
+        <div v-if="team.examples?.length" class="examples">
+          <button
+            v-for="ex in team.examples.slice(0, 3)"
+            :key="ex"
+            type="button"
+            class="ex"
+            :title="t('ui.teams.exampleHint')"
+            :disabled="team.members.filter((m) => m.available !== false).length < 1"
+            @click="startTeamTask(team.id, ex)"
+          >
+            {{ ex }}
+          </button>
         </div>
         <div class="acts">
           <button type="button" class="btn sm primary" :disabled="team.members.filter((m) => m.available !== false).length < 1" @click="startTeamTask(team.id)">
@@ -400,5 +416,29 @@ async function dissolve() {
   margin: 0 0 14px;
   color: var(--ink-soft);
   font-size: var(--t-sm);
+}
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 8px;
+}
+.examples .ex {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--cloth);
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.examples .ex:hover:not(:disabled) {
+  border-color: var(--indigo);
+  color: var(--indigo);
 }
 </style>

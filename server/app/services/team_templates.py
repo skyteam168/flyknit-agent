@@ -11,7 +11,7 @@ TEMPLATES: list[dict] = [
         "key": "delivery_delay",
         "name": "交付延期分析组",
         "description": "查清订单为什么延期：生产进度、质量返工、排产插单一起看，给出主要原因和改进建议",
-        "icon": "chart",
+        "icon": "truck",
         "leader_note": "报告先写结论（主要原因排前 3，带占比），再写各成员要点和交叉验证；数字要能对上同一批工单，对不上的写明口径差异。",
         "roles": [
             {"role": "MES / 生产数据专家", "note": "查延期工单、各工序完工时间和延误小时"},
@@ -30,7 +30,7 @@ TEMPLATES: list[dict] = [
         "key": "monthly_report",
         "name": "月度经营报告组",
         "description": "每月汇总产量、质量、交付和成本数据，出一份月报",
-        "icon": "report",
+        "icon": "chart",
         "leader_note": "月报固定四节：产量、质量、交付、成本；每节先给本月数字和环比，再给异常说明。数据取不到的写「未取到」，不要估算。",
         "roles": [
             {"role": "MES / 生产数据专家", "note": "产量、稼动率"},
