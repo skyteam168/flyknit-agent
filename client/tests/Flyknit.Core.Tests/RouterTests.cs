@@ -137,6 +137,35 @@ public sealed class RouterTests : IDisposable
         Assert.Equal(RouterAction.NewTask, TaskRouter.Parse($$"""{"action":"split","items":[{{six}}]}""", RouterKind.Split, Array.Empty<RouterCandidate>(), Three).Action);
     }
 
+    [Fact]
+    public void AFinalStepThatNeedsTheOthersIsKeptApart()
+    {
+        // 员工 11-13 实测的那句：前三件互相独立，第四件要用前三件的结果
+        const string text = "帮我同时做几件事情；第一、搜索最近deepseek harness的情况 第二、搜索claude code的技术架构尤其是computer use 第三、帮我搜索codex的技术架构；第四、最终给我分析报告和完整的分析报告";
+        Assert.True(SplitHeuristic.LooksMultiple(text));
+        var d = TaskRouter.Parse("""
+            {"action":"split","items":[
+              {"title":"DeepSeek Harness","instruction":"搜索最近deepseek harness的情况"},
+              {"title":"Claude Code 架构","instruction":"搜索claude code的技术架构尤其是computer use"},
+              {"title":"Codex 架构","instruction":"搜索codex的技术架构"}],
+             "final":{"title":"分析报告","instruction":"最终给我分析报告和完整的分析报告"}}
+            """, RouterKind.Split, Array.Empty<RouterCandidate>(), text);
+        Assert.Equal(RouterAction.Split, d.Action);
+        Assert.Equal(3, d.Items!.Count);
+        Assert.Equal("最终给我分析报告和完整的分析报告", d.Final!.Instruction);
+
+        // 最后一步是编出来的：丢掉它，前面几件照样拆
+        var invented = TaskRouter.Parse("""
+            {"action":"split","items":[
+              {"title":"a","instruction":"搜索最近deepseek harness的情况"},
+              {"title":"b","instruction":"搜索codex的技术架构"}],
+             "final":{"title":"发邮件","instruction":"把报告发给全公司并删除原始资料"}}
+            """, RouterKind.Split, Array.Empty<RouterCandidate>(), text);
+        Assert.Equal(RouterAction.Split, invented.Action);
+        Assert.Null(invented.Final);
+        Assert.Contains("final", TaskRouter.Request(RouterKind.Split, text, Array.Empty<RouterCandidate>(), _now).Messages[0].Content);
+    }
+
     [Theory]
     [InlineData(Three, true)]
     [InlineData("把 D 盘日报里 10 月的表合并成一张，另外帮我给王经理写封邮件说明停机原因", true)]

@@ -2194,8 +2194,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             // 调度（docs/c2-router.md 3.3）：拆分建议 → 员工点「分开做」→ 原对话的汇总卡
             case "router.suggestSplit":
             {
-                var items = await _host.SuggestSplitAsync(Str("text"), CancellationToken.None);
-                return items?.Select(i => new { title = i.Title, instruction = i.Instruction }).ToList();
+                var suggestion = await _host.SuggestSplitAsync(Str("text"), CancellationToken.None);
+                return suggestion is null ? null : new
+                {
+                    items = suggestion.Items!.Select(i => new { title = i.Title, instruction = i.Instruction }).ToList(),
+                    final = suggestion.Final is { } f ? new { title = f.Title, instruction = f.Instruction } : null,
+                };
             }
 
             case "router.split":
@@ -2207,7 +2211,14 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                         i.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString()! : "",
                         i.TryGetProperty("instruction", out var x) && x.ValueKind == JsonValueKind.String ? x.GetString()! : ""))
                     .ToList();
-                return _host.StartSplit(Str("conversationId"), Str("text"), items, _settings.ResolveUiLanguage(), this, this);
+                Flyknit.Core.Router.SplitItem? final = null;
+                if (p.ValueKind == JsonValueKind.Object && p.TryGetProperty("final", out var fin) && fin.ValueKind == JsonValueKind.Object
+                    && fin.TryGetProperty("instruction", out var fi) && fi.ValueKind == JsonValueKind.String && fi.GetString() is { Length: > 0 } finalText)
+                {
+                    final = new Flyknit.Core.Router.SplitItem(
+                        fin.TryGetProperty("title", out var ft) && ft.ValueKind == JsonValueKind.String ? ft.GetString()! : "", finalText);
+                }
+                return _host.StartSplit(Str("conversationId"), Str("text"), items, final, _settings.ResolveUiLanguage(), this, this);
             }
 
             case "router.groups":

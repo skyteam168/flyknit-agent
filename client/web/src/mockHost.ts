@@ -1947,10 +1947,14 @@ export function createMockHost(): HostTransport {
         const lines = String(p.text).split('\n').map((l: string) => l.trim()).filter((l: string) => /^(\d+[.、)）]|[-*•])/.test(l))
         if (lines.length < 2) return null
         await sleep(400)
-        return lines.map((l: string) => {
+        const items = lines.map((l: string) => {
           const instruction = l.replace(/^(\d+[.、)）]|[-*•])\s*/, '')
           return { title: instruction.slice(0, 12), instruction }
         })
+        // 最后一行像「汇总 / 报告」：当成最后一步
+        const last = items[items.length - 1]
+        const final = items.length > 2 && /汇总|报告|对比|总结/.test(last.instruction) ? items.pop()! : null
+        return { items, final }
       }
       case 'router.split': {
         const parent = conversations.get(p.conversationId)!
