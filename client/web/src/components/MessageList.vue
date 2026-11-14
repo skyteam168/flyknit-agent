@@ -8,6 +8,7 @@ import { changesForAnswer, current, currentState, editAndResend, forkConversatio
 import type { OutputFile, UiMessage } from '../types'
 import RefHoverCard from './RefHoverCard.vue'
 import ToolCard from './ToolCard.vue'
+import { assistantIdentity, toolCard } from '../toolCards'
 import ExpertTaskCard from './ExpertTaskCard.vue'
 import SuggestionCard from './SuggestionCard.vue'
 import { AskExpertTool, SpawnAgentTool, isSubtaskTool } from '../subtasks'
@@ -60,6 +61,18 @@ function traceSeconds(json: string | null | undefined): string {
   } catch {
     return '0'
   }
+}
+
+/** 这类对话里助手消息上方的身份（团队对话：「队长 · 主助手」） */
+const identity = computed(() => assistantIdentity(current.value))
+
+/** 工具调用的结果：还在跑的取不到；跑完的先看这一轮的工具状态，再看存下来的工具消息 */
+function toolOutput(callId: string): string {
+  const st = s.value
+  if (!st) return ''
+  const live = st.tools[callId]
+  if (live) return live.state === 'running' || live.state === 'waiting' ? '' : (live.output ?? '')
+  return st.messages.find((m) => m.role === 'tool' && m.toolCallId === callId)?.content ?? ''
 }
 
 const isAnswer = (m: UiMessage) => m.role === 'assistant' && !!m.content.trim() && !(m.toolCalls?.length)
@@ -140,6 +153,8 @@ const folds = computed(() => {
     const process = turn.slice(0, -1)
     const calls = process.flatMap((m) => m.toolCalls ?? [])
     if (calls.length === 0) continue
+    // 功能模块的卡（团队计划、团队报告）是给员工看的内容，不折进「已完成 N 步」
+    if (calls.some((c) => toolCard(c.name))) continue
     const tools = calls.map((c) => st.tools[c.id])
     if (tools.some((x) => x && (x.state === 'waiting' || x.state === 'running'))) continue
     const labels: string[] = []
@@ -413,11 +428,25 @@ const isImage = (mime: string) => mime.startsWith('image/')
             <summary><Brain :size="14" /> {{ t('message.thinking') }} <ChevronRight :size="14" class="chev" /></summary>
             <p>{{ m.reasoning }}</p>
           </details>
+          <div v-if="identity && !isContinuation(i)" class="who">
+            <span class="who-av">{{ identity.initial }}</span>
+            <span>{{ identity.label }}</span>
+          </div>
           <div v-if="stripToolMarkup(m.content).trim()" class="md" v-html="renderMarkdown(stripToolMarkup(m.content))" />
           <template v-for="c in m.toolCalls ?? []" :key="c.id">
+            <!-- 功能模块自己的卡（toolCards.ts）：团队的分工计划卡、团队报告卡 -->
+            <component
+              :is="toolCard(c.name)"
+              v-if="toolCard(c.name)"
+              :name="c.name"
+              :call-id="c.id"
+              :args="c.arguments"
+              :conversation-id="current!.id"
+              :output="toolOutput(c.id)"
+            />
             <!-- 派给专家的子任务：专门的卡片，显示专家在做什么、交回了什么 -->
             <!-- AI 建议的新任务：卡片，员工点了才开始 -->
-            <SuggestionCard v-if="c.name === 'suggest_task'" :call-id="c.id" :args="c.arguments" :conversation-id="current!.id" />
+            <SuggestionCard v-else-if="c.name === 'suggest_task'" :call-id="c.id" :args="c.arguments" :conversation-id="current!.id" />
             <ExpertTaskCard
               v-else-if="isSubtaskTool(c.name)"
               :tool="s.tools[c.id] ?? { callId: c.id, name: c.name, summary: '', args: c.arguments, risk: 'auto', state: 'done' }"
@@ -523,7 +552,16 @@ const isImage = (mime: string) => mime.startsWith('image/')
         <div v-if="draftText" class="md" v-html="renderMarkdown(draftText, { streaming: true })" />
         <div v-else-if="!s.draft?.reasoning && !s.draft?.sources?.length && orphanTools.length === 0 && !waiting && !expertRunning" class="dots" aria-label="…"><i /><i /><i /></div>
         <template v-for="tool in orphanTools" :key="tool.callId">
-          <ExpertTaskCard v-if="isSubtaskTool(tool.name)" :tool="tool" :conversation-id="current!.id" />
+          <component
+            :is="toolCard(tool.name)"
+            v-if="toolCard(tool.name)"
+            :name="tool.name"
+            :call-id="tool.callId"
+            :args="tool.args ?? '{}'"
+            :conversation-id="current!.id"
+            :output="tool.state === 'running' || tool.state === 'waiting' ? '' : (tool.output ?? '')"
+          />
+          <ExpertTaskCard v-else-if="isSubtaskTool(tool.name)" :tool="tool" :conversation-id="current!.id" />
           <ToolCard v-else :tool="tool" :conversation-id="current!.id" />
         </template>
       </div>
@@ -1260,5 +1298,24 @@ const isImage = (mime: string) => mime.startsWith('image/')
 }
 .queued-icon {
   color: var(--ink-faint);
+}
+.who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.who-av {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--loom);
+  font-size: 11px;
+  font-weight: 600;
 }
 </style>

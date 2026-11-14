@@ -2,9 +2,10 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronRight, Square, ThumbsDown, ThumbsUp } from '@lucide/vue'
+import { teamIcon } from './meta'
 import ExpertAvatar from '../../components/ExpertAvatar.vue'
-import { current, currentState, openSubtaskDetail, state } from '../../store'
-import { currentTeamRun, rateTeamRun, stopTeamMember } from './store'
+import { current, currentState, openSubtaskDetail, state, stop as stopRun } from '../../store'
+import { currentTeam, currentTeamRun, rateTeamRun, stopTeamMember, teams } from './store'
 import type { TeamMemberView } from '../../types'
 
 /**
@@ -35,11 +36,23 @@ const pct = computed(() => (total.value ? Math.round((members.value.filter((m) =
 const now = ref(Date.now())
 const timer = window.setInterval(() => (now.value = Date.now()), 1000)
 onBeforeUnmount(() => window.clearInterval(timer))
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 const elapsed = computed(() => {
-  const start = run.value ? Date.parse(run.value.startedAt) : now.value
-  const s = Math.max(0, Math.round((now.value - start) / 1000))
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  const r = run.value
+  if (!r) return '—'
+  // 结束后显示最后一位成员交卷时的用时
+  if (r.finished) {
+    const last = Math.max(0, ...Object.values(r.members).map((m) => m.doneSeconds ?? 0))
+    return last ? clock(last) : '—'
+  }
+  return clock(Math.max(0, Math.round((now.value - Date.parse(r.startedAt)) / 1000)))
 })
+const teamName = computed(() => currentTeam.value?.name ?? run.value?.teamName ?? '')
+const budget = computed(() => run.value?.budgetTokens ?? 0)
+const wan = (n: number) => (n / 10000).toFixed(n >= 1_000_000 ? 0 : 1).replace(/\.0$/, '')
+const busy = computed(() => !!currentState.value?.busy)
+/** 报告卡里有评价时，面板底下不再问 */
+const rateHere = computed(() => !!run.value && !teams.reported[run.value.runId])
 
 function subtask(m: TeamMemberView) {
   return currentState.value?.subtasks[m.callId] ?? null
@@ -108,15 +121,26 @@ const time = (iso: string) => {
 
 <template>
   <section v-if="run" class="team-panel">
+    <div class="p-head">
+      <span class="ticon"><component :is="teamIcon(currentTeam?.icon ?? 'team')" :size="14" /></span>
+      <h3>{{ t('ui.teamRun.panel.head', { name: teamName }) }}</h3>
+    </div>
     <div class="sum">
       <div class="line">
         <span>{{ t('ui.teamRun.panel.done') }} <b>{{ doneCount }}/{{ total }}</b></span>
         <span>{{ t('ui.teamRun.panel.running') }} <b>{{ runningCount }}</b></span>
         <span v-if="asking" class="ask">{{ t('ui.teamRun.panel.asking') }} <b>{{ asking }}</b></span>
-        <span>{{ t('ui.teamRun.panel.elapsed') }} <b>{{ run.finished ? '—' : elapsed }}</b></span>
+        <span>{{ t('ui.teamRun.panel.elapsed') }} <b>{{ elapsed }}</b></span>
       </div>
-      <div class="bar"><i :style="{ width: pct + '%' }" /></div>
-      <div v-if="tokens" class="lbl">{{ t('ui.teamRun.panel.tokens', { n: (tokens / 10000).toFixed(1) }) }}</div>
+      <div>
+        <div class="lbl"><span>{{ t('ui.teamRun.panel.progress') }}</span><span>{{ pct }}%</span></div>
+        <div class="bar"><i :style="{ width: pct + '%' }" /></div>
+      </div>
+      <div v-if="budget">
+        <div class="lbl"><span>{{ t('ui.teamRun.panel.budget') }}</span><span>{{ t('ui.teamRun.panel.budgetOf', { n: wan(tokens), max: wan(budget) }) }}</span></div>
+        <div class="bar budget"><i :style="{ width: Math.min(100, (tokens / budget) * 100) + '%' }" /></div>
+      </div>
+      <div v-else-if="tokens" class="lbl">{{ t('ui.teamRun.panel.tokens', { n: (tokens / 10000).toFixed(1) }) }}</div>
       <p v-if="run.interrupted" class="notice warn">{{ t('ui.teamRun.panel.interrupted') }}</p>
       <p v-else-if="run.autoStarted" class="notice">{{ t('ui.teamRun.panel.autoStarted') }}</p>
       <p v-if="run.notes" class="notice">{{ t('ui.teamRun.panel.notesRecorded', { n: run.notes }) }}</p>
@@ -138,7 +162,7 @@ const time = (iso: string) => {
           </span>
           <span class="tags">
             <span v-if="m.reused" class="reused">{{ t('ui.teamRun.panel.reused') }}</span>
-            <span class="st" :class="statusKey(m)">{{ t(`ui.teamRun.panel.status.${statusKey(m)}`) }}</span>
+            <span class="st" :class="statusKey(m)">{{ t(`ui.teamRun.panel.status.${statusKey(m)}`) }}<template v-if="m.status === 'done' && m.doneSeconds != null">{{ ' ' + clock(m.doneSeconds) }}</template></span>
           </span>
           <ChevronRight :size="14" class="chev" />
         </button>
@@ -181,7 +205,14 @@ const time = (iso: string) => {
       <p v-if="!board.length" class="empty">{{ t('ui.teamRun.panel.boardEmpty') }}</p>
     </div>
 
-    <div v-if="run.finished && members.length && !currentState?.busy" class="rate">
+    <div class="p-foot">
+      <button v-if="busy && !run.finished" type="button" class="btn sm danger" @click="stopRun()">
+        <Square :size="11" /> {{ t('ui.teamRun.panel.stopAll') }}
+      </button>
+      <span v-else class="ended">{{ t('ui.teamRun.panel.ended') }}</span>
+    </div>
+
+    <div v-if="run.finished && members.length && !busy && rateHere" class="rate">
       <span class="q">{{ run.rating ? t('ui.teamRun.panel.ratedAs') : t('ui.teamRun.panel.rateQuestion') }}</span>
       <button
         type="button"
@@ -228,6 +259,54 @@ const time = (iso: string) => {
   overflow: hidden;
   overflow-wrap: anywhere;
   background: var(--cloth-sunk);
+}
+.p-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.p-head h3 {
+  overflow: hidden;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ticon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--indigo-wash);
+  color: var(--indigo);
+}
+.bar.budget > i {
+  background: var(--thread);
+}
+.sum .lbl {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 3px;
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+.p-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+.p-foot .ended {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
 }
 .sum {
   display: flex;
@@ -432,6 +511,8 @@ const time = (iso: string) => {
   font-size: var(--t-xs);
 }
 .btn.danger {
+  border-color: color-mix(in srgb, var(--red) 40%, var(--line));
+  background: var(--cloth);
   color: var(--red);
 }
 .hint,

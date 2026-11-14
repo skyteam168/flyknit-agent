@@ -3,16 +3,18 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ClipboardList, Play, X } from '@lucide/vue'
 import ExpertAvatar from '../../components/ExpertAvatar.vue'
-import { current } from '../../store'
-import { answerTeamPlan, currentTeamRun } from './store'
+import { answerTeamPlan } from './store'
+import type { TeamPlanPending } from '../../types'
 
 /**
- * 分工计划卡（docs/team-mode.md 7.4）：队长提交计划后停在输入框上方，员工看过才执行。
+ * 分工计划卡里等员工回答的那部分（docs/team-mode.md 7.4）：画在对话里队长那条消息下面，员工看过才执行。
  * - 可以去掉成员（下游对它的依赖一起去掉）、让队长改（写一句话）、取消；
  * - 点「开始执行」之前不会动任何东西。
+ * 回答之后由 TeamPlanInline 画成定稿的样子（「✓ 你已确认计划，团队开始执行」）。
  */
+const props = defineProps<{ pending: TeamPlanPending; conversationId: string }>()
 const { t } = useI18n()
-const pending = computed(() => currentTeamRun.value?.pending ?? null)
+const pending = computed(() => props.pending)
 const removed = ref<string[]>([])
 const revising = ref(false)
 const reviseText = ref('')
@@ -42,15 +44,13 @@ function deps(dependsOn: string[]) {
 }
 
 function act(action: 'start' | 'revise' | 'cancel') {
-  const id = current.value?.id
-  if (!id) return
   if (action === 'revise' && !reviseText.value.trim()) return
-  void answerTeamPlan(id, action, removed.value, reviseText.value.trim())
+  void answerTeamPlan(props.conversationId, action, removed.value, reviseText.value.trim())
 }
 </script>
 
 <template>
-  <div v-if="pending" class="plan-card" role="dialog" :aria-label="t('ui.teamRun.planTitle')">
+  <div class="plan-card" role="group" :aria-label="t('ui.teamRun.planTitle')">
     <div class="head">
       <ClipboardList :size="16" />
       <strong>{{ pending.round === 1 ? t('ui.teamRun.planTitle') : t('ui.teamRun.assignTitle') }}</strong>
@@ -105,8 +105,7 @@ function act(action: 'start' | 'revise' | 'cancel') {
 
 <style scoped>
 .plan-card {
-  max-width: var(--column);
-  margin: 0 auto 10px;
+  margin: 8px 0 4px;
   padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--indigo) 35%, var(--line));
   border-radius: var(--r-lg);

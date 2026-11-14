@@ -25,6 +25,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
 import TeamsPage from './features/teams/TeamsPage.vue'
+import TeamBar from './features/teams/TeamBar.vue'
 import { currentTeamRun } from './features/teams/store'
 import TasksPage from './components/TasksPage.vue'
 import GroupCard from './components/GroupCard.vue'
@@ -326,6 +327,8 @@ onBeforeUnmount(() => {
         <SchedulesPage v-else-if="state.view === 'schedules'" />
         <div v-else-if="inConversation" v-show="!(state.rightMax && showRight)" class="conversation">
           <!-- 专家对话：顶部标出是哪位专家；专家被下线了说一声 -->
+          <!-- 团队对话：顶部团队条（团队名、成员、返回团队列表） -->
+          <TeamBar v-if="current?.teamId" />
           <div v-if="current?.expertId" class="expert-bar" :class="{ withdrawn: expertWithdrawn }">
             <template v-if="currentExpert">
               <ExpertAvatar :avatar="currentExpert.avatar" :name="currentExpert.name" :id="currentExpert.id" :size="22" />

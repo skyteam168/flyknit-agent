@@ -3,6 +3,9 @@ import { bridge } from '../../bridge'
 import { current, draftMode, fail, fillInput, loadExperts, markRunning, newConversation, registerFeature, state, toast } from '../../store'
 import type { HostEvent, Team, TeamInput, TeamMemberState, TeamNote, TeamRunRecord, TeamRunView } from '../../types'
 import { i18n } from '../../i18n'
+import { registerAssistantIdentity, registerToolCard } from '../../toolCards'
+import TeamPlanInline from './TeamPlanInline.vue'
+import TeamReportCard from './TeamReportCard.vue'
 
 /**
  * 团队模式（docs/team-mode.md）在界面上的状态和操作：团队列表、团队任务的计划卡、成员进度、看板。
@@ -14,6 +17,8 @@ export const teams = reactive({
   loading: false,
   /** 对话 ID → 这个对话最近一次团队任务 */
   runs: {} as Record<string, TeamRunView>,
+  /** 已经在对话里画了报告卡的团队任务（评价在报告卡里；没有报告卡的才在面板底下问） */
+  reported: {} as Record<string, boolean>,
 })
 
 // ---------- 团队列表 ----------
@@ -139,12 +144,14 @@ function fromRecord(r: TeamRunRecord): TeamRunView {
     members[m.expertId] = {
       expertId: m.expertId, status: m.status as TeamMemberState, note: m.note, callId: m.callId, subtaskId: m.subtaskId,
       task: m.task, done: m.done, dependsOn: m.dependsOn, delivery: m.delivery, retries: m.retries, reused: m.reused,
+      doneSeconds: m.doneSeconds,
     }
   }
   return {
     runId: r.runId, pending: null, members, order: r.members.map((m) => m.expertId), board: r.board, startedAt: r.startedAt,
     finished: r.finished, goal: r.goal, interrupted: r.interrupted, autoStarted: r.autoStarted, rating: r.rating, feedback: r.feedback,
-    tokens: r.tokens, notes: r.notes,
+    tokens: r.tokens, notes: r.notes, budgetTokens: r.budgetTokens, teamName: r.teamName,
+    grantLabels: r.grantLabels, granted: r.granted ?? undefined,
   }
 }
 
@@ -189,6 +196,7 @@ function onTeamEvent(e: HostEvent) {
     case 'team.plan': {
       markRunning(e.conversationId)
       const run = runOf(e.conversationId, e.runId)
+      if (e.budgetTokens) run.budgetTokens = e.budgetTokens
       run.pending = {
         requestId: e.requestId, callId: e.callId, runId: e.runId, round: e.round, goal: e.goal, items: e.items,
         skipped: e.skipped, estimateTokens: e.estimateTokens, budgetTokens: e.budgetTokens,
@@ -224,6 +232,7 @@ function onTeamEvent(e: HostEvent) {
       if (m) {
         m.status = e.status
         m.note = e.note
+        if (e.status === 'done' && m.doneSeconds == null) m.doneSeconds = Math.max(0, Math.round((Date.now() - Date.parse(run!.startedAt)) / 1000))
         if (e.subtaskId) m.subtaskId = e.subtaskId
         if (e.status === 'retrying') m.retries = (m.retries ?? 0) + 1
       }
@@ -232,6 +241,14 @@ function onTeamEvent(e: HostEvent) {
     case 'team.board': {
       const run = teams.runs[e.conversationId]
       if (run?.runId === e.runId) run.board.push({ expertId: e.expertId, name: e.name, kind: e.kind, text: e.text, at: e.at })
+      break
+    }
+    case 'team.grant': {
+      const run = teams.runs[e.conversationId]
+      if (run?.runId === e.runId) {
+        run.grantLabels = e.labels
+        run.granted = e.granted
+      }
       break
     }
     case 'team.record': {
@@ -261,6 +278,20 @@ watch(
   },
   { immediate: true },
 )
+
+// 对话里的卡：分工计划 / 补派计划卡（含开工授权）、团队报告卡；团队对话里助手消息标成「队长」
+registerToolCard('team_plan', TeamPlanInline)
+registerToolCard('team_assign', TeamPlanInline)
+registerToolCard('team_report', TeamReportCard)
+registerAssistantIdentity((conv) => {
+  if (!conv.teamId) return null
+  const team = teams.list.find((x) => x.id === conv.teamId)
+  const leader = team?.leader_expert_id && team.leader_available ? state.experts.find((e) => e.id === team.leader_expert_id) : null
+  const t = i18n.global.t
+  return leader
+    ? { initial: leader.name.slice(0, 1), label: t('ui.teams.identityExpert', { name: leader.name }) }
+    : { initial: t('ui.teams.leaderShort'), label: t('ui.teams.identity') }
+})
 
 registerFeature({
   id: 'teams',

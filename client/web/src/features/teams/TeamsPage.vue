@@ -165,9 +165,10 @@ async function dissolve() {
 
 <style scoped>
 .teams-page {
+  /* 靠左排，和侧栏挨着（宽屏时右边留空，不居中） */
   max-width: 1120px;
-  margin: 0 auto;
-  padding: 22px 24px 40px;
+  margin: 0;
+  padding: 22px 28px 40px;
 }
 .head {
   display: flex;
