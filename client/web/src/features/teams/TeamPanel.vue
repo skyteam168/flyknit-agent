@@ -16,6 +16,8 @@ import type { TeamMemberView } from '../../types'
 const { t } = useI18n()
 const tab = ref<'members' | 'board'>('members')
 const open = ref<Record<string, boolean>>({})
+/** 任务书很长时默认只显示几行，点「展开全文」看全部 */
+const full = ref<Record<string, boolean>>({})
 
 const run = computed(() => currentTeamRun.value)
 const members = computed<TeamMemberView[]>(() => {
@@ -134,12 +136,17 @@ const time = (iso: string) => {
             <b>{{ nameOf(m.expertId) }}</b>
             <small>{{ line(m) }}</small>
           </span>
-          <span v-if="m.reused" class="reused">{{ t('ui.teamRun.panel.reused') }}</span>
-          <span class="st" :class="statusKey(m)">{{ t(`ui.teamRun.panel.status.${statusKey(m)}`) }}</span>
+          <span class="tags">
+            <span v-if="m.reused" class="reused">{{ t('ui.teamRun.panel.reused') }}</span>
+            <span class="st" :class="statusKey(m)">{{ t(`ui.teamRun.panel.status.${statusKey(m)}`) }}</span>
+          </span>
           <ChevronRight :size="14" class="chev" />
         </button>
         <div v-if="open[m.expertId]" class="detail">
-          <p class="meta">{{ t('ui.teamRun.panel.task', { task: m.task }) }}</p>
+          <p class="meta task" :class="{ clamp: !full[m.expertId] }">{{ t('ui.teamRun.panel.task', { task: m.task }) }}</p>
+          <button v-if="m.task.length > 160" type="button" class="more" @click="full[m.expertId] = !full[m.expertId]">
+            {{ full[m.expertId] ? t('ui.teamRun.panel.less') : t('ui.teamRun.panel.more') }}
+          </button>
           <p class="meta">{{ t('ui.teamRun.panel.delivery', { done: m.done }) }}<template v-if="m.delivery"> · {{ m.delivery }}</template></p>
           <p v-if="m.retries" class="retry">{{ t('ui.teamRun.panel.retried') }}</p>
           <p v-if="subtask(m)?.step && m.status === 'running'" class="cur">● {{ subtask(m)!.step!.name }} {{ subtask(m)!.step!.summary }}</p>
@@ -215,7 +222,11 @@ const time = (iso: string) => {
 .team-panel {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
+  /* 宽度由右侧面板定：内容再长也只换行，不把面板撑宽 */
+  overflow: hidden;
+  overflow-wrap: anywhere;
   background: var(--cloth-sunk);
 }
 .sum {
@@ -287,11 +298,15 @@ const time = (iso: string) => {
   flex: 1;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
   min-height: 0;
   padding: 8px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .mem {
+  flex: none;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--cloth);
@@ -362,7 +377,28 @@ const time = (iso: string) => {
   background: var(--red-wash);
   color: var(--red);
 }
+.tags {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.task.clamp {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+.more {
+  margin: -2px 0 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--indigo);
+  font-size: var(--t-xs);
+  cursor: pointer;
+}
 .detail {
+  min-width: 0;
   padding: 0 12px 10px 44px;
   font-size: var(--t-xs);
 }

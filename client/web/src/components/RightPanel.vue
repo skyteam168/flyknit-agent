@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Activity, Eye, FilePen, FileText, FolderTree, Globe, Info, ListChecks, Maximize2, Minimize2, Rows2, SquareTerminal, Users, X } from '@lucide/vue'
-import { closeRightPanel, current, currentState, setPreviewWidth, setRightRatio, setRightSplit, setRightTab2, state } from '../store'
+import { closeRightPanel, current, currentState, rightPanelWide, setPanelWidth, setPreviewWidth, setRightRatio, setRightSplit, setRightTab2, state } from '../store'
 import RightPaneBody from './RightPaneBody.vue'
 import { currentTeamRun } from '../features/teams/store'
 import { backgroundCount, hasBackground } from '../background'
@@ -87,7 +87,14 @@ function onRowKey(e: KeyboardEvent) {
   else if (e.key === 'ArrowDown') setRightRatio(state.rightLayout.ratio + 0.05)
 }
 
-// ---------- 分屏时左边缘：拖动调整整块面板的宽度（和文件预览共用一个宽度） ----------
+// ---------- 左边缘：拖动调整整块面板的宽度（预览、文稿、分屏用一个宽度，其余标签用另一个）----------
+/** 宽度一律由面板自己管：各标签内容再长也不会把面板撑宽，每个标签都能拖 */
+const wide = computed(() => rightPanelWide(active.value, split.value))
+const width = computed(() => (wide.value ? state.previewWidth : state.panelWidth))
+function setWidth(px: number) {
+  if (wide.value) setPreviewWidth(px)
+  else setPanelWidth(px)
+}
 const draggingCol = ref(false)
 function startCol(e: PointerEvent) {
   draggingCol.value = true
@@ -95,30 +102,27 @@ function startCol(e: PointerEvent) {
   e.preventDefault()
 }
 function onCol(e: PointerEvent) {
-  if (draggingCol.value) setPreviewWidth(window.innerWidth - e.clientX)
+  if (draggingCol.value) setWidth(window.innerWidth - e.clientX)
 }
 function endCol(e: PointerEvent) {
   draggingCol.value = false
   ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
 }
 function onColKey(e: KeyboardEvent) {
-  if (e.key === 'ArrowLeft') setPreviewWidth(state.previewWidth + 32)
-  else if (e.key === 'ArrowRight') setPreviewWidth(state.previewWidth - 32)
+  if (e.key === 'ArrowLeft') setWidth(width.value + 32)
+  else if (e.key === 'ArrowRight') setWidth(width.value - 32)
 }
-
-/** 统一宽度：分屏时用拖出来的宽度，铺满时撑满 */
-const sized = computed(() => split.value || state.rightMax)
 </script>
 
 <template>
   <div
-    class="right"
-    :class="{ sized, max: state.rightMax }"
-    :style="split && !state.rightMax ? { width: state.previewWidth + 'px' } : undefined"
+    class="right sized"
+    :class="{ max: state.rightMax, dragging: draggingCol }"
+    :style="state.rightMax ? undefined : { width: width + 'px' }"
     :aria-label="t('ui.right.title')"
   >
     <div
-      v-if="split && !state.rightMax"
+      v-if="!state.rightMax"
       class="col-grip"
       :class="{ dragging: draggingCol }"
       role="separator"
@@ -231,6 +235,14 @@ const sized = computed(() => split.value || state.rightMax)
   flex-direction: column;
   min-height: 0;
   max-width: 70vw;
+  /* 内容再长也只在面板里换行、滚动，不把面板撑宽 */
+  min-width: 0;
+  overflow: hidden;
+}
+/* 拖动时面板里的预览（iframe、WebView）别抢鼠标 */
+.right.dragging :deep(iframe),
+.right.dragging :deep(webview) {
+  pointer-events: none;
 }
 .right.sized {
   min-width: 320px;
@@ -324,7 +336,7 @@ const sized = computed(() => split.value || state.rightMax)
   flex-shrink: 1;
   overflow: hidden;
 }
-/* 分屏、铺满时各标签不再用自己的宽度，统一撑满面板；它们自己的拖拽条交给面板 */
+/* 各标签不再用自己的宽度，统一撑满面板；它们自己的拖拽条交给面板（左边缘那一条） */
 .sized :deep(.body) {
   width: auto !important;
   max-width: none !important;

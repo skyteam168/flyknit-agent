@@ -1026,6 +1026,9 @@ class TeamMember(BaseModel):
 class TeamIn(BaseModel):
     """员工建 / 改团队。部门由服务端按这台电脑登记的部门填，不收客户端传的。"""
 
+    # model_id 是团队用的模型，和 pydantic 自己的 model_ 前缀无关；不关掉的话启动时每个类报一条警告
+    model_config = ConfigDict(protected_namespaces=())
+
     name: str = Field(min_length=1, max_length=30)
     description: ClipOrEmpty(300) = ""
     icon: ClipOrEmpty(20) = "team"
@@ -1046,6 +1049,9 @@ class TeamIn(BaseModel):
 
 class TeamAdminIn(BaseModel):
     """IT 建 / 改团队：多一项使用范围。"""
+
+    # model_id 是团队用的模型，和 pydantic 自己的 model_ 前缀无关；不关掉的话启动时每个类报一条警告
+    model_config = ConfigDict(protected_namespaces=())
 
     name: str = Field(min_length=1, max_length=30)
     description: ClipOrEmpty(300) = ""
@@ -1069,6 +1075,9 @@ class TeamMemberOut(BaseModel):
 
 
 class TeamOut(BaseModel):
+    # model_id 是团队用的模型，和 pydantic 自己的 model_ 前缀无关；不关掉的话启动时每个类报一条警告
+    model_config = ConfigDict(protected_namespaces=())
+
     id: str
     name: str
     description: str = ""

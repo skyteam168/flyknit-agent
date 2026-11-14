@@ -1063,7 +1063,17 @@ public sealed partial class AgentHost : IDisposable
             scope.Binding.Tools = tools;
             // 问员工确认时任务记成「等确认」；单次运行的 token 上限不超过任务还剩的预算
             var ledgerConfirm = new Flyknit.Core.Tasks.LedgerConfirmation(confirm, waiting => Ledger.Waiting(id, waiting));
-            var loop = new AgentLoop(Server, tools, ledgerConfirm, _auditSink, AgentOptionsFor(conv, ticket?.RemainingBudget, extensions.MaxRunTokens), Approvals)
+            // 这一轮的 token 上限取三者里最小的：单次任务上限（长任务 ×5）或扩展给的上限（如团队，长任务同样 ×5）、
+            // 这个任务还剩的额度。记下是哪一个卡住的，停下时告诉员工（不然会误以为是单次上限、去开长任务）
+            var longMode = LongModeOn(conv);
+            var runTokens = extensions.MaxRunTokens is { } extensionTokens
+                ? (longMode ? extensionTokens * LongModeTokenFactor : extensionTokens)
+                : RunTokenLimit(longMode);
+            var taskRemaining = ticket?.RemainingBudget;
+            var budgetSource = taskRemaining is { } left && (runTokens <= 0 || left < runTokens)
+                ? "task"
+                : extensions.MaxRunTokens is not null ? "team" : "run";
+            var loop = new AgentLoop(Server, tools, ledgerConfirm, _auditSink, AgentOptionsFor(conv, taskRemaining, runTokens), Approvals)
             {
                 Interjections = InterjectionsFor(id),
                 Pause = PauseGateFor(id),
@@ -1133,6 +1143,9 @@ public sealed partial class AgentHost : IDisposable
                 budgetByTokens = result.BudgetByTokens,
                 budgetTokens = result.BudgetTokens,
                 budgetLimit = result.BudgetLimit,
+                // run = 单次任务上限；team = 团队任务的上限；task = 这个任务（含之前几轮、自动续跑）的总额度
+                budgetSource,
+                longMode,
                 modelName = result.ModelName,
                 usage = result.Usage is { } u ? new { promptTokens = u.PromptTokens, completionTokens = u.CompletionTokens } : null,
             });
