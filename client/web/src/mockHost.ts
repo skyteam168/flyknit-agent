@@ -545,15 +545,18 @@ export function createMockHost(): HostTransport {
     }
     const plan = items.filter((i) => !removed.includes(i.expertId)).map((i) => ({ ...i, dependsOn: i.dependsOn.filter((d) => !removed.includes(d)) }))
     // 团队开工授权
-    await new Promise<string>((resolve) => {
+    const grantLabels = ['MES · 查询工单', 'QMS · 查询返工单', 'APS · 查询排程变更']
+    const grantChoice = await new Promise<string>((resolve) => {
       const grantId = uid()
       confirmWaiters.set(grantId, resolve)
       emit({
         type: 'tool.confirm', conversationId: id, requestId: grantId, callId,
         reason: '这次团队任务内这些操作直接执行，不再逐条问', rationale: '', rememberable: false, effect: 'write', ruleDisplay: '',
-        bundle: ['MES · 查询工单', 'QMS · 查询返工单', 'APS · 查询排程变更'],
+        bundle: grantLabels,
       } as never)
     })
+    const granted = grantChoice !== 'reject'
+    emit({ type: 'team.grant', conversationId: id, runId, labels: grantLabels, granted } as never)
     emit({ type: 'team.started', conversationId: id, runId, callId, round: 1, items: plan } as never)
     const status: Record<string, string> = Object.fromEntries(plan.map((i) => [i.expertId, i.dependsOn.length ? 'upstream' : 'waiting']))
     const member = (eid: string, st: string, note = '', subtaskId = '') => {
@@ -578,6 +581,8 @@ export function createMockHost(): HostTransport {
       plan: '15 日插入 2 张急单，占用包装线 9 小时产能',
       report: '已生成「10月A车间延期分析.xlsx」',
     }
+    const t0 = Date.now()
+    const doneAt: Record<string, number> = {}
     const runMember = async (eid: string) => {
       const subtaskId = stId()
       const mcall = `${callId}#${eid}`
@@ -621,6 +626,7 @@ export function createMockHost(): HostTransport {
       board(eid, 'finding', results[eid] + '（已核验）')
       if (eid === 'plan') board(eid, 'question', '同期有没有备用封箱机？系统里没查到')
       if (eid === 'report') board(eid, 'file', 'D:\\报表\\10月A车间延期分析.xlsx')
+      doneAt[eid] = Math.round((Date.now() - t0) / 1000)
       member(eid, 'done', '达标', subtaskId)
     }
     // 按依赖调度：只读的同时开工，下游等上游
@@ -637,25 +643,28 @@ export function createMockHost(): HostTransport {
     }
     emit({ type: 'team.round', conversationId: id, runId, results: plan.map((i) => ({ expertId: i.expertId, status: status[i.expertId], delivery: '达标', retries: i.expertId === 'quality' ? 1 : 0 })) } as never)
     finishTool('<团队执行结果>（演示）</团队执行结果>')
-    const report = [
-      '## 团队报告 · 10 月 A 车间订单延期',
-      '',
-      '**结论**：延期主要卡在**包装工序**。15 日插入的 2 张急单占用了包装线 9 小时产能，叠加包装破损返工，造成 37 单延期中的 23 单。',
-      '',
-      '### 各成员要点',
-      `- **${expertOf('mes_analyst').name}**：${results.mes_analyst}（已核验）`,
-      `- **${expertOf('quality').name}**：${results.quality}（已核验）`,
-      `- **${expertOf('plan').name}**：${results.plan}（已核验）`,
-      '',
-      '### 交叉验证',
-      '- 一致：MES 的延期单里有 7 张和质检的返工单重叠，两边单号对得上',
-      '- 口径不同：MES 说包装平均晚 6.5 小时（每单），计划算的是占用 9 小时产能（总量），不矛盾',
-      '',
-      '### 需要你确认',
-      '- 同期有没有备用封箱机？系统里没查到',
-    ].join('\n')
-    await stream(id, report)
-    list.push({ id: uid(), role: 'assistant', content: report, createdAt: now() })
+    // 队长用 team_report 交团队报告（界面画成报告卡），再用一两句话收尾
+    const reportCall = uid()
+    const reportArgs = JSON.stringify({
+      title: '10 月 A 车间订单延期',
+      conclusion: '延期主要卡在包装工序。15 日插入的 2 张急单占用了包装线 9 小时产能，叠加包装破损返工，造成 37 单延期中的 23 单。',
+      checks: [
+        { kind: 'consistent', text: 'MES 的延期单里有 7 张和质检的返工单重叠，两边单号对得上' },
+        { kind: 'differs', text: 'MES 说包装平均晚 6.5 小时（每单），计划算的是占用 9 小时产能（总量），不矛盾' },
+        { kind: 'met', text: '4 位成员都按完成标准交卷' },
+      ],
+      confirm: ['同期有没有备用封箱机？系统里没查到'],
+      suggestions: ['插单后重算包装线产能', '包装破损单独设检验点', '急单优先排到 B 车间包装线'],
+    })
+    list.push({ id: uid(), role: 'assistant', content: '', toolCalls: [{ id: reportCall, name: 'team_report', arguments: reportArgs }], createdAt: now() })
+    emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+    emit({ type: 'tool.started', conversationId: id, callId: reportCall, name: 'team_report', summary: '团队报告', args: reportArgs, risk: 'auto' })
+    const reportOut = `团队报告已显示给员工（任务 ${runId}）。用一两句话收尾即可，不要再把报告全文写一遍。`
+    emit({ type: 'tool.finished', conversationId: id, callId: reportCall, ok: true, output: reportOut, decision: 'auto' })
+    list.push({ id: uid(), role: 'tool', content: reportOut, toolCallId: reportCall, toolName: 'team_report', createdAt: now() })
+    const closing = '报告在上面。最该先处理的是插单后的包装线产能，备用封箱机的情况需要你确认一下。'
+    await stream(id, closing)
+    list.push({ id: uid(), role: 'assistant', content: closing, createdAt: now() })
     emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
     // 队长记一条团队经验（团队积累）
     const note = { id: 'tn_' + uid().slice(0, 6), team_id: team.id, text: '包装线产能要按插单后重算，不能用月初排程的数字', kind: 'pitfall' as const, source: 'leader' as const, author: '', created_at: now(), deletable: true }
@@ -665,10 +674,10 @@ export function createMockHost(): HostTransport {
     const record: TeamRunRecord = {
       runId, conversationId: id, teamId: team.id, teamName: team.name, goal: '找出 10 月 A 车间订单延期的主要原因',
       startedAt: now(), finishedAt: now(), finished: true, interrupted: false, autoStarted: false, rounds: 1, reassigned: false,
-      tokens: 409000, rating: 0, feedback: '', notes: 1,
+      tokens: 409000, rating: 0, feedback: '', notes: 1, budgetTokens: 1000000, grantLabels, granted,
       members: plan.map((i) => ({
         expertId: i.expertId, name: expertOf(i.expertId).name, status: status[i.expertId], note: '', callId: `${callId}#${i.expertId}`, subtaskId: '',
-        task: i.task, done: i.done, dependsOn: i.dependsOn, delivery: '达标', retries: i.expertId === 'quality' ? 1 : 0,
+        task: i.task, done: i.done, dependsOn: i.dependsOn, delivery: '达标', retries: i.expertId === 'quality' ? 1 : 0, doneSeconds: doneAt[i.expertId] ?? null,
       })),
       board: boardItems,
     }

@@ -1063,6 +1063,7 @@ export type HostEvent =
   | { type: 'team.planClosed'; conversationId: string; requestId: string }
   | { type: 'team.started'; conversationId: string; runId: string; callId: string; round: number; goal?: string; autoStarted?: boolean; items: { expertId: string; task: string; done: string; dependsOn: string[] }[] }
   | { type: 'team.record'; conversationId: string; record: TeamRunRecord }
+  | { type: 'team.grant'; conversationId: string; runId: string; labels: string[]; granted: boolean }
   | { type: 'team.member'; conversationId: string; runId: string; expertId: string; status: TeamMemberState; note: string; subtaskId: string; callId: string }
   | ({ type: 'team.board'; conversationId: string; runId: string } & TeamBoardItem)
   | { type: 'team.round'; conversationId: string; runId: string; results: { expertId: string; status: string; delivery: string; retries: number }[] }
@@ -1534,6 +1535,9 @@ export interface TeamRunRecord {
   rating: number
   feedback: string
   notes: number
+  budgetTokens: number
+  grantLabels: string[]
+  granted: boolean | null
   members: (Omit<TeamMemberView, 'status'> & { status: string; name: string; reused?: boolean })[]
   board: TeamBoardItem[]
 }
@@ -1589,6 +1593,8 @@ export interface TeamMemberView {
   retries?: number
   /** 沿用了中断前已交卷的结果 */
   reused?: boolean
+  /** 交卷时离开工过了多少秒（面板上「已交卷 0:08」） */
+  doneSeconds?: number
 }
 export interface TeamBoardItem {
   expertId: string
@@ -1617,4 +1623,10 @@ export interface TeamRunView {
   tokens?: number
   /** 这次队长记的团队经验条数 */
   notes?: number
+  /** 这次团队任务的 token 上限（面板上的预算条） */
+  budgetTokens?: number
+  /** 团队开工授权：卡上列的操作、员工的回答（undefined = 没问） */
+  grantLabels?: string[]
+  granted?: boolean
+  teamName?: string
 }

@@ -45,7 +45,6 @@ import WorkspacePicker from './WorkspacePicker.vue'
 import PermissionPicker from './PermissionPicker.vue'
 import ConfirmBar from './ConfirmBar.vue'
 import BatchConfirm from './BatchConfirm.vue'
-import TeamPlanCard from '../features/teams/TeamPlanCard.vue'
 import { currentTeam } from '../features/teams/store'
 import AskBar from './AskBar.vue'
 import CompactingCard from './CompactingCard.vue'
@@ -686,7 +685,6 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
   <div class="composer-wrap" :class="{ home: props.home }">
     <SplitOffer />
     <CompactingCard v-if="!props.home" />
-    <TeamPlanCard v-if="!props.home" />
     <BatchConfirm v-if="!props.home" />
     <ConfirmBar v-if="!props.home" />
     <AskBar v-if="!props.home" />

@@ -1670,7 +1670,7 @@ public class DelegationTests : IDisposable
         using var assembly = await pipeline.PrepareAsync(TeamScope(), CancellationToken.None);
 
         Assert.Equal(new[] { "team" }, assembly.ActiveIds);                  // 团队出场，派遣专家这一轮不出场
-        Assert.Equal(new[] { "team_plan", "team_assign", "team_note" }, assembly.Tools.Select(t => t.Name));
+        Assert.Equal(new[] { "team_plan", "team_assign", "team_report", "team_note" }, assembly.Tools.Select(t => t.Name));
         Assert.Contains("交付分析组", assembly.SystemPrompt);
         Assert.Equal(5, assembly.ModelId);
         Assert.Equal(1_000_000, assembly.MaxRunTokens);                     // 100 万
@@ -1784,6 +1784,8 @@ public class DelegationTests : IDisposable
         Assert.Equal("达标", mes.Delivery);
         Assert.NotEmpty(mes.SubtaskId);
         Assert.Contains(record.Board, b => b.Text.Contains("自动开始"));
+        Assert.NotNull(mes.DoneSeconds);                                             // 面板上「已交卷 0:08」
+        Assert.Equal(1_000_000, record.BudgetTokens);
         Assert.Contains(record.Board, b => b.Kind == "finding");
         Assert.Equal("找出 10 月延期原因", record.Goal);
         Assert.Equal(record.RunId, store.Latest("c_team")!.RunId);                   // 存下来了：关掉再打开照样有
@@ -1965,6 +1967,29 @@ public class DelegationTests : IDisposable
             await Task.Delay(20);
         }
         Assert.True(condition());
+    }
+
+    [Fact]
+    public async Task TheReportToolNeedsAnExecutedPlanAndKnownCheckKinds()
+    {
+        var h = new Harness();
+        h.Gateway.Children(Call(SubmitResultTool.ToolName, Submit()));
+        var (feature, _) = TeamFeatureFor(h);
+        var part = await feature.PrepareAsync(TeamScope(unattended: true), CancellationToken.None);
+        var report = part!.Tools.Single(t => t.Name == "team_report");
+        var ctx = Ctx();
+        var args = JsonSerializer.SerializeToElement(new
+        {
+            title = "10 月 A 车间订单延期", conclusion = "延期主要卡在包装工序",
+            checks = new[] { new { kind = "consistent", text = "两边单号对得上" } },
+        });
+        Assert.False((await report.ExecuteAsync(args, ctx, CancellationToken.None)).Ok);            // 还没执行计划
+        ctx.CurrentCallId = "call_plan";
+        Assert.True((await part.Tools.Single(t => t.Name == "team_plan").ExecuteAsync(PlanArgs("mes"), ctx, CancellationToken.None)).Ok);
+        var bad = JsonSerializer.SerializeToElement(new { title = "x", conclusion = "y", checks = new[] { new { kind = "whatever", text = "z" } } });
+        Assert.False((await report.ExecuteAsync(bad, ctx, CancellationToken.None)).Ok);
+        Assert.True((await report.ExecuteAsync(args, ctx, CancellationToken.None)).Ok);
+        part.OnEnd!();
     }
 }
 

@@ -42,6 +42,13 @@ public sealed class TeamRunRecord
 
     /// <summary>这次队长记的团队经验条数。</summary>
     [JsonPropertyName("notes")] public int Notes { get; set; }
+
+    /// <summary>这次团队任务的 token 上限（面板上的预算条）。</summary>
+    [JsonPropertyName("budgetTokens")] public long BudgetTokens { get; set; }
+
+    /// <summary>团队开工授权：卡上列出的操作（没出卡时为空）和员工的回答（null = 没问）。</summary>
+    [JsonPropertyName("grantLabels")] public List<string> GrantLabels { get; set; } = new();
+    [JsonPropertyName("granted")] public bool? Granted { get; set; }
     [JsonPropertyName("members")] public List<TeamRunMember> Members { get; set; } = new();
     [JsonPropertyName("board")] public List<TeamRunBoardItem> Board { get; set; } = new();
 
@@ -78,6 +85,9 @@ public sealed class TeamRunMember
     [JsonPropertyName("dependsOn")] public List<string> DependsOn { get; set; } = new();
     [JsonPropertyName("delivery")] public string Delivery { get; set; } = "";
     [JsonPropertyName("retries")] public int Retries { get; set; }
+
+    /// <summary>交卷时离开工过了多少秒（面板上「已交卷 0:08」）。</summary>
+    [JsonPropertyName("doneSeconds")] public int? DoneSeconds { get; set; }
 
     /// <summary>沿用了中断前已交卷的结果（没有重做）。</summary>
     [JsonPropertyName("reused")] public bool Reused { get; set; }

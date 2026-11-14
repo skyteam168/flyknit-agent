@@ -410,6 +410,7 @@ public sealed class TeamFeature : IRunExtension<RunScope>, IBridgeModule
             TeamId = team.Id,
             TeamName = team.Name,
             AutoStarted = scope.Unattended,
+            BudgetTokens = RunTokens,
         };
         var scheduler = new TeamScheduler(_dispatcher().DispatchDetailedAsync, _experts)
         {
@@ -439,14 +440,14 @@ public sealed class TeamFeature : IRunExtension<RunScope>, IBridgeModule
         {
             prompt = ExpertRuntime.BuildPromptSection(leader) + "\n" + $"你以「{leader.Name}」的身份当「{team.Name}」的队长：用上面这位专家的业务知识理解任务、检查成员的结果。\n\n" + prompt;
         }
-        var own = new HashSet<string>(StringComparer.Ordinal) { TeamPlanTool.ToolName, TeamAssignTool.ToolName, TeamNoteTool.ToolName };
+        var own = new HashSet<string>(StringComparer.Ordinal) { TeamPlanTool.ToolName, TeamAssignTool.ToolName, TeamNoteTool.ToolName, TeamReportTool.ToolName };
         return new RunContribution
         {
             // 团队名单和队长的工作方式：同一个对话里不变，放系统提示词（提示词缓存能命中）
             SystemPrompt = prompt,
             // 团队经验会变（别人记了新的）：放本轮参考资料
             TurnContext = NotesSection(team, notes),
-            Tools = new ITool[] { new TeamPlanTool(session), new TeamAssignTool(session), new TeamNoteTool(session) },
+            Tools = new ITool[] { new TeamPlanTool(session), new TeamAssignTool(session), new TeamReportTool(session), new TeamNoteTool(session) },
             // 队长专家被 IT 指定了模型就用它的，否则用团队的（和成员一致：专家指定的优先）
             ModelId = leader?.ModelId ?? team.ModelId,
             MaxRunTokens = RunTokens,
@@ -607,7 +608,15 @@ public sealed class TeamFeature : IRunExtension<RunScope>, IBridgeModule
                     with { Effect = CommandEffect.Write },
                 Bundle = labels,
             }, ct);
-            return choice != ConfirmChoice.Reject;
+            var allowed = choice != ConfirmChoice.Reject;
+            // 记进面板数据：对话里的授权卡（「✓ 已允许，这次团队任务内直接执行」）按它画
+            Update(r =>
+            {
+                r.GrantLabels = labels.ToList();
+                r.Granted = allowed;
+            });
+            post(new { type = "team.grant", conversationId, runId = record.RunId, labels, granted = allowed });
+            return allowed;
         }
 
         public void PlanStarted(TeamPlanReview review, TeamPlan plan)
@@ -676,6 +685,10 @@ public sealed class TeamFeature : IRunExtension<RunScope>, IBridgeModule
                     if (update.Status == TeamMemberStatus.Retrying)
                     {
                         m.Retries++;
+                    }
+                    if (update.Status == TeamMemberStatus.Done)
+                    {
+                        m.DoneSeconds = (int)Math.Max(0, (DateTimeOffset.Now - r.StartedAt).TotalSeconds);
                     }
                 }
             });

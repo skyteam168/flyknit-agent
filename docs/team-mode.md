@@ -420,6 +420,7 @@
 | IT 模板 | 交付延期分析、月度经营报告、客诉追溯三个模板：职责、队长要求、每个位置要什么样的专家、示例任务；专家由 IT 在本厂挑 | `services/team_templates.py`；后台「从模板新建」 |
 | 示例任务 | 每个团队最多 5 条；员工在团队卡片上点一下，带着这句话进入团队对话（发送前可改） | `teams.examples` |
 | 队长专家 | 团队可以指定一位专家当队长：带上它的工作方式、知识和模型；工具和权限按它的限制收紧（`RunContribution.AllowTool` / `CapPermission`，只收紧）。队长不能同时是成员；这台电脑用不了那位专家时由主助手当 | `teams.leader_expert_id`；`TeamFeature.PrepareAsync` |
+| 团队报告 | 队长汇总时调 `team_report`（标题、结论、交叉验证〔一致 / 口径不同 / 冲突 / 达标 / 没达标〕、需要你确认、改进建议），计划执行过才能调。界面把这次调用画成报告卡：各成员要点和核验标记、产出文件取自本地存的面板数据；报告卡上可以评价。对话里的分工计划卡、开工授权卡也留在队长那条消息下面（工具卡扩展点 `client/web/src/toolCards.ts`），团队对话顶部有团队条，助手消息标「队长 · 主助手」 | Core `TeamReportTool`；web `features/teams/TeamReportCard.vue` / `TeamPlanInline.vue` / `TeamBar.vue` |
 | 团队经验 | 队长写完报告后用 `team_note` 记可复用的做法、口径、坑（每次最多 3 条）；员工、IT 也能加。下次开工时最近 20 条作为参考资料（不是指令）给队长。写入前员工端和服务端各查一遍密码、密钥、令牌（整条拒收），手机号、身份证号打码；跟着团队的范围走；写的人、团队创建人、IT 能删；每队最多 200 条 | 服务端 `team_notes`；Core `TeamNoteTool` |
 | 定时团队任务 | 定时任务可以交给团队（`scheduled_tasks.team_id`）。到点后建团队对话，分工计划自动开始（`RunScope.Unattended`）；开工授权和成员的确认照常问，没人回答按拒绝处理 | `ScheduleRunner`、`TeamSession.AutoStart` |
 
