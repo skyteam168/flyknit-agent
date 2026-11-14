@@ -75,6 +75,24 @@ async function save() {
     saving.value = false
   }
 }
+
+/**
+ * 三个 token 上限互相卡：一轮实际能用的是「单次上限（长任务 ×5，团队对话用团队上限）」和「这个任务还剩的额度」里小的那个。
+ * 单个任务上限比单次上限还小时，单次上限永远到不了，员工看到的停下都是任务额度用完——在两项旁边提醒 IT。
+ */
+function budgetWarning(key: string): string {
+  const task = Number(values.task_token_budget ?? 0)
+  const run = Number(values.run_token_budget ?? 0)
+  const team = Number(values.team_token_budget ?? 0)
+  if (task <= 0) return ''
+  if (key === 'task_token_budget' && run > 0 && task < run)
+    return `比「单次任务 token 上限」（${run} 万）还小：一轮最多只能用到 ${task} 万，单次上限和长任务的 5 倍放宽都到不了。`
+  if (key === 'run_token_budget' && run > 0 && task < run)
+    return `「单个任务 token 上限」只有 ${task} 万，比这里小，这一项实际不起作用。`
+  if (key === 'team_token_budget' && team > 0 && task < team)
+    return `「单个任务 token 上限」只有 ${task} 万，团队任务最多也只能用到 ${task} 万。`
+  return ''
+}
 </script>
 
 <template>
@@ -115,6 +133,7 @@ async function save() {
         <div class="info">
           <strong>{{ i.title }}</strong>
           <small v-if="i.risk">{{ i.risk }}</small>
+          <small v-if="budgetWarning(i.key)" class="warn">{{ budgetWarning(i.key) }}</small>
         </div>
         <div class="ctrl">
           <el-tooltip content="锁定后员工端只读，不能自己改" placement="top">
@@ -150,6 +169,11 @@ async function save() {
 </template>
 
 <style scoped>
+.warn {
+  display: block;
+  margin-top: 4px;
+  color: var(--el-color-warning);
+}
 .section {
   font-size: 13px;
   font-weight: 600;

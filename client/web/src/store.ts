@@ -57,7 +57,12 @@ interface ConversationState {
   draft: { content: string; reasoning: string; sources?: import('./types').WebSource[] } | null
   tools: Record<string, ToolActivity>
   plan: PlanItem[]
-  notice: { kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'stuck' | 'budget' | 'budgetTokens' | 'failed'; text?: string; used?: number; limit?: number } | null
+  notice: {
+    kind: 'stopped' | 'error' | 'maxSteps' | 'tooManyFailures' | 'stuck' | 'budget' | 'budgetTokens' | 'budgetTokensLong' | 'budgetTeam' | 'budgetTask' | 'failed'
+    text?: string
+    used?: number
+    limit?: number
+  } | null
   /** 运行过程中的一次性提示（例如内容被审核拦截后省略重试） */
   notices: string[]
   /** 派给专家的子任务，按主助手那次 ask_expert 的 callId 记 */
@@ -209,6 +214,8 @@ export const state = reactive({
   preview: null as { file: OutputFile; doc: PreviewDoc | null; loading: boolean; error: string } | null,
   /** 分屏宽度（像素），拖拽后记住 */
   previewWidth: readPreviewWidth(),
+  /** 右侧面板里预览、文稿以外的标签（团队、文件、会话信息……）的宽度：比预览窄，单独记 */
+  panelWidth: readPanelWidth(),
   /** 产出文件后自动打开分屏 */
   autoPreview: true,
   /** 正在查看的执行链路 */
@@ -394,6 +401,38 @@ export function setRightTab2(tab: string) {
 export const MinPreviewWidth = 320
 export const MaxPreviewWidth = 680
 export const MaxPreviewRatio = 0.50
+
+const PanelWidthKey = 'flyknit.panelWidth'
+export const MinPanelWidth = 300
+export const MaxPanelWidth = 720
+
+function readPanelWidth(): number {
+  try {
+    const saved = Number(localStorage.getItem(PanelWidthKey))
+    if (Number.isFinite(saved) && saved >= MinPanelWidth) return saved
+  } catch {
+    // 隐私模式下读不到，用默认值就好
+  }
+  return 380
+}
+
+export function setPanelWidth(px: number) {
+  const max = Math.min(MaxPanelWidth, Math.max(MinPanelWidth, window.innerWidth * MaxPreviewRatio))
+  state.panelWidth = Math.round(Math.min(Math.max(px, MinPanelWidth), max))
+  try {
+    localStorage.setItem(PanelWidthKey, String(state.panelWidth))
+  } catch {
+    // 存不住就算了，只是下次要重新拖
+  }
+}
+
+/**
+ * 右侧面板用哪个宽度：预览、文稿要宽（和分屏共用 previewWidth），其余标签用 panelWidth。
+ * 宽度一律由右侧面板自己管（各标签不再自己定宽、自己放拖拽条），所以每个标签都能拖。
+ */
+export function rightPanelWide(tab: string, split: boolean) {
+  return split || tab === 'preview' || tab === 'document'
+}
 
 function readPreviewWidth(): number {
   try {
@@ -2054,7 +2093,16 @@ function onHostEvent(e: HostEvent) {
       else if (e.stopReason === 'Stuck') s.notice = { kind: 'stuck' }
       else if (e.stopReason === 'Budget' && e.budgetByTokens)
         // token 到了上限：说清用了多少、上限多少（单位万），而不是笼统的「用量太大」
-        s.notice = { kind: 'budgetTokens', used: Math.round((e.budgetTokens ?? 0) / 10_000), limit: Math.round((e.budgetLimit ?? 0) / 10_000) }
+        // 说清是哪个上限卡住的：这个任务的总额度、团队任务的上限、还是单次上限（开没开长任务说法不同）
+        s.notice = {
+          kind:
+            e.budgetSource === 'task' ? 'budgetTask'
+            : e.budgetSource === 'team' ? 'budgetTeam'
+            : e.longMode ? 'budgetTokensLong'
+            : 'budgetTokens',
+          used: Math.round((e.budgetTokens ?? 0) / 10_000),
+          limit: Math.round((e.budgetLimit ?? 0) / 10_000),
+        }
       else if (e.stopReason === 'Budget') s.notice = { kind: 'budget' }
       if (e.modelName && state.app) state.app.modelName = e.modelName
       finishRun(s, e.conversationId)

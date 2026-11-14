@@ -1117,6 +1117,9 @@ export type HostEvent =
       budgetByTokens?: boolean
       budgetTokens?: number
       budgetLimit?: number
+      /** 哪个上限卡住的：run = 单次任务上限；team = 团队任务上限；task = 这个任务的总额度 */
+      budgetSource?: 'run' | 'team' | 'task'
+      longMode?: boolean
       modelName?: string
       usage?: { promptTokens: number; completionTokens: number } | null
     }

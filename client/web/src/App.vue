@@ -56,7 +56,7 @@ import {
   toggleMaximize,
   toggleSideChat,
   stop,
-  toast, openSchedules, openSkills,
+  toast, openSchedules, openSkills, rightPanelWide,
 } from './store'
 import { loadShortcuts, registerShortcut, startShortcuts } from './shortcuts'
 
@@ -127,10 +127,10 @@ const inConversation = computed(() => current.value !== null)
 const CHAT_MIN_WIDTH = 400
 const autoCollapseSidebar = computed(() => {
   if (narrow.value) return false // 窄窗口模式下不自动收起（已经是抽屉模式）
-  // 没有打开预览、文档，也没有分屏时不收起
-  if (!state.preview && !state.docs[state.currentId ?? ''] && !(showRight.value && state.rightLayout.split)) return false
-  // 计算聊天区域宽度 = 窗口宽度 - 侧边栏宽度 - 预览区域宽度
-  const chatWidth = width.value - sidebarWidth.value - state.previewWidth
+  if (!showRight.value || state.rightMax) return false
+  // 计算聊天区域宽度 = 窗口宽度 - 侧边栏宽度 - 右侧面板宽度（预览、文稿、分屏用宽的那个，其余标签用窄的那个）
+  const panel = rightPanelWide(state.rightTab, state.rightLayout.split) ? state.previewWidth : state.panelWidth
+  const chatWidth = width.value - sidebarWidth.value - panel
   return chatWidth < CHAT_MIN_WIDTH
 })
 
