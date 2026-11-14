@@ -49,6 +49,12 @@ public sealed class Expert
     /// <summary>不让专家用的工具。</summary>
     [JsonPropertyName("disallowed_tools")] public List<string> DisallowedTools { get; set; } = new();
 
+    /// <summary>
+    /// 派遣方另外关掉的工具类别（见 <see cref="ToolKinds"/>、<see cref="Delegation.DispatchConstraints"/>）。
+    /// 只在派遣时填在专家快照上，不来自服务端的专家配置；和 DisallowedTools 一样只会去掉工具。
+    /// </summary>
+    [JsonPropertyName("constraint_disabled_kinds")] public List<string> ConstraintDisabledKinds { get; set; } = new();
+
     /// <summary>只读：权限压到「仅可查看」，并去掉写文件、删文件。</summary>
     [JsonPropertyName("read_only")] public bool ReadOnly { get; set; }
 
@@ -78,6 +84,10 @@ public static class ExpertRuntime
     public static bool Allows(Expert expert, ITool tool)
     {
         if (expert.DisallowedTools.Contains(tool.Name, StringComparer.Ordinal))
+        {
+            return false;
+        }
+        if (expert.ConstraintDisabledKinds.Any(kind => ToolKinds.Matches(kind, tool)))
         {
             return false;
         }

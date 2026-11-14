@@ -35,6 +35,7 @@ import {
   Wrench,
   Zap,
   X,
+  Users,
 } from '@lucide/vue'
 import Popover from './Popover.vue'
 import VendorIcon from './VendorIcon.vue'
@@ -43,6 +44,9 @@ import QuotaRing from './QuotaRing.vue'
 import WorkspacePicker from './WorkspacePicker.vue'
 import PermissionPicker from './PermissionPicker.vue'
 import ConfirmBar from './ConfirmBar.vue'
+import BatchConfirm from './BatchConfirm.vue'
+import TeamPlanCard from '../features/teams/TeamPlanCard.vue'
+import { currentTeam } from '../features/teams/store'
 import AskBar from './AskBar.vue'
 import CompactingCard from './CompactingCard.vue'
 import UsageWarning from './UsageWarning.vue'
@@ -95,12 +99,15 @@ const box = ref<HTMLTextAreaElement>()
 const mode = computed<Mode>(() => current.value?.mode ?? draftMode.mode)
 /** 专家对话：固定是「办事」，模式不能切；只读专家的权限也不用选 */
 const expertMode = computed(() => !!(current.value?.expertId ?? draftMode.expertId))
+/** 团队任务：固定是「办事」，输入框左下角显示团队名 */
+const teamMode = computed(() => !!(current.value?.teamId ?? draftMode.teamId))
 const placeholder = computed(() => {
   if (offline.value) return t('input.disconnected')
   if (paused.value && !props.home) return t('ui.pause.placeholder')
   if (busy.value && !props.home) return t('ui.interject.placeholder')
   if (mode.value === 'translate') return t('input.placeholderTranslate')
   if (currentExpert.value) return t('ui.experts.placeholder', { name: currentExpert.value.name })
+  if (currentTeam.value) return t('ui.teams.placeholder', { name: currentTeam.value.name })
   return t('input.placeholder')
 })
 const from = computed(() => current.value?.translateFrom ?? draftMode.translateFrom)
@@ -679,6 +686,8 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
   <div class="composer-wrap" :class="{ home: props.home }">
     <SplitOffer />
     <CompactingCard v-if="!props.home" />
+    <TeamPlanCard v-if="!props.home" />
+    <BatchConfirm v-if="!props.home" />
     <ConfirmBar v-if="!props.home" />
     <AskBar v-if="!props.home" />
     <UsageWarning />
@@ -804,6 +813,10 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
         <span v-if="expertMode && currentExpert" class="tool-btn expert-chip" :title="currentExpert.tagline">
           <ExpertAvatar :avatar="currentExpert.avatar" :name="currentExpert.name" :id="currentExpert.id" :size="18" />
           <span>{{ currentExpert.name }}</span>
+        </span>
+        <span v-else-if="teamMode" class="tool-btn expert-chip" :title="currentTeam?.description">
+          <Users :size="15" />
+          <span>{{ currentTeam?.name ?? t('ui.teams.title') }}</span>
         </span>
         <!-- 模式 -->
         <Popover v-else :width="260">

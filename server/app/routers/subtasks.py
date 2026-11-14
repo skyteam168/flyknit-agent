@@ -26,7 +26,7 @@ from ..schemas import (
     SubtaskStateOut,
     SubtaskTokens,
 )
-from ..services import expert_registry, item_scope, plugin_scope, subtask_store
+from ..services import expert_registry, item_scope, plugin_scope, subtask_store, team_service
 from ..services.subtask_store import utc
 
 log = logging.getLogger("flyknit.subtasks")
@@ -62,7 +62,14 @@ async def _mine(session: AsyncSession, subtask_id: str, device: Device) -> Subta
 @client_router.post("", response_model=SubtaskCreatedOut, status_code=201)
 async def create_subtask(data: SubtaskCreateIn, device: Device = Depends(require_device),
                          session: AsyncSession = Depends(get_session)):
-    if not await subtask_store.delegation_enabled(session, device):
+    # 团队派遣（docs/team-mode.md）：规则在团队模块里（开关、范围、成员资格、次数），不看「派遣专家」开关
+    limit = subtask_store.MAX_PER_RUN
+    if data.team_id:
+        try:
+            limit = await team_service.check_dispatch(session, device, data.team_id, data.expert_id)
+        except team_service.DispatchDenied as denied:
+            raise _reject(403, denied.kind, denied.message) from None
+    elif not await subtask_store.delegation_enabled(session, device):
         raise _reject(403, "delegation_disabled", "IT 没有开启「派遣专家」")
     e = await session.get(Expert, data.expert_id)
     # 范围外（不在这台电脑的部门 / 电脑范围、插件的下发范围）的专家和不存在一样：主助手派不过去
@@ -80,17 +87,17 @@ async def create_subtask(data: SubtaskCreateIn, device: Device = Depends(require
 
     # 并发登记：两边都算出同一个 seq 时唯一约束挡住后到的那个，回滚后重算。每撞一次都说明别人登记成功了一次，
     # 所以最多撞 MAX_PER_RUN 次就会看到次数用完
-    for _ in range(subtask_store.MAX_PER_RUN + 2):
+    for _ in range(limit + 2):
         top = await session.scalar(
             select(func.max(Subtask.seq)).where(Subtask.device_id == device_id, Subtask.run_id == data.run_id))
         seq = (top or 0) + 1
-        if seq > subtask_store.MAX_PER_RUN:
+        if seq > limit:
             break
         now = datetime.now(timezone.utc)
         st = Subtask(
             id=subtask_store.new_id(), device_id=device_id, machine_name=machine_name, user_name=user_name,
             conversation_id=data.conversation_id, run_id=data.run_id, seq=seq,
-            expert_id=expert_id, expert_name=expert_name[:100], expert_version=data.expert_version,
+            expert_id=expert_id, expert_name=expert_name[:100], expert_version=data.expert_version, team_id=data.team_id,
             published_version=published_version, task=data.task, status="running", token_cap=token_cap,
             deadline_at=now + timedelta(seconds=timeout), created_at=now,
         )
@@ -107,7 +114,7 @@ async def create_subtask(data: SubtaskCreateIn, device: Device = Depends(require
                                     published_version=published_version, name=expert_name),
             token_cap=token_cap, deadline_at=st.deadline_at,
         )
-    raise _reject(409, "delegation_limit", f"这一轮已经派遣过 {subtask_store.MAX_PER_RUN} 次专家")
+    raise _reject(409, "delegation_limit", f"这一轮已经派遣过 {limit} 次专家")
 
 
 @client_router.post("/{subtask_id}/finish", response_model=SubtaskStateOut)

@@ -94,6 +94,7 @@ const form = reactive({
   examplesText: '',
   timeoutSec: 60,
   skip_tls_verify: false,
+  readonlyText: '',
   sort_order: 0,
   enabled: true,
 })
@@ -145,6 +146,7 @@ function fill(v: Partial<McpVendor> & { preset?: Record<string, string> }) {
   form.examplesText = (v.examples ?? []).join('\n')
   form.timeoutSec = Math.round((v.timeout_ms ?? 60000) / 1000)
   form.skip_tls_verify = !!v.skip_tls_verify
+  form.readonlyText = (v.readonly_tools ?? []).join('\n')
   form.sort_order = v.sort_order ?? 0
   form.enabled = v.enabled ?? true
 }
@@ -221,6 +223,7 @@ function payload(): McpVendorIn {
     examples: form.examplesText.split('\n').map((e) => e.trim()).filter(Boolean),
     timeout_ms: Math.max(5, Math.min(600, form.timeoutSec || 60)) * 1000,
     skip_tls_verify: form.transport !== 'stdio' && !!form.skip_tls_verify,
+    readonly_tools: form.readonlyText.split('\n').map((t) => t.trim()).filter(Boolean),
     sort_order: form.sort_order,
     enabled: form.enabled,
   }
@@ -317,8 +320,30 @@ const testResult = ref<McpTestResult | null>(null)
 const testRunning = ref(false)
 const testInputs = computed(() => testing.value?.fields.filter((f) => !testing.value?.preset_masked[f.key]) ?? [])
 
+// 测试连接里直接勾「只读」：员工端用这些工具不再每次确认（docs/approval-p0.md 第 6 节）
+const readonlyMarks = ref<string[]>([])
+const savingMarks = ref(false)
+const marksChanged = computed(() => {
+  const saved = [...(testing.value?.readonly_tools ?? [])].sort().join('\n')
+  return saved !== [...readonlyMarks.value].sort().join('\n')
+})
+async function saveMarks() {
+  if (!testing.value) return
+  savingMarks.value = true
+  try {
+    const saved = await api.patchMcpVendor(testing.value.id, { readonly_tools: readonlyMarks.value })
+    testing.value = saved
+    const i = vendors.value.findIndex((v) => v.id === saved.id)
+    if (i >= 0) vendors.value[i] = saved
+    ElMessage.success('已保存，员工端下次拉取连接器配置后生效')
+  } finally {
+    savingMarks.value = false
+  }
+}
+
 function openTest(v: McpVendor) {
   testing.value = v
+  readonlyMarks.value = [...(v.readonly_tools ?? [])]
   testResult.value = null
   for (const k of Object.keys(testValues)) delete testValues[k]
   if (testInputs.value.length === 0) void runTest()
@@ -449,6 +474,13 @@ async function runTest() {
           <el-form-item label="环境变量"><el-input v-model="form.envText" type="textarea" :rows="2" placeholder="一行一个，例如&#10;API_TOKEN=${API_TOKEN}" /></el-form-item>
         </template>
         <el-form-item label="超时（秒）"><el-input-number v-model="form.timeoutSec" :min="5" :max="600" /></el-form-item>
+        <el-form-item label="只读工具">
+          <el-input v-model="form.readonlyText" type="textarea" :rows="2" placeholder="一行一个工具名，例如&#10;query_orders" />
+          <p class="hint">
+            只填查询类、不会改对方数据的工具：员工用它们时不再每次确认。在线服务可以在「测试连接」里直接勾选；
+            对方自己声明了「会删改数据」的工具，填了也不生效。
+          </p>
+        </el-form-item>
 
         <h4>登录方式</h4>
         <el-form-item label="方式">
@@ -552,13 +584,27 @@ async function runTest() {
           <el-alert v-else type="error" :closable="false" show-icon>
             <template #title><el-icon><WarningFilled /></el-icon> {{ testResult.error }}</template>
           </el-alert>
-          <ul v-if="testResult.tools.length" class="tool-list">
-            <li v-for="t in testResult.tools" :key="t.name"><code>{{ t.name }}</code><small>{{ t.description }}</small></li>
-          </ul>
+          <template v-if="testResult.tools.length">
+            <p class="hint">勾选查询类工具标为「只读」，员工用它们时不再每次确认。拿不准的不要勾。</p>
+            <el-checkbox-group v-model="readonlyMarks">
+              <ul class="tool-list">
+                <li v-for="t in testResult.tools" :key="t.name">
+                  <div class="tool-row">
+                    <code>{{ t.name }}</code>
+                    <el-tag v-if="t.read_only" size="small" type="success">对方已声明只读</el-tag>
+                    <el-tag v-else-if="t.destructive" size="small" type="danger">对方声明会删改数据，标只读也不生效</el-tag>
+                    <el-checkbox v-else :value="t.name">只读</el-checkbox>
+                  </div>
+                  <small>{{ t.description }}</small>
+                </li>
+              </ul>
+            </el-checkbox-group>
+          </template>
         </template>
       </template>
       <template #footer>
         <el-button @click="testing = null">关闭</el-button>
+        <el-button v-if="testResult?.ok" :disabled="!marksChanged" :loading="savingMarks" @click="saveMarks">保存只读标注</el-button>
         <el-button type="primary" :loading="testRunning" @click="runTest">测试</el-button>
       </template>
     </el-dialog>
@@ -785,6 +831,14 @@ async function runTest() {
   padding: 6px 0;
   border-bottom: 1px solid var(--line);
   font-size: 13px;
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tool-row code {
+  flex: 1;
 }
 .tool-list small {
   color: var(--ink-faint);

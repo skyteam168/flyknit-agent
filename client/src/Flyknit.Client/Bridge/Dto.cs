@@ -30,7 +30,8 @@ public sealed record ConversationDto(
     double? SortOrder,
     bool LongMode = false,
     string? RunStartedAt = null,
-    bool Sandbox = false)
+    bool Sandbox = false,
+    string? TeamId = null)
 {
     public static ConversationDto From(Conversation c) => new(
         c.Id,
@@ -52,7 +53,8 @@ public sealed record ConversationDto(
         c.SortOrder,
         c.LongMode,
         c.RunStartedAt?.ToString("O"),
-        c.Sandbox);
+        c.Sandbox,
+        c.TeamId);
 }
 
 /// <summary>界面上显示的专家：卡片和对话顶部用。工作方式、专家知识这些只给模型看，不发给界面。</summary>

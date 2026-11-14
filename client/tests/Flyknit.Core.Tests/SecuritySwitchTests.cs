@@ -227,6 +227,13 @@ public class SecuritySwitchTests
             SecuritySettings.RouterParallel,
             // AgentHost.IsolationForAsync 读这一项：拆开的几件在独立的沙箱 / worktree 里各自改代码（见 WorktreeTests）
             SecuritySettings.IsolatedWrites,
+            // AgentHost.Teams 读这三项：团队模式开关（关着时侧栏没有「团队」、不拉列表）、员工能否自建、成员上限（编辑器用）
+            SecuritySettings.Teams,
+            SecuritySettings.TeamCreate,
+            SecuritySettings.TeamMaxMembers,
+            // AgentHost.Teams 读这两项：团队调度同时干活的成员数（TeamScheduler.Parallel）、团队对话一轮的 token 上限（AgentOptionsFor）
+            SecuritySettings.TeamParallel,
+            SecuritySettings.TeamTokenBudget,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

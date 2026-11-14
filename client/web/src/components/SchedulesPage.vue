@@ -17,6 +17,7 @@ import {
 import { bridge } from '../bridge'
 import { errorText, fail, loadSchedules, openConversation, state, toast } from '../store'
 import BrandLoader from './BrandLoader.vue'
+import { loadTeams, teams } from '../features/teams/store'
 import type { Permission, ScheduledTask, ScheduleKind } from '../types'
 
 const { t } = useI18n()
@@ -67,7 +68,13 @@ const form = reactive({
   catchUp: true,
   rehearsal: false,
   enabled: true,
+  /** 交给哪个团队（空 = 普通办事） */
+  teamId: '',
 })
+
+/** 团队模式开着、有能用的团队时，定时任务可以交给团队做 */
+const teamChoices = computed(() => (state.app?.teams ? teams.list : []))
+const teamName = (id?: string | null) => (id ? (teams.list.find((x) => x.id === id)?.name ?? '') : '')
 
 const needsTime = computed(() => form.kind !== 'manual' && form.kind !== 'once' && form.kind !== 'hourly' && form.kind !== 'folder')
 const canSave = computed(() =>
@@ -90,6 +97,7 @@ function openNew(template?: (typeof templates)[number]) {
     catchUp: true,
     rehearsal: false,
     enabled: true,
+    teamId: '',
   })
   editing.value = form
 }
@@ -111,6 +119,7 @@ function openEdit(task: ScheduledTask) {
     catchUp: task.catchUp,
     rehearsal: task.rehearsal ?? false,
     enabled: task.enabled,
+    teamId: task.teamId ?? '',
   })
   editing.value = form
 }
@@ -128,6 +137,7 @@ async function save() {
     await bridge.saveSchedule({
       ...form,
       at: form.kind === 'once' && form.at ? new Date(form.at).toISOString() : null,
+      teamId: form.teamId || null,
     } as Partial<ScheduledTask>)
     editing.value = null
     await loadSchedules()
@@ -196,7 +206,10 @@ function describe(task: ScheduledTask) {
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 const statusText = (s: string) => (s ? t(`ui.schedules.status.${s}`, s) : '')
 
-onMounted(firstLoad)
+onMounted(() => {
+  void firstLoad()
+  if (state.app?.teams && !teams.list.length) void loadTeams()
+})
 </script>
 
 <template>
@@ -277,6 +290,15 @@ onMounted(firstLoad)
           </label>
         </template>
 
+        <label v-if="teamChoices.length" class="field">
+          <span>{{ t('ui.schedules.team') }}</span>
+          <select v-model="form.teamId">
+            <option value="">{{ t('ui.schedules.noTeam') }}</option>
+            <option v-for="tm in teamChoices" :key="tm.id" :value="tm.id">{{ tm.name }}</option>
+          </select>
+          <small>{{ t('ui.schedules.teamHint') }}</small>
+        </label>
+
         <label class="field">
           <span>{{ t('ui.permission.title') }}</span>
           <select v-model="form.permission">
@@ -322,7 +344,7 @@ onMounted(firstLoad)
             <div class="row-main">
               <span class="ico"><CalendarClock :size="16" /></span>
               <span class="main">
-                <strong>{{ task.name }}<span v-if="task.rehearsal" class="rehearsal">{{ t('ui.schedules.rehearsalBadge') }}</span></strong>
+                <strong>{{ task.name }}<span v-if="task.rehearsal" class="rehearsal">{{ t('ui.schedules.rehearsalBadge') }}</span><span v-if="teamName(task.teamId)" class="rehearsal">{{ t('ui.schedules.teamBadge', { name: teamName(task.teamId) }) }}</span></strong>
                 <small class="ins">{{ task.instructions }}</small>
                 <small class="meta">
                   <Clock :size="11" />{{ describe(task) }}

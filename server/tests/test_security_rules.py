@@ -118,6 +118,13 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "router_parallel",
         # 客户端 AgentHost.IsolationForAsync 读它：拆开的几件在独立的沙箱 / worktree 里各自改代码（C4）
         "isolated_writes",
+        # 客户端 AgentHost.Teams 读前三项：团队模式开关、员工能否自建、成员上限；
+        # 后两项由团队调度（TeamScheduler）读：同时干活的成员数、单次团队任务的 token 上限。服务端团队接口也按前三项拒收
+        "teams",
+        "team_create",
+        "team_max_members",
+        "team_parallel",
+        "team_token_budget",
         # 客户端 AgentHost 读它决定这一轮有没有浏览器工具
         "browser_tools",
         # 客户端读它决定能不能在后台启动命令（run_shell background=true、shell_output、shell_stop）

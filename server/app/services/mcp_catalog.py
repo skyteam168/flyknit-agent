@@ -372,7 +372,15 @@ async def probe(http: httpx.AsyncClient, url: str, headers: dict[str, str], time
         for page in range(20):  # 防止服务端翻页翻不完
             listed, _ = await _rpc(http, url, h, 2 + page, "tools/list", {"cursor": cursor} if cursor else {}, timeout)
             for t in listed.get("tools") or []:
-                tools.append({"name": t.get("name", ""), "description": (t.get("description") or "")[:300]})
+                ann = t.get("annotations")
+                ann = ann if isinstance(ann, dict) else {}
+                tools.append({
+                    "name": t.get("name", ""),
+                    "description": (t.get("description") or "")[:300],
+                    # 对方自己声明的：后台据此提示「已声明只读」「声明会删改数据，标只读也不生效」
+                    "read_only": ann.get("readOnlyHint") is True,
+                    "destructive": ann.get("destructiveHint") is True,
+                })
             cursor = listed.get("nextCursor")
             if not cursor:
                 break

@@ -9,13 +9,15 @@ import TerminalTab from './TerminalTab.vue'
 import DocumentTab from './DocumentTab.vue'
 import BackgroundTab from './BackgroundTab.vue'
 import FilesTab from './FilesTab.vue'
+import TeamPanel from '../features/teams/TeamPanel.vue'
 
 /** 右侧面板里的一格：按标签显示对应的内容（分屏时上下两格各用一个） */
 defineProps<{ tab: string }>()
 </script>
 
 <template>
-  <DocumentTab v-if="tab === 'document'" class="body" />
+  <TeamPanel v-if="tab === 'team'" class="body" />
+  <DocumentTab v-else-if="tab === 'document'" class="body" />
   <PlanPanel v-else-if="tab === 'plan' && currentState" :plan="currentState.plan" class="body" />
   <PreviewPane v-else-if="tab === 'preview'" class="body" />
   <ChangesTab v-else-if="tab === 'changes'" class="body" />

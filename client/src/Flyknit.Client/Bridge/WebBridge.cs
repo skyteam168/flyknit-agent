@@ -20,7 +20,7 @@ namespace Flyknit.Client.Bridge;
 /// WebView2 页面与宿主之间的消息通道，协议见 client/web/src/bridge.ts。
 /// 同时负责把“需要用户确认”的请求转给页面并等待结果。
 /// </summary>
-public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.Tools.IQuestionHandler
+public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirmationHandler, Flyknit.Core.Tools.IQuestionHandler
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -33,6 +33,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
     /// <summary>最近一次网络检测（设置 → 网络 再打开时直接显示，不用重测）。</summary>
     private (Flyknit.Core.Diagnostics.NetworkReport Report, string Path)? _lastNetwork;
     private readonly ConcurrentDictionary<string, PendingConfirm> _confirms = new();
+
+    /// <summary>合并卡上逐项的回答（docs/approval-p0.md 第 7 节）：请求 ID → 调用 ID → 选择。</summary>
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<Dictionary<string, ConfirmChoice>>> _batches = new();
     private readonly ConcurrentDictionary<string, PendingQuestion> _questions = new();
 
     /// <summary>界面当前打开的任务。用户在看别的任务时，这个任务的通知照常弹。</summary>
@@ -107,6 +110,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
             developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
             routerSplit = _host.RouterSplitOn,
+            teams = _host.Teams.On,
+            teamCreate = _host.Teams.CreateOn,
+            teamMaxMembers = _host.Teams.MaxMembers,
             sandboxTasks = _host.SandboxSwitchOn,
             webSearchEnabled = _host.WebSearchEnabled,
             deepThinking = _settings.DeepThinking,
@@ -310,6 +316,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             actor = request.Actor is { } actor
                 ? new { kind = "expert", id = actor.ExpertId, name = actor.Name, avatar = actor.Avatar, subtaskId = actor.SubtaskId, toolName = request.Call.Name, summary = request.Summary }
                 : null,
+            // 派遣时的一次授权：列出这次可能要用的工具（docs/approval-p0.md 第 5 节）
+            bundle = request.Bundle,
         });
         ConfirmRequested?.Invoke(pending);
 
@@ -323,6 +331,86 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
             _confirms.TryRemove(pending.RequestId, out _);
             PendingConfirmsChanged?.Invoke(WaitingCount);
             ConfirmClosed?.Invoke(pending);
+        }
+    }
+
+    /// <summary>界面起来了才合并；没起来时照旧一个一个问（和以前一样）。</summary>
+    public bool CanBatch => UiReady;
+
+    /// <summary>
+    /// 同一步里的几个确认合成一张卡（docs/approval-p0.md 第 7 节）。
+    /// 界面上逐项勾选；高危、污染模式、IT 规定必须确认的项默认不勾，「全部允许」不替员工勾它们；
+    /// 没勾也没拒绝的项不回答，执行到它时再单独问。
+    /// 同时登记一个普通的确认（系统通知上的「允许 / 拒绝」用它）：允许 = 只放行不用逐个勾的项，拒绝 = 全部拒绝。
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, ConfirmChoice>> ConfirmBatchAsync(IReadOnlyList<ConfirmRequest> requests, CancellationToken ct)
+    {
+        var first = requests[0];
+        var pending = new PendingConfirm
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            ConversationId = first.ConversationId,
+            CallId = first.Call.Id,
+            ToolName = first.Call.Name,
+            Detail = string.Join("\n", requests.Select(r => r.Summary)),
+            Rationale = first.Rationale,
+            Effect = requests.Any(r => r.MustTick) ? "destructive" : "write",
+            Title = _host.Store.Get(first.ConversationId)?.Title ?? "",
+        };
+        var detailed = new TaskCompletionSource<Dictionary<string, ConfirmChoice>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _batches[pending.RequestId] = detailed;
+        _confirms[pending.RequestId] = pending;
+        PendingConfirmsChanged?.Invoke(WaitingCount);
+        Post(new
+        {
+            type = "tool.confirmBatch",
+            conversationId = first.ConversationId,
+            requestId = pending.RequestId,
+            rationale = first.Rationale,
+            groupId = _host.GroupIdOf(first.ConversationId),
+            items = requests.Select(r => new
+            {
+                callId = r.Call.Id,
+                toolName = r.Call.Name,
+                summary = r.Summary,
+                reason = r.Decision.Reason,
+                effect = r.Decision.Effect.ToString().ToLowerInvariant(),
+                mustTick = r.MustTick,
+                // 「本任务内同类不再询问」只对能记进会话授权的项生效
+                sessionable = !r.MustTick,
+            }).ToList(),
+        });
+        ConfirmRequested?.Invoke(pending);
+
+        await using var registration = ct.Register(() =>
+        {
+            pending.Completion.TrySetResult(ConfirmChoice.Reject);
+            detailed.TrySetCanceled();
+        });
+        try
+        {
+            var done = await Task.WhenAny(pending.Completion.Task, detailed.Task);
+            if (done == detailed.Task && detailed.Task.IsCompletedSuccessfully)
+            {
+                return detailed.Task.Result;
+            }
+            if (ct.IsCancellationRequested)
+            {
+                return requests.ToDictionary(r => r.Call.Id, _ => ConfirmChoice.Reject);
+            }
+            // 从通知或老界面上回答的：允许只放行不用逐个勾的项，必须勾的留到执行时单独问；拒绝就全部拒绝
+            var coarse = pending.Completion.Task.Result;
+            return coarse == ConfirmChoice.Reject
+                ? requests.ToDictionary(r => r.Call.Id, _ => ConfirmChoice.Reject)
+                : requests.Where(r => !r.MustTick).ToDictionary(r => r.Call.Id, _ => ConfirmChoice.AllowOnce);
+        }
+        finally
+        {
+            _batches.TryRemove(pending.RequestId, out _);
+            _confirms.TryRemove(pending.RequestId, out _);
+            PendingConfirmsChanged?.Invoke(WaitingCount);
+            ConfirmClosed?.Invoke(pending);
+            Post(new { type = "tool.confirmBatchResolved", conversationId = pending.ConversationId, requestId = pending.RequestId });
         }
     }
 
@@ -472,6 +560,12 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
         string? OptStr(string name) => Str(name) is { Length: > 0 } v ? v : null;
         int? Int(string name) => p.ValueKind == JsonValueKind.Object && p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
 
+        // 功能模块注册的方法（docs/extension-architecture.md）：新功能的界面接口放在自己的模块里，不再往下面这个大 switch 里加
+        if (_host.BridgeModules.TryGet(method, out var module))
+        {
+            return await module.HandleAsync(method, new Flyknit.Core.Hosting.BridgeArgs(p), CancellationToken.None);
+        }
+
         switch (method)
         {
             case "app.init":
@@ -511,6 +605,9 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                     longTasks = _host.Security.On(Flyknit.Core.Security.SecuritySettings.LongTasks, fallback: true),
                     developerTools = _host.Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
                     routerSplit = _host.RouterSplitOn,
+                    teams = _host.Teams.On,
+                    teamCreate = _host.Teams.CreateOn,
+                    teamMaxMembers = _host.Teams.MaxMembers,
                     sandboxTasks = _host.SandboxSwitchOn,
                     webSearchEnabled = _host.WebSearchEnabled,
                     deepThinking = _settings.DeepThinking,
@@ -1287,6 +1384,8 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 task.ModelId = Int("modelId");
                 task.CatchUp = !p.TryGetProperty("catchUp", out var cu) || cu.ValueKind != JsonValueKind.False;
                 task.Rehearsal = p.TryGetProperty("rehearsal", out var rh) && rh.ValueKind == JsonValueKind.True;
+                // 交给团队做（团队模式开着才收；到点时团队不可用了就按普通办事跑）
+                task.TeamId = _host.Teams.On ? OptStr("teamId") : null;
                 if (p.TryGetProperty("enabled", out var en))
                 {
                     task.Enabled = en.ValueKind != JsonValueKind.False;
@@ -1729,7 +1828,13 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 {
                     expert = null;
                 }
-                var conv = await Task.Run(() => _host.Store.Create(mode, "", modelId, workspace, permission, expert?.Id));
+                // 团队任务：只认这台电脑能用的团队（服务端下发的列表里的）；团队对话一律是「办事」模式
+                var team = expert is null && OptStr("teamId") is { } teamId ? await _host.Teams.FindAsync(teamId, CancellationToken.None) : null;
+                if (team is not null)
+                {
+                    mode = ConversationMode.Agent;
+                }
+                var conv = await Task.Run(() => _host.Store.Create(mode, "", modelId, workspace, permission, expert?.Id, team?.Id));
                 return ConversationDto.From(conv);
             }
 
@@ -2282,6 +2387,33 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
                 return null;
             }
 
+            case "tool.confirmBatch":
+            {
+                // 合并卡的回答：allowed = 勾了允许的调用，rejected = 明确拒绝的；都不在里面的执行时再单独问。
+                // session = 勾了「本任务内同类不再询问」，只对不用逐个勾的项生效（Core 里高危的本来就不进会话授权）
+                if (_batches.TryGetValue(Str("requestId"), out var batch))
+                {
+                    var answers = new Dictionary<string, ConfirmChoice>(StringComparer.Ordinal);
+                    var session = Bool("session");
+                    if (p.TryGetProperty("rejected", out var rejected) && rejected.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var id in rejected.EnumerateArray())
+                        {
+                            answers[id.GetString() ?? ""] = ConfirmChoice.Reject;
+                        }
+                    }
+                    if (p.TryGetProperty("allowed", out var allowed) && allowed.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var id in allowed.EnumerateArray())
+                        {
+                            answers[id.GetString() ?? ""] = session ? ConfirmChoice.AllowForSession : ConfirmChoice.AllowOnce;
+                        }
+                    }
+                    batch.TrySetResult(answers);
+                }
+                return null;
+            }
+
             case "context.usage":
                 return _host.ContextUsageOf(Str("conversationId"));
 
@@ -2607,6 +2739,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, Flyknit.Core.
         modelId = t.ModelId,
         catchUp = t.CatchUp,
         rehearsal = t.Rehearsal,
+        teamId = t.TeamId,
         nextRunAt = t.NextRunAt?.ToString("O"),
         lastRunAt = t.LastRunAt?.ToString("O"),
         lastStatus = t.LastStatus,

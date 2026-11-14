@@ -31,6 +31,8 @@ export interface Conversation {
   longMode?: boolean
   /** 沙箱任务：读写、命令、git 都在本机 Docker 容器里做，不弹确认；只有推分支建 PR 能带出容器 */
   sandbox?: boolean
+  /** 团队任务的团队 ID（docs/team-mode.md） */
+  teamId?: string | null
 }
 
 /** 一个对话的沙箱状态。off 没开；idle 开了还没起容器（第一次发话时起）；preparing 正在起；ready 容器在 */
@@ -354,6 +356,8 @@ export interface ScheduledTask {
   catchUp: boolean
   /** 预演：只读调研，列出会做的修改，不真的执行 */
   rehearsal: boolean
+  /** 交给哪个团队做（空 = 普通办事）；到点后分工计划自动开始 */
+  teamId?: string | null
   nextRunAt: string | null
   lastRunAt: string | null
   /** ok / rehearsed / failed / stopped / running */
@@ -685,6 +689,12 @@ export interface AppInfo {
   longTasks?: boolean
   /** IT 打开了「一句话里的几件事分开做」（docs/c2-router.md 3.3） */
   routerSplit?: boolean
+  /** IT 打开了团队模式（docs/team-mode.md）：侧栏显示「团队」 */
+  teams?: boolean
+  /** 员工能不能自己建团队 */
+  teamCreate?: boolean
+  /** 一个团队最多几位成员（2～8） */
+  teamMaxMembers?: number
   /** IT 打开了「开发者工具」：办事模式有 grep / git 工具，输入框能用 /init */
   developerTools?: boolean
   /** IT 打开了「沙箱任务」（还要开发者工具）：输入框显示「沙箱」开关 */
@@ -996,6 +1006,29 @@ export interface ConfirmPrompt {
   effect?: string
   /** 专家在请求确认（主助手自己的调用为空） */
   actor?: ConfirmActor
+  /** 派遣时的一次授权：这位专家这次可能要用的工具（docs/approval-p0.md 第 5 节） */
+  bundle?: string[]
+}
+
+/** 合并卡里的一项（docs/approval-p0.md 第 7 节） */
+export interface BatchConfirmItem {
+  callId: string
+  toolName: string
+  summary: string
+  reason: string
+  /** read / write / destructive / unknown */
+  effect: string
+  /** 高危、读到可疑内容之后、IT 规定必须确认的：默认不勾，「全部允许」不替员工勾 */
+  mustTick: boolean
+  /** 能记进「本任务内同类不再询问」 */
+  sessionable: boolean
+}
+
+/** 同一步里几个要确认的操作合成的一张卡 */
+export interface BatchConfirm {
+  requestId: string
+  rationale: string
+  items: BatchConfirmItem[]
 }
 
 export type ConfirmChoice = 'allowOnce' | 'allowForSession' | 'allowAlways' | 'reject'
@@ -1021,7 +1054,18 @@ export type HostEvent =
       effect?: string
       /** 专家执行时请求的确认 */
       actor?: ConfirmActor
+      /** 派遣时的一次授权：列出的工具 */
+      bundle?: string[]
     }
+  | { type: 'tool.confirmBatch'; conversationId: string; requestId: string; rationale: string; items: BatchConfirmItem[]; groupId?: string }
+  | { type: 'tool.confirmBatchResolved'; conversationId: string; requestId: string }
+  | ({ type: 'team.plan'; conversationId: string } & TeamPlanPending)
+  | { type: 'team.planClosed'; conversationId: string; requestId: string }
+  | { type: 'team.started'; conversationId: string; runId: string; callId: string; round: number; goal?: string; autoStarted?: boolean; items: { expertId: string; task: string; done: string; dependsOn: string[] }[] }
+  | { type: 'team.record'; conversationId: string; record: TeamRunRecord }
+  | { type: 'team.member'; conversationId: string; runId: string; expertId: string; status: TeamMemberState; note: string; subtaskId: string; callId: string }
+  | ({ type: 'team.board'; conversationId: string; runId: string } & TeamBoardItem)
+  | { type: 'team.round'; conversationId: string; runId: string; results: { expertId: string; status: string; delivery: string; retries: number }[] }
   | {
       type: 'expert.started'
       conversationId: string
@@ -1096,7 +1140,7 @@ export type HostEvent =
   | { type: 'shell.request'; action: 'ask' | 'summarize' | 'translate' | 'workspace'; attachments?: AttachmentRef[]; path?: string }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
-      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'routerSplit' | 'developerTools' | 'sandboxTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
+      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'routerSplit' | 'teams' | 'teamCreate' | 'teamMaxMembers' | 'developerTools' | 'sandboxTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
     >)
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }
@@ -1419,4 +1463,155 @@ export interface PluginInfo {
   commands: string[]
   experts: string[]
   connectors: string[]
+}
+
+// ---------- 团队（docs/team-mode.md）：字段和服务端一致（下划线命名） ----------
+export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer'
+export interface TeamMember {
+  expert_id: string
+  note: string
+  /** 这台电脑现在能不能用这位专家（下线、不在范围内 = false，开工时跳过） */
+  available?: boolean
+}
+export interface Team {
+  id: string
+  name: string
+  description: string
+  icon: string
+  leader_note: string
+  members: TeamMember[]
+  model_id: number | null
+  disabled_tools: TeamToolKind[]
+  read_only: boolean
+  /** it（IT 下发）/ department（本部门共享）/ personal（只我自己） */
+  source: 'it' | 'department' | 'personal'
+  owner_name: string
+  department: string
+  /** 这台电脑能不能改、解散（只有建的人） */
+  editable: boolean
+  runs: number
+  /** 当队长的专家（空 = 主助手） */
+  leader_expert_id: string
+  /** 队长专家这台电脑现在能不能用 */
+  leader_available: boolean
+  /** 示例任务（最多 5 条） */
+  examples: string[]
+  created_at: string
+  updated_at: string
+}
+
+/** 团队经验（团队积累）：做法、口径、注意事项；开工时作为参考资料给队长 */
+export interface TeamNote {
+  id: string
+  team_id: string
+  text: string
+  kind: 'method' | 'source' | 'pitfall' | 'other'
+  /** leader（队长记的）/ employee / it */
+  source: 'leader' | 'employee' | 'it'
+  author: string
+  created_at: string
+  deletable: boolean
+}
+
+/** 宿主存在本地的一次团队任务（关掉再打开、重启后面板照样能看） */
+export interface TeamRunRecord {
+  runId: string
+  conversationId: string
+  teamId: string
+  teamName: string
+  goal: string
+  startedAt: string
+  finishedAt: string | null
+  finished: boolean
+  interrupted: boolean
+  autoStarted: boolean
+  rounds: number
+  reassigned: boolean
+  tokens: number
+  rating: number
+  feedback: string
+  notes: number
+  members: (Omit<TeamMemberView, 'status'> & { status: string; name: string; reused?: boolean })[]
+  board: TeamBoardItem[]
+}
+export interface TeamInput {
+  name: string
+  description: string
+  icon: string
+  leader_note: string
+  members: TeamMember[]
+  model_id: number | null
+  disabled_tools: TeamToolKind[]
+  read_only: boolean
+  leader_expert_id: string
+  examples: string[]
+  share: 'department' | 'personal'
+  updated_at?: string | null
+}
+
+// ---------- 团队执行（docs/team-mode.md 第 6、7 节）----------
+export interface TeamPlanCardItem {
+  expertId: string
+  name: string
+  avatar: string
+  readOnly: boolean
+  task: string
+  done: string
+  dependsOn: string[]
+}
+/** 等员工回答的计划卡 */
+export interface TeamPlanPending {
+  requestId: string
+  callId: string
+  runId: string
+  /** 1 = 分工计划，2 = 补派 */
+  round: number
+  goal: string
+  items: TeamPlanCardItem[]
+  skipped: string[]
+  estimateTokens: number
+  budgetTokens: number
+}
+export type TeamMemberState = 'waiting' | 'upstream' | 'running' | 'retrying' | 'done' | 'failed' | 'stopped'
+export interface TeamMemberView {
+  expertId: string
+  status: TeamMemberState
+  note: string
+  callId: string
+  subtaskId: string
+  task: string
+  done: string
+  dependsOn: string[]
+  delivery?: string
+  retries?: number
+  /** 沿用了中断前已交卷的结果 */
+  reused?: boolean
+}
+export interface TeamBoardItem {
+  expertId: string
+  name: string
+  /** finding / file / question / progress / read */
+  kind: string
+  text: string
+  at: string
+}
+/** 一次团队任务在界面上的状态（右侧「团队」标签、计划卡） */
+export interface TeamRunView {
+  runId: string
+  pending: TeamPlanPending | null
+  members: Record<string, TeamMemberView>
+  order: string[]
+  board: TeamBoardItem[]
+  startedAt: string
+  finished: boolean
+  goal?: string
+  /** 程序中途关掉、没有正常收尾 */
+  interrupted?: boolean
+  /** 定时任务：没人确认，计划自动开始 */
+  autoStarted?: boolean
+  rating?: number
+  feedback?: string
+  tokens?: number
+  /** 这次队长记的团队经验条数 */
+  notes?: number
 }

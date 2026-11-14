@@ -68,6 +68,8 @@ interface ConversationState {
   inputs: PendingInput[]
   /** 用户暂停了这一轮（悬浮球或输入框上的暂停） */
   paused?: boolean
+  /** 同一步里几个要确认的操作合成的一张卡（docs/approval-p0.md 第 7 节） */
+  batch?: import('./types').BatchConfirm
 }
 
 /** 读一个对话盯着的 PR */
@@ -132,7 +134,7 @@ export const state = reactive({
   groups: {} as Record<string, GroupView[]>,
   /** 排队中（还没轮到）的拆分子对话：侧栏标「排队中」，打开时显示占位说明 */
   queued: {} as Record<string, QueuedView>,
-  view: 'chat' as 'chat' | 'library' | 'experts' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
+  view: 'chat' as 'chat' | 'library' | 'experts' | 'teams' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
   /** 每个对话里每一轮改动的文件（打开对话、一轮结束时取） */
@@ -230,6 +232,11 @@ export const state = reactive({
 
 /** 转写出来的文字送到输入框（Composer 挂的这个事件） */
 const SpeechTextEvent = 'flyknit:speech-text'
+
+/** 往输入框里填一句话（不发出去，员工改好再发）：和语音转写走同一个口子 */
+export function fillInput(text: string) {
+  window.dispatchEvent(new CustomEvent(SpeechTextEvent, { detail: text }))
+}
 
 export function onSpeechText(handler: (text: string) => void) {
   const fn = (e: Event) => handler((e as CustomEvent<string>).detail)
@@ -480,6 +487,29 @@ export const current = computed(() => state.conversations.find((c) => c.id === s
 export const currentState = computed(() => (state.currentId ? convState(state.currentId) : null))
 
 /** 任意对话里待确认的操作（优先当前对话）。手机办事不抢焦点时，确认条仍要能找到。 */
+/** 等员工回答的合并卡：优先当前对话，再看别的对话 */
+export function findWaitingBatch(): { conversationId: string; batch: import('./types').BatchConfirm } | null {
+  const ids = state.currentId ? [state.currentId, ...Object.keys(state.byId).filter((id) => id !== state.currentId)] : Object.keys(state.byId)
+  for (const id of ids) {
+    const batch = state.byId[id]?.batch
+    if (batch) return { conversationId: id, batch }
+  }
+  return null
+}
+
+/** 回答合并卡。allowed 里的执行；rejected 里的拒绝；都不在的执行到时再单独问 */
+export async function answerBatch(conversationId: string, allowed: string[], rejected: string[], session: boolean) {
+  const s = convState(conversationId)
+  const batch = s.batch
+  if (!batch) return
+  s.batch = undefined
+  for (const id of rejected) {
+    const t = s.tools[id]
+    if (t) t.state = 'rejected'
+  }
+  await bridge.confirmBatch(batch.requestId, allowed, rejected, session).catch(fail)
+}
+
 export function findWaitingConfirm(exclude?: Set<string>): { conversationId: string; tool: ToolActivity } | null {
   const pick = (id: string) => {
     if (exclude?.has(id)) return null
@@ -904,6 +934,7 @@ export function openExperts() {
   void loadExperts()
 }
 
+
 /** 呼叫专家：进入这位专家的新对话（发第一句话时才真正创建，和新任务一样） */
 export function callExpert(id: string, prompt?: string) {
   state.expertDetail = null
@@ -1038,6 +1069,7 @@ export function newConversation(mode?: Mode) {
   state.currentId = null
   state.pending = []
   draftMode.expertId = null
+  draftMode.teamId = null
   // 新对话跟着最近一次选的工作区走（输入框下面选的、侧栏添加的、设置里改的都算）
   if (state.app?.defaultWorkspace) draftMode.workspace = state.app.defaultWorkspace
   if (mode) draftMode.mode = mode
@@ -1052,6 +1084,8 @@ export const draftMode = reactive({
   permission: 'workspace' as Permission,
   /** 新对话要呼叫的专家 */
   expertId: null as string | null,
+  /** 新对话是哪个团队的任务（docs/team-mode.md） */
+  teamId: null as string | null,
   /** 新对话开长任务模式 */
   longMode: false,
   /** 新对话先出方案（计划模式） */
@@ -1291,11 +1325,12 @@ export async function quickReply(text: string) {
 async function ensureConversation(): Promise<string> {
   if (state.currentId) return state.currentId
   const c = await bridge.createConversation(
-    draftMode.expertId ? 'agent' : draftMode.mode,
+    draftMode.expertId || draftMode.teamId ? 'agent' : draftMode.mode,
     draftMode.modelId,
     selectedWorkspace.value || null,
     draftMode.permission,
     draftMode.expertId,
+    draftMode.teamId,
   )
   if (draftMode.mode === 'translate') {
     await bridge.setTranslate(c.id, draftMode.translateFrom, draftMode.translateTo)
@@ -1637,8 +1672,10 @@ export async function answerConfirm(conversationId: string, callId: string, choi
   const tool = convState(conversationId).tools[callId]
   if (!tool?.confirm) return
   const requestId = tool.confirm.requestId
+  // 派遣时的一次授权选「逐条问我」不是拒绝：专家照常开工
+  const bundle = !!tool.confirm.bundle
   tool.confirm = undefined
-  tool.state = choice === 'reject' ? 'rejected' : 'running'
+  tool.state = choice === 'reject' && !bundle ? 'rejected' : 'running'
   await bridge.confirm(requestId, choice).catch(fail)
 }
 
@@ -1841,12 +1878,39 @@ function readAsDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+// ---------- 功能模块（docs/extension-architecture.md）----------
+
+/**
+ * 一个界面功能模块（如团队）接进底座的方式：订阅某一类宿主事件、在一轮结束时收尾、在应用设置变了时跟着变。
+ * 模块自己管自己的状态，底座不认识具体功能。模块在 features/index.ts 里登记。
+ */
+export interface Feature {
+  id: string
+  /** 订阅的事件类型前缀（如 'team.'），匹配上的事件只交给这个模块 */
+  eventPrefix?: string
+  onEvent?: (e: HostEvent) => void
+  /** 一轮结束（正常结束、出错、停止） */
+  onRunFinished?: (conversationId: string) => void
+  /** 宿主推来的应用设置（安全中心开关等）变了 */
+  onAppChanged?: () => void
+}
+
+const features: Feature[] = []
+
+export function registerFeature(feature: Feature) {
+  if (features.some((f) => f.id === feature.id)) throw new Error(`功能模块重复登记：${feature.id}`)
+  const prefix = feature.eventPrefix
+  if (prefix && features.some((f) => f.eventPrefix && (f.eventPrefix.startsWith(prefix) || prefix.startsWith(f.eventPrefix))))
+    throw new Error(`功能模块事件前缀冲突：${prefix}`)
+  features.push(feature)
+}
+
 // ---------- 宿主事件 ----------
 /**
  * 不是从界面发起的运行（定时任务「立即运行」、宿主让打开的对话、后台指令）：
  * 收到第一段输出时补上「运行中」，这样草稿能显示出来，也能点停止。
  */
-function markRunning(conversationId: string): ConversationState {
+export function markRunning(conversationId: string): ConversationState {
   const s = convState(conversationId)
   if (!s.busy) {
     s.busy = true
@@ -1861,6 +1925,8 @@ function finishRun(s: ConversationState, conversationId: string) {
   s.busy = false
   s.stopping = false
   s.paused = false
+  s.batch = undefined
+  for (const f of features) f.onRunFinished?.(conversationId)
   void loadChanges(conversationId)
   s.draft = null
   for (const t of Object.values(s.tools)) if (t.state === 'waiting' || t.state === 'running') t.state = 'failed'
@@ -1872,6 +1938,13 @@ function finishRun(s: ConversationState, conversationId: string) {
 }
 
 function onHostEvent(e: HostEvent) {
+  // 功能模块订阅的事件（按类型前缀）交给模块自己处理
+  for (const f of features) {
+    if (f.eventPrefix && f.onEvent && e.type.startsWith(f.eventPrefix)) {
+      f.onEvent(e)
+      return
+    }
+  }
   switch (e.type) {
     case 'chat.delta': {
       const s = markRunning(e.conversationId)
@@ -1930,7 +2003,8 @@ function onHostEvent(e: HostEvent) {
         }
       }
       t.state = 'waiting'
-      if (e.actor) t.actor = e.actor
+      // 派遣时的一次授权挂在主助手那次 ask_expert 上：不把它标成专家自己的调用
+      if (e.actor && !e.bundle) t.actor = e.actor
       t.confirm = {
         requestId: e.requestId,
         reason: e.reason,
@@ -1939,7 +2013,17 @@ function onHostEvent(e: HostEvent) {
         ruleDisplay: e.ruleDisplay,
         effect: e.effect ?? 'unknown',
         actor: e.actor,
+        bundle: e.bundle,
       }
+      break
+    }
+    case 'tool.confirmBatch':
+      markRunning(e.conversationId).batch = { requestId: e.requestId, rationale: e.rationale, items: e.items }
+      break
+    case 'tool.confirmBatchResolved': {
+      // 在系统通知里回答了，或者任务停了
+      const s = convState(e.conversationId)
+      if (s.batch?.requestId === e.requestId) s.batch = undefined
       break
     }
     case 'expert.started':
@@ -2024,11 +2108,15 @@ function onHostEvent(e: HostEvent) {
         if (e.contextDetails !== undefined) state.app.contextDetails = e.contextDetails
         if (e.longTasks !== undefined) state.app.longTasks = e.longTasks
         if (e.routerSplit !== undefined) state.app.routerSplit = e.routerSplit
+        if (e.teams !== undefined) state.app.teams = e.teams
+        if (e.teamCreate !== undefined) state.app.teamCreate = e.teamCreate
+        if (e.teamMaxMembers !== undefined) state.app.teamMaxMembers = e.teamMaxMembers
         if (e.developerTools !== undefined) state.app.developerTools = e.developerTools
         if (e.sandboxTasks !== undefined) state.app.sandboxTasks = e.sandboxTasks
         if (e.webSearchEnabled !== undefined) state.app.webSearchEnabled = e.webSearchEnabled
         if (e.deepThinking !== undefined) state.app.deepThinking = e.deepThinking
         if (e.webSearch !== undefined) state.app.webSearch = e.webSearch
+        for (const f of features) f.onAppChanged?.()
       }
       break
     case 'tool.ask': {
@@ -2052,8 +2140,9 @@ function onHostEvent(e: HostEvent) {
       // 在系统通知里确认或拒绝
       const t = convState(e.conversationId).tools[e.callId]
       if (t) {
+        const bundle = !!t.confirm?.bundle
         t.confirm = undefined
-        t.state = e.choice === 'reject' ? 'rejected' : 'running'
+        t.state = e.choice === 'reject' && !bundle ? 'rejected' : 'running'
       }
       break
     }

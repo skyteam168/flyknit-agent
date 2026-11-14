@@ -58,6 +58,10 @@ import type {
   ConfirmChoice,
   Conversation,
   Expert,
+  Team,
+  TeamInput,
+  TeamNote,
+  TeamRunRecord,
   HostEvent,
   Mode,
   ModelInfo,
@@ -212,9 +216,24 @@ class Bridge {
   // ---------- 会话 ----------
   listConversations = (query = '', trash = false) =>
     this.call<Conversation[]>('conversations.list', { query, trash })
-  createConversation = (mode: Mode, modelId: number | null, workspace: string | null, permission: Permission, expertId: string | null = null) =>
-    this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission, expertId })
+  createConversation = (mode: Mode, modelId: number | null, workspace: string | null, permission: Permission, expertId: string | null = null, teamId: string | null = null) =>
+    this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission, expertId, teamId })
   listExperts = () => this.call<Expert[]>('experts.list')
+  listTeams = () => this.call<Team[]>('teams.list')
+  saveTeam = (id: string | null, team: TeamInput) => this.call<Team>('teams.save', { id: id ?? '', team })
+  dissolveTeam = (id: string) => this.call<void>('teams.dissolve', { id })
+  copyTeam = (id: string) => this.call<Team>('teams.copy', { id })
+  /** 这个对话最近一次团队任务（本地存的面板数据） */
+  getTeamRun = (conversationId: string) => this.call<TeamRunRecord | null>('team.run', { conversationId })
+  rateTeamRun = (conversationId: string, runId: string, rating: number, feedback: string) =>
+    this.call<TeamRunRecord | null>('team.rate', { conversationId, runId, rating, feedback })
+  listTeamNotes = (teamId: string) => this.call<TeamNote[]>('team.notes', { teamId })
+  addTeamNote = (teamId: string, text: string, kind: TeamNote['kind']) => this.call<TeamNote>('team.addNote', { teamId, text, kind })
+  deleteTeamNote = (teamId: string, noteId: string) => this.call<void>('team.deleteNote', { teamId, noteId })
+  /** 计划卡：start（removed = 去掉的成员）/ revise（text = 让队长怎么改）/ cancel */
+  teamPlanAnswer = (requestId: string, action: 'start' | 'revise' | 'cancel', removed: string[], text: string) =>
+    this.call<boolean>('team.planAnswer', { requestId, action, removed, text })
+  stopTeamMember = (conversationId: string, expertId: string) => this.call<boolean>('team.stopMember', { conversationId, expertId })
   enhancePrompt = (text: string, mode: Mode, conversationId: string | null, expertId: string | null) =>
     this.call<{ text: string }>('prompt.enhance', { text, mode, conversationId, expertId }, undefined, 90_000)
   setWorkspace = (id: string, path: string | null) => this.call<void>('conversation.setWorkspace', { id, path })
@@ -435,6 +454,9 @@ class Bridge {
     this.call<boolean>('chat.pending.update', { conversationId, id, text, mode })
   removePending = (conversationId: string, id: string) => this.call<boolean>('chat.pending.remove', { conversationId, id })
   confirm = (requestId: string, choice: ConfirmChoice) => this.call<void>('tool.confirm', { requestId, choice })
+  /** 合并卡的回答：allowed 允许、rejected 拒绝，都不在里面的执行到时再单独问；session = 本任务内同类不再询问 */
+  confirmBatch = (requestId: string, allowed: string[], rejected: string[], session: boolean) =>
+    this.call<void>('tool.confirmBatch', { requestId, allowed, rejected, session })
   /** 会话信息面板：最近一次回答时的上下文用量（没回答过返回 null） */
   contextUsage = (conversationId: string) => this.call<ContextUsage | null>('context.usage', { conversationId })
   /** 手动整理对话：较早的内容压成摘要 */

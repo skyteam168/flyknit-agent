@@ -71,6 +71,15 @@ public sealed partial class AgentHost : IDisposable
 
     /// <summary>管理员发布的专家（本机缓存一份，没网也能打开专家对话）。</summary>
     public Flyknit.Core.Experts.ExpertCatalog Experts { get; }
+
+    /// <summary>团队模式（功能模块：运行扩展 + 界面桥模块，见 docs/extension-architecture.md）。</summary>
+    public Flyknit.Core.Teams.TeamFeature Teams { get; }
+
+    /// <summary>功能模块注册的界面桥方法（界面桥先查这里，查不到再走自己的）。</summary>
+    public Flyknit.Core.Hosting.BridgeModuleRegistry BridgeModules { get; }
+
+    /// <summary>每轮办事开始前按顺序问一遍的运行扩展。</summary>
+    private readonly Flyknit.Core.Agent.Extensions.RunExtensionPipeline<Flyknit.Core.Agent.Extensions.RunScope> _runExtensions;
     public AuditQueue Audit { get; }
 
     /// <summary>上报服务端的同时，把拦截与放行记录存一份在本机（用量与安全面板用）。</summary>
@@ -350,6 +359,22 @@ public sealed partial class AgentHost : IDisposable
         Updater = new UpdateService(Server, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
         Mcp = new McpService(settings, Server, Tools, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
         Experts = new Flyknit.Core.Experts.ExpertCatalog(Path.Combine(AppPaths.Root, "experts.json"));
+        // 功能模块（docs/extension-architecture.md）：底座只认扩展点，团队、派遣专家、子代理都从这里接进来。
+        // 注册顺序就是出场顺序；互斥由各扩展自己声明（团队出场时派遣专家、子代理不出场）
+        Teams = new Flyknit.Core.Teams.TeamFeature(Security, Server, id => Experts.Get(id), () => Dispatcher, message => Log.Warn(message),
+            new Flyknit.Core.Teams.SqliteTeamRunStore(Store.ConnectionFactory), id => Store.GetSubtask(id));
+        _runExtensions = new Flyknit.Core.Agent.Extensions.RunExtensionPipeline<Flyknit.Core.Agent.Extensions.RunScope>(
+            new Flyknit.Core.Agent.Extensions.IRunExtension<Flyknit.Core.Agent.Extensions.RunScope>[]
+            {
+                Teams,
+                new Flyknit.Core.Experts.Delegation.DelegationRunExtension(DelegationEnabled, () => Experts.All, () => Dispatcher),
+                new Flyknit.Core.Agent.SubAgents.SubAgentRunExtension(Security,
+                    scope => new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, scope.Confirm, () => AgentOptionsFor(scope.Conversation), _auditSink, Approvals, Store, DelegationEvents)
+                        .WithTraceSerializer((trace, stop) => Bridge.TraceDto.Serialize(trace, stop)),
+                    ChatExtraBody),
+            },
+            (extensionId, ex) => Log.Warn($"运行扩展 {extensionId} 准备失败，这一轮不出场", ex));
+        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -718,6 +743,8 @@ public sealed partial class AgentHost : IDisposable
     {
         var id = conv.Id;
         var observer = new RunObserver(id, events, this);
+        // 这一轮出场的运行扩展（docs/extension-architecture.md）；结束时统一收尾
+        var extensions = Flyknit.Core.Agent.Extensions.RunAssembly.Empty;
         try
         {
             await Task.WhenAny(_initialConfig); // 启动后立刻发的任务：等 IT 的安全策略先拉下来
@@ -778,7 +805,6 @@ public sealed partial class AgentHost : IDisposable
                     workspace = grant.Workspace;
                 }
             }
-            var modelId = conv.ModelId ?? expert?.ModelId;
             var mcpServers = conv.Mode == ConversationMode.Agent ? Mcp.PromptInfo() : Array.Empty<McpPromptInfo>();
             if (expert is not null)
             {
@@ -822,20 +848,6 @@ public sealed partial class AgentHost : IDisposable
                 PlanMode = planMode,
                 Rehearsal = rehearsal,
             });
-            // 派遣专家：开关开着、这一轮有候选专家时，主助手才看得到名单和 ask_expert
-            var delegation = DelegationFor(conv, expert, DelegationQuery(stored, text), semantic);
-            if (delegation.Prompt.Length > 0)
-            {
-                // 候选专家按问题挑，每轮不同：和记忆、技能一样放本轮参考资料
-                turnContext = turnContext.Length > 0 ? turnContext + "\n\n" + delegation.Prompt : delegation.Prompt;
-            }
-            // 本轮参考资料跟着这条用户消息存下来（见 ChatMessage.TurnContext）。同一轮重试、续跑沿用第一次的，
-            // 历史不变，提示词缓存才命中。翻译不带历史，不需要
-            if (conv.Mode != ConversationMode.Translate && turnContext.Length > 0 && string.IsNullOrEmpty(user.TurnContext))
-            {
-                user.TurnContext = turnContext;
-                Store.SetTurnContext(user.Id, turnContext);
-            }
             // 沙箱任务：这个对话的开发工作在本机 Docker 的一次性容器里做（不弹确认，只能推任务分支建 PR）
             var sandbox = conv.Mode == ConversationMode.Agent && conv.Sandbox && SandboxSwitchOn
                 ? await EnsureSandboxAsync(conv, events, cts.Token)
@@ -844,7 +856,6 @@ public sealed partial class AgentHost : IDisposable
             {
                 prompt += Flyknit.Core.Sandbox.SandboxSettings.Guide(sandbox);
             }
-
             var scene = conv.Mode switch
             {
                 ConversationMode.Translate => Scenes.Translate,
@@ -853,6 +864,51 @@ public sealed partial class AgentHost : IDisposable
                 _ when developerTools.Count > 0 || sandbox is not null => Scenes.Code,
                 _ => Scenes.Agent,
             };
+
+            // 运行扩展（docs/extension-architecture.md）：团队、派遣专家、子代理……各自决定这一轮要不要出场、加什么。
+            // 底座不认识具体扩展，只把它们加的提示词、参考资料、工具、模型、上限合进这一轮
+            var runId = Guid.NewGuid().ToString("N");
+            var scope = new Flyknit.Core.Agent.Extensions.RunScope
+            {
+                Conversation = conv,
+                Expert = expert,
+                Query = text,
+                History = stored,
+                Semantic = semantic,
+                RunId = runId,
+                Scene = scene,
+                NewUserMessage = newUser is not null,
+                ReadOnlyRun = planMode || rehearsal,
+                // 定时任务、文件夹监视、事件触发：没人在电脑前点卡片
+                Unattended = grant is { Origin: "schedule" or "folder" or "event" },
+                Confirm = confirm,
+                Post = events.Post,
+            };
+            if (conv.Mode == ConversationMode.Agent)
+            {
+                extensions = await _runExtensions.PrepareAsync(scope, cts.Token);
+            }
+            var modelId = conv.ModelId ?? expert?.ModelId ?? extensions.ModelId;
+            scope.Binding.ModelId = modelId;
+            // 扩展只能把权限收紧（比如只读专家当团队队长）
+            permission = extensions.CapPermission(permission);
+            if (extensions.SystemPrompt.Length > 0)
+            {
+                // 整个对话不变的东西（如团队名单）放系统提示词，提示词缓存能命中
+                prompt += "\n\n" + extensions.SystemPrompt;
+            }
+            if (extensions.TurnContext.Length > 0)
+            {
+                // 每轮会变的东西（如候选专家）和记忆、技能一样放本轮参考资料
+                turnContext = turnContext.Length > 0 ? turnContext + "\n\n" + extensions.TurnContext : extensions.TurnContext;
+            }
+            // 本轮参考资料跟着这条用户消息存下来（见 ChatMessage.TurnContext）。同一轮重试、续跑沿用第一次的，
+            // 历史不变，提示词缓存才命中。翻译不带历史，不需要
+            if (conv.Mode != ConversationMode.Translate && turnContext.Length > 0 && string.IsNullOrEmpty(user.TurnContext))
+            {
+                user.TurnContext = turnContext;
+                Store.SetTurnContext(user.Id, turnContext);
+            }
 
             // 短期记忆：之前压缩过的部分用摘要代替，只发送摘要之后的消息
             var summary = conv.Summary;
@@ -908,7 +964,6 @@ public sealed partial class AgentHost : IDisposable
             }
 
             // 任务账本：这一轮记在哪个任务下（排队的话、自动续跑、中断续跑接着记在原任务下）
-            var runId = Guid.NewGuid().ToString("N");
             _nextRunKind.TryRemove(id, out var runKind);
             var ticket = Ledger.BeginRun(id, Store.Get(id)?.Title ?? conv.Title, runId, runKind ?? Flyknit.Core.Tasks.RunKinds.First);
             var ctx = new ToolContext
@@ -954,10 +1009,6 @@ public sealed partial class AgentHost : IDisposable
 
             var tools = expert is null ? Tools : Flyknit.Core.Experts.ExpertRuntime.FilterTools(Tools, expert);
             var extra = new List<ITool>();
-            if (delegation.Tool is { } askExpert)
-            {
-                extra.Add(askExpert);
-            }
             if (AskUserFor(conv) is { } askUser && (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, askUser)))
             {
                 extra.Add(askUser);
@@ -978,18 +1029,8 @@ public sealed partial class AgentHost : IDisposable
                     .Where(t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t)));
             }
             extra.AddRange(developerTools);
-            // 子代理：IT 打开了「子代理」时主助手能开分身（spawn_agent）。用这一轮最终的工具表，计划模式下只能只读
-            ToolRegistry? runTools = null;
-            if (Flyknit.Core.Agent.SubAgents.SubAgentRunner.Enabled(Security, conv.Mode == ConversationMode.Agent))
-            {
-                var runner = new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, confirm, () => AgentOptionsFor(conv), _auditSink, Approvals, Store, DelegationEvents)
-                    .WithTraceSerializer((trace, stop) => Bridge.TraceDto.Serialize(trace, stop));
-                var spawn = new Flyknit.Core.Agent.SubAgents.SpawnAgentTool(runner, () => runTools ?? tools, scene, modelId, ChatExtraBody(conv), forceReadOnly: planMode || rehearsal);
-                if (expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, spawn))
-                {
-                    extra.Add(spawn);
-                }
-            }
+            // 运行扩展加的工具；专家对话里按专家的限制再筛一遍（专家只做减法）
+            extra.AddRange(extensions.Tools.Where(t => expert is null || Flyknit.Core.Experts.ExpertRuntime.Allows(expert, t)));
             if (extra.Count > 0)
             {
                 // 共用的工具表不动（别的对话还在用），这一轮单独拷一份加上派遣、提问工具
@@ -1008,10 +1049,21 @@ public sealed partial class AgentHost : IDisposable
             {
                 tools = Flyknit.Core.Agent.PlanMode.Filter(tools);
             }
-            runTools = tools;
+            if (extensions.FiltersTools)
+            {
+                // 扩展只能把工具表收紧（比如专家当团队队长时按那位专家的限制筛）
+                var narrowed = new ToolRegistry();
+                foreach (var tool in tools.All.Where(extensions.AllowsTool))
+                {
+                    narrowed.Add(tool);
+                }
+                tools = narrowed;
+            }
+            // 扩展加的工具执行时要用这一轮最终的工具表（比如子代理继承主助手的工具）
+            scope.Binding.Tools = tools;
             // 问员工确认时任务记成「等确认」；单次运行的 token 上限不超过任务还剩的预算
             var ledgerConfirm = new Flyknit.Core.Tasks.LedgerConfirmation(confirm, waiting => Ledger.Waiting(id, waiting));
-            var loop = new AgentLoop(Server, tools, ledgerConfirm, _auditSink, AgentOptionsFor(conv, ticket?.RemainingBudget), Approvals)
+            var loop = new AgentLoop(Server, tools, ledgerConfirm, _auditSink, AgentOptionsFor(conv, ticket?.RemainingBudget, extensions.MaxRunTokens), Approvals)
             {
                 Interjections = InterjectionsFor(id),
                 Pause = PauseGateFor(id),
@@ -1070,7 +1122,7 @@ public sealed partial class AgentHost : IDisposable
                 _contextLength = context.ContextLength;
             }
             RecordContextUsage(id, promptBuilder.Sections, prompt,
-                delegation.Prompt, context, conv.Mode == ConversationMode.Agent ? ToolExposure.Visible(tools.All, ctx.LoadedTools, history) : Array.Empty<ITool>(), history, result, events);
+                extensions.TurnContext, context, conv.Mode == ConversationMode.Agent ? ToolExposure.Visible(tools.All, ctx.LoadedTools, history) : Array.Empty<ITool>(), history, result, events);
 
             events.Post(new
             {
@@ -1124,6 +1176,7 @@ public sealed partial class AgentHost : IDisposable
         }
         finally
         {
+            extensions.Dispose();
             _runs.TryRemove(id, out _);
             cts.Dispose();
             MarkRunEnded(id);
@@ -1196,11 +1249,12 @@ public sealed partial class AgentHost : IDisposable
     }
 
     /// <param name="taskRemaining">这一轮所属任务还剩多少 token 预算（null = 任务不限）</param>
-    private AgentOptions AgentOptionsFor(Conversation? conv = null, long? taskRemaining = null) => new()
+    /// <param name="runTokens">运行扩展给的这一轮 token 上限（如团队任务）；null = 按单次任务上限</param>
+    private AgentOptions AgentOptionsFor(Conversation? conv = null, long? taskRemaining = null, long? runTokens = null) => new()
     {
         InlineToolImages = InlineToolImagesFor(conv),
         MaxSteps = LongModeOn(conv) ? Math.Max(_settings.ResolveAgentMaxSteps(), LongModeSteps) : _settings.ResolveAgentMaxSteps(),
-        MaxRunTokens = Flyknit.Core.Tasks.TaskLedger.CapRunTokens(RunTokenLimit(LongModeOn(conv)), taskRemaining),
+        MaxRunTokens = Flyknit.Core.Tasks.TaskLedger.CapRunTokens(runTokens ?? RunTokenLimit(LongModeOn(conv)), taskRemaining),
         // 长任务模式用到 token 上限后会自动接着做（QueueAutoContinue）：快到上限时别叫模型收尾。钉钉 / 手机发来的不续
         // （续跑次数用完、任务预算用完时不会再续：照常提醒收尾）
         AutoContinues = conv is not null && LongModeOn(conv) && !_remoteRuns.ContainsKey(conv.Id)

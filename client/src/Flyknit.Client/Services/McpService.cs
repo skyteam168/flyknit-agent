@@ -576,7 +576,9 @@ public sealed class McpService : IDisposable
 
     private void Register(string id, McpVendor vendor, McpConnection connection)
     {
-        var tools = connection.Tools.Select(t => (ITool)new McpTool(id, vendor.Name, t, connection.CallAsync)).ToList();
+        // 管理员标的只读按最新拉到的连接器配置现查：改了标注不用重连
+        var tools = connection.Tools.Select(t => (ITool)new McpTool(id, vendor.Name, t, connection.CallAsync,
+            () => Vendors().FirstOrDefault(v => v.Id == id)?.ReadonlyTools.Contains(t.Name, StringComparer.Ordinal) == true)).ToList();
         _tools.Replace(t => t is McpTool m && m.ServerId == id, tools);
         Changed?.Invoke(id);
     }

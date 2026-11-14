@@ -36,6 +36,9 @@ public sealed class Conversation
     /// <summary>呼叫的专家（服务端专家 ID）。为空是普通助手。创建时定下，之后不变。</summary>
     public string? ExpertId { get; set; }
 
+    /// <summary>团队任务的团队 ID（docs/team-mode.md）。为空是普通对话。创建时定下，之后不变。</summary>
+    public string? TeamId { get; set; }
+
     /// <summary>侧栏「手动排序」时的位置（小的在前）。为空表示没拖过，排在拖过的前面、按更新时间。</summary>
     public double? SortOrder { get; set; }
 
@@ -144,6 +147,12 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
 
     private Scheduling.ScheduledTaskStore? _schedules;
 
+    /// <summary>
+    /// 功能模块自己的表用的连接（docs/extension-architecture.md）：和会话同一个库；表名带功能前缀，
+    /// 表由模块自己建、迁移只加不删。拿到的连接用完要释放。
+    /// </summary>
+    public Func<SqliteConnection> ConnectionFactory => Open;
+
     private SqliteConnection Open()
     {
         var c = new SqliteConnection(_connectionString);
@@ -235,6 +244,8 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         AddColumn(c, "conversations", "long_mode", "INTEGER NOT NULL DEFAULT 0");
         // v0.12：沙箱任务（这个对话的开发工作在 Docker 容器里做）
         AddColumn(c, "conversations", "sandbox", "INTEGER NOT NULL DEFAULT 0");
+        // 团队任务的团队 ID（docs/team-mode.md）；老对话为空 = 普通对话
+        AddColumn(c, "conversations", "team_id", "TEXT NULL");
         // v0.11：运行中的断点（RunCheckpoint JSON：阶段、计划、计数、最后一个调用），任务结束时清掉
         AddColumn(c, "conversations", "run_state", "TEXT NULL");
 
@@ -508,16 +519,18 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         int? modelId = null,
         string? workspace = null,
         Security.PermissionMode permission = Security.PermissionMode.Workspace,
-        string? expertId = null)
+        string? expertId = null,
+        string? teamId = null)
     {
-        var conv = new Conversation { Mode = mode, Title = title, ModelId = modelId, Workspace = workspace, Permission = permission, ExpertId = expertId };
+        var conv = new Conversation { Mode = mode, Title = title, ModelId = modelId, Workspace = workspace, Permission = permission, ExpertId = expertId, TeamId = teamId };
         using var c = Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO conversations (id, title, title_source, mode, pinned, translate_from, translate_to, model_id, workspace, permission, created_at, updated_at, expert_id)
-            VALUES ($id, $title, 'auto', $mode, 0, $from, $to, $model, $ws, $perm, $created, $updated, $expert)
+            INSERT INTO conversations (id, title, title_source, mode, pinned, translate_from, translate_to, model_id, workspace, permission, created_at, updated_at, expert_id, team_id)
+            VALUES ($id, $title, 'auto', $mode, 0, $from, $to, $model, $ws, $perm, $created, $updated, $expert, $team)
             """;
         cmd.Parameters.AddWithValue("$expert", (object?)expertId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$team", (object?)teamId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$model", (object?)modelId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$ws", (object?)workspace ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$perm", Security.PermissionModes.ToText(permission));
@@ -1220,7 +1233,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
 
     private const string SelectConversation = """
         SELECT c.id, c.title, c.title_source, c.mode, c.pinned, c.translate_from, c.translate_to,
-               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan, c.expert_id, c.sort_order, c.long_mode, c.run_started_at, c.sandbox
+               c.created_at, c.updated_at, c.deleted_at, COUNT(m.id), c.model_id, c.workspace, c.permission, c.summary, c.summary_upto, c.plan, c.expert_id, c.sort_order, c.long_mode, c.run_started_at, c.sandbox, c.team_id
         FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id AND m.role IN ('user','assistant')
         """;
 
@@ -1248,6 +1261,7 @@ public sealed class ConversationStore : Experts.Delegation.ISubtaskStore
         LongMode = !r.IsDBNull(19) && r.GetInt64(19) != 0,
         RunStartedAt = r.IsDBNull(20) ? null : DateTimeOffset.Parse(r.GetString(20)),
         Sandbox = !r.IsDBNull(21) && r.GetInt64(21) != 0,
+        TeamId = r.IsDBNull(22) ? null : r.GetString(22),
     };
 
     private void Update(string id, string set, object value)

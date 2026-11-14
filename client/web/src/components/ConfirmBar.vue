@@ -39,6 +39,11 @@ const ruleDisplay = computed(() => tool.value?.confirm?.ruleDisplay ?? '')
 // 是否可以使用会话级授权（非高危命令都可以）
 const canSessionApprove = computed(() => effect.value !== 'destructive')
 
+/** 派遣时的一次授权（docs/approval-p0.md 第 5 节）：不是针对某一个调用，按钮换成「这次派遣内都直接执行 / 用到时逐条问我」 */
+const bundle = computed(() => tool.value?.confirm?.bundle ?? null)
+/** 团队开工授权（docs/team-mode.md 第 6 节 ③）：挂在队长那次 team_plan / team_assign 上 */
+const isTeam = computed(() => tool.value?.name === 'team_plan' || tool.value?.name === 'team_assign')
+
 function answer(choice: 'allowOnce' | 'allowForSession' | 'allowAlways' | 'reject') {
   if (tool.value && conversationId.value) void answerConfirm(conversationId.value, tool.value.callId, choice)
 }
@@ -56,8 +61,22 @@ function answer(choice: 'allowOnce' | 'allowForSession' | 'allowAlways' | 'rejec
     <div v-if="actor" class="actor">
       <ExpertAvatar :avatar="actor.avatar" :name="actor.name" :id="actor.id" :size="20" />
       <span class="actor-text">{{ t('ui.delegate.requests', { name: actor.name }) }}</span>
-      <span class="what-name">{{ label }}</span>
+      <span v-if="!bundle" class="what-name">{{ label }}</span>
     </div>
+    <template v-if="bundle">
+      <p class="why">{{ isTeam ? t('tool.bundle.teamLead', { n: bundle.length }) : t('tool.bundle.lead', { n: bundle.length }) }}</p>
+      <ul class="bundle">
+        <li v-for="b in bundle" :key="b">{{ b }}</li>
+      </ul>
+      <div class="actions">
+        <button type="button" class="btn primary" @click="answer('allowForSession')">
+          <Check :size="15" /> {{ isTeam ? t('tool.bundle.teamAllow') : t('tool.bundle.allow') }}
+        </button>
+        <button type="button" class="btn" @click="answer('reject')">{{ t('tool.bundle.perCall') }}</button>
+      </div>
+      <p class="note">{{ isTeam ? t('tool.bundle.teamNote') : t('tool.bundle.note') }}</p>
+    </template>
+    <template v-else>
     <code v-if="what" class="what">{{ what }}</code>
     <p v-if="tool.confirm.rationale" class="why">{{ tool.confirm.rationale }}</p>
     <p v-if="tool.confirm.reason" class="reason">{{ tool.confirm.reason }}</p>
@@ -76,10 +95,16 @@ function answer(choice: 'allowOnce' | 'allowForSession' | 'allowAlways' | 'rejec
     <p v-if="canSessionApprove && !tool.confirm.rememberable" class="note">{{ t('tool.sessionNote') }}</p>
     <p v-else-if="tool.confirm.rememberable && ruleDisplay" class="note">{{ t('tool.ruleNote', { rule: ruleDisplay }) }}</p>
     <p v-else-if="danger" class="note">{{ t('tool.dangerNote') }}</p>
+    </template>
   </div>
 </template>
 
 <style scoped>
+.bundle {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  font-size: var(--t-sm);
+}
 .confirm-bar {
   max-width: var(--column);
   margin: 0 auto 10px;

@@ -40,6 +40,12 @@ public sealed class McpVendor
     [JsonPropertyName("timeout_ms")] public int TimeoutMs { get; set; } = 60000;
     /// <summary>内网自签 HTTPS：跳过证书校验。</summary>
     [JsonPropertyName("skip_tls_verify")] public bool SkipTlsVerify { get; set; }
+
+    /// <summary>
+    /// 管理员标成只读的工具（对方工具原名）。对方没声明 readOnlyHint 的查询类工具，标了以后不再每次确认；
+    /// 对方声明了 destructiveHint 的标了也不生效。老服务端没有这个字段，按空处理。
+    /// </summary>
+    [JsonPropertyName("readonly_tools")] public List<string> ReadonlyTools { get; set; } = new();
     [JsonPropertyName("updated_at")] public DateTimeOffset UpdatedAt { get; set; }
 
     // ---- 来源（老服务端没有这些字段：按「管理员手工建的」处理）----

@@ -173,6 +173,12 @@ public sealed class ToolContext
     /// </summary>
     public string IsolatedBranch { get; init; } = "";
 
+    /// <summary>
+    /// 这次任务的「本任务内不再询问」（docs/approval-p0.md 第 4 节）。AgentLoop 开始运行时没有就填上自己的；
+    /// 派遣专家、开子代理时传下去，同一个任务里点过一次的，专家、子代理不再问。
+    /// </summary>
+    public Agent.SessionApprovals? SessionApprovals { get; set; }
+
     /// <summary>这次运行的预算，由 AgentLoop 开始运行时填上。派遣专家前据此预留额度。</summary>
     public Agent.RunBudget? Budget { get; set; }
 
@@ -289,6 +295,7 @@ public sealed class ToolContext
         GrantId = GrantId,
         TaskId = TaskId,
         IsolatedBranch = IsolatedBranch,
+        SessionApprovals = SessionApprovals,
         RunId = runId,
         LoadedTools = new HashSet<string>(LoadedTools, StringComparer.Ordinal),
         Rules = Rules,

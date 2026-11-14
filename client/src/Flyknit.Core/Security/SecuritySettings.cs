@@ -123,6 +123,21 @@ public sealed class SecuritySettings
     /// 还要「分开做」「开发者工具」打开、「同时做几件」≥ 2，工作区是 git 仓库。
     /// </summary>
     public const string IsolatedWrites = "isolated_writes";
+
+    /// <summary>团队模式（docs/team-mode.md）：侧栏出现「团队」，几位专家组成团队、主助手当队长。默认关。</summary>
+    public const string Teams = "teams";
+
+    /// <summary>员工能不能自己建团队（关了只能用 IT 下发的）。</summary>
+    public const string TeamCreate = "team_create";
+
+    /// <summary>一个团队最多几位成员（2～8）。</summary>
+    public const string TeamMaxMembers = "team_max_members";
+
+    /// <summary>一次团队任务里最多几位成员同时干（1～4）。</summary>
+    public const string TeamParallel = "team_parallel";
+
+    /// <summary>一次团队任务（含队长和所有成员）的 token 上限，单位万。</summary>
+    public const string TeamTokenBudget = "team_token_budget";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字

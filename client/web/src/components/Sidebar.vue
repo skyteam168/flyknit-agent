@@ -16,7 +16,7 @@ import {
   Hand,
   LayoutGrid,
   LibraryBig,
-  UsersRound,
+  UsersRound, Users,
   Languages,
   LoaderCircle,
   Clock,
@@ -43,6 +43,7 @@ import ConfirmDialog from './ConfirmDialog.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
 import Popover from './Popover.vue'
 import { openLibrary } from '../library'
+import { openTeams } from '../features/teams/store'
 import {
   addWorkspace,
   deleteConversation,
@@ -461,6 +462,9 @@ onBeforeUnmount(() => {
           @click="(openExperts(), emit('navigate'))"
         >
           <UsersRound :size="17" /> {{ t('ui.nav.experts') }}
+        </button>
+        <button v-if="state.app?.teams" type="button" :class="{ on: state.view === 'teams' }" @click="(openTeams(), emit('navigate'))">
+          <Users :size="17" /> {{ t('ui.nav.teams') }}
         </button>
         <button type="button" :class="{ on: state.view === 'tasks' }" @click="(openTasks(), emit('navigate'))">
           <ListChecks :size="17" /> {{ t('ui.nav.taskCenter') }}

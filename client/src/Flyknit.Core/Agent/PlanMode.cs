@@ -20,7 +20,7 @@ public static class PlanMode
 
     public static bool Allows(ITool tool) => tool switch
     {
-        McpTool mcp => mcp.Info.ReadOnly && !mcp.Info.Destructive,
+        McpTool mcp => mcp.IsReadOnly && !mcp.Info.Destructive,
         _ => !WriteTools.Contains(tool.Name),
     };
 

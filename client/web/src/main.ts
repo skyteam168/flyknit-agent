@@ -5,6 +5,8 @@ import './styles/base.css'
 import { fail, toggleMaximize } from './store'
 import { bridge } from './bridge'
 import { installDragFallback } from './appRegion'
+// 界面功能模块（团队等）：登记事件订阅和收尾（docs/extension-architecture.md）
+import './features'
 
 // WebView2 中禁止拖入文件时浏览器直接打开文件
 window.addEventListener('dragover', (e) => e.preventDefault())

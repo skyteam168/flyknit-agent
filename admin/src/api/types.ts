@@ -144,6 +144,8 @@ export interface McpVendor {
   timeout_ms: number
   /** 内网自签 HTTPS：跳过证书校验。正式公网证书请保持 false */
   skip_tls_verify: boolean
+  /** 标成只读的工具（对方工具原名）：员工端用它们不再每次确认；对方声明会删改数据的标了也不生效 */
+  readonly_tools: string[]
   sort_order: number
   enabled: boolean
   updated_at: string
@@ -177,7 +179,8 @@ export interface McpTestResult {
   ok: boolean
   server_name: string
   server_version: string
-  tools: { name: string; description: string }[]
+  /** read_only / destructive：对方自己在工具上的声明（老服务端没有） */
+  tools: { name: string; description: string; read_only?: boolean; destructive?: boolean }[]
   error: string
 }
 
@@ -976,4 +979,96 @@ export interface DeviceAccess {
   mcp: { id: string; name: string }[]
   security: Record<string, SecurityEffectiveItem>
   security_sources: Record<string, 'device' | 'department' | 'global' | 'default'>
+}
+
+// ---------- 团队（docs/team-mode.md）----------
+export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer'
+export interface TeamMember {
+  expert_id: string
+  note: string
+  available?: boolean
+}
+export interface TeamIn {
+  name: string
+  description: string
+  icon: string
+  leader_note: string
+  members: TeamMember[]
+  model_id: number | null
+  disabled_tools: TeamToolKind[]
+  read_only: boolean
+  scope_departments: string[]
+  scope_devices: number[]
+  /** 当队长的专家（空 = 主助手）；不能同时是成员 */
+  leader_expert_id: string
+  /** 示例任务，最多 5 条 */
+  examples: string[]
+}
+export interface TeamNote {
+  id: string
+  team_id: string
+  text: string
+  kind: 'method' | 'source' | 'pitfall' | 'other'
+  source: 'leader' | 'employee' | 'it'
+  author: string
+  created_at: string
+  deletable: boolean
+}
+export interface TeamStat {
+  team_id: string
+  name: string
+  source: 'it' | 'department' | 'personal'
+  department: string
+  dissolved: boolean
+  runs: number
+  planned: number
+  completed: number
+  completion_rate: number
+  reassign_rate: number
+  avg_tokens: number
+  avg_seconds: number
+  up: number
+  down: number
+  notes: number
+}
+export interface TeamRunRow {
+  run_id: string
+  device_id: number
+  device_name: string
+  department: string
+  planned: number
+  completed: number
+  failed: number
+  stopped: number
+  reassigned: boolean
+  tokens: number
+  duration_seconds: number
+  status: 'finished' | 'stopped' | 'failed' | 'interrupted'
+  rating: number
+  feedback: string
+  created_at: string
+}
+export interface TeamTemplate {
+  key: string
+  name: string
+  description: string
+  icon: string
+  leader_note: string
+  roles: { role: string; note: string }[]
+  examples: string[]
+  disabled_tools: TeamToolKind[]
+  read_only: boolean
+}
+export interface Team extends TeamIn {
+  id: string
+  /** it / department / personal */
+  source: 'it' | 'department' | 'personal'
+  owner_name: string
+  owner_device_id: number | null
+  department: string
+  runs: number
+  created_at: string
+  updated_at: string
+  dissolved_at: string | null
+  dissolved_by: string
 }
