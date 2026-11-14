@@ -65,6 +65,21 @@ def test_parses_multiple_skills_in_one_repository():
     assert names == ["skill-a", "skill-b"]
 
 
+def test_same_skill_in_several_folders_is_imported_once():
+    """社区仓库常把同一个技能放好几份（顶层 skills/ 一份、plugins/*/skills/ 里各一份）：只收最浅那份。"""
+    data = make_zip({
+        "repo-main/plugins/knowledge/skills/wiki-add/SKILL.md": SKILL_MD.replace("excel-report", "wiki-add").replace("1.2.0", "0.9.0"),
+        "repo-main/plugins/knowledge/skills/wiki-add/scripts/old.py": "print(0)",
+        "repo-main/skills/wiki-add/SKILL.md": SKILL_MD.replace("excel-report", "wiki-add"),
+        "repo-main/skills/wiki-add/scripts/new.py": "print(1)",
+        "repo-main/skills/wiki-lint/SKILL.md": SKILL_MD.replace("excel-report", "wiki-lint"),
+    })
+    skills = {s.name: s for s in skill_library.parse_packages(data)}
+    assert sorted(skills) == ["wiki-add", "wiki-lint"]
+    assert skills["wiki-add"].version == "1.2.0"
+    assert skills["wiki-add"].files == ["SKILL.md", "scripts/new.py"]
+
+
 @pytest.mark.parametrize(
     "files, message",
     [
@@ -152,6 +167,18 @@ async def test_upload_patch_and_delete(client, admin_headers, device_headers):
 
     await client.delete("/api/v1/admin/skills/excel-report", headers=admin_headers)
     assert (await client.get("/api/v1/admin/skills", headers=admin_headers)).json() == []
+
+
+async def test_upload_repository_with_duplicate_skills_does_not_fail(client, admin_headers):
+    """以前同名技能各入库一次，主键冲突，管理端只看到「服务器内部错误」。"""
+    data = make_zip({
+        "repo-main/skills/wiki-add/SKILL.md": SKILL_MD.replace("excel-report", "wiki-add"),
+        "repo-main/plugins/knowledge/skills/wiki-add/SKILL.md": SKILL_MD.replace("excel-report", "wiki-add"),
+    })
+    r = await client.post("/api/v1/admin/skills/upload?required=false", headers=admin_headers,
+                          files={"file": ("repo.zip", data, "application/zip")})
+    assert r.status_code == 200, r.text
+    assert r.json()["imported"] == ["wiki-add"]
 
 
 async def test_client_skills_require_device_token(client):

@@ -116,7 +116,10 @@ def parse_packages(data: bytes) -> list[ParsedSkill]:
             raise SkillError("压缩包里没有找到 SKILL.md，这不是一个技能包")
 
         skills: list[ParsedSkill] = []
-        for root in roots:
+        seen: set[str] = set()
+        # 同一个仓库里同名技能可能放了好几份（例如顶层 skills/ 一份、plugins/*/skills/ 里各一份）：
+        # 按目录层级从浅到深处理，同名的只收最浅那份。不去重的话后面入库时主键冲突，管理端只看到 500
+        for root in sorted(roots, key=lambda r: (r.count("/") if r else -1, r)):
             prefix = f"{root}/" if root else ""
             own = [
                 m for m in members
@@ -130,6 +133,9 @@ def parse_packages(data: bytes) -> list[ParsedSkill]:
             name = re.sub(r"[^a-z0-9._-]+", "-", name).strip("-.")
             if not VALID_NAME.match(name):
                 raise SkillError(f"技能名不合法：{name or '(空)'}")
+            if name in seen:
+                continue
+            seen.add(name)
             description = (meta.get("description") or "").strip()
             if not description:
                 raise SkillError(f"{name} 的 SKILL.md 缺少 description")
