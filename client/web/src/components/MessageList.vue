@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, Clock, FilePen, GitBranch, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
+import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, ChevronUp, Clock, FilePen, GitBranch, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
 import { changesForAnswer, current, currentState, editAndResend, forkConversation, mcpToolLabel, openChanges, openAttachment, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
@@ -269,6 +269,37 @@ async function onRegenerate() {
   await regenerate()
 }
 
+/**
+ * 长对话只画最近的这些条，更早的点「显示更早的」再画。
+ * 长任务跑几千步时，几千条消息全挂在页面上，每来一步都要重排整页，越跑越卡（还会拖慢整台电脑的界面合成）。
+ * 一轮做完折叠起来的那组不从中间切开：起点落在组中间时往前挪到组的开头。
+ */
+const PAGE = 150
+const limit = ref(PAGE)
+watch(
+  () => state.currentId,
+  () => (limit.value = PAGE),
+)
+const start = computed(() => {
+  const list = visible.value
+  let at = Math.max(0, list.length - limit.value)
+  const fold = at > 0 ? folds.value.get(list[at].id) : undefined
+  if (fold && fold.key !== list[at].id) {
+    const head = list.findIndex((m) => m.id === fold.key)
+    if (head >= 0 && head < at) at = head
+  }
+  return at
+})
+const windowed = computed(() => (start.value > 0 ? visible.value.slice(start.value) : visible.value))
+async function showEarlier() {
+  const el = scroller.value
+  const before = el?.scrollHeight ?? 0
+  limit.value += PAGE
+  await nextTick()
+  // 保持当前看的位置不跳：新画出来的内容加在上面
+  if (el) el.scrollTop += el.scrollHeight - before
+}
+
 function isContinuation(i: number) {
   return i > 0 && visible.value[i - 1].role === 'assistant' && visible.value[i].role === 'assistant'
 }
@@ -358,7 +389,10 @@ const isImage = (mime: string) => mime.startsWith('image/')
       </div>
     </div>
     <div v-else-if="s" class="column" @click="onContentClick">
-      <template v-for="(m, i) in visible" :key="m.id">
+      <button v-if="start > 0" type="button" class="earlier" @click="showEarlier">
+        <ChevronUp :size="14" /> {{ t('message.showEarlier', { n: start }) }}
+      </button>
+      <template v-for="(m, j) in windowed" :key="m.id">
         <!-- 用户消息 -->
         <div v-if="m.role === 'user'" class="user" :class="{ editing: editingId === m.id }">
           <div v-if="m.attachments?.length" class="files">
@@ -427,7 +461,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
           </template>
         </template>
         <!-- 助手消息 -->
-        <div v-if="m.role !== 'user' && !folded(m)" class="assistant" :class="{ cont: isContinuation(i), translation: isTranslate, 'in-fold': folds.has(m.id) }">
+        <div v-if="m.role !== 'user' && !folded(m)" class="assistant" :class="{ cont: isContinuation(start + j), translation: isTranslate, 'in-fold': folds.has(m.id) }">
           <details v-if="m.sources?.length" class="sources">
             <summary>{{ t('message.searched', { n: m.sources.length }) }} <ChevronRight :size="14" class="chev" /></summary>
             <a v-for="(src, si) in m.sources" :key="si" class="source" :href="src.url" target="_blank" rel="noopener">{{ src.title || src.url }}</a>
@@ -436,7 +470,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
             <summary><Brain :size="14" /> {{ t('message.thinking') }} <ChevronRight :size="14" class="chev" /></summary>
             <p>{{ m.reasoning }}</p>
           </details>
-          <div v-if="identity && !isContinuation(i)" class="who">
+          <div v-if="identity && !isContinuation(start + j)" class="who">
             <span class="who-av">{{ identity.initial }}</span>
             <span>{{ identity.label }}</span>
           </div>
@@ -540,7 +574,7 @@ const isImage = (mime: string) => mime.startsWith('image/')
             </template>
           </div>
         </div>
-        <div v-if="compactedAfter(m, i)" class="compacted" role="separator">
+        <div v-if="compactedAfter(m, start + j)" class="compacted" role="separator">
           <Archive :size="13" />
           <span>{{ t('ui.context.divider') }}</span>
         </div>
@@ -591,6 +625,23 @@ const isImage = (mime: string) => mime.startsWith('image/')
 </template>
 
 <style scoped>
+.earlier {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 4px auto 14px;
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--cloth);
+  color: var(--ink-soft);
+  font-size: var(--t-xs);
+}
+.earlier:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
 .scroller {
   flex: 1;
   overflow-y: auto;

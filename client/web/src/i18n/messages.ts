@@ -103,6 +103,7 @@ const zh = {
   message: {
     working: '任务进行中',
     toBottom: '回到底部',
+    showEarlier: '显示更早的 {n} 条',
     you: '你',
     thinking: '思考过程',
     thinkingLive: '正在思考…',
@@ -2132,6 +2133,7 @@ const vi: Messages = {
   message: {
     working: 'Đang thực hiện',
     toBottom: 'Về cuối',
+    showEarlier: 'Hiện {n} tin nhắn trước đó',
     you: 'Bạn',
     thinking: 'Quá trình suy nghĩ',
     thinkingLive: 'Đang suy nghĩ…',
@@ -4166,6 +4168,7 @@ const en: Messages = {
   message: {
     working: 'Working',
     toBottom: 'Back to bottom',
+    showEarlier: 'Show {n} earlier messages',
     you: 'You',
     thinking: 'Reasoning',
     thinkingLive: 'Thinking…',

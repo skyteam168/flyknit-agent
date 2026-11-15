@@ -168,8 +168,12 @@ public partial class FloatingBall : Window
             Halo.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(200)));
             if (busy)
             {
-                HaloRotate.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty,
-                    new DoubleAnimation(0, 360, TimeSpan.FromSeconds(2.4)) { RepeatBehavior = RepeatBehavior.Forever });
+                // 悬浮球是透明窗口（AllowsTransparency），WPF 用软件渲染再整张交给系统合成。
+                // 任务跑多久，这圈就转多久：默认 60 帧会一直占着 CPU 和系统合成，长任务时拖慢整台电脑。
+                // 2.4 秒转一圈，20 帧已经很顺
+                var spin = new DoubleAnimation(0, 360, TimeSpan.FromSeconds(2.4)) { RepeatBehavior = RepeatBehavior.Forever };
+                Timeline.SetDesiredFrameRate(spin, 20);
+                HaloRotate.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty, spin);
             }
         }
         else
