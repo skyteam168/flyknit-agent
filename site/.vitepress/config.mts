@@ -38,6 +38,7 @@ export default defineConfig({
             { text: '文件、预览与还原', link: '/guide/files' },
             { text: '长任务与定时任务', link: '/guide/tasks' },
             { text: '翻译、截图与快捷键', link: '/guide/shortcuts' },
+            { text: '消息通知', link: '/guide/notices' },
           ],
         },
         {

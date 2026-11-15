@@ -3,3 +3,4 @@
  * 新功能在这里加一行 import，不往 store.ts 里加分支。
  */
 import './teams/store'
+import './notices/store'

@@ -45,7 +45,7 @@ import type {
 } from './types'
 import { SubtaskFinal } from './types'
 
-interface ConversationState {
+export interface ConversationState {
   /** 点了「停止」、宿主还没回这一轮结束：按钮显示「正在停止」，不再像点了没反应 */
   stopping?: boolean
   messages: UiMessage[]
@@ -139,7 +139,7 @@ export const state = reactive({
   groups: {} as Record<string, GroupView[]>,
   /** 排队中（还没轮到）的拆分子对话：侧栏标「排队中」，打开时显示占位说明 */
   queued: {} as Record<string, QueuedView>,
-  view: 'chat' as 'chat' | 'library' | 'experts' | 'teams' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
+  view: 'chat' as 'chat' | 'library' | 'experts' | 'teams' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules' | 'notices',
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
   /** 每个对话里每一轮改动的文件（打开对话、一轮结束时取） */
@@ -1945,6 +1945,11 @@ export function registerFeature(feature: Feature) {
 }
 
 // ---------- 宿主事件 ----------
+/** 压缩已经做完、进度条还停在 100% 的：下一步开始时收掉（正常情况 1.2 秒后自己消失） */
+function clearDoneCompacting(conversationId: string) {
+  if (state.compacting[conversationId]?.phase === 'done') delete state.compacting[conversationId]
+}
+
 /**
  * 不是从界面发起的运行（定时任务「立即运行」、宿主让打开的对话、后台指令）：
  * 收到第一段输出时补上「运行中」，这样草稿能显示出来，也能点停止。
@@ -2016,6 +2021,7 @@ function onHostEvent(e: HostEvent) {
       break
     }
     case 'tool.started':
+      clearDoneCompacting(e.conversationId)
       markRunning(e.conversationId).tools[e.callId] = {
         callId: e.callId,
         name: e.name,
@@ -2026,6 +2032,8 @@ function onHostEvent(e: HostEvent) {
       }
       break
     case 'tool.confirm': {
+      // 要员工确认了：压缩进度条不能还挡在那里（定时器被拖慢时也不会留着）
+      clearDoneCompacting(e.conversationId)
       const s = markRunning(e.conversationId)
       let t = s.tools[e.callId]
       // tool.started 丢失时仍要挂上确认，否则 AgentLoop 卡在 ConfirmAsync、界面只转圈无确认条

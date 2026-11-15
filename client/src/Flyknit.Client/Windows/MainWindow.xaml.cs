@@ -164,6 +164,9 @@ public partial class MainWindow : Window, IWindowActions
         // 视频 / 音频预览：https://media.flyknit.local/{令牌}，按 Range 分段从磁盘读（见 MediaService）
         core.AddWebResourceRequestedFilter($"https://{MediaService.Host}/*", CoreWebView2WebResourceContext.All);
         core.WebResourceRequested += OnMediaRequest;
+        // 通知正文里的图片、视频：https://notices.flyknit.local/{id}，宿主带设备令牌去服务端取（见 NoticeFeature）
+        core.AddWebResourceRequestedFilter($"https://{Flyknit.Core.Notices.NoticeFeature.MediaHost}/*", CoreWebView2WebResourceContext.All);
+        core.WebResourceRequested += OnNoticeMediaRequest;
         // WebView2 会缓存 index.html；界面重新构建后资源文件名变了，旧缓存会导致白屏。
         // 用 index.html 的修改时间作为版本参数，每次构建后都会加载最新页面。
         var index = Path.Combine(root, "index.html");
@@ -247,6 +250,47 @@ public partial class MainWindow : Window, IWindowActions
         {
             Log.Warn($"读取媒体文件失败：{e.Request.Uri}", ex);
             e.Response = env.CreateWebResourceResponse(null, 500, "Error", cors);
+        }
+    }
+
+    private async void OnNoticeMediaRequest(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        var uri = new Uri(e.Request.Uri);
+        if (!uri.Host.Equals(Flyknit.Core.Notices.NoticeFeature.MediaHost, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        var deferral = e.GetDeferral();
+        var env = Web.CoreWebView2.Environment;
+        var cors = $"Access-Control-Allow-Origin: https://{VirtualHost}";
+        try
+        {
+            var range = e.Request.Headers.Contains("Range") ? e.Request.Headers.GetHeader("Range") : null;
+            var media = await _host.Notices.OpenMediaAsync(uri.AbsolutePath.Trim('/'), range, System.Threading.CancellationToken.None);
+            if (media.Body is null)
+            {
+                e.Response = env.CreateWebResourceResponse(null, media.Status, "Error", cors);
+                return;
+            }
+            var headers = $"Content-Type: {media.ContentType}\r\nAccept-Ranges: bytes\r\nCache-Control: private, max-age=3600\r\n{cors}";
+            if (media.Length is { } length)
+            {
+                headers += $"\r\nContent-Length: {length}";
+            }
+            if (!string.IsNullOrEmpty(media.ContentRange))
+            {
+                headers += $"\r\nContent-Range: {media.ContentRange}";
+            }
+            e.Response = env.CreateWebResourceResponse(media.Body, media.Status, media.Status == 206 ? "Partial Content" : "OK", headers);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"读取通知媒体失败：{e.Request.Uri}", ex);
+            e.Response = env.CreateWebResourceResponse(null, 502, "Bad Gateway", cors);
+        }
+        finally
+        {
+            deferral.Complete();
         }
     }
 

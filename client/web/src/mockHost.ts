@@ -3,7 +3,7 @@
  * 模拟会话存储、流式回复、工具调用与确认流程，便于在没有 Windows 的情况下开发界面。
  */
 import type { HostTransport } from './bridge'
-import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Mode, SubtaskDto, Team, TeamInput, TeamNote, TeamRunRecord, TerminalRun, UiMessage } from './types'
+import type { AttachmentRef, Conversation, Expert, HostEvent, McpVendor, MemoryItem, Notice, Mode, SubtaskDto, Team, TeamInput, TeamNote, TeamRunRecord, TerminalRun, UiMessage } from './types'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -685,6 +685,74 @@ export function createMockHost(): HostTransport {
     emit({ type: 'team.record', conversationId: id, record } as never)
     emit({ type: 'chat.done', conversationId: id, stopReason: 'Completed' })
   }
+
+  // ---------- 消息通知（docs/notices.md）：模拟服务端发布的通知。图片用画布现画的 PNG（真实环境走宿主代理） ----------
+  const banner = (title: string, from: string, to: string) => {
+    try {
+      const c = document.createElement('canvas')
+      c.width = 960
+      c.height = 360
+      const g = c.getContext('2d')!
+      const grad = g.createLinearGradient(0, 0, 960, 360)
+      grad.addColorStop(0, from)
+      grad.addColorStop(1, to)
+      g.fillStyle = grad
+      g.fillRect(0, 0, 960, 360)
+      g.fillStyle = '#fff'
+      g.font = 'bold 52px sans-serif'
+      g.fillText(title, 60, 200)
+      return c.toDataURL('image/png')
+    } catch {
+      return ''
+    }
+  }
+  const daysAgo = (d: number, h = 9) => {
+    const t = new Date()
+    t.setDate(t.getDate() - d)
+    t.setHours(h, 30, 0, 0)
+    return t.toISOString()
+  }
+  const mockNotices: Notice[] = [
+    {
+      id: 'nt_sec', kind: 'security', title: '请勿把客户资料发到外部网盘', important: true, read: false,
+      summary: '近期发现有同事把客户订单表上传到个人网盘，请立即删除并改用公司资料库。',
+      action_label: '', action_url: '', published_at: daysAgo(0, 8), expire_at: null,
+      body_html: '<p>近期发现有同事把<strong>客户订单表</strong>上传到个人网盘。请：</p><ol><li>立即删除外部网盘里的公司文件；</li><li>需要共享时用 FlyknitBuddy 的<mark>资料库</mark>；</li><li>不确定能不能发的，先问 IT。</li></ol><blockquote>违反《信息安全管理规定》第 7 条的，按制度处理。</blockquote>',
+    },
+    {
+      id: 'nt_up', kind: 'upgrade', title: 'FlyknitBuddy 0.9 今晚 22:00 升级', important: false, read: false,
+      summary: '升级约 10 分钟，期间办事任务会暂停，升级后自动恢复。',
+      action_label: '查看更新说明', action_url: 'https://help.example.com/release-notes', published_at: daysAgo(1, 16), expire_at: null,
+      body_html: '',
+    },
+    {
+      id: 'nt_feat', kind: 'feature', title: '新功能：团队模式上线', important: false, read: false,
+      summary: '几位专家组成团队一起干活：队长列计划、成员分头做、最后汇总成报告。',
+      action_label: '', action_url: '', published_at: daysAgo(3, 10), expire_at: null, body_html: '',
+    },
+    {
+      id: 'nt_mt', kind: 'maintenance', title: 'MES 周六 02:00–04:00 停机维护', important: false, read: true,
+      summary: '维护期间 MES 连接器查不到数据，相关任务请避开这个时间。',
+      action_label: '', action_url: '', published_at: daysAgo(5, 14), expire_at: null,
+      body_html: '<p>维护期间 <b>MES 连接器</b>查不到数据。</p><table><thead><tr><th>系统</th><th>时间</th><th>影响</th></tr></thead><tbody><tr><td>MES</td><td>周六 02:00–04:00</td><td>查询、报工</td></tr><tr><td>QMS</td><td>不受影响</td><td>—</td></tr></tbody></table>',
+    },
+    {
+      id: 'nt_tip', kind: 'tip', title: '小技巧：长按发送键可以选「先出方案」', important: false, read: true,
+      summary: '复杂任务先看方案再执行，改起来更省事。',
+      action_label: '', action_url: '', published_at: daysAgo(9, 11), expire_at: null,
+      body_html: '<p>复杂任务先看方案再执行：长按发送键，选<strong>先出方案</strong>。</p>',
+    },
+  ]
+  const fillNoticeBodies = () => {
+    const up = mockNotices.find((n) => n.id === 'nt_up')!
+    if (!up.body_html)
+      up.body_html = `<p style="text-align: center"><img src="${banner('FlyknitBuddy 0.9', '#4f46e5', '#0ea5a4')}" alt="升级"></p><h2>这次升级有什么</h2><ul><li>团队模式：几位专家一起干活</li><li>消息中心：IT 的通知不再错过</li><li>右侧面板可以拖动调宽</li></ul><p>升级期间请<span style="color: #dc2626">不要关机</span>。有问题联系 IT（分机 7815）。</p>`
+    const feat = mockNotices.find((n) => n.id === 'nt_feat')!
+    if (!feat.body_html)
+      feat.body_html = `<p>在左侧「团队」里选一个团队，告诉它要做的事：</p><figure><img src="${banner('团队模式', '#0ea5a4', '#22c55e')}" alt="团队模式"><figcaption>队长列计划 → 成员并行 → 交叉验证 → 团队报告</figcaption></figure><p>详细用法见 <a href="https://help.example.com/teams">帮助中心</a>。</p>`
+  }
+  const noticeUnread = () => mockNotices.filter((n) => !n.read).length
+  setTimeout(() => emit({ type: 'notices.changed', unread: noticeUnread(), supported: true, popup: 'nt_sec' }), 1200)
 
   // ---------- 团队（docs/team-mode.md）：模拟服务端的范围和权限 ----------
   const teamStamp = () => new Date().toISOString()
@@ -2036,6 +2104,25 @@ export function createMockHost(): HostTransport {
       case 'team.deleteNote':
         mockNotes[p.teamId] = (mockNotes[p.teamId] ?? []).filter((n) => n.id !== p.noteId)
         return
+      case 'notices.status':
+        return { supported: true, unread: noticeUnread() }
+      case 'notices.list':
+        return { items: mockNotices.map((n) => ({ ...n, body_html: '' })), unread: noticeUnread() }
+      case 'notices.get': {
+        fillNoticeBodies()
+        const n = mockNotices.find((x) => x.id === p.id)
+        return n ? { ...n } : null
+      }
+      case 'notices.read': {
+        const n = mockNotices.find((x) => x.id === p.id)
+        if (n) n.read = true
+        emit({ type: 'notices.changed', unread: noticeUnread(), supported: true, popup: null })
+        return true
+      }
+      case 'notices.readAll':
+        for (const n of mockNotices) n.read = true
+        emit({ type: 'notices.changed', unread: 0, supported: true, popup: null })
+        return true
       case 'teams.list':
         return mockTeams.map((t) => ({ ...t, members: t.members.map((m) => ({ ...m })) }))
       case 'teams.save':

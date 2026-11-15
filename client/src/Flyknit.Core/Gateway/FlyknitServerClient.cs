@@ -279,7 +279,7 @@ public sealed class ChannelBindCode
 
 /// <summary>与 Flyknit 服务端通信：模型网关、设备注册、配置、审计。</summary>
 public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flyknit.Core.Mcp.IMcpRuntimeSource, Flyknit.Core.Experts.Delegation.ISubtaskRegistry,
-    Flyknit.Core.Teams.ITeamService
+    Flyknit.Core.Teams.ITeamService, Flyknit.Core.Notices.INoticeService
 {
     private HttpClient _http;
     private string? _token;
@@ -830,6 +830,100 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
             $"api/v1/client/teams/{Uri.EscapeDataString(teamId)}/notes/{Uri.EscapeDataString(noteId)}");
         using var resp = await SendAsync(req, ct);
         await EnsureOk(resp, ct);
+    }
+
+    // ---------- 消息通知（docs/notices.md）----------
+
+    public async Task<Flyknit.Core.Notices.NoticeList?> GetNoticesAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, "api/v1/client/notices");
+        using var resp = await SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null; // 老服务端没有通知
+        }
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<Flyknit.Core.Notices.NoticeList>(cancellationToken: ct) ?? new();
+    }
+
+    public async Task<Flyknit.Core.Notices.Notice?> GetNoticeAsync(string id, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/client/notices/{Uri.EscapeDataString(id)}");
+        using var resp = await SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        await EnsureOk(resp, ct);
+        return await resp.Content.ReadFromJsonAsync<Flyknit.Core.Notices.Notice>(cancellationToken: ct);
+    }
+
+    public async Task MarkNoticeReadAsync(string id, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, $"api/v1/client/notices/{Uri.EscapeDataString(id)}/read");
+        using var resp = await SendAsync(req, ct);
+        if (resp.StatusCode != System.Net.HttpStatusCode.NotFound)
+        {
+            await EnsureOk(resp, ct);
+        }
+    }
+
+    public async Task MarkAllNoticesReadAsync(CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/notices/read-all");
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+    }
+
+    public async Task<Flyknit.Core.Notices.NoticeMediaResponse> OpenNoticeMediaAsync(string mediaId, string? range, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Get, $"api/v1/notices/media/{Uri.EscapeDataString(mediaId)}");
+        if (!string.IsNullOrEmpty(range))
+        {
+            req.Headers.TryAddWithoutValidation("Range", range);
+        }
+        // 只等到响应头：视频按流转给界面，不整个读进内存
+        var resp = await SendAsync(req, HttpCompletionOption.ResponseHeadersRead, RequestTimeout, ct);
+        var status = (int)resp.StatusCode;
+        if (!resp.IsSuccessStatusCode)
+        {
+            resp.Dispose();
+            return new Flyknit.Core.Notices.NoticeMediaResponse(status, "text/plain", null, null, null);
+        }
+        var type = resp.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+        var length = resp.Content.Headers.ContentLength;
+        var contentRange = resp.Content.Headers.ContentRange?.ToString();
+        var body = await resp.Content.ReadAsStreamAsync(ct);
+        return new Flyknit.Core.Notices.NoticeMediaResponse(status, type, new OwnedStream(body, resp), length, contentRange);
+    }
+
+    /// <summary>流读完、释放时顺带释放响应（ResponseHeadersRead 时响应要活到流读完）。</summary>
+    private sealed class OwnedStream(Stream inner, IDisposable owner) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => inner.Length;
+        public override long Position { get => inner.Position; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            inner.ReadAsync(buffer, offset, count, cancellationToken);
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(buffer, cancellationToken);
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+                owner.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 
     /// <summary>员工向专家发了一句话：服务端用来算使用量。</summary>

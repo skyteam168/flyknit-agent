@@ -1072,3 +1072,45 @@ export interface Team extends TeamIn {
   dissolved_at: string | null
   dissolved_by: string
 }
+
+// ---------- 消息通知（docs/notices.md）----------
+export type NoticeKind = 'upgrade' | 'feature' | 'maintenance' | 'security' | 'policy' | 'event' | 'tip' | 'general'
+export interface NoticeIn {
+  kind: NoticeKind
+  title: string
+  summary: string
+  body_html: string
+  important: boolean
+  action_label: string
+  action_url: string
+  scope_departments: string[]
+  scope_devices: number[]
+  publish_at: string | null
+  expire_at: string | null
+}
+export interface Notice extends NoticeIn {
+  id: string
+  status: 'draft' | 'published' | 'withdrawn'
+  published_at: string | null
+  author: string
+  created_at: string
+  updated_at: string
+  reads: number
+  audience: number
+  scheduled: boolean
+  expired: boolean
+}
+export interface NoticeMedia {
+  id: string
+  mime: string
+  size: number
+  src: string
+  preview: string
+}
+export interface NoticeReader {
+  device_id: number
+  machine_name: string
+  user_name: string
+  department: string
+  read_at: string
+}
