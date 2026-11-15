@@ -8,6 +8,8 @@ import { changesForAnswer, current, currentState, editAndResend, forkConversatio
 import type { OutputFile, UiMessage } from '../types'
 import RefHoverCard from './RefHoverCard.vue'
 import ToolCard from './ToolCard.vue'
+import LiveDraft from './LiveDraft.vue'
+import LiveTools from './LiveTools.vue'
 import { assistantIdentity, toolCard } from '../toolCards'
 import ExpertTaskCard from './ExpertTaskCard.vue'
 import SuggestionCard from './SuggestionCard.vue'
@@ -42,11 +44,17 @@ const orphanTools = computed(() => {
   return Object.values(st.tools).filter((t) => !referenced.has(t.callId) && !t.actor)
 })
 
+/** 模板只读这个布尔值：工具来来去去时列表不重画（工具卡在 LiveTools 里画） */
+const hasOrphans = computed(() => orphanTools.value.length > 0)
+
 const waiting = computed(() => Object.values(s.value?.tools ?? {}).some((t) => t.state === 'waiting'))
 /** 专家正在跑：专家任务卡片自己有进度，不再另外显示三个点 */
 const expertRunning = computed(() => Object.values(s.value?.tools ?? {}).some((t) => isSubtaskTool(t.name) && t.state === 'running'))
 const busy = computed(() => s.value?.busy ?? false)
-const draftText = computed(() => stripToolMarkup(s.value?.draft?.content ?? ''))
+// 流式字块每来一段，下面这几个算出来的值大多不变：模板只读它们，整个列表就不会跟着重画（字本身在 LiveDraft 里画）
+const hasDraftText = computed(() => !!stripToolMarkup(s.value?.draft?.content ?? ''))
+const hasDraftContent = computed(() => !!s.value?.draft?.content)
+const hasReasoning = computed(() => !!s.value?.draft?.reasoning)
 
 /** 一轮回答的最终消息（有内容、没有工具调用）才显示复制、评价按钮 */
 // 把回答里的 mermaid / dot / chart 代码块画出来；内容变了就重画
@@ -540,30 +548,18 @@ const isImage = (mime: string) => mime.startsWith('image/')
 
       <!-- 流式输出中的回答 -->
       <div v-if="s.busy" class="assistant live" :class="{ cont: visible.length > 0 && visible[visible.length - 1].role === 'assistant' }">
-        <div v-if="s.draft?.sources == null && !s.draft?.content && !s.draft?.reasoning && state.app?.webSearch && current?.mode === 'chat'" class="searching">{{ t('message.searching') }}</div>
+        <div v-if="s.draft?.sources == null && !hasDraftContent && !hasReasoning && state.app?.webSearch && current?.mode === 'chat'" class="searching">{{ t('message.searching') }}</div>
         <details v-if="s.draft?.sources?.length" class="sources" open>
           <summary>{{ t('message.searched', { n: s.draft.sources.length }) }} <ChevronRight :size="14" class="chev" /></summary>
           <a v-for="(src, si) in s.draft.sources" :key="si" class="source" :href="src.url" target="_blank" rel="noopener">{{ src.title || src.url }}</a>
         </details>
-        <details v-if="s.draft?.reasoning" class="reasoning" open>
+        <details v-if="hasReasoning" class="reasoning" open>
           <summary><Brain :size="14" /> {{ t('message.thinkingLive') }} <ChevronRight :size="14" class="chev" /></summary>
-          <p>{{ s.draft.reasoning }}</p>
+          <LiveDraft :conv="s" part="reasoning" />
         </details>
-        <div v-if="draftText" class="md" v-html="renderMarkdown(draftText, { streaming: true })" />
-        <div v-else-if="!s.draft?.reasoning && !s.draft?.sources?.length && orphanTools.length === 0 && !waiting && !expertRunning" class="dots" aria-label="…"><i /><i /><i /></div>
-        <template v-for="tool in orphanTools" :key="tool.callId">
-          <component
-            :is="toolCard(tool.name)"
-            v-if="toolCard(tool.name)"
-            :name="tool.name"
-            :call-id="tool.callId"
-            :args="tool.args ?? '{}'"
-            :conversation-id="current!.id"
-            :output="tool.state === 'running' || tool.state === 'waiting' ? '' : (tool.output ?? '')"
-          />
-          <ExpertTaskCard v-else-if="isSubtaskTool(tool.name)" :tool="tool" :conversation-id="current!.id" />
-          <ToolCard v-else :tool="tool" :conversation-id="current!.id" />
-        </template>
+        <LiveDraft v-if="hasDraftText" :conv="s" part="content" />
+        <div v-else-if="!hasReasoning && !s.draft?.sources?.length && !hasOrphans && !waiting && !expertRunning" class="dots" aria-label="…"><i /><i /><i /></div>
+        <LiveTools :conv="s" :conversation-id="current!.id" />
       </div>
 
       <div v-for="n in s.notices" :key="n" class="notice run-notice">

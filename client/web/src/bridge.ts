@@ -126,7 +126,8 @@ class Bridge {
   }
 
   private receive(raw: unknown) {
-    console.debug('[flyknit] host →', raw)
+    // 只在开发时打：正式环境长任务里每秒几十条，全进控制台缓冲白占内存
+    if (import.meta.env.DEV) console.debug('[flyknit] host →', raw)
     const data = (typeof raw === 'string' ? JSON.parse(raw) : raw) as {
       kind: string
       id?: string

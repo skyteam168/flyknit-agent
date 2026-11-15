@@ -45,7 +45,7 @@ import type {
 } from './types'
 import { SubtaskFinal } from './types'
 
-interface ConversationState {
+export interface ConversationState {
   /** 点了「停止」、宿主还没回这一轮结束：按钮显示「正在停止」，不再像点了没反应 */
   stopping?: boolean
   messages: UiMessage[]
@@ -1945,6 +1945,11 @@ export function registerFeature(feature: Feature) {
 }
 
 // ---------- 宿主事件 ----------
+/** 压缩已经做完、进度条还停在 100% 的：下一步开始时收掉（正常情况 1.2 秒后自己消失） */
+function clearDoneCompacting(conversationId: string) {
+  if (state.compacting[conversationId]?.phase === 'done') delete state.compacting[conversationId]
+}
+
 /**
  * 不是从界面发起的运行（定时任务「立即运行」、宿主让打开的对话、后台指令）：
  * 收到第一段输出时补上「运行中」，这样草稿能显示出来，也能点停止。
@@ -2016,6 +2021,7 @@ function onHostEvent(e: HostEvent) {
       break
     }
     case 'tool.started':
+      clearDoneCompacting(e.conversationId)
       markRunning(e.conversationId).tools[e.callId] = {
         callId: e.callId,
         name: e.name,
@@ -2026,6 +2032,8 @@ function onHostEvent(e: HostEvent) {
       }
       break
     case 'tool.confirm': {
+      // 要员工确认了：压缩进度条不能还挡在那里（定时器被拖慢时也不会留着）
+      clearDoneCompacting(e.conversationId)
       const s = markRunning(e.conversationId)
       let t = s.tools[e.callId]
       // tool.started 丢失时仍要挂上确认，否则 AgentLoop 卡在 ConfirmAsync、界面只转圈无确认条

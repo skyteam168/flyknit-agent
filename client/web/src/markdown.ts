@@ -80,7 +80,26 @@ export function stripToolMarkup(text: string): string {
 }
 
 /** streaming：正在输出的回答，没写完的图表块先显示占位 */
+/**
+ * 写完的消息内容不会再变：渲染结果按原文缓存。消息列表每次重画（来了工具事件、确认……）
+ * 都要对每条历史消息调一次，长任务里几百上千条，每次都跑 markdown-it + DOMPurify 会把界面线程占满。
+ */
+const rendered = new Map<string, string>()
+const CACHE_MAX = 400
+
 export function renderMarkdown(text: string, opts?: { streaming?: boolean }): string {
-  const env = opts?.streaming ? { streaming: true, lines: text.split('\n') } : {}
-  return DOMPurify.sanitize(md.render(text, env), { ADD_ATTR: ['target', 'data-copy', 'data-lang', 'data-code', 'data-ref'] })
+  if (opts?.streaming) {
+    return DOMPurify.sanitize(md.render(text, { streaming: true, lines: text.split('\n') }), { ADD_ATTR: ['target', 'data-copy', 'data-lang', 'data-code', 'data-ref'] })
+  }
+  const hit = rendered.get(text)
+  if (hit !== undefined) {
+    // 最近用过的挪到最后，淘汰时从最早的删
+    rendered.delete(text)
+    rendered.set(text, hit)
+    return hit
+  }
+  const html = DOMPurify.sanitize(md.render(text, {}), { ADD_ATTR: ['target', 'data-copy', 'data-lang', 'data-code', 'data-ref'] })
+  rendered.set(text, html)
+  if (rendered.size > CACHE_MAX) rendered.delete(rendered.keys().next().value as string)
+  return html
 }
