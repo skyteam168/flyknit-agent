@@ -1064,6 +1064,7 @@ export type HostEvent =
   | { type: 'team.started'; conversationId: string; runId: string; callId: string; round: number; goal?: string; autoStarted?: boolean; items: { expertId: string; task: string; done: string; dependsOn: string[] }[] }
   | { type: 'team.record'; conversationId: string; record: TeamRunRecord }
   | { type: 'team.grant'; conversationId: string; runId: string; labels: string[]; granted: boolean }
+  | { type: 'notices.changed'; unread: number; supported: boolean; popup: string | null }
   | { type: 'team.member'; conversationId: string; runId: string; expertId: string; status: TeamMemberState; note: string; subtaskId: string; callId: string }
   | ({ type: 'team.board'; conversationId: string; runId: string } & TeamBoardItem)
   | { type: 'team.round'; conversationId: string; runId: string; results: { expertId: string; status: string; delivery: string; retries: number }[] }
@@ -1629,4 +1630,24 @@ export interface TeamRunView {
   grantLabels?: string[]
   granted?: boolean
   teamName?: string
+}
+
+/** 消息通知（docs/notices.md）。正文只在详情里有，已经过服务端和界面两道清洗 */
+export type NoticeKind = 'upgrade' | 'feature' | 'maintenance' | 'security' | 'policy' | 'event' | 'tip' | 'general'
+export interface Notice {
+  id: string
+  kind: NoticeKind
+  title: string
+  summary: string
+  important: boolean
+  action_label: string
+  action_url: string
+  published_at: string | null
+  expire_at: string | null
+  read: boolean
+  body_html: string
+}
+export interface NoticeList {
+  items: Notice[]
+  unread: number
 }

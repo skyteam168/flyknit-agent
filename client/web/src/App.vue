@@ -25,6 +25,8 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ExpertsPage from './components/ExpertsPage.vue'
 import TeamsPage from './features/teams/TeamsPage.vue'
+import NoticesPage from './features/notices/NoticesPage.vue'
+import NoticePopup from './features/notices/NoticePopup.vue'
 import TeamBar from './features/teams/TeamBar.vue'
 import { currentTeamRun } from './features/teams/store'
 import TasksPage from './components/TasksPage.vue'
@@ -320,6 +322,7 @@ onBeforeUnmount(() => {
         <LibraryPage v-if="state.view === 'library'" />
         <ExpertsPage v-else-if="state.view === 'experts'" />
         <TeamsPage v-else-if="state.view === 'teams'" />
+        <NoticesPage v-else-if="state.view === 'notices'" />
         <TasksPage v-else-if="state.view === 'tasks'" />
         <PluginsPage v-else-if="state.view === 'plugins'" />
         <ConnectorsPage v-else-if="state.view === 'connectors'" @use="useExample" />
@@ -362,6 +365,7 @@ onBeforeUnmount(() => {
     <ChangesDialog v-if="state.changesView" />
     <TraceDialog v-if="state.trace" />
     <SettingsDialog v-if="state.settingsOpen" />
+    <NoticePopup />
     <MemoryDialog v-if="state.memoryOpen" />
     <UsageDialog v-if="state.usageOpen" />
     <CommandInfoDialog v-if="state.commandInfo" />

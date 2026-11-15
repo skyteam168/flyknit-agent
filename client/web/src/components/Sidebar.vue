@@ -44,6 +44,8 @@ import ExpertAvatar from './ExpertAvatar.vue'
 import Popover from './Popover.vue'
 import { openLibrary } from '../library'
 import { openTeams } from '../features/teams/store'
+import NoticeBell from '../features/notices/NoticeBell.vue'
+import { notices } from '../features/notices/store'
 import {
   addWorkspace,
   deleteConversation,
@@ -728,14 +730,18 @@ onBeforeUnmount(() => {
     </template>
 
     <UpdateBar />
-    <button type="button" class="user" @click="state.settingsOpen = true">
-      <span class="avatar">{{ initial }}</span>
-      <span class="who">
-        <strong>{{ state.app?.userName }}</strong>
-        <small>{{ state.app?.department || state.app?.machineName }}</small>
-      </span>
-      <ChevronRight :size="16" class="go" />
-    </button>
+    <div class="user-wrap">
+      <button type="button" class="user" :class="{ 'with-bell': notices.supported }" @click="state.settingsOpen = true">
+        <span class="avatar">{{ initial }}</span>
+        <span class="who">
+          <strong>{{ state.app?.userName }}</strong>
+          <small>{{ state.app?.department || state.app?.machineName }}</small>
+        </span>
+        <ChevronRight :size="16" class="go" />
+      </button>
+      <!-- 消息通知（features/notices）：铃铛叠在用户卡片上，不嵌在按钮里 -->
+      <NoticeBell class="user-bell" @open="emit('navigate')" />
+    </div>
 
     <Teleport to="body">
       <div
@@ -1196,11 +1202,24 @@ onBeforeUnmount(() => {
 .icon-btn.danger:hover {
   color: var(--red);
 }
+.user-wrap {
+  position: relative;
+  margin: 8px 12px 12px;
+}
+.user-bell {
+  position: absolute;
+  top: 50%;
+  right: 34px;
+  transform: translateY(-50%);
+}
+.user.with-bell .who {
+  margin-right: 34px;
+}
 .user {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 8px 12px 12px;
+  width: 100%;
   padding: 8px 10px;
   border-radius: 12px;
   border: 1px solid var(--line);

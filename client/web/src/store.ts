@@ -139,7 +139,7 @@ export const state = reactive({
   groups: {} as Record<string, GroupView[]>,
   /** 排队中（还没轮到）的拆分子对话：侧栏标「排队中」，打开时显示占位说明 */
   queued: {} as Record<string, QueuedView>,
-  view: 'chat' as 'chat' | 'library' | 'experts' | 'teams' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules',
+  view: 'chat' as 'chat' | 'library' | 'experts' | 'teams' | 'tasks' | 'plugins' | 'connectors' | 'skills' | 'schedules' | 'notices',
   /** 任务中心的数据（启动时取一次，任务中心打开时跟着刷新） */
   runs: { running: [], interrupted: [], recent: [] } as RunsList,
   /** 每个对话里每一轮改动的文件（打开对话、一轮结束时取） */

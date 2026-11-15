@@ -1206,3 +1206,85 @@ class TeamAdminOut(TeamOut):
     owner_device_id: int | None = None
     dissolved_at: datetime | None = None
     dissolved_by: str = ""
+
+
+# ---------- 消息通知（docs/notices.md）----------
+
+
+class NoticeIn(BaseModel):
+    kind: Literal["upgrade", "feature", "maintenance", "security", "policy", "event", "tip", "general"] = "general"
+    title: str = Field(min_length=1, max_length=120)
+    summary: str = Field(default="", max_length=300)
+    body_html: str = Field(default="", max_length=200_000)
+    important: bool = False
+    action_label: str = Field(default="", max_length=30)
+    action_url: str = Field(default="", max_length=500)
+    scope_departments: list[str] = Field(default_factory=list, max_length=200)
+    scope_devices: list[int] = Field(default_factory=list, max_length=2000)
+    publish_at: datetime | None = None
+    expire_at: datetime | None = None
+
+
+class NoticeAdminOut(BaseModel):
+    id: str
+    kind: str
+    title: str
+    summary: str
+    body_html: str
+    important: bool
+    action_label: str
+    action_url: str
+    scope_departments: list[str]
+    scope_devices: list[int]
+    status: str
+    publish_at: datetime | None
+    expire_at: datetime | None
+    published_at: datetime | None
+    author: str
+    created_at: datetime
+    updated_at: datetime
+    #: 已读电脑数 / 范围内的电脑数（只算没停用的）
+    reads: int = 0
+    audience: int = 0
+    #: 已发布但还没到发布时间 / 已过期
+    scheduled: bool = False
+    expired: bool = False
+
+
+class NoticeReaderOut(BaseModel):
+    device_id: int
+    machine_name: str
+    user_name: str
+    department: str
+    read_at: datetime
+
+
+class NoticeOut(BaseModel):
+    """员工端列表项。body_html 只在详情里给。"""
+
+    id: str
+    kind: str
+    title: str
+    summary: str
+    important: bool
+    action_label: str
+    action_url: str
+    published_at: datetime | None
+    expire_at: datetime | None
+    read: bool
+    body_html: str = ""
+
+
+class NoticeListOut(BaseModel):
+    items: list[NoticeOut]
+    unread: int
+
+
+class NoticeMediaOut(BaseModel):
+    id: str
+    mime: str
+    size: int
+    #: 正文里引用的地址（保存时用这个）
+    src: str
+    #: 后台编辑器里直接能显示的临时地址
+    preview: str

@@ -8,6 +8,10 @@ import type { Department, DeviceAccess, ItemScope, LayerPolicy, ScopeKind, Slash
   MobilePhone,
   MobileRelease,
   WeComConfig,
+  Notice,
+  NoticeIn,
+  NoticeMedia,
+  NoticeReader,
   Team,
   TeamIn,
   TeamNote,
@@ -328,6 +332,19 @@ export const api = {
   feedbackLogs: (id: number) => download(`/feedback/${id}/logs`, undefined, `feedback-${id}.zip`),
   // 部门与隔离：部门清单、部门 / 单台电脑的安全设置、技能 / 专家 / 连接器的使用范围
   departments: () => get<Department[]>('/departments'),
+  // 消息通知（docs/notices.md）
+  notices: () => get<Notice[]>('/notices'),
+  createNotice: (body: NoticeIn) => post<Notice>('/notices', body),
+  updateNotice: (id: string, body: NoticeIn) => put<Notice>(`/notices/${encodeURIComponent(id)}`, body),
+  publishNotice: (id: string) => post<Notice>(`/notices/${encodeURIComponent(id)}/publish`),
+  withdrawNotice: (id: string) => post<Notice>(`/notices/${encodeURIComponent(id)}/withdraw`),
+  deleteNotice: (id: string) => del<void>(`/notices/${encodeURIComponent(id)}`),
+  noticeReads: (id: string) => get<NoticeReader[]>(`/notices/${encodeURIComponent(id)}/reads`),
+  uploadNoticeMedia: (file: File, onProgress?: (p: number) => void) => {
+    const form = new FormData()
+    form.append('file', file)
+    return upload<NoticeMedia>('/notices/media', form, onProgress)
+  },
   teams: () => get<Team[]>('/teams'),
   createTeam: (body: TeamIn) => post<Team>('/teams', body),
   updateTeam: (id: string, body: TeamIn) => put<Team>(`/teams/${encodeURIComponent(id)}`, body),

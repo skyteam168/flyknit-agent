@@ -75,6 +75,9 @@ public sealed partial class AgentHost : IDisposable
     /// <summary>团队模式（功能模块：运行扩展 + 界面桥模块，见 docs/extension-architecture.md）。</summary>
     public Flyknit.Core.Teams.TeamFeature Teams { get; }
 
+    /// <summary>消息通知（docs/notices.md）：铃铛、消息中心、正文里的媒体代理。</summary>
+    public Flyknit.Core.Notices.NoticeFeature Notices { get; }
+
     /// <summary>功能模块注册的界面桥方法（界面桥先查这里，查不到再走自己的）。</summary>
     public Flyknit.Core.Hosting.BridgeModuleRegistry BridgeModules { get; }
 
@@ -374,7 +377,8 @@ public sealed partial class AgentHost : IDisposable
                     ChatExtraBody),
             },
             (extensionId, ex) => Log.Warn($"运行扩展 {extensionId} 准备失败，这一轮不出场", ex));
-        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams);
+        Notices = new Flyknit.Core.Notices.NoticeFeature(Server, evt => Events?.Post(evt), message => Log.Warn(message));
+        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -555,6 +559,8 @@ public sealed partial class AgentHost : IDisposable
             {
                 Log.Warn($"上报本机信息失败：{ex.Message}");
             }
+            // IT 发布、撤回通知时服务端会推「配置变了」：顺带刷新铃铛上的未读数
+            _ = Notices.RefreshAsync();
             // 同步公司技能库里管理员标记为必装的技能
             _ = SkillManager.SyncRequiredAsync(CancellationToken.None);
             // MCP 连接器另走一条：下架的断开、改了配置的重连

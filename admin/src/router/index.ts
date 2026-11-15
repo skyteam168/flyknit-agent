@@ -1,6 +1,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import type { Component } from 'vue'
-import { Avatar, Box, Grid, Lightning, ChatDotRound, Operation, Filter, ChatDotSquare, ChatLineSquare, Coin, Collection, Connection, Document, Iphone, Link, Lock, MagicStick, Microphone, Monitor, OfficeBuilding, Odometer, Promotion, Tickets, Upload, UserFilled } from '@element-plus/icons-vue'
+import { Avatar, Bell, Box, Grid, Lightning, ChatDotRound, Operation, Filter, ChatDotSquare, ChatLineSquare, Coin, Collection, Connection, Document, Iphone, Link, Lock, MagicStick, Microphone, Monitor, OfficeBuilding, Odometer, Promotion, Tickets, Upload, UserFilled } from '@element-plus/icons-vue'
 import { auth } from '@/store/auth'
 import AdminLayout from '@/layout/AdminLayout.vue'
 
@@ -36,6 +36,7 @@ export const menuRoutes: RouteRecordRaw[] = [
   { path: 'chats', name: 'chats', component: () => import('@/views/Chats.vue'), meta: { title: '聊天记录', icon: ChatDotRound, group: '运维' } },
   { path: 'audit', name: 'audit', component: () => import('@/views/Audit.vue'), meta: { title: '审计日志', icon: Tickets, group: '运维' } },
   { path: 'feedback', name: 'feedback', component: () => import('@/views/Feedback.vue'), meta: { title: '意见反馈', icon: ChatLineSquare, group: '运维' } },
+  { path: 'notices', name: 'notices', component: () => import('@/views/Notices.vue'), meta: { title: '消息通知', icon: Bell, group: '运维' } },
   { path: 'releases', name: 'releases', component: () => import('@/views/Releases.vue'), meta: { title: '员工端版本', icon: Upload, group: '运维' } },
   { path: 'legal', name: 'legal', component: () => import('@/views/Legal.vue'), meta: { title: '协议与隐私', icon: Document, group: '运维' } },
   { path: 'accounts', name: 'accounts', component: () => import('@/views/Accounts.vue'), meta: { title: '管理员账号', icon: UserFilled, group: '运维' } },

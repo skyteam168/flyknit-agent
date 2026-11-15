@@ -1131,3 +1131,66 @@ class TeamNote(Base):
     device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     author: Mapped[str] = mapped_column(String(200), default="", server_default=text("''"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Notice(Base):
+    """
+    消息通知（docs/notices.md）：IT 在后台编写、发布，员工端左下角铃铛里看。
+
+    - 正文是富文本 HTML，保存前服务端按白名单清洗（services/notice_service.sanitize_html）；
+      图片、视频只认本服务器上传的媒体（/api/v1/notices/media/{id}），不引用外部地址。
+    - 范围和技能、专家一样：使用部门 ∪ 电脑，两个都空 = 全公司（services/item_scope）。
+    - 状态：draft 草稿 → published 已发布 → withdrawn 已撤回。已发布的员工端看得到，
+      还要在 publish_at 之后、expire_at 之前。
+    """
+
+    __tablename__ = "notices"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    #: upgrade / feature / maintenance / security / policy / event / tip / general（notice_service.KINDS）
+    kind: Mapped[str] = mapped_column(String(20), default="general")
+    title: Mapped[str] = mapped_column(String(120))
+    #: 列表里的一行摘要；空 = 从正文取
+    summary: Mapped[str] = mapped_column(String(300), default="")
+    body_html: Mapped[str] = mapped_column(Text, default="")
+    #: 重要：员工端置顶，打开程序时没读过的直接弹出来
+    important: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: 详情页底部的按钮（可选）：文字 + 地址（只认 http / https）
+    action_label: Mapped[str] = mapped_column(String(30), default="")
+    action_url: Mapped[str] = mapped_column(String(500), default="")
+    scope_departments: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    scope_devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    status: Mapped[str] = mapped_column(String(12), default="draft", index=True)
+    #: 定时发布：空 = 点发布时就发
+    publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: 过期后员工端不再显示（比如停机维护通知）
+    expire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    author: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class NoticeRead(Base):
+    """哪台电脑读过哪条通知（只记时间，给后台看阅读情况）。"""
+
+    __tablename__ = "notice_reads"
+    __table_args__ = (UniqueConstraint("notice_id", "device_id", name="uq_notice_read"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    notice_id: Mapped[str] = mapped_column(String(40), index=True)
+    device_id: Mapped[int] = mapped_column(Integer, index=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class NoticeMedia(Base):
+    """通知里用的图片、视频。文件在 data/notice_media/{id}，类型按文件头判断，不信上传时的扩展名。"""
+
+    __tablename__ = "notice_media"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    mime: Mapped[str] = mapped_column(String(60))
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    filename: Mapped[str] = mapped_column(String(200), default="")
+    uploaded_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

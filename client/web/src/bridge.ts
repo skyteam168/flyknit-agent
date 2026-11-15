@@ -59,6 +59,8 @@ import type {
   Conversation,
   Expert,
   Team,
+  Notice,
+  NoticeList,
   TeamInput,
   TeamNote,
   TeamRunRecord,
@@ -220,6 +222,12 @@ class Bridge {
     this.call<Conversation>('conversation.create', { mode, modelId, workspace, permission, expertId, teamId })
   listExperts = () => this.call<Expert[]>('experts.list')
   listTeams = () => this.call<Team[]>('teams.list')
+  // ---------- 消息通知（docs/notices.md）----------
+  noticeStatus = () => this.call<{ supported: boolean; unread: number }>('notices.status')
+  listNotices = () => this.call<NoticeList>('notices.list')
+  getNotice = (id: string) => this.call<Notice | null>('notices.get', { id })
+  readNotice = (id: string) => this.call<boolean>('notices.read', { id })
+  readAllNotices = () => this.call<boolean>('notices.readAll')
   saveTeam = (id: string | null, team: TeamInput) => this.call<Team>('teams.save', { id: id ?? '', team })
   dissolveTeam = (id: string) => this.call<void>('teams.dissolve', { id })
   copyTeam = (id: string) => this.call<Team>('teams.copy', { id })
