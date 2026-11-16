@@ -115,12 +115,15 @@ function act(n: Notice) {
 
 <style scoped>
 .notices-page {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
   height: 100%;
   overflow: auto;
   padding: 18px 28px 40px;
 }
 .inner {
-  max-width: 980px;
+  width: 100%;
 }
 .head {
   position: sticky;
@@ -198,7 +201,7 @@ function act(n: Notice) {
   text-align: center;
 }
 .group {
-  max-width: 980px;
+  width: 100%;
 }
 .group h3 {
   margin: 16px 0 6px;
@@ -287,7 +290,7 @@ function act(n: Notice) {
   color: var(--ink-faint);
 }
 .detail {
-  max-width: 820px;
+  width: 100%;
   margin: 8px 0 0;
   padding: 22px 26px 28px;
   border: 1px solid var(--line);

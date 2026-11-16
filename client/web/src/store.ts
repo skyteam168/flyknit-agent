@@ -42,6 +42,7 @@ import type {
   TraceInfo,
   UsageStats,
   WorkspaceInfo,
+  SoundEvents,
 } from './types'
 import { SubtaskFinal } from './types'
 
@@ -1682,6 +1683,13 @@ export async function setNotifications(enabled: boolean) {
   if (!r.ok) toast(r.message)
 }
 
+/** 提示音在哪些时刻响（做完 / 要你处理 / 出错） */
+export async function setSoundEvents(events: Partial<SoundEvents>) {
+  if (state.app) state.app.soundEvents = { done: true, attention: true, failed: true, ...state.app.soundEvents, ...events }
+  const r = await bridge.setSoundEvents(events).catch(fail)
+  if (r && state.app) state.app.soundEvents = r
+}
+
 export async function setNotificationSound(sound: string) {
   if (state.app) state.app.notificationSound = sound
   const r = await bridge.setNotificationSound(sound).catch(fail)
@@ -2157,6 +2165,7 @@ function onHostEvent(e: HostEvent) {
         if (e.sandboxed !== undefined) state.app.sandboxed = e.sandboxed
         if (e.notifications !== undefined) state.app.notifications = e.notifications
         if (e.notificationSound !== undefined) state.app.notificationSound = e.notificationSound
+        if (e.soundEvents !== undefined) state.app.soundEvents = e.soundEvents
         if (e.notificationsLocked !== undefined) state.app.notificationsLocked = e.notificationsLocked
         if (e.soundLocked !== undefined) state.app.soundLocked = e.soundLocked
         if (e.keepAwakeAllowed !== undefined) state.app.keepAwakeAllowed = e.keepAwakeAllowed

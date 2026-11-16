@@ -60,6 +60,7 @@ import type {
   Expert,
   Team,
   Notice,
+  SoundEvents,
   NoticeList,
   TeamInput,
   TeamNote,
@@ -309,7 +310,8 @@ class Bridge {
   setFontScale = (scale: number) => this.call<number>('settings.setFontScale', { scale })
   setNotificationSound = (sound: string) =>
     this.call<{ ok: boolean; message: string; sound: string }>('settings.setNotificationSound', { sound })
-  previewSound = (sound: string) => this.call<void>('settings.previewSound', { sound })
+  previewSound = (sound: string, cue: 'done' | 'attention' | 'failed' = 'done') => this.call<void>('settings.previewSound', { sound, cue })
+  setSoundEvents = (events: Partial<SoundEvents>) => this.call<SoundEvents>('settings.setSoundEvents', events)
   setAutoStart = (enabled: boolean) => this.call<{ ok: boolean; message: string; enabled: boolean }>('settings.setAutoStart', { enabled })
   setExplorerMenu = (enabled: boolean) => this.call<void>('settings.setExplorerMenu', { enabled })
   setKeepAwake = (mode: KeepAwakeMode) => this.call<{ ok: boolean; message: string; mode: KeepAwakeMode }>('settings.setKeepAwake', { mode })

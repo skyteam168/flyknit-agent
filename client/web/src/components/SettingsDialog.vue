@@ -25,7 +25,7 @@ import { SquareSlash,
 } from '@lucide/vue'
 import { bridge } from '../bridge'
 import { uiLanguages } from '../i18n'
-import { errorText, fail, loadWorkspaces, rememberDefaultWorkspace, setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setTheme, state, toast } from '../store'
+import { errorText, fail, loadWorkspaces, rememberDefaultWorkspace, setFontScale, setLanguage, setLearning, setMaxSteps, setNotificationSound, setNotifications, setSoundEvents, setTheme, state, toast } from '../store'
 import type { ApprovalInfo, KeepAwakeMode, StorageInfo, Theme } from '../types'
 import BrandLoader from './BrandLoader.vue'
 import AuditLog from './AuditLog.vue'
@@ -287,6 +287,10 @@ onMounted(async () => {
   proxyUser.value = state.app?.proxyUser ?? ''
   await Promise.all([loadApprovals(), loadStorage()])
 })
+
+/** 提示音音色：两种系统声音 + 五种合成的（Flyknit.Core/Notices/SoundCues.cs） */
+const SOUND_THEMES = ['soft', 'alert', 'chime', 'marimba', 'bell', 'digital', 'bubble'] as const
+const SOUND_CUES = ['done', 'attention', 'failed'] as const
 </script>
 
 <template>
@@ -494,9 +498,28 @@ onMounted(async () => {
                 @change="setNotificationSound(($event.target as HTMLSelectElement).value)"
               >
                 <option value="none">{{ t('settings.soundNone') }}</option>
-                <option value="soft">{{ t('settings.soundSoft') }}</option>
-                <option value="alert">{{ t('settings.soundAlert') }}</option>
+                <option v-for="s in SOUND_THEMES" :key="s" :value="s">{{ t(`settings.soundTheme.${s}`) }}</option>
               </select>
+            </div>
+            <!-- 每种时刻响不响；旁边可以单独试听 -->
+            <div v-if="(state.app?.notificationSound ?? 'none') !== 'none'" class="sound-events">
+              <label v-for="cue in SOUND_CUES" :key="cue" class="sound-event">
+                <input
+                  type="checkbox"
+                  :checked="state.app?.soundEvents?.[cue] ?? true"
+                  @change="setSoundEvents({ [cue]: ($event.target as HTMLInputElement).checked })"
+                />
+                <span>{{ t(`settings.soundCue.${cue}`) }}</span>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  :title="t('settings.soundPreview')"
+                  :aria-label="`${t('settings.soundPreview')} · ${t(`settings.soundCue.${cue}`)}`"
+                  @click.prevent="bridge.previewSound(state.app?.notificationSound ?? 'none', cue).catch(fail)"
+                >
+                  <Volume2 :size="13" />
+                </button>
+              </label>
             </div>
           </section>
         </template>
@@ -1102,5 +1125,25 @@ select,
     padding: 0;
     border: 0;
   }
+}
+.sound-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: -4px 0 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cloth-sunk);
+  font-size: var(--t-sm);
+}
+.sound-event {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.sound-event .icon-btn {
+  width: 24px;
+  height: 24px;
 }
 </style>

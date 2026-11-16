@@ -172,8 +172,13 @@ public sealed class AppSettings
         set => ProxyPassword = DataProtection.Unprotect(value);
     }
 
-    /// <summary>通知提示音：none / soft / alert。</summary>
+    /// <summary>通知提示音的音色：none / soft / alert（系统声音）/ chime / marimba / bell / digital / bubble（合成，见 SoundThemes）。</summary>
     public string NotificationSound { get; set; } = "none";
+
+    /// <summary>哪些时刻响：任务做完、要你处理（确认 / 回答 / 到上限）、出错。默认都响（音色选「无」时都不响）。</summary>
+    public bool SoundOnDone { get; set; } = true;
+    public bool SoundOnAttention { get; set; } = true;
+    public bool SoundOnFailed { get; set; } = true;
 
     /// <summary>安全中心里用户自己改过的项。只存没被 IT 锁住的那几项。</summary>
     public System.Collections.Generic.Dictionary<string, object?> SecurityChoices { get; set; } = new();

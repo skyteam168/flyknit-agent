@@ -1525,6 +1525,7 @@ export function createMockHost(): HostTransport {
           teamMaxMembers: 8,
           sandboxTasks: true,
           notificationSound: 'none',
+          soundEvents: { done: true, attention: true, failed: true },
           fontScale: 1,
           autoStart: false,
           explorerMenu: true,
@@ -1635,6 +1636,8 @@ export function createMockHost(): HostTransport {
         return p.scale
       case 'settings.setNotificationSound':
         return { ok: true, message: '', sound: p.sound }
+      case 'settings.setSoundEvents':
+        return { done: p.done ?? true, attention: p.attention ?? true, failed: p.failed ?? true }
       case 'settings.previewSound':
         return
       case 'settings.setNotifications':
