@@ -661,6 +661,8 @@ export interface AppInfo {
   maxSteps: number
   notifications: boolean
   notificationSound: string
+  /** 哪些时刻响：做完、要你处理、出错 */
+  soundEvents?: SoundEvents
   /** IT 锁住了完成通知 / 提示音，本机改不了 */
   notificationsLocked?: boolean
   soundLocked?: boolean
@@ -1145,7 +1147,7 @@ export type HostEvent =
   | { type: 'shell.request'; action: 'ask' | 'summarize' | 'translate' | 'workspace'; attachments?: AttachmentRef[]; path?: string }
   | { type: 'library.changed' }
   | ({ type: 'app.status'; connected: boolean; serverMessage: string; modelName: string; department?: string; owner?: string } & Partial<
-      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'routerSplit' | 'teams' | 'teamCreate' | 'teamMaxMembers' | 'developerTools' | 'sandboxTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
+      Pick<AppInfo, 'sandboxed' | 'notifications' | 'notificationSound' | 'soundEvents' | 'notificationsLocked' | 'soundLocked' | 'keepAwakeAllowed' | 'keepScreenAllowed' | 'contextDetails' | 'longTasks' | 'routerSplit' | 'teams' | 'teamCreate' | 'teamMaxMembers' | 'developerTools' | 'sandboxTasks' | 'webSearchEnabled' | 'deepThinking' | 'webSearch'>
     >)
   | { type: 'app.focusInput' }
   | { type: 'app.translate'; text: string; from: string; to: string }
@@ -1650,4 +1652,10 @@ export interface Notice {
 export interface NoticeList {
   items: Notice[]
   unread: number
+}
+
+export interface SoundEvents {
+  done: boolean
+  attention: boolean
+  failed: boolean
 }

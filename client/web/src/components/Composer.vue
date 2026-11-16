@@ -101,6 +101,7 @@ const expertMode = computed(() => !!(current.value?.expertId ?? draftMode.expert
 /** 团队任务：固定是「办事」，输入框左下角显示团队名 */
 const teamMode = computed(() => !!(current.value?.teamId ?? draftMode.teamId))
 const placeholder = computed(() => {
+  if (previewText.value && !text.value) return previewText.value
   if (offline.value) return t('input.disconnected')
   if (paused.value && !props.home) return t('ui.pause.placeholder')
   if (busy.value && !props.home) return t('ui.interject.placeholder')
@@ -168,7 +169,24 @@ function resize() {
   const el = box.value
   if (!el) return
   el.style.height = 'auto'
+  // 预览示例任务时输入框是空的：按预览文字的长度撑开，整段都看得到
+  if (!text.value && previewText.value) {
+    el.value = previewText.value
+    el.style.height = `${Math.min(el.scrollHeight, 260)}px`
+    el.value = ''
+    return
+  }
   el.style.height = `${Math.min(el.scrollHeight, 260)}px`
+}
+
+/**
+ * 首页示例任务：鼠标移上去时整段提示词先显示在输入框里（灰色，还不是输入），移开恢复；点了才真的填进去。
+ * 输入框里已经有字时不预览，免得盖住员工自己写的。
+ */
+const previewText = ref('')
+function preview(value: string | null) {
+  previewText.value = text.value ? '' : (value ?? '')
+  void nextTick(resize)
 }
 
 async function submit(how?: InterjectMode) {
@@ -573,6 +591,7 @@ function insert(said: string) {
 
 /** 由首页快捷入口或外部调用填入文字 */
 function fill(value: string) {
+  previewText.value = ''
   text.value = value
   void nextTick(() => {
     resize()
@@ -584,7 +603,7 @@ function focusInput() {
   box.value?.focus()
 }
 
-defineExpose({ fill, useSkill, focusInput })
+defineExpose({ fill, useSkill, focusInput, preview })
 
 // ---------- 增强提示词：AI 把这句话改写清楚，原文留着可以一键恢复 ----------
 const enhancing = ref(false)
@@ -776,6 +795,7 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
         v-model="text"
         :rows="props.home ? 3 : 1"
         :placeholder="placeholder"
+        :class="{ previewing: !!previewText && !text }"
         @input="resize"
         @keydown="onKey"
         @paste="onPaste"
@@ -1505,6 +1525,10 @@ textarea {
 }
 textarea::placeholder {
   color: var(--ink-faint);
+}
+/* 示例任务预览：比平时的提示文字深一点，看得出是一段完整的任务 */
+textarea.previewing::placeholder {
+  color: var(--ink-soft);
 }
 .bar {
   display: flex;

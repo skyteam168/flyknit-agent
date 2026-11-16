@@ -269,7 +269,7 @@ public partial class App : Application
         _ball.HoverChanged += OnBallHover;
 
         // Windows 系统通知：确认按钮直接生效，点通知回到对应任务
-        _notifications = new NotificationService { SoundSetting = () => _host.NotificationSoundChoice() };
+        _notifications = new NotificationService();
         _notifications.ConfirmAnswered += (requestId, choice) => Dispatcher.BeginInvoke(() =>
         {
             if (_main?.Bridge?.ResolveConfirm(requestId, choice) != true)
@@ -300,6 +300,19 @@ public partial class App : Application
         });
         _host.RunFinished += info => Dispatcher.BeginInvoke(() =>
         {
+            // 提示音不看「是不是正看着」：做完了就响（员工停掉的不响）
+            if (info.StopReason == Flyknit.Core.Agent.AgentStopReason.Completed)
+            {
+                _host?.Sounds.Play(Flyknit.Core.Notices.SoundCue.Done);
+            }
+            else if (info.StopReason is null)
+            {
+                _host?.Sounds.Play(Flyknit.Core.Notices.SoundCue.Failed);
+            }
+            else if (info.StopReason != Flyknit.Core.Agent.AgentStopReason.Cancelled)
+            {
+                _host?.Sounds.Play(Flyknit.Core.Notices.SoundCue.Attention); // 到了步数 / 用量上限，等员工决定
+            }
             // 用户正看着这个任务时不打扰；被用户停止的任务不通知
             if (_settings.EnableNotifications
                 && info.StopReason != Flyknit.Core.Agent.AgentStopReason.Cancelled
@@ -368,6 +381,8 @@ public partial class App : Application
                 });
                 bridge.ConfirmRequested += pending => Dispatcher.BeginInvoke(() =>
                 {
+                    // 要确认时任务停在那里等人：不管在不在看都响一下（1.5 秒内的一批只响一次）
+                    _host?.Sounds.Play(Flyknit.Core.Notices.SoundCue.Attention);
                     if (UserIsWatching(pending.ConversationId))
                     {
                         return; // 用户就看着这个任务，界面上的确认条已经够了
@@ -389,6 +404,7 @@ public partial class App : Application
                 // AI 用选项提问：员工没看着这个任务时提醒一下（回答要回界面里点，通知上不放按钮）
                 bridge.QuestionRequested += conversationId => Dispatcher.BeginInvoke(() =>
                 {
+                    _host?.Sounds.Play(Flyknit.Core.Notices.SoundCue.Attention); // AI 在等员工回答
                     if (UserIsWatching(conversationId))
                     {
                         return;

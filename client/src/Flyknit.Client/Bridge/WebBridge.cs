@@ -102,6 +102,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
             sandboxed = _host.Security.On(Flyknit.Core.Security.SecuritySettings.Sandbox),
             notifications = _settings.EnableNotifications,
             notificationSound = _host.NotificationSoundChoice(),
+            soundEvents = new { done = _settings.SoundOnDone, attention = _settings.SoundOnAttention, failed = _settings.SoundOnFailed },
             notificationsLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.Notifications)?.Locked ?? false,
             soundLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound)?.Locked ?? false,
             keepAwakeAllowed = _host.KeepAwakeAllowed,
@@ -593,6 +594,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
                     maxSteps = _settings.ResolveAgentMaxSteps(),
                     notifications = _settings.EnableNotifications,
                     notificationSound = _host.NotificationSoundChoice(),
+            soundEvents = new { done = _settings.SoundOnDone, attention = _settings.SoundOnAttention, failed = _settings.SoundOnFailed },
                     notificationsLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.Notifications)?.Locked ?? false,
                     soundLocked = _host.Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound)?.Locked ?? false,
                     fontScale = _settings.FontScale,
@@ -777,7 +779,7 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
 
             case "settings.setNotificationSound":
             {
-                var sound = Str("sound") is "soft" or "alert" ? Str("sound") : "none";
+                var sound = Flyknit.Core.Notices.SoundThemes.Normalize(Str("sound"));
                 if (_host.Security.Get(Flyknit.Core.Security.SecuritySettings.NotificationSound) is not null)
                 {
                     var why = SetSecurityValue(Flyknit.Core.Security.SecuritySettings.NotificationSound, sound != "none");
@@ -799,8 +801,22 @@ public sealed class WebBridge : IHostEvents, IConfirmationHandler, IBatchConfirm
             }
 
             case "settings.previewSound":
-                NotificationService.Preview(Str("sound"));
+                _host.Sounds.Preview(Str("sound"), Str("cue") switch
+                {
+                    "attention" => Flyknit.Core.Notices.SoundCue.Attention,
+                    "failed" => Flyknit.Core.Notices.SoundCue.Failed,
+                    _ => Flyknit.Core.Notices.SoundCue.Done,
+                });
                 return null;
+
+            case "settings.setSoundEvents":
+            {
+                if (p.TryGetProperty("done", out var d) && d.ValueKind is JsonValueKind.True or JsonValueKind.False) _settings.SoundOnDone = d.GetBoolean();
+                if (p.TryGetProperty("attention", out var a) && a.ValueKind is JsonValueKind.True or JsonValueKind.False) _settings.SoundOnAttention = a.GetBoolean();
+                if (p.TryGetProperty("failed", out var f) && f.ValueKind is JsonValueKind.True or JsonValueKind.False) _settings.SoundOnFailed = f.GetBoolean();
+                _settings.Save();
+                return new { done = _settings.SoundOnDone, attention = _settings.SoundOnAttention, failed = _settings.SoundOnFailed };
+            }
 
             case "settings.setFontScale":
             {

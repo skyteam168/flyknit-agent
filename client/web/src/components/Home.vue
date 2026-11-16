@@ -20,6 +20,7 @@ import {
 } from '@lucide/vue'
 import KnitMark from './KnitMark.vue'
 import Composer from './Composer.vue'
+import HomeIdeas from './HomeIdeas.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
 import { currentExpert, draftMode, openExperts, setMode, setTranslate } from '../store'
 import type { Mode } from '../types'
@@ -97,7 +98,14 @@ async function pick(key: string) {
       <div v-if="currentExpert.examples.length" class="examples">
         <span class="label">{{ t('ui.experts.examples') }}</span>
         <div class="chips">
-          <button v-for="ex in currentExpert.examples" :key="ex" type="button" @click="composer?.fill(ex)">
+          <button
+            v-for="ex in currentExpert.examples"
+            :key="ex"
+            type="button"
+            @mouseenter="composer?.preview(ex)"
+            @mouseleave="composer?.preview(null)"
+            @click="composer?.fill(ex)"
+          >
             <Lightbulb :size="15" />
             {{ ex }}
           </button>
@@ -135,6 +143,8 @@ async function pick(key: string) {
           :key="c.key"
           type="button"
           :class="{ on: isActiveChip(c.key) }"
+          @mouseenter="draftMode.mode !== 'translate' && composer?.preview(t(`ui.prompts.${draftMode.mode}.${c.key}`))"
+          @mouseleave="composer?.preview(null)"
           @click="pick(c.key)"
         >
           <component :is="c.icon" :size="15" />
@@ -143,6 +153,13 @@ async function pick(key: string) {
       </div>
 
       <Composer ref="composer" home />
+      <!-- 示例任务：移上去在输入框里预览整段，点了才填进去 -->
+      <HomeIdeas
+        v-if="draftMode.mode !== 'translate'"
+        :mode="draftMode.mode === 'chat' ? 'chat' : 'agent'"
+        @preview="(v) => composer?.preview(v)"
+        @pick="(v) => composer?.fill(v)"
+      />
     </section>
   </div>
 </template>

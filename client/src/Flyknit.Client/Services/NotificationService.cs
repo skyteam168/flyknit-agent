@@ -185,9 +185,6 @@ public sealed class NotificationService
         }
     }
 
-    /// <summary>设置里选的提示音，默认静音——工厂里一屋子电脑同时响会很吵。</summary>
-    public Func<string>? SoundSetting { get; set; }
-
     private ToastContentBuilder Base()
     {
         var b = new ToastContentBuilder();
@@ -195,53 +192,9 @@ public sealed class NotificationService
         {
             b.AddAppLogoOverride(new Uri(_logo), ToastGenericAppLogoCrop.Default);
         }
-        if (SoundEvent(SoundSetting?.Invoke()) is { } sound)
-        {
-            b.AddAudio(new Uri($"ms-winsoundevent:{sound}"));
-        }
-        else
-        {
-            b.AddAudio(new ToastAudio { Silent = true });
-        }
+        // 通知本身不出声：提示音由 SoundService 按设置放（员工正看着任务、系统开了勿扰时也能听到，且不会响两次）
+        b.AddAudio(new ToastAudio { Silent = true });
         return b;
-    }
-
-    /// <summary>
-    /// 音色对应的 Windows 系统声音。Looping.* 那类铃声只在闹钟 / 来电类通知里循环播放才生效，
-    /// 普通通知里会被换成默认声音，所以「提示」用的是日历提醒音，和「标准」能听出区别。
-    /// </summary>
-    private static string? SoundEvent(string? sound) => sound switch
-    {
-        "soft" => "Notification.Default",
-        "alert" => "Notification.Reminder",
-        _ => null,
-    };
-
-    /// <summary>设置里点「试听」：直接播放通知会用的那个系统声音文件，不用等任务跑完。</summary>
-    public static void Preview(string sound)
-    {
-        if (SoundEvent(sound) is not { } name)
-        {
-            return;
-        }
-        try
-        {
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey($@"AppEvents\Schemes\Apps\.Default\{name}\.Current");
-            var file = Environment.ExpandEnvironmentVariables(key?.GetValue("") as string ?? "");
-            if (!File.Exists(file))
-            {
-                var media = Environment.ExpandEnvironmentVariables(@"%WINDIR%\Media");
-                file = Path.Combine(media, name == "Notification.Reminder" ? "Windows Notify Calendar.wav" : "Windows Notify System Generic.wav");
-            }
-            if (File.Exists(file))
-            {
-                new System.Media.SoundPlayer(file).Play();
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("试听提示音失败", ex);
-        }
     }
 
     private static ToastButton Button(string text, string action, PendingConfirm p, string choice)
