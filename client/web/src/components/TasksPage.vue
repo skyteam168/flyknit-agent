@@ -230,7 +230,6 @@ h1 {
   text-align: center;
 }
 section {
-  max-width: 820px;
   margin-top: 18px;
 }
 h2 {
