@@ -100,12 +100,23 @@ public sealed class ChatTurn
     public IReadOnlyList<WebSource> Sources { get; init; } = Array.Empty<WebSource>();
 }
 
-public sealed record TokenUsage(int PromptTokens, int CompletionTokens)
+/// <param name="CachedTokens">输入里命中上游提示词缓存的部分（包含在 PromptTokens 里）。上游不报时为 0。</param>
+public sealed record TokenUsage(int PromptTokens, int CompletionTokens, int CachedTokens = 0)
 {
+    /// <summary>
+    /// 缓存命中的输入按这个比例计入任务预算。每调一次模型都要把整段上下文重发一遍，其中前面没变的部分
+    /// 上游（百炼、DeepSeek 等）按缓存价收费，只有原价的一成左右；按全价算预算，长任务和专家几步就「用完」了，
+    /// 和实际花费对不上。每日额度（服务端）照旧按原始用量算。
+    /// </summary>
+    public const double CachedWeight = 0.1;
+
     public int Total => PromptTokens + CompletionTokens;
 
+    /// <summary>计入任务预算的用量：缓存命中的输入打折。</summary>
+    public long BudgetTokens => PromptTokens - (long)Math.Round(Math.Clamp(CachedTokens, 0, PromptTokens) * (1 - CachedWeight)) + CompletionTokens;
+
     public static TokenUsage operator +(TokenUsage a, TokenUsage b) =>
-        new(a.PromptTokens + b.PromptTokens, a.CompletionTokens + b.CompletionTokens);
+        new(a.PromptTokens + b.PromptTokens, a.CompletionTokens + b.CompletionTokens, a.CachedTokens + b.CachedTokens);
 }
 
 /// <summary>流式输出回调。</summary>

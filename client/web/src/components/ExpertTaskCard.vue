@@ -86,6 +86,20 @@ const elapsed = computed(() => {
 
 // ---------- 结束后 ----------
 const counts = computed(() => (result.value ? verificationCounts(result.value) : null))
+
+/**
+ * 因为额度停下、但交回了进展：不是失败，用提示色说明「分到多少、用了多少」，不再显示红色报错和内部代码。
+ * 其他错误照旧红色。
+ */
+const budgetStop = computed(() => result.value?.errorCode === 'stopped:budget')
+const wan = (n: number | undefined) => (n && n > 0 ? (n / 10_000).toFixed(n >= 100_000 ? 0 : 1) : '')
+const budgetNote = computed(() => {
+  const r = result.value
+  if (!r) return ''
+  const cap = wan(r.tokenCap)
+  const used = wan(r.budgetTokens)
+  return cap ? t('ui.delegate.budgetStop', { cap, used: used || cap }) : t('ui.delegate.budgetStopPlain')
+})
 const plainText = computed(() => oneLine(props.tool.output ?? '', 160))
 </script>
 
@@ -122,7 +136,11 @@ const plainText = computed(() => oneLine(props.tool.output ?? '', 160))
     <!-- 已结束 -->
     <template v-else-if="phase === 'final' && result">
       <p class="summary">{{ result.summary || say('noSummary') }}</p>
-      <p v-if="result.error || result.errorCode" class="error">
+      <p v-if="budgetStop" class="error budget">
+        <CircleAlert :size="14" />
+        <span>{{ budgetNote }}</span>
+      </p>
+      <p v-else-if="result.error || result.errorCode" class="error">
         <CircleAlert :size="14" />
         <span>{{ result.error || result.errorCode }}<code v-if="result.error && result.errorCode">{{ result.errorCode }}</code></span>
       </p>
@@ -347,6 +365,9 @@ const plainText = computed(() => oneLine(props.tool.output ?? '', 160))
   color: var(--red);
   font-size: var(--t-xs);
   word-break: break-word;
+}
+.error.budget {
+  color: var(--amber);
 }
 .error svg {
   flex: none;

@@ -15,9 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import require_device
-from ..models import ChatRecord, Device
+from ..models import ChatRecord, Device, DlpEvent
 from ..db import get_sessionmaker
-from ..services import chat_archive, model_router, subtask_store, usage_store, web_search
+from ..services import chat_archive, device_security, dlp, model_router, subtask_store, usage_store, web_search
 
 log = logging.getLogger("flyknit.gateway")
 router = APIRouter(prefix="/api/v1", tags=["gateway"])
@@ -25,6 +25,24 @@ router = APIRouter(prefix="/api/v1", tags=["gateway"])
 
 #: 员工端标明的发起方。不认识的值忽略，免得随便一个字符串就在统计里多出一个场景
 USAGE_SOURCES = {"schedule", "channel", "instruction", "mobile"}
+
+
+async def _dlp_policy(session: AsyncSession, device: Device) -> dlp.Policy:
+    """这台电脑生效的脱敏设置（全厂 → 部门 → 单台电脑）。"""
+    return dlp.Policy.from_security(await device_security.effective_for(session, device))
+
+
+async def _dlp_record(session: AsyncSession, device: Device, vault: dlp.Vault, scene: str, conversation_id: str, action: str) -> None:
+    """只记数量，不记原值。失败不能影响对话。"""
+    if not vault.total:
+        return
+    try:
+        session.add(DlpEvent(device_id=device.id, conversation_id=conversation_id[:64], scene=scene[:32], action=action,
+                             counts=dict(vault.counts)))
+        await session.commit()
+    except Exception:  # noqa: BLE001
+        await session.rollback()
+        log.warning("记录脱敏事件失败 device=%s", device.id, exc_info=True)
 
 
 def _error(status: int, message: str, kind: str = "flyknit_error") -> JSONResponse:
@@ -125,16 +143,28 @@ async def chat_completions(
     except model_router.NoRouteError as exc:
         return _error(503, str(exc))
 
-    # 桌面「对话」联网：客户端带 flyknit_web_search；流量从服务器出网，与手机共用后台配置
+    # 数据脱敏（services/dlp.py）：发给上游的是换过占位符的副本；body 保留原值（归档、子任务计数照旧用原值）
     want_search = bool(body.pop("flyknit_web_search", False)) and scene == "chat"
+    guarded = dlp.protect(body, await _dlp_policy(session, device))
+    vault = guarded.vault
+    conversation_ref = str(body.get("conversation_id") or "")
+    if guarded.blocked:
+        await _dlp_record(session, device, vault, scene, conversation_ref, "blocked")
+        log.info("dlp blocked device=%s scene=%s %s", device.id, scene, dict(vault.counts))
+        return _error(400, guarded.blocked, "sensitive_data_blocked")
+    outbound = guarded.body
+    await _dlp_record(session, device, vault, scene, conversation_ref, "masked")
+
+    # 桌面「对话」联网：客户端带 flyknit_web_search；流量从服务器出网，与手机共用后台配置
     sources_json = ""
     if want_search:
         search_cfg = await web_search.get_config(session)
         if web_search.is_ready(search_cfg):
-            query = web_search.last_user_query(body["messages"])
+            # 搜索词也是出网的：用脱敏后的那份
+            query = web_search.last_user_query(outbound["messages"])
             try:
                 hits = await web_search.search(request.app.state.http, search_cfg, query)
-                body["messages"] = web_search.inject_into_messages(body["messages"], hits)
+                outbound = {**outbound, "messages": web_search.inject_into_messages(outbound["messages"], hits)}
                 sources_json = json.dumps(web_search.hits_out(hits), ensure_ascii=False)
             except web_search.SearchError as exc:
                 log.warning("桌面联网搜索失败 device=%s: %s", device.id, exc)
@@ -142,7 +172,7 @@ async def chat_completions(
 
     client = request.app.state.http
     try:
-        upstream, target = await model_router.open_upstream(client, targets, body)
+        upstream, target = await model_router.open_upstream(client, targets, outbound)
     except model_router.UpstreamUnavailable as exc:
         log.warning("upstream unavailable scene=%s device=%s: %s", scene, device.id, exc)
         return _error(502, f"模型服务暂时不可用：{exc}")
@@ -156,6 +186,9 @@ async def chat_completions(
     }
     if sources_json:
         headers["X-Flyknit-Sources"] = quote(sources_json, safe="")
+    if vault.total:
+        # 这次替换 / 隐藏了几处（员工端可以据此提示「已脱敏」）
+        headers["X-Flyknit-Masked"] = str(vault.total)
 
     if upstream.status_code >= 400:
         try:
@@ -220,11 +253,16 @@ async def chat_completions(
         except Exception:  # noqa: BLE001  统计失败不能影响对话
             log.warning("记录用量失败 device=%s", device_id, exc_info=True)
 
-    async def save_subtask(prompt: int, completion: int, answer_chars: int) -> None:
-        """用量累加到子任务上，预算靠它。上游没给用量就估算。失败绝不能影响对话本身。"""
+    async def save_subtask(prompt: int, completion: int, answer_chars: int, cached: int = 0) -> None:
+        """用量累加到子任务上，预算靠它。上游没给用量就估算。失败绝不能影响对话本身。
+
+        和员工端的任务预算同一个口径：输入里命中缓存的部分按一成计（每调一次都要重发整段上下文，
+        前面没变的部分上游按缓存价收费）。每日额度、用量统计照旧按原始用量记（save_usage）。
+        """
         if not subtask_id:
             return
         try:
+            prompt = subtask_store.budget_prompt(prompt, cached)
             p, c, estimated = subtask_store.estimate(prompt, completion, subtask_prompt_chars, answer_chars)
             async with get_sessionmaker()() as s4:
                 await subtask_store.add_usage(s4, subtask_id, p, c, estimated)
@@ -239,14 +277,27 @@ async def chat_completions(
             scanner = usage_store.StreamUsageScanner()
             text = chat_archive.StreamTextScanner()
             counter = subtask_store.StreamCharCounter() if subtask_id else None
+            # 有替换过才逐个事件还原；没替换过原样转发，一个字节都不动
+            restorer = dlp.StreamRestorer(vault) if not vault.empty else None
+
+            def observe(data: bytes) -> None:
+                scanner.feed(data)
+                text.feed(data)
+                if counter is not None:
+                    counter.feed(data)
+
             try:
                 try:
                     async for chunk in upstream.aiter_raw():
-                        scanner.feed(chunk)
-                        text.feed(chunk)
-                        if counter is not None:
-                            counter.feed(chunk)
+                        if restorer is not None:
+                            chunk = restorer.feed(chunk)
+                            if not chunk:
+                                continue
+                        observe(chunk)
                         yield chunk
+                    if restorer is not None and (tail := restorer.finish()):
+                        observe(tail)
+                        yield tail
                 except httpx.HTTPError as exc:
                     # 已经回了 200 和一部分内容，改不了状态码，只能在流里补一条错误让客户端提示
                     log.warning("上游中途断开 scene=%s device=%s: %s", scene, device_id, exc)
@@ -258,7 +309,7 @@ async def chat_completions(
                     await finish_stream(upstream, scanner, text, save_usage, save_chat)
                     if counter is not None:
                         counter.finish()
-                        await save_subtask(scanner.prompt, scanner.completion, counter.chars)
+                        await save_subtask(scanner.prompt, scanner.completion, counter.chars, scanner.cached)
 
         return StreamingResponse(
             relay(),
@@ -274,13 +325,20 @@ async def chat_completions(
         return _error(502, "模型服务读取超时或连接中断，请重试")
     finally:
         await upstream.aclose()
+    if not vault.empty:
+        # 非流式：正文、思考、工具调用参数里的占位符换回原值
+        try:
+            content = json.dumps(dlp.restore_payload(json.loads(content), vault), ensure_ascii=False).encode()
+        except (ValueError, TypeError):
+            pass
     prompt, completion = usage_store.extract_usage(content)
-    await save_usage(prompt, completion, usage_store.extract_cached(content))
+    cached = usage_store.extract_cached(content)
+    await save_usage(prompt, completion, cached)
     try:
         payload = json.loads(content)
     except (ValueError, TypeError):
         payload = None
-    await save_subtask(prompt, completion, subtask_store.completion_chars(payload))
+    await save_subtask(prompt, completion, subtask_store.completion_chars(payload), cached)
     if isinstance(payload, dict):
         await save_chat(chat_archive.assistant_reply(payload), prompt, completion)
     else:
@@ -321,6 +379,9 @@ async def embeddings(
     if len(texts) > MAX_EMBED_INPUTS:
         return _error(400, f"一次最多 {MAX_EMBED_INPUTS} 段文字", "invalid_request_error")
     texts = [t[:MAX_EMBED_CHARS] for t in texts]
+    # 向量也是发给外部模型的：同样脱敏（只替换，不用还原）
+    texts, vault = dlp.protect_texts(texts, await _dlp_policy(session, device))
+    await _dlp_record(session, device, vault, "embedding", "", "masked")
 
     quota = await usage_store.get_quota(session)
     limit = usage_store.limit_for(quota, device)

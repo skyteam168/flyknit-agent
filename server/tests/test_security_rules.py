@@ -125,6 +125,12 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "team_max_members",
         "team_parallel",
         "team_token_budget",
+        # 客户端 AgentHost.SubtaskTokenCap 读它：派专家、开子代理时最多占多少；服务端子任务预算的取值范围跟着放宽
+        "subtask_token_budget",
+        # 服务端网关自己读（routers/gateway.py → services/dlp.py）：发给外部模型前脱敏，员工端绕不过去
+        "dlp_enabled",
+        "dlp_contacts",
+        "dlp_block",
         # 客户端 AgentHost 读它决定这一轮有没有浏览器工具
         "browser_tools",
         # 客户端读它决定能不能在后台启动命令（run_shell background=true、shell_output、shell_stop）

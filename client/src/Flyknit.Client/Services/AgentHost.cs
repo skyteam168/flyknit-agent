@@ -75,6 +75,13 @@ public sealed partial class AgentHost : IDisposable
     /// <summary>团队模式（功能模块：运行扩展 + 界面桥模块，见 docs/extension-architecture.md）。</summary>
     public Flyknit.Core.Teams.TeamFeature Teams { get; }
 
+    /// <summary>
+    /// 专家、子代理一个子任务最多用多少 token：安全中心「单个子任务 token 上限」（万），默认 40 万。
+    /// 服务端子任务预算按同样的口径（缓存命中的输入打折）记，派遣时两边取小的。
+    /// </summary>
+    internal long SubtaskTokenCap() =>
+        Math.Clamp(Security.Number(Flyknit.Core.Security.SecuritySettings.SubtaskTokenBudget, 40), 5, 500) * 10_000L;
+
     /// <summary>提示音：做完、要你处理、出错时各响一种（和系统通知分开，见 SoundService）。</summary>
     public SoundService Sounds { get; }
 
@@ -375,7 +382,8 @@ public sealed partial class AgentHost : IDisposable
                 Teams,
                 new Flyknit.Core.Experts.Delegation.DelegationRunExtension(DelegationEnabled, () => Experts.All, () => Dispatcher),
                 new Flyknit.Core.Agent.SubAgents.SubAgentRunExtension(Security,
-                    scope => new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, scope.Confirm, () => AgentOptionsFor(scope.Conversation), _auditSink, Approvals, Store, DelegationEvents)
+                    scope => new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, scope.Confirm, () => AgentOptionsFor(scope.Conversation), _auditSink, Approvals, Store, DelegationEvents,
+                            new Flyknit.Core.Agent.SubAgents.SubAgentLimits { MaxTokensSetting = SubtaskTokenCap })
                         .WithTraceSerializer((trace, stop) => Bridge.TraceDto.Serialize(trace, stop)),
                     ChatExtraBody),
             },

@@ -132,14 +132,21 @@ public sealed class DelegationLimits
     /// <summary>一次主任务最多派遣几次（服务端同样限制，以服务端为准）。</summary>
     public int MaxPerRun { get; init; } = 3;
 
-    /// <summary>一次派遣最多用多少 token。</summary>
+    /// <summary>一次派遣最多用多少 token。宿主按安全中心「单个子任务 token 上限」设 <see cref="MaxTokensSetting"/>。</summary>
     public long MaxTokensPerSubtask { get; init; } = 400_000;
+
+    /// <summary>运行时读安全中心的上限（IT 改了马上生效）；没有就用 <see cref="MaxTokensPerSubtask"/>。</summary>
+    public Func<long>? MaxTokensSetting { get; init; }
+
+    public long EffectiveMaxTokens => MaxTokensSetting?.Invoke() is > 0 and var v ? v : MaxTokensPerSubtask;
+
+    public long EffectiveMinTokens => Math.Min(MinTokensPerSubtask, EffectiveMaxTokens / 2);
 
     /// <summary>派遣后给主助手留着收尾用的 token。</summary>
     public long ReserveForParent { get; init; } = 30_000;
 
-    /// <summary>剩余预算少于这个就不派遣了：专家刚开始干就会被叫停，不如不派。</summary>
-    public long MinTokensPerSubtask { get; init; } = 20_000;
+    /// <summary>剩余预算少于这个就不派遣了：专家刚开始干就会被叫停，不如不派（以前 2 万，太少，派出去一两步就停）。</summary>
+    public long MinTokensPerSubtask { get; init; } = 60_000;
 
     /// <summary>一次派遣的时限。</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(15);

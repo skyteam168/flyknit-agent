@@ -130,7 +130,7 @@ async def test_create_response_and_clamping(client, device_headers):
     assert row.task == "查一下昨天 A 车间产量" and row.expert_version == 1 and row.published_version == 1
 
     r = await create(client, device_headers, run_id="run-2", token_cap=10**9, timeout_seconds=1)
-    assert r.json()["token_cap"] == 400_000
+    assert r.json()["token_cap"] == 5_000_000  # 上限跟安全中心「单个子任务 token 上限」走，最大 500 万
     deadline = datetime.fromisoformat(r.json()["deadline_at"].replace("Z", "+00:00"))
     assert deadline - datetime.now(timezone.utc) > timedelta(seconds=50)
 
@@ -274,6 +274,29 @@ async def test_gateway_accumulates_usage_and_strips_fields(client, device_header
     await chat(client, device_headers, st["id"])
     state = (await client.get(f"/api/v1/client/subtasks/{st['id']}", headers=device_headers)).json()
     assert state["tokens"] == {"prompt": 2400, "completion": 600, "estimated_calls": 0}
+
+
+@respx.mock
+async def test_cached_input_counts_at_a_tenth_toward_the_subtask_budget(client, device_headers):
+    """和员工端任务预算同一个口径：命中缓存的输入按一成计；每日用量照旧按原始用量记。"""
+    st = await ready_subtask(client, device_headers)
+    await setup_models(client)
+    payload = {"choices": [{"message": {"role": "assistant", "content": "好"}}],
+               "usage": {"prompt_tokens": 10_000, "completion_tokens": 100, "prompt_tokens_details": {"cached_tokens": 9_000}}}
+    respx.post(UPSTREAM).mock(return_value=httpx.Response(200, json=payload))
+    assert (await chat(client, device_headers, st["id"])).status_code == 200
+    state = (await client.get(f"/api/v1/client/subtasks/{st['id']}", headers=device_headers)).json()
+    assert state["tokens"]["prompt"] == 10_000 - 8_100
+    assert subtask_store.budget_prompt(1000, 5000) == 100  # 缓存数比输入还多：最多按全部输入打折
+    assert subtask_store.budget_prompt(1000, 0) == 1000
+
+
+def test_subtask_cap_range_follows_the_security_setting():
+    from app.services import security_settings
+
+    setting = next(s for s in security_settings.SETTINGS if s.key == "subtask_token_budget")
+    assert setting.default == 40 and setting.locked
+    assert subtask_store.clamp(setting.maximum * 10_000, subtask_store.TOKEN_CAP_RANGE) == setting.maximum * 10_000
 
 
 @respx.mock

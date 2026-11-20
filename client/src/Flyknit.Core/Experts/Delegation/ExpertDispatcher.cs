@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Flyknit.Core.Agent;
+using Flyknit.Core.Agent.SubAgents;
 using Flyknit.Core.Chat;
 using Flyknit.Core.Gateway;
 using Flyknit.Core.Security;
@@ -102,11 +103,12 @@ public sealed class ExpertDispatcher
         }
         // 预算先占下来：几位专家同时跑时各占各的，加起来不会超过主任务剩下的预算
         var cap = parent.Budget is { } parentBudget
-            ? parentBudget.TryReserve(Limits.MaxTokensPerSubtask, Limits.ReserveForParent, Limits.MinTokensPerSubtask)
-            : Limits.MaxTokensPerSubtask;
+            ? parentBudget.TryReserve(Limits.EffectiveMaxTokens, Limits.ReserveForParent, Limits.EffectiveMinTokens)
+            : Limits.EffectiveMaxTokens;
         if (cap == 0)
         {
-            return (ToolResult.Fail("这次任务剩下的预算不够派遣专家了。请用已有的结果回复员工。"), null);
+            return (ToolResult.Fail($"这一轮剩下的预算（约 {(parent.Budget?.Remaining ?? 0) / 10_000} 万 token）不够派遣专家了"
+                + $"（至少要 {Limits.EffectiveMinTokens / 10_000} 万，派出去也会刚开始就停）。请用已有的结果回复员工；需要专家时等员工说「继续」再派。"), null);
         }
         try
         {
@@ -262,7 +264,9 @@ public sealed class ExpertDispatcher
                 _host.Options(record.TokenCap),
                 _host.Approvals);
             var history = new List<ChatMessage> { ChatMessage.System(setup.SystemPrompt), ChatMessage.User(brief) };
-            run = await loop.RunAsync(history, Scenes.Agent, context, observer, useTools: true, cts.Token, setup.ModelId ?? snapshot.ModelId);
+            // 按额度定工作窗口、裁剪旧工具输出（见 ChildContext）：同样的额度能走更多步。压缩摘要也走子任务网关，用量记在这次派遣上
+            var window = ChildContext.Create(new SubtaskGateway(_host.Gateway, record.Id, state), setup.SystemPrompt, record.TokenCap);
+            run = await loop.RunAsync(history, Scenes.Agent, context, observer, useTools: true, cts.Token, setup.ModelId ?? snapshot.ModelId, window);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -341,7 +345,8 @@ public sealed class ExpertDispatcher
         record.PromptTokens = run?.Usage?.PromptTokens ?? 0;
         record.CompletionTokens = run?.Usage?.CompletionTokens ?? 0;
         // 取消、超时时 run 为 null，拿不到循环里的计数：至少按实际报上来的算，服务端那边另有完整累计
-        record.BudgetTokens = Math.Max(run?.BudgetTokens ?? 0, record.PromptTokens + record.CompletionTokens);
+        // 计入主任务的是预算口径（缓存命中的输入打折），和服务端子任务预算的口径一致
+        record.BudgetTokens = run is { BudgetTokens: > 0 } ? run.BudgetTokens : record.PromptTokens + record.CompletionTokens;
         record.Estimated = (run?.EstimatedCalls ?? 0) > 0;
 
         if (submit.Submission is { } s && SubtaskStatuses.Parse(s.Status) is { } submitted && state.TryMove(submitted))

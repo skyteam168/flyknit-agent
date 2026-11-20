@@ -35,7 +35,8 @@ public sealed partial class AgentHost
             if (_dispatcher is null)
             {
                 _delegationHost ??= new DelegationHost(this);
-                _dispatcher = new ExpertDispatcher(_delegationHost, Server, Store, _delegationHost, Experts.Get, DelegationEnabled);
+                _dispatcher = new ExpertDispatcher(_delegationHost, Server, Store, _delegationHost, Experts.Get, DelegationEnabled,
+                    new DelegationLimits { MaxTokensSetting = SubtaskTokenCap });
             }
             return _dispatcher;
         }
@@ -129,6 +130,9 @@ public sealed partial class AgentHost
         confidence = r.Confidence,
         toolCalls = r.ToolCalls.Select(t => new { name = t.Name, count = t.Count, failed = t.Failed }),
         tokens = new { prompt = r.PromptTokens, completion = r.CompletionTokens, estimated = r.Estimated },
+        // 分到的额度和计入预算的用量（缓存命中的输入打折）：卡片据此说明「分到多少、用了多少」
+        tokenCap = r.TokenCap,
+        budgetTokens = r.BudgetTokens,
         startedAt = r.StartedAt,
         finishedAt = r.FinishedAt,
         durationMs = r.DurationMs,

@@ -282,6 +282,83 @@ public sealed class SubAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task ChildPrunesOldToolOutputsInsteadOfResendingEverything()
+    {
+        // 以前子任务不带上下文管理：读进来的文件一直留着，每一步都整段重发，额度几步就用完
+        var big = Path.Combine(_dir, "big.py");
+        File.WriteAllText(big, string.Join("\n", Enumerable.Range(0, 3000).Select(i => $"def handler_{i}(x): return x + {i}  # 计算薪资相关的取数入口")));
+        var (tools, _) = Setup();
+        _gateway.Child = (_, n) => n <= 8
+            ? new ChatTurn { ToolCalls = new[] { new ToolCall($"r{n}", "read_file", JsonSerializer.Serialize(new { path = big })) } }
+            : new ChatTurn { Content = "读完了，取数入口在 handler_1" };
+        _gateway.Parent.Enqueue(Spawn(new { description = "查取数入口", prompt = "反复读 big.py，找出所有取数入口", context = "fresh" }));
+
+        await Run(tools, Ctx(PermissionMode.ReadOnly));
+
+        var sizes = ChildRequests.Select(r => r.Messages.Sum(m => m.Content.Length)).ToList();
+        var oneRead = ChildRequests[1].Messages.Where(m => m.Role == ChatRole.Tool).Sum(m => m.Content.Length);
+        Assert.True(oneRead > 20_000, $"读一次的输出应该很大：{oneRead}");
+        // 8 次读文件的输出加起来远超最后一次请求的大小：较早的已经被裁成摘要
+        Assert.True(sizes.Last() < oneRead * 4, $"最后一次请求 {sizes.Last()} 字，读一次 {oneRead} 字");
+    }
+
+    [Fact]
+    public async Task DoesNotSpawnWhenTheRunHasTooLittleLeft()
+    {
+        // 主任务这一轮只剩 5 万：以前照样开（最少 2 万），子代理一两步就因额度停下；现在不开，并说清楚为什么
+        var (tools, _) = Setup();
+        _gateway.Parent.Enqueue(Spawn(new { description = "调研", prompt = "看看工作区里有哪些文件，列出来" }));
+        var result = await new AgentLoop(_gateway, tools, _confirm, null, new AgentOptions { MaxRunTokens = 50_000 }).RunAsync(
+            new List<ChatMessage> { ChatMessage.System("系统"), ChatMessage.User("看看") }, Scenes.Agent, Ctx(), new Observer(), true, CancellationToken.None);
+
+        var reply = result.NewMessages.First(m => m.Role == ChatRole.Tool).Content;
+        Assert.Contains("不够开子代理", reply);
+        Assert.Contains("至少要 6 万", reply);
+        Assert.Empty(_store.Records.Values);
+        Assert.Empty(ChildRequests);
+    }
+
+    [Fact]
+    public void LimitsFollowTheSecuritySettingAndKeepAUsableMinimum()
+    {
+        var limits = new SubAgentLimits { MaxTokensSetting = () => 1_000_000 };
+        Assert.Equal(1_000_000, limits.EffectiveMaxTokens);
+        Assert.Equal(60_000, limits.EffectiveMinTokens);
+        // IT 把上限调得很小：最少要求跟着降，不会永远开不出来
+        var tiny = new SubAgentLimits { MaxTokensSetting = () => 50_000 };
+        Assert.Equal(25_000, tiny.EffectiveMinTokens);
+        Assert.Equal(400_000, new SubAgentLimits().EffectiveMaxTokens);
+        var delegation = new DelegationLimits { MaxTokensSetting = () => 2_000_000 };
+        Assert.Equal(2_000_000, delegation.EffectiveMaxTokens);
+        Assert.Equal(60_000, delegation.EffectiveMinTokens);
+    }
+
+    [Fact]
+    public void ForkKeepsOnlyARecentSliceStartingAtAUserMessage()
+    {
+        var history = new List<ChatMessage> { ChatMessage.System("系统提示词") };
+        for (var i = 0; i < 40; i++)
+        {
+            history.Add(ChatMessage.User($"第 {i} 个问题"));
+            var call = new ToolCall($"t{i}", "read_file", "{}");
+            history.Add(ChatMessage.Assistant("", new[] { call }));
+            history.Add(ChatMessage.ToolResult(call, new string('x', 8000)));
+            history.Add(ChatMessage.Assistant($"第 {i} 个回答"));
+        }
+
+        var trimmed = ChildContext.TrimFork(history, cap: 120_000);
+
+        Assert.Equal("系统提示词", trimmed[0].Content);
+        Assert.Equal(ChatRole.User, trimmed[1].Role); // 从用户消息开始切，工具调用和结果不会被拆开
+        Assert.True(trimmed.Count < history.Count / 2);
+        Assert.Contains(trimmed, m => m.Content == "第 39 个回答"); // 最近的留着
+        Assert.True(Flyknit.Core.Context.TokenEstimator.Estimate(trimmed.Skip(1)) <= ChildContext.WindowFor(120_000) / 2);
+        // 不长的不动
+        var shortOne = history.Take(5).ToList();
+        Assert.Equal(shortOne.Count, ChildContext.TrimFork(shortOne, 400_000).Count);
+    }
+
+    [Fact]
     public async Task PerRunLimit()
     {
         var (tools, _) = Setup(limits: new SubAgentLimits { MaxPerRun = 1 });

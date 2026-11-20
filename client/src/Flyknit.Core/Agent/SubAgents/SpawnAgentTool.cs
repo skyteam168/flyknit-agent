@@ -111,11 +111,23 @@ public sealed class SubAgentLimits
     /// <summary>一轮最多开几个子代理。</summary>
     public int MaxPerRun { get; init; } = 8;
 
-    /// <summary>一个子代理最多用多少 token（从主任务剩余预算里占）。</summary>
+    /// <summary>一个子代理最多用多少 token（从主任务剩余预算里占）。宿主按安全中心「单个子任务 token 上限」设 <see cref="MaxTokensSetting"/>。</summary>
     public long MaxTokens { get; init; } = 400_000;
 
+    /// <summary>运行时读安全中心的上限（IT 改了马上生效）；没有就用 <see cref="MaxTokens"/>。</summary>
+    public Func<long>? MaxTokensSetting { get; init; }
+
+    public long EffectiveMaxTokens => MaxTokensSetting?.Invoke() is > 0 and var v ? v : MaxTokens;
+
     public long ReserveForParent { get; init; } = 30_000;
-    public long MinTokens { get; init; } = 20_000;
+
+    /// <summary>
+    /// 能分到的少于这个就不开：以前 2 万也照开，子代理一两步就因预算停下，看起来像刚开就失败。
+    /// 不超过上限的一半（IT 把上限调得很小时照样能开）。
+    /// </summary>
+    public long MinTokens { get; init; } = 60_000;
+
+    public long EffectiveMinTokens => Math.Min(MinTokens, EffectiveMaxTokens / 2);
 
     public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(15);
 
@@ -190,11 +202,12 @@ public sealed class SubAgentRunner
             _perRun.Clear();
         }
         var cap = parent.Budget is { } budget
-            ? budget.TryReserve(Limits.MaxTokens, Limits.ReserveForParent, Limits.MinTokens)
-            : Limits.MaxTokens;
+            ? budget.TryReserve(Limits.EffectiveMaxTokens, Limits.ReserveForParent, Limits.EffectiveMinTokens)
+            : Limits.EffectiveMaxTokens;
         if (cap == 0)
         {
-            return ToolResult.Fail("这次任务剩下的预算不够开子代理了。请用已有的结果继续。");
+            return ToolResult.Fail($"这一轮剩下的预算（约 {(parent.Budget?.Remaining ?? 0) / 10_000} 万 token）不够开子代理了"
+                + $"（至少要 {Limits.EffectiveMinTokens / 10_000} 万，开了也会刚开始就停）。请自己用已有的结果继续，或者先回复员工、等他说「继续」再开。");
         }
         try
         {
@@ -249,7 +262,8 @@ public sealed class SubAgentRunner
         var system = forkHistory?.FirstOrDefault(m => m.Role == ChatRole.System);
         if (request.Fork && forkHistory is { Count: > 0 })
         {
-            history.AddRange(Sanitize(forkHistory));
+            // 主对话很长时只带最近一段：不然第一步就把主助手的全部上下文再发一遍
+            history.AddRange(ChildContext.TrimFork(Sanitize(forkHistory), cap));
         }
         else if (system is not null)
         {
@@ -287,7 +301,9 @@ public sealed class SubAgentRunner
         Exception? crash = null;
         try
         {
-            run = await loop.RunAsync(history, scene, context, observer, useTools: true, cts.Token, modelId, null, extraBody);
+            // 按额度定工作窗口、裁剪旧工具输出（见 ChildContext）：同样的额度能走更多步
+            var window = ChildContext.Create(new QuietGateway(_gateway), history.FirstOrDefault(m => m.Role == ChatRole.System)?.Content ?? "", cap);
+            run = await loop.RunAsync(history, scene, context, observer, useTools: true, cts.Token, modelId, window, extraBody);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -301,7 +317,8 @@ public sealed class SubAgentRunner
         record.ToolCalls = ledger.Stats();
         record.PromptTokens = run?.Usage?.PromptTokens ?? 0;
         record.CompletionTokens = run?.Usage?.CompletionTokens ?? 0;
-        record.BudgetTokens = Math.Max(run?.BudgetTokens ?? 0, record.PromptTokens + record.CompletionTokens);
+        // 计入主任务的是预算口径（缓存命中的输入打折），和子代理自己的预算一致
+        record.BudgetTokens = run is { BudgetTokens: > 0 } ? run.BudgetTokens : record.PromptTokens + record.CompletionTokens;
         record.Artifacts = (run?.NewMessages ?? new List<ChatMessage>()).SelectMany(m => m.Outputs).Concat(ledger.ProducedFiles)
             .Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var text = observer.LastText.Trim();
