@@ -234,6 +234,8 @@ public class SecuritySwitchTests
             // AgentHost.Teams 读这两项：团队调度同时干活的成员数（TeamScheduler.Parallel）、团队对话一轮的 token 上限（AgentOptionsFor）
             SecuritySettings.TeamParallel,
             SecuritySettings.TeamTokenBudget,
+            // AgentHost.SubtaskTokenCap 读它：派专家、开子代理时最多从主任务剩余预算里占多少（见 SubAgentTests.LimitsFollowTheSecuritySetting…）
+            SecuritySettings.SubtaskTokenBudget,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

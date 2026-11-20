@@ -964,6 +964,9 @@ export interface SubtaskDto {
   confidence: number | null
   toolCalls: { name: string; count: number; failed: number }[]
   tokens: { prompt: number; completion: number; estimated: boolean }
+  /** 分到的额度、计入预算的用量（缓存命中的输入按一成计）。老版本宿主没有 */
+  tokenCap?: number
+  budgetTokens?: number
   startedAt: string
   finishedAt: string | null
   durationMs: number

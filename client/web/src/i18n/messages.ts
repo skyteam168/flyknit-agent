@@ -1223,6 +1223,8 @@ const zh = {
       noSummary: '子代理没有交回结果',
     },
     delegate: {
+      budgetStop: '额度用完先交回了进展：这次分到 {cap} 万 token，用了 {used} 万。需要接着查，让主助手再派一次（会带上已交回的内容）',
+      budgetStopPlain: '额度用完先交回了进展。需要接着查，让主助手再派一次',
       dispatching: '正在派遣…',
       report: '完整结果',
       dispatchingTo: '正在派遣给{name}…',
@@ -3286,6 +3288,8 @@ const vi: Messages = {
       noSummary: 'Tác tử phụ không trả về kết quả',
     },
     delegate: {
+      budgetStop: 'Hết hạn mức nên đã nộp tiến độ trước: lần này được {cap} vạn token, đã dùng {used} vạn. Muốn tra tiếp, hãy để trợ lý chính giao lại (kèm nội dung đã nộp)',
+      budgetStopPlain: 'Hết hạn mức nên đã nộp tiến độ trước. Muốn tra tiếp, hãy để trợ lý chính giao lại',
       dispatching: 'Đang giao cho chuyên gia…',
       report: 'Kết quả đầy đủ',
       dispatchingTo: 'Đang giao cho {name}…',
@@ -5347,6 +5351,8 @@ const en: Messages = {
       noSummary: 'The sub-agent returned no result',
     },
     delegate: {
+      budgetStop: 'Ran out of budget and handed back its progress: it was given {cap}×10K tokens and used {used}×10K. To dig further, have the main assistant dispatch again (with what came back)',
+      budgetStopPlain: 'Ran out of budget and handed back its progress. To dig further, have the main assistant dispatch again',
       dispatching: 'Handing off to an expert…',
       report: 'Full result',
       dispatchingTo: 'Handing off to {name}…',

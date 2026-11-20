@@ -229,6 +229,31 @@ SETTINGS: tuple[Setting, ...] = (
              "队长用已有结果出报告。同时受每日额度约束。",
     ),
     Setting(
+        key="dlp_enabled", kind="bool", default=False, locked=True,
+        title="数据脱敏：发给模型前把身份证、银行卡、手机号、邮箱换成占位符",
+        risk="开着时，所有发给外部模型的内容（对话、办事、专家、翻译……）先在服务端把身份证号、银行卡号、手机号、邮箱换成 [身份证_1] 这样的占位符，"
+             "密码、密钥直接隐藏；模型的回答回来时再换回真实值，员工看到的、AI 写进文件里的都是真实值，模型服务商见不到原值。"
+             "关掉后这些数据原样发给模型服务商。图片里的号码、姓名住址等自由文本不在识别范围内。",
+    ),
+    Setting(
+        key="dlp_contacts", kind="bool", default=True, locked=True,
+        title="数据脱敏：手机号、邮箱也换成占位符",
+        risk="关掉后只换身份证、银行卡，手机号和邮箱原样发给模型（业务邮件、供应商电话多的部门可以按部门关掉）。",
+    ),
+    Setting(
+        key="dlp_block", kind="bool", default=False, locked=True,
+        title="数据脱敏：发现身份证、银行卡等直接拦下，不发给模型",
+        risk="开着时不是换成占位符，而是整条请求拦下不发，员工会看到原因（适合人事、财务等不允许任何个人信息出网的部门）。"
+             "注意：读进来的表格里只要有这类数据，这次任务就做不下去。",
+    ),
+    Setting(
+        key="subtask_token_budget", kind="int", default=40, locked=True,
+        title="专家 / 子代理：单个子任务 token 上限（万）", minimum=5, maximum=500,
+        risk="派一位专家或开一个子代理，最多从主任务剩下的预算里占多少 token，单位万。"
+             "缓存命中的输入按一成计；子任务会自动裁剪较早的工具输出，同样的额度能走更多步。"
+             "主任务这一轮剩下的不够 6 万时不再派遣（派出去也会刚开始就停）。调大会让单个子任务花得更多。",
+    ),
+    Setting(
         key="run_token_budget", kind="int", default=200, locked=True,
         title="单次任务 token 上限（万）", minimum=0, maximum=100000,
         risk="一次办事任务（员工说一句话引起的一轮）最多用多少 token，输入 + 输出累计，单位万；用到 70% 提醒 AI 收尾，用完就停下总结、等员工说「继续」。"

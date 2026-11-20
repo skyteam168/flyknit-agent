@@ -1194,3 +1194,22 @@ class NoticeMedia(Base):
     filename: Mapped[str] = mapped_column(String(200), default="")
     uploaded_by: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DlpEvent(Base):
+    """
+    数据脱敏记录（docs/data-protection.md）：哪台电脑、哪个场景、换掉 / 拦下了几处什么类型的数据。
+    只记数量，不记原值、不记占位符对照表。
+    """
+
+    __tablename__ = "dlp_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(Integer, index=True)
+    conversation_id: Mapped[str] = mapped_column(String(64), default="")
+    scene: Mapped[str] = mapped_column(String(32), default="")
+    #: masked（换成占位符后发出）/ blocked（拦下没发）
+    action: Mapped[str] = mapped_column(String(12), default="masked")
+    #: {"id_card": 2, "bank_card": 1, ...}
+    counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

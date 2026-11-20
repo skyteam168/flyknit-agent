@@ -30,6 +30,7 @@ export const menuRoutes: RouteRecordRaw[] = [
   { path: 'departments', name: 'departments', component: () => import('@/views/Departments.vue'), meta: { title: '部门', icon: OfficeBuilding, group: '运维' } },
   { path: 'tool-rules', name: 'tool-rules', component: () => import('@/views/ToolRules.vue'), meta: { title: '工具规则', icon: Filter, group: '运维' } },
   { path: 'security', name: 'security', component: () => import('@/views/Security.vue'), meta: { title: '安全中心', icon: Lock, group: '运维' } },
+  { path: 'data-protection', name: 'data-protection', component: () => import('@/views/DataProtection.vue'), meta: { title: '数据保护', icon: Lock, group: '运维' } },
   { path: 'event-triggers', name: 'event-triggers', component: () => import('@/views/EventTriggers.vue'), meta: { title: '事件触发', icon: Lightning, group: '运维' } },
   { path: 'tasks', name: 'tasks', component: () => import('@/views/Tasks.vue'), meta: { title: '任务中心', icon: Promotion, group: '运维' } },
   { path: 'instructions', name: 'instructions', component: () => import('@/views/Instructions.vue'), meta: { title: '指令中心', icon: MagicStick, group: '运维' } },

@@ -68,7 +68,8 @@ public sealed class RunBudget
         ModelCalls++;
         if (usage is not null)
         {
-            Tokens += usage.PromptTokens + usage.CompletionTokens;
+            // 缓存命中的输入按一成计（见 TokenUsage.CachedWeight）
+            Tokens += usage.BudgetTokens;
         }
     }
 

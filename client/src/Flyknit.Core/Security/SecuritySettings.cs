@@ -138,6 +138,9 @@ public sealed class SecuritySettings
 
     /// <summary>一次团队任务（含队长和所有成员）的 token 上限，单位万。</summary>
     public const string TeamTokenBudget = "team_token_budget";
+
+    /// <summary>专家、子代理一个子任务最多用多少 token，单位万（从主任务剩余预算里占）。</summary>
+    public const string SubtaskTokenBudget = "subtask_token_budget";
     public const string VerifyOutputs = "verify_outputs";
 
     // 个性化：玩笑类语气预设（天马行空、毒舌吐槽）、自定义语气和 AI 名字

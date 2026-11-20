@@ -22,7 +22,8 @@ from . import chat_archive, security_settings, settings_store
 
 #: 同一设备同一次主任务最多派几次（失败、超时、取消的都算）
 MAX_PER_RUN = 3
-TOKEN_CAP_RANGE = (1000, 400_000)
+#: 子任务 token 上限的取值范围：安全中心「单个子任务 token 上限」最大 500 万
+TOKEN_CAP_RANGE = (1000, 5_000_000)
 TIMEOUT_RANGE = (60, 900)
 #: 交卷全文序列化后的上限
 RESULT_MAX_BYTES = 64 * 1024
@@ -268,6 +269,17 @@ def estimate(prompt: int, completion: int, prompt_text_chars: int, answer_chars:
         return max(0, prompt), max(0, completion), 0
     return (math.ceil(prompt_text_chars / PROMPT_CHARS_PER_TOKEN),
             math.ceil(answer_chars / COMPLETION_CHARS_PER_TOKEN), 1)
+
+
+#: 缓存命中的输入计入子任务预算的比例（和员工端 TokenUsage.CachedWeight 一致）
+CACHED_WEIGHT = 0.1
+
+
+def budget_prompt(prompt: int, cached: int) -> int:
+    """计入子任务预算的输入 token：命中缓存的部分按一成计。"""
+    prompt = max(0, int(prompt or 0))
+    cached = max(0, min(int(cached or 0), prompt))
+    return prompt - round(cached * (1 - CACHED_WEIGHT))
 
 
 async def add_usage(session: AsyncSession, subtask_id: str, prompt: int, completion: int, estimated: int) -> None:

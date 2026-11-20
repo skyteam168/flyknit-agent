@@ -60,7 +60,7 @@ public sealed class SseAccumulator
             var completion = usage.TryGetProperty("completion_tokens", out var c) && c.TryGetInt32(out var cv) ? cv : 0;
             if (prompt + completion > 0)
             {
-                Usage = new TokenUsage(prompt, completion);
+                Usage = new TokenUsage(prompt, completion, CachedOf(usage));
             }
         }
         if (!root.TryGetProperty("choices", out var choices) || choices.ValueKind != JsonValueKind.Array)
@@ -165,5 +165,27 @@ public sealed class SseAccumulator
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public StringBuilder Arguments { get; } = new();
+    }
+
+    /// <summary>
+    /// 输入里命中提示词缓存的 token 数。各家写法不一样（和服务端 usage_store.extract_cached 一致）：
+    /// OpenAI 兼容 prompt_tokens_details.cached_tokens；DeepSeek prompt_cache_hit_tokens；Anthropic 风格 cache_read_input_tokens。
+    /// </summary>
+    internal static int CachedOf(JsonElement usage)
+    {
+        if (usage.TryGetProperty("prompt_tokens_details", out var details) && details.ValueKind == JsonValueKind.Object
+            && details.TryGetProperty("cached_tokens", out var c1) && c1.TryGetInt32(out var v1))
+        {
+            return Math.Max(0, v1);
+        }
+        if (usage.TryGetProperty("prompt_cache_hit_tokens", out var c2) && c2.TryGetInt32(out var v2))
+        {
+            return Math.Max(0, v2);
+        }
+        if (usage.TryGetProperty("cache_read_input_tokens", out var c3) && c3.TryGetInt32(out var v3))
+        {
+            return Math.Max(0, v3);
+        }
+        return 0;
     }
 }
