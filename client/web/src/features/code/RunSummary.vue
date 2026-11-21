@@ -4,10 +4,12 @@
  * 点终端：编码模式下展开底部终端，否则打开右侧「终端」标签。
  * 改动这一行有「撤销 / 保留 / 查看」（Cursor 的 Undo / Keep / Review）：AI 的改动已经写进磁盘，
  * 保留 = 认可、不再提示；撤销 = 这一轮改过的文件恢复成这一轮之前的样子（先确认）；查看 = 打开对比。
+ * 编码模式下上面再放一块 ContextHint（上下文用量、建议新开任务）。
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronRight, FilePen, SquareTerminal } from '@lucide/vue'
+import ContextHint from './ContextHint.vue'
 import { current, currentState, openChanges, state } from '../../store'
 import { ide, ideActive, keepTurn, pendingTurn, undoTurn } from './store'
 
@@ -42,6 +44,8 @@ function showTerminals() {
 </script>
 
 <template>
+  <!-- 编码模式：上下文用量、该新开任务的提示、带过来的交接摘要 -->
+  <ContextHint v-if="ideActive" />
   <div v-if="current && (running || files)" class="run-summary">
     <button v-if="running" type="button" @click="showTerminals">
       <ChevronRight :size="13" class="chev" />

@@ -54,6 +54,8 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
 /** 编码模式的开发预览：工作区里的几个代码文件（相对路径 → 内容） */
   /** 开发预览：编码模式报给宿主的编辑器状态（测试里看） */
   const mockFocus: unknown[] = []
+  /** 开发预览：正在整理交接摘要的新任务（点「不带了」就删掉） */
+  const mockHandoffs = new Set<string>()
   ;(window as unknown as { __mockFocus: unknown[] }).__mockFocus = mockFocus
   /** 开发预览：员工在文件树里新建的文件 / 文件夹（父路径 → [名字, 是不是文件夹, 大小]） */
   const mockCreated: Record<string, [string, boolean, number][]> = {}
@@ -2328,6 +2330,21 @@ export function createMockHost(): HostTransport {
         if (!p.directory) mockCode.set(path, '')
         return { ok: true, path, message: '' }
       }
+      case 'code.handoff': {
+        // 模拟整理摘要要等一会儿；点了「不带了」就取消
+        const to = String(p.conversationId ?? '')
+        mockHandoffs.add(to)
+        await new Promise((r) => setTimeout(r, 900))
+        if (!mockHandoffs.has(to)) return { ok: false, message: '没整理出摘要，这次不带了' }
+        return {
+          ok: true,
+          message: '',
+          summary: '## 任务目标\n修复 report.py 的统计 bug\n\n## 已完成\n- report.py：合计改成按车间分组\n\n## 还没做\n- 补单元测试',
+        }
+      }
+      case 'code.handoffClear':
+        mockHandoffs.delete(String(p.conversationId ?? ''))
+        return { ok: true }
       case 'code.focus': {
         mockFocus.push(p)
         const file = String(p.activeFile ?? '')

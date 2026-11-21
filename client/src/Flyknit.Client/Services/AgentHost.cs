@@ -382,7 +382,7 @@ public sealed partial class AgentHost : IDisposable
         Mcp = new McpService(settings, Server, Tools, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
         Experts = new Flyknit.Core.Experts.ExpertCatalog(Path.Combine(AppPaths.Root, "experts.json"));
         // 编码模式的文件读写和编辑器状态：下面的运行扩展要用，先建好
-        Code = new Flyknit.Core.Code.CodeFeature(WorkspaceOf, message => Log.Info(message));
+        Code = new Flyknit.Core.Code.CodeFeature(WorkspaceOf, message => Log.Info(message)) { Summarize = HandoffSummaryAsync };
         // 功能模块（docs/extension-architecture.md）：底座只认扩展点，团队、派遣专家、子代理都从这里接进来。
         // 注册顺序就是出场顺序；互斥由各扩展自己声明（团队出场时派遣专家、子代理不出场）
         Teams = new Flyknit.Core.Teams.TeamFeature(Security, Server, id => Experts.Get(id), () => Dispatcher, message => Log.Warn(message),
@@ -392,7 +392,7 @@ public sealed partial class AgentHost : IDisposable
             {
                 Teams,
                 // 编码模式：员工正在看的项目、文件、位置 + 项目概况，放进本轮参考资料（Core/Code/EditorContext）
-                new Flyknit.Core.Code.EditorContextRunExtension(Code.Editors),
+                new Flyknit.Core.Code.EditorContextRunExtension(Code.Editors, Code.Handoffs),
                 new Flyknit.Core.Experts.Delegation.DelegationRunExtension(DelegationEnabled, () => Experts.All, () => Dispatcher),
                 new Flyknit.Core.Agent.SubAgents.SubAgentRunExtension(Security,
                     scope => new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, scope.Confirm, () => AgentOptionsFor(scope.Conversation), _auditSink, Approvals, Store, DelegationEvents,

@@ -33,10 +33,18 @@ public sealed class CodeFeature : IBridgeModule
         _log = log;
     }
 
-    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save", "code.openInVsCode", "code.focus", "code.create" };
+    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save", "code.openInVsCode", "code.focus", "code.create", "code.handoff", "code.handoffClear" };
 
     /// <summary>每个对话的编辑器状态（code.focus 更新，EditorContextRunExtension 每轮读）。</summary>
     public EditorContextStore Editors { get; } = new();
+
+    /// <summary>「带上摘要新建任务」等着第一句话取走的交接摘要（EditorContextRunExtension 读）。</summary>
+    public HandoffStore Handoffs { get; } = new();
+
+    /// <summary>
+    /// 把一个对话整理成交接摘要（宿主给：经服务端网关调模型，和压缩对话同一套）。没给时不支持「带上摘要」。
+    /// </summary>
+    public Func<string, CancellationToken, Task<string?>>? Summarize { get; init; }
 
     /// <summary>启动 VS Code（测试里换成假的）。返回 false 表示没启动起来。</summary>
     public Func<ProcessStartInfo, bool> Launch { get; init; } = psi =>
@@ -60,8 +68,53 @@ public sealed class CodeFeature : IBridgeModule
             "code.create" => await Task.Run(() => Create(conversation, args.Str("parent"), args.Str("name"), args.Bool("directory")), ct),
             "code.focus" => await Task.Run(() => Focus(conversation, args.Str("activeFile"), args.Int("line") ?? 0, args.Int("selectionFrom") ?? 0,
                 args.Int("selectionTo") ?? 0, args.StrList("openFiles")), ct),
+            "code.handoff" => await HandoffAsync(conversation, args.Str("from")),
+            "code.handoffClear" => ClearHandoff(conversation),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// 新任务 <paramref name="to"/> 带上旧任务 <paramref name="from"/> 的交接摘要：等摘要做好再返回（界面显示「正在整理」），
+    /// 摘要交给界面看一眼，第一句话发出时放进参考资料。两个任务都要有工作区，而且是同一个项目（一个在另一个里面也算）。
+    /// </summary>
+    public async Task<object> HandoffAsync(string to, string from)
+    {
+        if (Summarize is null)
+        {
+            return new { ok = false, message = "这个版本不支持带上摘要" };
+        }
+        if (to.Length == 0 || from.Length == 0 || to == from)
+        {
+            return new { ok = false, message = "要带上摘要的任务不对" };
+        }
+        if (_workspaceOf(to) is not { Length: > 0 } a || _workspaceOf(from) is not { Length: > 0 } b || !SameProject(a, b))
+        {
+            return new { ok = false, message = "只能带上同一个项目里的任务" };
+        }
+        var summary = await Handoffs.Start(to, from, ct => Summarize(from, ct)).ConfigureAwait(false);
+        if (summary is null)
+        {
+            // 取消了（员工点了「不带了」）或者没整理出来
+            Handoffs.Clear(to);
+            return new { ok = false, message = "没整理出摘要（上一个任务可能还没有内容），这次不带了" };
+        }
+        _log($"新任务 {to} 带上任务 {from} 的交接摘要（{summary.Length} 字）");
+        return new { ok = true, message = "", summary };
+    }
+
+    /// <summary>两个工作区是同一个，或者一个在另一个里面（收窄到项目之后新开的任务）。</summary>
+    public static bool SameProject(string a, string b)
+    {
+        var fa = Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar);
+        var fb = Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar);
+        return Inside(fa, fb) || Inside(fb, fa);
+    }
+
+    public object ClearHandoff(string to)
+    {
+        Handoffs.Clear(to);
+        return new { ok = true };
     }
 
     public CodeFile Load(string conversationId, string relative)
