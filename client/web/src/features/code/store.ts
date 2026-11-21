@@ -533,6 +533,18 @@ export function dropHandoff(to: string) {
   void bridge.codeHandoffClear(to).catch(() => {})
 }
 
+/**
+ * 编码模式里还没说话的新任务：右边对话区不留一大片空白，显示欢迎页（标志、「新对话」、带过来的交接摘要、可以怎么开始）。
+ * 已经在跑（第一句话刚发出）的不算。
+ */
+export const ideWelcome = computed(() => {
+  const c = current.value
+  if (!ideActive.value || !c || c.mode !== 'agent') return false
+  const s = state.byId[c.id]
+  if (!s || s.busy || s.draft) return false
+  return s.messages.length === 0 && (c.messageCount ?? 0) === 0
+})
+
 // ---------- 该新开任务了：对话太长、换了项目 ----------
 
 /** 上下文用到这么多（占模型窗口）就建议新开任务；自动整理在 75% 左右 */

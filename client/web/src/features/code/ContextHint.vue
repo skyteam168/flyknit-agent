@@ -9,7 +9,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Gauge, Sparkles, X } from '@lucide/vue'
 import { compactConversation, current, currentState, loadContextUsage, state, toast } from '../../store'
-import { dropHandoff, handoffs, hintDismissed, LongContextRatio, newTaskInIde, projectSwitch } from './store'
+import { dropHandoff, handoffs, hintDismissed, ideWelcome, LongContextRatio, newTaskInIde, projectSwitch } from './store'
 
 const { t } = useI18n()
 
@@ -27,7 +27,8 @@ const percent = computed(() => Math.min(100, Math.round(ratio.value * 100)))
 const k = (n: number) => (n >= 1000 ? Math.round(n / 1000) + 'k' : String(n))
 const busy = computed(() => !!currentState.value?.busy)
 
-const handoff = computed(() => (current.value ? handoffs[current.value.id] : undefined))
+/** 还没说话时交接摘要显示在欢迎页里（IdeWelcome），这里不重复 */
+const handoff = computed(() => (current.value && !ideWelcome.value ? handoffs[current.value.id] : undefined))
 const showSummary = ref(false)
 watch(() => current.value?.id, () => (showSummary.value = false))
 
@@ -35,7 +36,7 @@ const dismissed = computed(() => (current.value ? hintDismissed[current.value.id
 const switched = computed(() => (current.value ? projectSwitch(current.value.id) : null))
 /** 要提示哪一种：换项目优先（更明确），其次对话太长 */
 const suggest = computed<'project' | 'long' | null>(() => {
-  if (!current.value || busy.value || handoff.value) return null
+  if (!current.value || busy.value || handoffs[current.value.id]) return null
   if (switched.value && dismissed.value?.project !== switched.value[0]) return 'project'
   if (ratio.value >= LongContextRatio && !dismissed.value?.long) return 'long'
   return null
