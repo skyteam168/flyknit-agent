@@ -397,6 +397,9 @@ class Bridge {
   writePtyRun = (conversationId: string, runId: string, data: string) => this.call<boolean>('pty.runWrite', { conversationId, runId, data })
   resizePtyRun = (conversationId: string, runId: string, cols: number, rows: number) =>
     this.call<boolean>('pty.runResize', { conversationId, runId, cols, rows })
+  /** 编码模式：在项目文件树里新建文件 / 文件夹（只在工作区里，已经有同名的不覆盖） */
+  createCode = (conversationId: string, parent: string, name: string, directory: boolean) =>
+    this.call<{ ok: boolean; path: string; message: string }>('code.create', { conversationId, parent, name, directory })
   /** 编码模式：告诉宿主员工现在在看什么（AI 每轮据此知道「这个项目」「这个文件」指哪个）；返回推断出的当前项目 */
   codeFocus = (conversationId: string, focus: { activeFile: string; line: number; selectionFrom: number; selectionTo: number; openFiles: string[] }) =>
     this.call<{ projectRoot: string | null; projectName: string; workspace: string; narrower: boolean }>('code.focus', { conversationId, ...focus })

@@ -33,7 +33,7 @@ public sealed class CodeFeature : IBridgeModule
         _log = log;
     }
 
-    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save", "code.openInVsCode", "code.focus" };
+    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save", "code.openInVsCode", "code.focus", "code.create" };
 
     /// <summary>每个对话的编辑器状态（code.focus 更新，EditorContextRunExtension 每轮读）。</summary>
     public EditorContextStore Editors { get; } = new();
@@ -57,6 +57,7 @@ public sealed class CodeFeature : IBridgeModule
             "code.load" => await Task.Run(() => Load(conversation, path), ct),
             "code.save" => await Task.Run(() => Save(conversation, path, args.Str("text"), args.Str("version")), ct),
             "code.openInVsCode" => OpenInVsCode(conversation, path, args.Int("line") ?? 0),
+            "code.create" => await Task.Run(() => Create(conversation, args.Str("parent"), args.Str("name"), args.Bool("directory")), ct),
             "code.focus" => await Task.Run(() => Focus(conversation, args.Str("activeFile"), args.Int("line") ?? 0, args.Int("selectionFrom") ?? 0,
                 args.Int("selectionTo") ?? 0, args.StrList("openFiles")), ct),
             _ => null,
@@ -136,6 +137,63 @@ public sealed class CodeFeature : IBridgeModule
             return new SaveResult(false, false, baseVersion, "", ex.Message);
         }
     }
+
+    /// <summary>
+    /// 员工在项目文件树里新建文件 / 文件夹（像 VS Code 的「新建文件」「新建文件夹」）。
+    /// 只在这个对话的工作区里、父文件夹不能是指到工作区外的链接；名字不能带路径分隔符和 Windows 不允许的字符；
+    /// 已经有同名的不覆盖。返回新建的相对路径（界面接着在编辑器里打开文件）。
+    /// </summary>
+    public object Create(string conversationId, string parent, string name, bool directory)
+    {
+        var root = _workspaceOf(conversationId);
+        name = (name ?? "").Trim();
+        if (root is null)
+        {
+            return new { ok = false, path = "", message = "这个对话还没选工作区" };
+        }
+        if (!ValidName(name))
+        {
+            return new { ok = false, path = "", message = "名字不能为空，也不能带 \\ / : * ? \" < > | 这些字符" };
+        }
+        var dir = WorkspaceBrowser.Resolve(root, parent ?? "");
+        if (dir is null || !Directory.Exists(dir))
+        {
+            return new { ok = false, path = "", message = "不在这个对话的工作区里" };
+        }
+        var full = Path.Combine(dir, name);
+        if (WorkspaceBrowser.Resolve(root, Path.GetRelativePath(root, full)) is null || !StaysInside(root, full))
+        {
+            return new { ok = false, path = "", message = "不能在工作区外面新建" };
+        }
+        if (File.Exists(full) || Directory.Exists(full))
+        {
+            return new { ok = false, path = "", message = $"已经有「{name}」了" };
+        }
+        try
+        {
+            if (directory)
+            {
+                Directory.CreateDirectory(full);
+            }
+            else
+            {
+                using (new FileStream(full, FileMode.CreateNew, FileAccess.Write))
+                {
+                }
+            }
+            _log($"员工在代码编辑器里新建了{(directory ? "文件夹" : "文件")} {full}");
+            return new { ok = true, path = Path.GetRelativePath(root, full), message = "" };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new { ok = false, path = "", message = ex.Message };
+        }
+    }
+
+    private static bool ValidName(string name) =>
+        name.Length is > 0 and <= 200 && name is not "." and not ".."
+        && name.IndexOfAny(new[] { '\\', '/', ':', '*', '?', '"', '<', '>', '|' }) < 0
+        && !name.Any(char.IsControl) && !name.EndsWith('.') && !name.EndsWith(' ');
 
     /// <summary>
     /// 界面告诉宿主员工现在在看什么（编码模式切标签、移光标时）。路径都按这个对话的工作区校验，工作区外的不收；
