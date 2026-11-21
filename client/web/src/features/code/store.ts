@@ -16,7 +16,7 @@
  */
 import { computed, reactive, watch } from 'vue'
 import { bridge } from '../../bridge'
-import { convState, current, draftMode, loadChanges, openConversation, registerFeature, state, toast } from '../../store'
+import { convState, current, draftMode, loadChanges, moveToWorkspace, openConversation, registerFeature, state, toast } from '../../store'
 import type { ChangeTurn, CodeFile, HostEvent } from '../../types'
 
 export interface CodeTab {
@@ -39,6 +39,8 @@ export interface CodeTab {
   /** 员工有没保存的修改时 AI 也改了这个文件：AI 那一版的内容，等员工决定 */
   conflict: { text: string; version: string } | null
   loading: boolean
+  /** 光标所在行、选中的行（告诉 AI「这里」是哪里） */
+  cursor?: { line: number; from: number; to: number }
 }
 
 /** 编辑器里选中的一段代码：添加到对话（Ctrl+L）、快速修改（Ctrl+K）用 */
@@ -304,6 +306,77 @@ async function onAiChanged(conversationId: string, paths: string[]) {
     const opened = await openCodeFile(conversationId, rel)
     if (opened) opened.aiChanged = true
   }
+}
+
+// ---------- 告诉 AI 员工在看什么（Core/Code/EditorContext）：当前文件、光标、打开的文件、推断出的当前项目 ----------
+
+export interface ProjectInfo {
+  projectRoot: string | null
+  projectName: string
+  workspace: string
+  narrower: boolean
+}
+
+/** 每个对话推断出的当前项目（编辑器顶上的「当前项目」条用） */
+export const projects = reactive<Record<string, ProjectInfo>>({})
+
+let focusTimer = 0
+let lastFocus = ''
+function reportFocus() {
+  clearTimeout(focusTimer)
+  focusTimer = window.setTimeout(async () => {
+    const id = current.value?.id
+    if (!id) return
+    const c = code.byConversation[id]
+    const tab = ideActive.value ? (c?.tabs.find((x) => x.path === c.active) ?? null) : null
+    const focus = {
+      activeFile: tab?.path ?? '',
+      line: tab?.cursor?.line ?? 0,
+      selectionFrom: tab?.cursor && tab.cursor.to > tab.cursor.from ? tab.cursor.from : 0,
+      selectionTo: tab?.cursor && tab.cursor.to > tab.cursor.from ? tab.cursor.to : 0,
+      // 退出编码模式时告诉宿主「什么都没开」，AI 不再拿旧的编辑器状态当参考
+      openFiles: ideActive.value ? (c?.tabs.map((x) => x.path) ?? []) : [],
+    }
+    const key = id + JSON.stringify(focus)
+    if (key === lastFocus) return
+    lastFocus = key
+    try {
+      projects[id] = await bridge.codeFocus(id, focus)
+    } catch {
+      // 旧版宿主没有这个调用：没有编辑器上下文，照旧
+    }
+  }, 400)
+}
+
+watch(
+  () => {
+    const id = current.value?.id
+    const c = id ? code.byConversation[id] : undefined
+    const tab = c?.tabs.find((x) => x.path === c.active)
+    return [id, ideActive.value, c?.active, c?.tabs.map((x) => x.path).join('|'), tab?.cursor?.line, tab?.cursor?.from, tab?.cursor?.to, current.value?.workspace]
+  },
+  reportFocus,
+)
+
+/**
+ * 把这个任务的工作区收窄到当前项目（只缩小范围，比原来更安全）：命令、文件操作默认都在这个项目里，文件树只显示它。
+ * 开着的文件改成相对新工作区的路径；不在这个项目里的标签关掉。
+ */
+export async function narrowToProject(conversationId: string) {
+  const info = projects[conversationId]
+  if (!info?.projectRoot || !info.narrower) return
+  const root = info.projectRoot
+  const c = convOf(conversationId)
+  const activeFull = c.tabs.find((t) => t.path === c.active)?.fullPath ?? ''
+  c.tabs = c.tabs.flatMap((t) => {
+    const rel = relativeTo(root, t.fullPath)
+    return rel ? [{ ...t, path: rel }] : []
+  })
+  c.active = c.tabs.find((t) => samePath(t.fullPath, activeFull))?.path ?? c.tabs[0]?.path ?? null
+  await moveToWorkspace(conversationId, root)
+  code.treeVersion[conversationId] = (code.treeVersion[conversationId] ?? 0) + 1
+  lastFocus = ''
+  reportFocus()
 }
 
 // ---------- 右边 AI Agent 的任务标签（参照 Cursor）：编码模式里新开任务、切换任务都不退出 IDE ----------

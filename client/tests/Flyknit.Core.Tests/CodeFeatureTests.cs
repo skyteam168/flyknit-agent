@@ -137,7 +137,7 @@ public sealed class CodeFeatureTests : IDisposable
     [Fact]
     public async Task BridgeMethodsReturnCamelCaseFieldsTheUiReads()
     {
-        Assert.Equal(new[] { "code.load", "code.save", "code.openInVsCode" }, _code.Methods);
+        Assert.Equal(new[] { "code.load", "code.save", "code.openInVsCode", "code.focus" }, _code.Methods);
         using var doc = JsonDocument.Parse("""{"conversationId":"c1","path":"src/app.py"}""");
         var result = await _code.HandleAsync("code.load", new BridgeArgs(doc.RootElement), CancellationToken.None);
         var json = JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web));
