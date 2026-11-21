@@ -40,7 +40,8 @@ import BrandLoader from './components/BrandLoader.vue'
 import { uploadDropped } from './library'
 import CodeWorkspace from './features/code/CodeWorkspace.vue'
 import AgentTabs from './features/code/AgentTabs.vue'
-import { ide, ideActive } from './features/code/store'
+import IdeWelcome from './features/code/IdeWelcome.vue'
+import { ide, ideActive, ideWelcome } from './features/code/store'
 import { safeMode } from './render/useRichBlocks'
 import { closeFilesViewer, convFiles } from './conversationFiles'
 import {
@@ -355,7 +356,9 @@ onBeforeUnmount(() => {
             </template>
             <span v-else>{{ t('ui.experts.withdrawn') }}</span>
           </div>
-          <MessageList />
+          <!-- 编码模式里还没说话的新任务：欢迎页（标志、新对话、带过来的交接摘要），不留一大片空白 -->
+          <IdeWelcome v-if="ideWelcome" @fill="useExample" />
+          <MessageList v-else />
           <!-- 一句话拆开的几件事：进度汇总 + 合并确认（docs/c2-router.md 3.3） -->
           <GroupCard />
           <SideChatPanel v-if="state.sideChat.open && current && current.mode !== 'translate'" />
