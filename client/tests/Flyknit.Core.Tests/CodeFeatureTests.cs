@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Flyknit.Core.Code;
 using Flyknit.Core.Hosting;
@@ -136,12 +137,53 @@ public sealed class CodeFeatureTests : IDisposable
     [Fact]
     public async Task BridgeMethodsReturnCamelCaseFieldsTheUiReads()
     {
-        Assert.Equal(new[] { "code.load", "code.save" }, _code.Methods);
+        Assert.Equal(new[] { "code.load", "code.save", "code.openInVsCode" }, _code.Methods);
         using var doc = JsonDocument.Parse("""{"conversationId":"c1","path":"src/app.py"}""");
         var result = await _code.HandleAsync("code.load", new BridgeArgs(doc.RootElement), CancellationToken.None);
         var json = JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Contains("\"fullPath\":", json);
         Assert.Contains("\"readOnly\":false", json);
         Assert.Contains("\"version\":", json);
+    }
+
+    [Fact]
+    public void OpensTheWorkspaceInVsCodeWithArgumentsNotAShell()
+    {
+        ProcessStartInfo? started = null;
+        var code = new CodeFeature(id => id == "c1" ? _root : null, _log.Add)
+        {
+            FindVsCode = () => "C:/VS Code/Code.exe",
+            Launch = psi => { started = psi; return true; },
+        };
+        var r = JsonSerializer.SerializeToElement(code.OpenInVsCode("c1", "src/app.py", 12));
+        Assert.True(r.GetProperty("ok").GetBoolean());
+        Assert.Equal("C:/VS Code/Code.exe", started!.FileName);
+        Assert.False(started.UseShellExecute);
+        Assert.Equal(new[] { _root, "--goto", Path.Combine(_root, "src", "app.py") + ":12" }, started.ArgumentList);
+        // 工作区外的文件不带上，只开工作区
+        code.OpenInVsCode("c1", "../x.txt", 0);
+        Assert.Equal(new[] { _root }, started.ArgumentList);
+    }
+
+    [Fact]
+    public void ReportsWhenVsCodeIsMissingOrThereIsNoWorkspace()
+    {
+        var code = new CodeFeature(id => id == "c1" ? _root : null, _log.Add) { FindVsCode = () => null, Launch = _ => throw new InvalidOperationException("不该启动") };
+        Assert.False(JsonSerializer.SerializeToElement(code.OpenInVsCode("c1", "", 0)).GetProperty("ok").GetBoolean());
+        Assert.False(JsonSerializer.SerializeToElement(code.OpenInVsCode("other", "", 0)).GetProperty("ok").GetBoolean());
+    }
+
+    [Fact]
+    public void FindsVsCodeInTheUsualPlacesAndNextToCodeCmdOnPath()
+    {
+        var sep = Path.PathSeparator;
+        var env = new Dictionary<string, string?> { ["LOCALAPPDATA"] = "/u/local", ["ProgramFiles"] = "/pf", ["PATH"] = $"/x/bin{sep}/tools/VSCode/bin" };
+        var user = Path.Combine("/u/local", "Programs", "Microsoft VS Code", "Code.exe");
+        Assert.Equal(user, VsCode.Find(k => env.GetValueOrDefault(k), f => f == user));
+        // Windows 上 GetDirectoryName 会把 / 换成 \\：预期值用同样的路径函数算，两边平台都对
+        var custom = Path.Combine(Path.GetDirectoryName("/tools/VSCode/bin")!, "Code.exe");
+        var onPath = new HashSet<string> { Path.Combine("/tools/VSCode/bin", "code.cmd"), custom };
+        Assert.Equal(custom, VsCode.Find(k => env.GetValueOrDefault(k), onPath.Contains));
+        Assert.Null(VsCode.Find(k => env.GetValueOrDefault(k), _ => false));
     }
 }

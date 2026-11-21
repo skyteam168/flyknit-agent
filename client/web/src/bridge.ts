@@ -387,6 +387,19 @@ class Bridge {
   saveCommands = (items: SlashCommand[]) => this.call<{ ok: boolean; message: string }>('commands.save', { items })
   /** 右侧「文件」标签：列工作区里的一个文件夹（path 是相对工作区的路径，空 = 工作区本身） */
   listWorkspace = (conversationId: string, path: string) => this.call<WorkspaceListing>('workspace.list', { conversationId, path })
+  /** 编码模式底部终端：员工自己的 PowerShell（宿主 pty.*，开发者工具开着、Windows 上才能开） */
+  openPty = (conversationId: string, cols: number, rows: number) =>
+    this.call<{ ok: boolean; id: string; title: string; cwd?: string; message: string }>('pty.open', { conversationId, cols, rows })
+  writePty = (id: string, data: string) => this.call<boolean>('pty.write', { id, data })
+  resizePty = (id: string, cols: number, rows: number) => this.call<boolean>('pty.resize', { id, cols, rows })
+  closePty = (id: string) => this.call<boolean>('pty.close', { id })
+  /** 员工往 AI 的后台命令（伪控制台里跑的）敲字、调整大小 */
+  writePtyRun = (conversationId: string, runId: string, data: string) => this.call<boolean>('pty.runWrite', { conversationId, runId, data })
+  resizePtyRun = (conversationId: string, runId: string, cols: number, rows: number) =>
+    this.call<boolean>('pty.runResize', { conversationId, runId, cols, rows })
+  /** 用员工自己装的 VS Code 打开这个对话的工作区（带了文件就跳过去） */
+  openInVsCode = (conversationId: string, path = '', line = 0) =>
+    this.call<{ ok: boolean; message: string }>('code.openInVsCode', { conversationId, path, line })
   /** 编码模式：读工作区里的一个文件（只读工作区里的；二进制、太大的只读） */
   loadCode = (conversationId: string, path: string) => this.call<CodeFile>('code.load', { conversationId, path })
   /** 编码模式：保存。version 是打开时的版本，期间被 AI 改过返回 conflict（不覆盖） */

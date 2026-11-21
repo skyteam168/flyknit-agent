@@ -5,12 +5,15 @@
  * 每个文件一个 model：切标签时撤销记录还在。只读文件（二进制、太大、链接到工作区外）不能改。
  */
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import { languageOf, loadMonaco } from './monaco'
-import type { CodeTab } from './store'
+import type { CodeSelection, CodeTab } from './store'
 
 const props = defineProps<{ tab: CodeTab }>()
-const emit = defineEmits<{ save: [] }>()
+const emit = defineEmits<{ save: []; addToChat: [sel: CodeSelection]; quickEdit: [sel: CodeSelection, instruction: string] }>()
+const { t } = useI18n()
+
 
 const host = ref<HTMLElement>()
 const failed = ref('')
@@ -68,6 +71,7 @@ function render() {
         readOnly: tab.readOnly,
       })
       diff.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => emit('save'))
+      attachSelectionUi(diff.value.getModifiedEditor())
     }
     // 先换上新的再释放旧的（反过来 Monaco 会报 model 已释放）
     const previous = original
@@ -92,11 +96,114 @@ function render() {
     if (!editor.value) {
       editor.value = monaco.editor.create(host.value, { ...common(), model })
       editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => emit('save'))
+      attachSelectionUi(editor.value)
     } else if (editor.value.getModel() !== model) {
       editor.value.setModel(model)
     }
     editor.value.updateOptions({ readOnly: tab.readOnly })
   }
+}
+
+// ---------- 选中代码：浮条「添加到对话 Ctrl+L · 快速修改 Ctrl+K」（参照 Cursor） ----------
+function selectionOf(ed: Monaco.editor.ICodeEditor): CodeSelection | null {
+  const sel = ed.getSelection()
+  const model = ed.getModel()
+  if (!sel || sel.isEmpty() || !model) return null
+  // 选到下一行开头（第 0 列）时不算那一行
+  const to = sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel.endLineNumber
+  return { path: props.tab.path, language: languageOf(props.tab.path), from: sel.startLineNumber, to, code: model.getValueInRange(sel) }
+}
+
+function attachSelectionUi(ed: Monaco.editor.IStandaloneCodeEditor) {
+  const m = monaco!
+  const dom = document.createElement('div')
+  dom.className = 'fk-sel'
+  let position: Monaco.IPosition | null = null
+  let editing: CodeSelection | null = null
+  const widget: Monaco.editor.IContentWidget = {
+    allowEditorOverflow: true,
+    getId: () => 'flyknit.selection',
+    getDomNode: () => dom,
+    getPosition: () =>
+      position ? { position, preference: [m.editor.ContentWidgetPositionPreference.ABOVE, m.editor.ContentWidgetPositionPreference.BELOW] } : null,
+  }
+  ed.addContentWidget(widget)
+
+  const button = (label: string, key: string, run: () => void) => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.innerHTML = '<span></span><kbd></kbd>'
+    b.querySelector('span')!.textContent = label
+    b.querySelector('kbd')!.textContent = key
+    b.addEventListener('mousedown', (e) => e.preventDefault()) // 别让编辑器失去选区
+    b.addEventListener('click', run)
+    return b
+  }
+
+  const hide = () => {
+    position = null
+    editing = null
+    dom.classList.remove('editing')
+    dom.replaceChildren()
+    ed.layoutContentWidget(widget)
+  }
+
+  const showBar = () => {
+    const sel = selectionOf(ed)
+    if (!sel) return hide()
+    editing = null
+    position = { lineNumber: ed.getSelection()!.startLineNumber, column: 1 }
+    dom.replaceChildren(button(t('ui.code.addToChat'), 'Ctrl+L', addToChat), button(t('ui.code.quickEdit'), 'Ctrl+K', quickEdit))
+    ed.layoutContentWidget(widget)
+  }
+
+  const addToChat = () => {
+    const sel = selectionOf(ed)
+    if (!sel) return
+    emit('addToChat', sel)
+    hide()
+  }
+
+  const quickEdit = () => {
+    const sel = selectionOf(ed)
+    if (!sel || props.tab.readOnly) return
+    editing = sel
+    position = { lineNumber: sel.from, column: 1 }
+    const input = document.createElement('input')
+    input.placeholder = t('ui.code.quickEditPlaceholder', { from: sel.from, to: sel.to })
+    const hint = document.createElement('small')
+    hint.textContent = t('ui.code.quickEditHint')
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation()
+      if (e.key !== 'Escape' && e.key !== 'Enter') return
+      // 这一下按键到此为止：不然输入框收起、焦点回到编辑器后，同一个回车会落进编辑器，把选中的代码换成空行
+      e.preventDefault()
+      if (e.key === 'Enter') {
+        if (!input.value.trim() || !editing) return
+        emit('quickEdit', editing, input.value.trim())
+      }
+      hide()
+      setTimeout(() => ed.focus(), 0)
+    })
+    dom.replaceChildren(input, hint)
+    dom.classList.add('editing')
+    ed.layoutContentWidget(widget)
+    setTimeout(() => input.focus(), 0)
+  }
+
+  ed.onDidChangeCursorSelection(() => {
+    if (editing) return
+    dom.classList.remove('editing')
+    showBar()
+  })
+  ed.onDidBlurEditorWidget(() => {
+    // 点浮条上的按钮、在快速修改框里打字时不收
+    setTimeout(() => {
+      if (!editing && !dom.contains(document.activeElement)) hide()
+    }, 150)
+  })
+  ed.addAction({ id: 'flyknit.addToChat', label: t('ui.code.addToChat'), keybindings: [m.KeyMod.CtrlCmd | m.KeyCode.KeyL], run: addToChat })
+  ed.addAction({ id: 'flyknit.quickEdit', label: t('ui.code.quickEdit'), keybindings: [m.KeyMod.CtrlCmd | m.KeyCode.KeyK], run: quickEdit })
 }
 
 onMounted(async () => {
@@ -162,5 +269,64 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 12px;
   color: var(--red);
+}
+</style>
+
+<style>
+/* 选中代码时的浮条（Monaco 的 content widget，不在组件的 scoped 样式里） */
+.fk-sel {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--cloth);
+  box-shadow: var(--shadow-pop);
+  font: 12px/1.4 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+  z-index: 50;
+}
+.fk-sel:empty {
+  display: none;
+}
+.fk-sel button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fk-sel button:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.fk-sel kbd {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink-soft);
+  font: 11px Consolas, monospace;
+}
+.fk-sel.editing {
+  flex-direction: column;
+  gap: 4px;
+  width: 380px;
+  padding: 6px;
+}
+.fk-sel input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--indigo);
+  border-radius: 6px;
+  background: var(--loom);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.fk-sel small {
+  color: var(--ink-faint);
 }
 </style>

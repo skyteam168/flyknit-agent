@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, ChevronUp, Clock, FilePen, GitBranch, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from '@lucide/vue'
+import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, ChevronUp, Clock, FilePen, GitBranch, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, RotateCcw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
 import { useRichBlocks } from '../render/useRichBlocks'
 import { changesForAnswer, current, currentState, editAndResend, forkConversation, mcpToolLabel, openChanges, openAttachment, openConversation, openTrace, regenerate, setFeedback, state } from '../store'
 import type { OutputFile, UiMessage } from '../types'
 import RefHoverCard from './RefHoverCard.vue'
 import ToolCard from './ToolCard.vue'
+import { restoreCheckpoint, turnsSince } from '../features/code/store'
 import LiveDraft from './LiveDraft.vue'
 import LiveTools from './LiveTools.vue'
 import { assistantIdentity, toolCard } from '../toolCards'
@@ -432,6 +433,17 @@ const isImage = (mime: string) => mime.startsWith('image/')
               </button>
               <button type="button" class="icon-btn" :title="t('ui.edit.title')" :disabled="busy" @click.stop="startEdit(m)">
                 <Pencil :size="15" />
+              </button>
+              <!-- 恢复到这里：把这条消息之后 AI 改过的文件都还原（features/code，参照 Cursor 的 Restore Checkpoint） -->
+              <button
+                v-if="current && turnsSince(current.id, m.id).length"
+                type="button"
+                class="icon-btn"
+                :title="t('ui.code.restoreHere')"
+                :disabled="busy"
+                @click.stop="restoreCheckpoint(current!.id, m.id, (n) => t('ui.code.restoreConfirm', { n }), (n) => t('ui.code.restored', { n }))"
+              >
+                <RotateCcw :size="15" />
               </button>
             </div>
           </template>

@@ -67,10 +67,14 @@ export function setCapturing(on: boolean) {
   capturing = on
 }
 
+/** 编码模式的代码编辑器（Monaco）里自己用的键：添加到对话、快速修改、保存。焦点在编辑器里时让给编辑器 */
+const EditorKeys = new Set(['ctrl+l', 'ctrl+k', 'ctrl+s'])
+
 function onKeyDown(e: KeyboardEvent) {
   if (capturing) return
   const pressed = describeEvent(e)
   if (!pressed) return
+  if (EditorKeys.has(pressed.toLowerCase()) && (e.target as HTMLElement | null)?.closest?.('.monaco-editor')) return
 
   const hit = bindings.find((b) => b.binding && b.binding.toLowerCase() === pressed.toLowerCase())
   if (!hit) return

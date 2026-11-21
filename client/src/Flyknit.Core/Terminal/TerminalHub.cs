@@ -46,6 +46,37 @@ public sealed class TerminalRun
 
     internal Process? Process { get; set; }
 
+    /// <summary>在伪控制台里跑的（后台命令，Windows 上）：界面用 xterm 画颜色，员工可以往里敲字。</summary>
+    internal ITerminalSession? Console { get; set; }
+
+    public bool Pty => Console is not null || _raw.Length > 0;
+
+    private readonly StringBuilder _raw = new();
+
+    /// <summary>伪控制台的原始输出（带颜色和光标控制，界面重放用；太长时只留最后一段）。</summary>
+    public string RawOutput
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _raw.ToString();
+            }
+        }
+    }
+
+    internal void AppendRaw(string text)
+    {
+        lock (_gate)
+        {
+            _raw.Append(text);
+            if (_raw.Length > MaxOutputChars)
+            {
+                _raw.Remove(0, _raw.Length - MaxOutputChars);
+            }
+        }
+    }
+
     /// <summary>已经要求停掉：进程随后退出时记成「已停止」，而不是被杀掉的退出码。</summary>
     internal volatile bool StopRequested;
 
@@ -185,6 +216,38 @@ public sealed class TerminalHub : IDisposable
     /// <summary>
     /// 启动一条命令。输出一边存一边推给界面。后台命令超出上限时抛 <see cref="InvalidOperationException"/>。
     /// </summary>
+    /// <summary>
+    /// 后台命令放进伪控制台跑（宿主在 Windows 上打开）：开发服务器之类的输出带颜色，员工能在终端里直接和它交互。
+    /// AI 读到的输出去掉了控制序列，和普通进程的一样。前台命令照旧用普通进程（要等结束、拿退出码、超时转后台）。
+    /// </summary>
+    public bool UsePseudoConsole { get; set; }
+
+    /// <summary>伪控制台的原始输出（带颜色），界面上的终端画面用。</summary>
+    public event Action<TerminalRun, string>? RawOutput;
+
+    /// <summary>员工往伪控制台里跑的后台命令敲字。不是伪控制台的、已经结束的返回 false。</summary>
+    public bool Write(TerminalRun run, string data)
+    {
+        if (!run.Running || run.Console is not { } console)
+        {
+            return false;
+        }
+        try
+        {
+            console.Write(data);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    public void Resize(TerminalRun run, short cols, short rows) => run.Console?.Resize(cols, rows);
+
+    /// <summary>测试里换成假的伪控制台；默认是 Windows 的。</summary>
+    internal Func<string, string, ITerminalSession>? StartConsole { get; set; }
+
     public TerminalRun Start(string conversationId, ProcessStartInfo psi, string command, string shell, bool background,
         Action<string, bool>? onLine = null)
     {
@@ -206,6 +269,12 @@ public sealed class TerminalHub : IDisposable
             {
                 list.RemoveAt(old);
             }
+        }
+
+        if (background && UsePseudoConsole && (StartConsole is not null || OperatingSystem.IsWindows()))
+        {
+            StartInConsole(run, psi, onLine);
+            return run;
         }
 
         psi.RedirectStandardOutput = true;
@@ -306,6 +375,7 @@ public sealed class TerminalHub : IDisposable
         try
         {
             run.Process?.Kill(entireProcessTree: true);
+            run.Console?.Dispose(); // 关掉伪控制台：里面的程序一起结束
         }
         catch (Exception)
         {
@@ -337,6 +407,98 @@ public sealed class TerminalHub : IDisposable
                 list.RemoveAll(r => !r.Running);
             }
         }
+    }
+
+    private void StartInConsole(TerminalRun run, ProcessStartInfo psi, Action<string, bool>? onLine)
+    {
+        var commandLine = VtText.CommandLine(psi.FileName, psi.ArgumentList);
+        ITerminalSession console;
+        Raise(() => Started?.Invoke(run));
+        try
+        {
+            console = StartConsole is { } start ? start(commandLine, psi.WorkingDirectory)
+                : OperatingSystem.IsWindows() ? new WindowsConsole(PseudoConsole.Start(commandLine, psi.WorkingDirectory, 120, 30))
+                : throw new PlatformNotSupportedException();
+        }
+        catch (Exception)
+        {
+            if (run.MarkExited(-1, stopped: false))
+            {
+                Raise(() => Ended?.Invoke(run));
+            }
+            throw;
+        }
+        run.Console = console;
+
+        // 读输出：原始的给界面画，去掉控制序列的给 AI（shell_output）
+        var reading = Task.Run(async () =>
+        {
+            var decoder = new UTF8Encoding(false).GetDecoder();
+            var bytes = new byte[8192];
+            var chars = new char[8196];
+            var stripper = new VtStripper();
+            try
+            {
+                int n;
+                while ((n = await console.ReadAsync(bytes, CancellationToken.None).ConfigureAwait(false)) > 0)
+                {
+                    var count = decoder.GetChars(bytes, 0, n, chars, 0, flush: false);
+                    if (count == 0)
+                    {
+                        continue;
+                    }
+                    var raw = new string(chars, 0, count);
+                    run.AppendRaw(raw);
+                    Raise(() => RawOutput?.Invoke(run, raw));
+                    Emit(stripper.Feed(raw));
+                }
+            }
+            catch (Exception)
+            {
+                // 伪控制台关了
+            }
+            Emit(stripper.Flush());
+
+            void Emit(string plain)
+            {
+                if (plain.Length > 0)
+                {
+                    run.Append(plain);
+                    onLine?.Invoke(plain.TrimEnd('\n'), false);
+                    Raise(() => Output?.Invoke(run, plain));
+                }
+            }
+        });
+
+        // 程序退出后稍等最后的输出，再关伪控制台（不关的话读输出那边一直等着）
+        _ = Task.Run(async () =>
+        {
+            int? code = null;
+            try
+            {
+                code = await console.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+            }
+            await Task.WhenAny(reading, Task.Delay(500)).ConfigureAwait(false);
+            console.Dispose();
+            await Task.WhenAny(reading, Task.Delay(2000)).ConfigureAwait(false);
+            if (run.MarkExited(run.StopRequested ? null : code, stopped: run.StopRequested))
+            {
+                Raise(() => Ended?.Invoke(run));
+            }
+        });
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private sealed class WindowsConsole(PseudoConsole console) : ITerminalSession
+    {
+        public Task<int> ReadAsync(byte[] buffer, CancellationToken ct) => console.ReadAsync(buffer, ct);
+        public void Write(string text) => console.Write(text);
+        public void Resize(short cols, short rows) => console.Resize(cols, rows);
+        public Task<int> WaitForExitAsync(CancellationToken ct) => console.WaitForExitAsync(ct);
+        public void Dispose() => console.Dispose();
     }
 
     private async Task FinishAsync(TerminalRun run, Process process)

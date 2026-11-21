@@ -10,7 +10,7 @@ import EditorArea from './EditorArea.vue'
 import ExplorerPane from './ExplorerPane.vue'
 import { clampAgent, ide } from './store'
 
-const emit = defineEmits<{ useSkill: [name: string]; useText: [text: string] }>()
+const emit = defineEmits<{ useSkill: [name: string]; useText: [text: string]; insertText: [text: string] }>()
 
 const dragging = ref(false)
 let startX = 0
@@ -35,7 +35,7 @@ function up(e: PointerEvent) {
   <div class="ide" :class="{ dragging }">
     <ExplorerPane v-if="ide.explorerOpen" @use-skill="(n) => emit('useSkill', n)" @use-text="(x) => emit('useText', x)" />
     <div class="center">
-      <EditorArea />
+      <EditorArea @insert-text="(x) => emit('insertText', x)" />
       <BottomPanel />
     </div>
     <div

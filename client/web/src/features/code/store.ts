@@ -16,8 +16,8 @@
  */
 import { computed, reactive, watch } from 'vue'
 import { bridge } from '../../bridge'
-import { current, registerFeature, state, toast } from '../../store'
-import type { CodeFile, HostEvent } from '../../types'
+import { convState, current, draftMode, loadChanges, openConversation, registerFeature, state, toast } from '../../store'
+import type { ChangeTurn, CodeFile, HostEvent } from '../../types'
 
 export interface CodeTab {
   /** 工作区里的相对路径（读写用） */
@@ -39,6 +39,21 @@ export interface CodeTab {
   /** 员工有没保存的修改时 AI 也改了这个文件：AI 那一版的内容，等员工决定 */
   conflict: { text: string; version: string } | null
   loading: boolean
+}
+
+/** 编辑器里选中的一段代码：添加到对话（Ctrl+L）、快速修改（Ctrl+K）用 */
+export interface CodeSelection {
+  path: string
+  language: string
+  from: number
+  to: number
+  code: string
+}
+
+/** 选中代码放进对话里的样子：文件、行号、代码块 */
+export function selectionMarkdown(sel: CodeSelection, header: string): string {
+  const fence = sel.code.includes('```') ? '~~~~' : '```'
+  return `${header}\n${fence}${sel.language === 'plaintext' ? '' : sel.language}\n${sel.code.replace(/\s+$/, '')}\n${fence}\n`
 }
 
 interface ConversationCode {
@@ -95,7 +110,19 @@ export const clampAgent = (px: number) => Math.round(Math.min(Math.max(px, 320),
 /** 最多同时开这么多个标签：再多就把最早的、没改过的关掉 */
 const MaxTabs = 12
 
-export const code = reactive<{ byConversation: Record<string, ConversationCode> }>({ byConversation: {} })
+export const code = reactive<{ byConversation: Record<string, ConversationCode>; treeVersion: Record<string, number> }>({ byConversation: {}, treeVersion: {} })
+
+/** AI 新建 / 删除了文件：文件树重新列（连着几步只列一次） */
+const treeTimers = new Map<string, number>()
+function bumpTree(conversationId: string) {
+  clearTimeout(treeTimers.get(conversationId))
+  treeTimers.set(
+    conversationId,
+    window.setTimeout(() => {
+      code.treeVersion[conversationId] = (code.treeVersion[conversationId] ?? 0) + 1
+    }, 400),
+  )
+}
 
 function convOf(conversationId: string): ConversationCode {
   return (code.byConversation[conversationId] ??= { tabs: [], active: null, follow: true })
@@ -279,10 +306,122 @@ async function onAiChanged(conversationId: string, paths: string[]) {
   }
 }
 
+// ---------- 右边 AI Agent 的任务标签（参照 Cursor）：编码模式里新开任务、切换任务都不退出 IDE ----------
+
+/** 这个工作区里打开过的任务（标签），按打开顺序；关掉标签只是不显示，任务本身还在 */
+export const agentTabs = reactive<{ ids: string[] }>({ ids: [] })
+
+const sameDir = (a?: string | null, b?: string | null) => !!a && !!b && a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase()
+
+/** 同一个工作区里的办事任务，最近的在前（历史） */
+export const workspaceTasks = computed(() => {
+  const ws = current.value?.workspace
+  return state.conversations
+    .filter((c) => c.mode === 'agent' && sameDir(c.workspace, ws))
+    .slice()
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+})
+
+export function noteTab(id: string | null | undefined) {
+  if (id && !agentTabs.ids.includes(id)) agentTabs.ids.push(id)
+  if (agentTabs.ids.length > 8) agentTabs.ids.splice(0, agentTabs.ids.length - 8)
+}
+
+export function closeAgentTab(id: string) {
+  const i = agentTabs.ids.indexOf(id)
+  if (i < 0) return
+  agentTabs.ids.splice(i, 1)
+  if (state.currentId === id) {
+    const next = agentTabs.ids[Math.min(i, agentTabs.ids.length - 1)]
+    if (next) void openConversation(next)
+  }
+}
+
+/** 在当前工作区新开一个办事任务，留在编码模式里（不回首页） */
+export async function newTaskInIde(workspace?: string | null) {
+  const ws = workspace ?? current.value?.workspace
+  if (!ws) return
+  try {
+    const c = await bridge.createConversation('agent', draftMode.modelId, ws, draftMode.permission, null, null)
+    state.conversations.unshift(c)
+    state.currentId = c.id
+    convState(c.id).loaded = true
+    noteTab(c.id)
+    window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+  } catch (e) {
+    toast(String((e as Error)?.message ?? e))
+  }
+}
+
+/**
+ * 编码模式开着时，侧栏的「新建任务」、Ctrl+N 也留在编码模式：它们会把当前对话清空（回首页），
+ * 这里接着在刚才那个工作区新开一个办事任务。
+ */
+let lastIdeWorkspace: string | null = null
+watch(
+  () => [state.currentId, ideActive.value] as const,
+  ([id, active], [prevId]) => {
+    if (active && current.value?.workspace) lastIdeWorkspace = current.value.workspace
+    if (!id && prevId && ide.on && state.view === 'chat' && lastIdeWorkspace && state.app?.developerTools) void newTaskInIde(lastIdeWorkspace)
+  },
+)
+
+export function switchTask(id: string) {
+  noteTab(id)
+  if (state.currentId !== id) void openConversation(id)
+}
+
+// ---------- 恢复到这里（参照 Cursor 的 Restore Checkpoint） ----------
+
+/**
+ * 从这条用户消息开始（含）往后各轮改过、还没还原的文件。用现有的「每一轮改动可以还原」（changes.revert）实现：
+ * 恢复到这里 = 从最新一轮往回、一轮一轮还原到这条消息之前的样子。
+ */
+export function turnsSince(conversationId: string, userMessageId: string): ChangeTurn[] {
+  const messages = convState(conversationId).messages
+  const at = messages.findIndex((m) => m.id === userMessageId)
+  if (at < 0) return []
+  const order = new Map(messages.slice(at).filter((m) => m.role === 'user').map((m, i) => [m.id, i]))
+  return (state.changes[conversationId] ?? [])
+    .filter((x) => order.has(x.turnId) && x.files.some((f) => !f.reverted && f.restorable))
+    .sort((a, b) => order.get(b.turnId)! - order.get(a.turnId)!)
+}
+
+export async function restoreCheckpoint(conversationId: string, userMessageId: string, confirmText: (files: number) => string, done: (files: number) => string) {
+  const turns = turnsSince(conversationId, userMessageId)
+  const files = new Set(turns.flatMap((x) => x.files.filter((f) => !f.reverted && f.restorable).map((f) => f.path))).size
+  if (!files || convState(conversationId).busy) return
+  // 会改员工电脑上的文件：先问
+  if (!window.confirm(confirmText(files))) return
+  try {
+    for (const turn of turns) await bridge.revertChanges(conversationId, turn.turnId)
+    toast(done(files))
+  } catch (e) {
+    toast(String((e as Error)?.message ?? e))
+  } finally {
+    await loadChanges(conversationId)
+    // 编辑器里开着的文件按磁盘重新读
+    const c = code.byConversation[conversationId]
+    for (const tab of c?.tabs ?? []) {
+      if (isDirty(tab)) continue
+      try {
+        const file = await bridge.loadCode(conversationId, tab.path)
+        tab.saved = tab.draft = file.text
+        tab.version = file.version
+        tab.before = null
+        tab.aiChanged = false
+      } catch {
+        // 读不到就算了
+      }
+    }
+  }
+}
+
 registerFeature({
   id: 'code',
   eventPrefix: 'code.',
   onEvent(e: HostEvent) {
+    if (e.type === 'code.treeChanged') bumpTree(e.conversationId)
     if (e.type !== 'code.changed') return
     void onAiChanged(e.conversationId, e.paths)
   },

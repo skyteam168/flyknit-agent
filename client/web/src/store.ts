@@ -568,7 +568,7 @@ export function findWaitingConfirm(exclude?: Set<string>): { conversationId: str
   return null
 }
 
-function convState(id: string): ConversationState {
+export function convState(id: string): ConversationState {
   if (!state.byId[id]) {
     state.byId[id] = { messages: [], loaded: false, busy: false, draft: null, tools: {}, plan: [], notice: null, notices: [], subtasks: {}, subtaskCalls: {}, inputs: [] }
   }

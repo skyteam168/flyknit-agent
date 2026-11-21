@@ -1072,8 +1072,15 @@ export type HostEvent =
   | { type: 'notices.changed'; unread: number; supported: boolean; popup: string | null }
   /** 数据保护：服务端把发给模型的内容里的敏感信息换成了占位符（只有类型和数量，没有原值） */
   | { type: 'privacy.masked'; conversationId: string; counts: Record<string, number> }
+  /** 编码模式底部终端：员工自己的 PowerShell 的一段输出（VT 序列）、结束 */
+  | { type: 'pty.output'; id: string; data: string }
+  | { type: 'pty.exit'; id: string; exitCode: number }
   /** 编码模式：AI 用 write_file / edit_file / multi_edit 改了这些文件（完整路径） */
   | { type: 'code.changed'; conversationId: string; paths: string[]; tool: string }
+  /** 编码模式：AI 可能新建 / 删除了文件，文件树重新列一遍 */
+  | { type: 'code.treeChanged'; conversationId: string; tool: string }
+  /** 编码模式：AI 的后台命令在伪控制台里的原始输出（带颜色） */
+  | { type: 'pty.runOutput'; conversationId: string; runId: string; data: string }
   | { type: 'team.member'; conversationId: string; runId: string; expertId: string; status: TeamMemberState; note: string; subtaskId: string; callId: string }
   | ({ type: 'team.board'; conversationId: string; runId: string } & TeamBoardItem)
   | { type: 'team.round'; conversationId: string; runId: string; results: { expertId: string; status: string; delivery: string; retries: number }[] }
@@ -1325,6 +1332,10 @@ export interface TerminalRun {
   running: boolean
   stopped: boolean
   exitCode?: number | null
+  /** 在伪控制台里跑的（后台命令，Windows）：编码模式终端里用 xterm 画、员工能往里敲字 */
+  pty?: boolean
+  /** 伪控制台的原始输出（terminal.list 时带着，重放用） */
+  raw?: string | null
   /** terminal.list 时带着；事件里没有，靠 terminal.output 一段段拼 */
   output?: string | null
 }

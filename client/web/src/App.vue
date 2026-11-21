@@ -39,6 +39,7 @@ import ExpertDetail from './components/ExpertDetail.vue'
 import BrandLoader from './components/BrandLoader.vue'
 import { uploadDropped } from './library'
 import CodeWorkspace from './features/code/CodeWorkspace.vue'
+import AgentTabs from './features/code/AgentTabs.vue'
 import { ide, ideActive } from './features/code/store'
 import { safeMode } from './render/useRichBlocks'
 import { closeFilesViewer, convFiles } from './conversationFiles'
@@ -339,6 +340,8 @@ onBeforeUnmount(() => {
           :class="{ 'ide-agent': ideActive }"
           :style="ideActive ? { width: ide.agentWidth + 'px' } : undefined"
         >
+          <!-- 编码模式：右边 AI Agent 顶上的任务标签、新建任务、历史（features/code） -->
+          <AgentTabs v-if="ideActive" />
           <!-- 专家对话：顶部标出是哪位专家；专家被下线了说一声 -->
           <!-- 团队对话：顶部团队条（团队名、成员、返回团队列表） -->
           <TeamBar v-if="current?.teamId" />
@@ -361,7 +364,7 @@ onBeforeUnmount(() => {
         <Home v-else ref="home" />
         <!-- 编码模式（AI IDE，features/code）：左边项目 / 技能 / MCP / 知识，中间 Monaco，底部终端 / 日志 / Trace；
              右边就是上面的对话（.ide-agent 用 order 排到最右） -->
-        <CodeWorkspace v-if="ideActive && inConversation" class="ide-main" @use-skill="useSkill" @use-text="useExample" />
+        <CodeWorkspace v-if="ideActive && inConversation" class="ide-main" @use-skill="useSkill" @use-text="useExample" @insert-text="(x: string) => composer?.appendBlock(x)" />
         <!-- 右侧面板：计划 / 预览 / 改动 / 浏览器 / 会话信息，用标签切换 -->
         <RightPanel v-if="showRight && !ideActive" />
       </div>
