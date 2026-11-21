@@ -180,7 +180,8 @@ public sealed class CodeFeatureTests : IDisposable
         var env = new Dictionary<string, string?> { ["LOCALAPPDATA"] = "/u/local", ["ProgramFiles"] = "/pf", ["PATH"] = $"/x/bin{sep}/tools/VSCode/bin" };
         var user = Path.Combine("/u/local", "Programs", "Microsoft VS Code", "Code.exe");
         Assert.Equal(user, VsCode.Find(k => env.GetValueOrDefault(k), f => f == user));
-        var custom = Path.Combine("/tools/VSCode", "Code.exe");
+        // Windows 上 GetDirectoryName 会把 / 换成 \\：预期值用同样的路径函数算，两边平台都对
+        var custom = Path.Combine(Path.GetDirectoryName("/tools/VSCode/bin")!, "Code.exe");
         var onPath = new HashSet<string> { Path.Combine("/tools/VSCode/bin", "code.cmd"), custom };
         Assert.Equal(custom, VsCode.Find(k => env.GetValueOrDefault(k), onPath.Contains));
         Assert.Null(VsCode.Find(k => env.GetValueOrDefault(k), _ => false));

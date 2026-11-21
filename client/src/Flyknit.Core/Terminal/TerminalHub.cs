@@ -436,6 +436,7 @@ public sealed class TerminalHub : IDisposable
             var decoder = new UTF8Encoding(false).GetDecoder();
             var bytes = new byte[8192];
             var chars = new char[8196];
+            var stripper = new VtStripper();
             try
             {
                 int n;
@@ -449,18 +450,23 @@ public sealed class TerminalHub : IDisposable
                     var raw = new string(chars, 0, count);
                     run.AppendRaw(raw);
                     Raise(() => RawOutput?.Invoke(run, raw));
-                    var plain = VtText.Strip(raw);
-                    if (plain.Length > 0)
-                    {
-                        run.Append(plain);
-                        onLine?.Invoke(plain.TrimEnd('\n'), false);
-                        Raise(() => Output?.Invoke(run, plain));
-                    }
+                    Emit(stripper.Feed(raw));
                 }
             }
             catch (Exception)
             {
                 // 伪控制台关了
+            }
+            Emit(stripper.Flush());
+
+            void Emit(string plain)
+            {
+                if (plain.Length > 0)
+                {
+                    run.Append(plain);
+                    onLine?.Invoke(plain.TrimEnd('\n'), false);
+                    Raise(() => Output?.Invoke(run, plain));
+                }
             }
         });
 

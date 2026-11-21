@@ -21,6 +21,20 @@ public class PtyBackgroundTests
     }
 
     [Fact]
+    public void SequencesSplitAcrossChunksAreStillRemoved()
+    {
+        // Windows CI 上真的遇到过：一段输出末尾只有 ESC，剩下的在下一段，逐段去掉会把 ESC 漏给 AI
+        var s = new VtStripper();
+        var text = s.Feed("\x1b[?9001h\x1b") + s.Feed("[?1004hflyknit\x1b[3") + s.Feed("2mok\x1b]0;title") + s.Feed("\x07 done\r\n") + s.Flush();
+        Assert.Equal("flyknitok done\n", text);
+        Assert.False(text.Contains('\x1b')); // 按字符比（DoesNotContain(string) 按文化比较，ESC 是可忽略字符，任何字符串都「包含」它）
+        // 结束时还剩半截：ESC 去掉，不会一直攒着
+        var t = new VtStripper();
+        Assert.Equal("a", t.Feed("a\x1b["));
+        Assert.False(t.Flush().Contains('\x1b')); // 按字符比（DoesNotContain(string) 按文化比较，ESC 是可忽略字符，任何字符串都「包含」它）
+    }
+
+    [Fact]
     public void CommandLineQuotingFollowsWindowsRules()
     {
         Assert.Equal("cmd.exe /d /c \"echo a & b\"", VtText.CommandLine("cmd.exe", new[] { "/d", "/c", "echo a & b" }));
@@ -139,7 +153,7 @@ public class PtyBackgroundTests
         Assert.True(run.Pty);
         Assert.True(await TerminalHub.WaitAsync(run, TimeSpan.FromSeconds(30), CancellationToken.None), "命令没有结束：" + run.Output);
         Assert.Contains("flyknit-bg-ok", run.Output);
-        Assert.DoesNotContain("\x1b", run.Output);
+        Assert.False(run.Output.Contains('\x1b')); // 按字符比（DoesNotContain(string) 按文化比较，ESC 是可忽略字符，任何字符串都「包含」它）
         Assert.Equal(0, run.ExitCode);
     }
 }
