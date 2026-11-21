@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * IDE 底部：终端 / 日志 / Agent Trace。
- * - 终端：AI 执行的命令和输出（和右侧「终端」标签同一份）；
+ * - 终端：员工自己的 PowerShell + AI 跑的命令（含后台命令），像 VS Code 那样左边画面、右边列表；
  * - 日志：这个对话里每次工具调用的完整输出，按时间排成一条流，方便复制、对照；
  * - Agent Trace：AI 这一轮每一步做了什么（工具、对象、结果），点「完整链路」看每一步的耗时和 token。
  */
@@ -9,7 +9,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Loader2, Route, ShieldAlert, X } from '@lucide/vue'
 import { currentState, openTrace } from '../../store'
-import TerminalTab from '../../components/TerminalTab.vue'
+import IdeTerminal from './IdeTerminal.vue'
 import { clampBottom, ide } from './store'
 
 const { t } = useI18n()
@@ -87,7 +87,7 @@ function pick(tab: (typeof tabs)[number]) {
       </button>
     </div>
     <div v-if="ide.bottomOpen" class="content">
-      <TerminalTab v-if="ide.bottomTab === 'terminal'" class="embedded" />
+      <IdeTerminal v-if="ide.bottomTab === 'terminal'" />
       <pre v-else-if="ide.bottomTab === 'logs'" ref="logBox" class="logs">{{ logs || t('ui.code.noLogs') }}</pre>
       <ol v-else class="trace">
         <li v-for="(s, i) in steps" :key="s.callId" :class="s.state">

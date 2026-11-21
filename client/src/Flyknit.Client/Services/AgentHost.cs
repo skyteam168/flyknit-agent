@@ -91,6 +91,9 @@ public sealed partial class AgentHost : IDisposable
     /// <summary>编码模式：右侧「代码」标签读写工作区文件（Core/Code/CodeFeature）。</summary>
     public Flyknit.Core.Code.CodeFeature Code { get; }
 
+    /// <summary>编码模式底部终端里员工自己的 PowerShell（Core/Terminal，开发者工具开着时可用）。</summary>
+    public Flyknit.Core.Terminal.UserTerminalFeature UserTerminals { get; }
+
     /// <summary>功能模块注册的界面桥方法（界面桥先查这里，查不到再走自己的）。</summary>
     public Flyknit.Core.Hosting.BridgeModuleRegistry BridgeModules { get; }
 
@@ -402,7 +405,12 @@ public sealed partial class AgentHost : IDisposable
         });
         Notices = new Flyknit.Core.Notices.NoticeFeature(Server, evt => Events?.Post(evt), message => Log.Warn(message));
         Code = new Flyknit.Core.Code.CodeFeature(WorkspaceOf, message => Log.Info(message));
-        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code);
+        UserTerminals = new Flyknit.Core.Terminal.UserTerminalFeature(
+            WorkspaceOf,
+            () => OperatingSystem.IsWindows() && Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
+            evt => Events?.Post(evt),
+            message => Log.Info(message));
+        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code).Register(UserTerminals);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -1803,6 +1811,7 @@ public sealed partial class AgentHost : IDisposable
 
     public void Dispose()
     {
+        UserTerminals.Dispose();
         _watchCts.Cancel();
         foreach (var cts in _runs.Values)
         {

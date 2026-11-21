@@ -361,7 +361,7 @@ onBeforeUnmount(() => {
         <Home v-else ref="home" />
         <!-- 编码模式（AI IDE，features/code）：左边项目 / 技能 / MCP / 知识，中间 Monaco，底部终端 / 日志 / Trace；
              右边就是上面的对话（.ide-agent 用 order 排到最右） -->
-        <CodeWorkspace v-if="ideActive && inConversation" class="ide-main" @use-skill="useSkill" @use-text="useExample" />
+        <CodeWorkspace v-if="ideActive && inConversation" class="ide-main" @use-skill="useSkill" @use-text="useExample" @insert-text="(x: string) => composer?.appendBlock(x)" />
         <!-- 右侧面板：计划 / 预览 / 改动 / 浏览器 / 会话信息，用标签切换 -->
         <RightPanel v-if="showRight && !ideActive" />
       </div>

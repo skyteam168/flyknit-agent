@@ -52,6 +52,8 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
 | 质检周报 | 品管部 | 12 月 |
 `
 /** 编码模式的开发预览：工作区里的几个代码文件（相对路径 → 内容） */
+  let mockPtyCount = 0
+  const mockPtyLine = new Map<string, string>()
   const mockCode = new Map<string, string>([
     ['src\\report.py', "# -*- coding: utf-8 -*-\n\"\"\"汇总 D:\\日报 下的产量日报，按日期排好写进汇总表\"\"\"\nfrom datetime import datetime\n\ndef parse_date(text):\n    return datetime.strptime(text, '%Y/%m/%d')\n\n\ndef summarize(rows):\n    out = {}\n    for row in rows:\n        day = parse_date(row['日期'])\n        out.setdefault(day, 0)\n        out[day] += int(row['产量'])\n    return dict(sorted(out.items()))\n"],
     ['src\\mail_stats.py', "import re, collections\n\nEMAIL_RE = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}')\n\ndef count_senders(lines):\n    return collections.Counter(m.group(0) for l in lines for m in EMAIL_RE.finditer(l))\n"],
@@ -1130,11 +1132,16 @@ export function createMockHost(): HostTransport {
       await stream(id, lead)
       for (const [name, summary, output, changed] of steps) {
         const callId = uid()
-        list.push({ id: uid(), role: 'assistant', content: '', toolCalls: [{ id: callId, name, arguments: JSON.stringify({ path: changed ?? '' }) }], createdAt: now() })
-        emit({ type: 'tool.started', conversationId: id, callId, name, summary, args: '{}', risk: 'auto' })
+        const args = JSON.stringify(
+          changed
+            ? { path: 'D:\\工作区\\' + changed, old_text: "def parse_date(text):\n    return datetime.strptime(text, '%Y/%m/%d')", new_text: "def parse_date(text):\n    # 2026/10/3 和 2026-10-03 两种写法都认\n    return datetime.strptime(text.replace('/', '-'), '%Y-%m-%d')" }
+            : { path: '' },
+        )
+        list.push({ id: uid(), role: 'assistant', content: '', toolCalls: [{ id: callId, name, arguments: args }], createdAt: now() })
+        emit({ type: 'tool.started', conversationId: id, callId, name, summary, args, risk: 'auto' })
         await sleep(500)
         if (changed) {
-          mockCode.set(changed, (mockCode.get(changed) ?? '').replace("datetime.strptime(text, '%Y/%m/%d')", "datetime.strptime(text.replace('/', '-'), '%Y-%m-%d')"))
+          mockCode.set(changed, (mockCode.get(changed) ?? '').replace("    return datetime.strptime(text, '%Y/%m/%d')", "    # 2026/10/3 和 2026-10-03 两种写法都认\n    return datetime.strptime(text.replace('/', '-'), '%Y-%m-%d')"))
         }
         emit({ type: 'tool.finished', conversationId: id, callId, ok: true, output, decision: 'auto' })
         if (changed) emit({ type: 'code.changed', conversationId: id, paths: ['D:\\工作区\\' + changed], tool: name })
@@ -2260,6 +2267,46 @@ export function createMockHost(): HostTransport {
       case 'document.open':
         if (!mockDocs.has(p.path)) mockDocs.set(p.path, (mockPreviews[p.path] as { text?: string } | undefined)?.text ?? '# ' + String(p.path).split('\\').pop() + '\n')
         return { ok: true }
+      // 开发预览：员工自己的 PowerShell（真的在宿主里是 Windows 伪控制台，这里只回显几条常用命令）
+      case 'pty.open': {
+        const id = 'pty' + (++mockPtyCount)
+        mockPtyLine.set(id, '')
+        setTimeout(() => emit({ type: 'pty.output', id, data: 'Windows PowerShell\r\n\r\n\x1b[32mPS D:\\工作区>\x1b[0m ' }), 120)
+        return { ok: true, id, title: 'PowerShell ' + mockPtyCount, cwd: 'D:\\工作区', message: '' }
+      }
+      case 'pty.write': {
+        const id = String(p.id)
+        const data = String(p.data ?? '')
+        let line = mockPtyLine.get(id) ?? ''
+        let out = ''
+        for (const ch of data) {
+          if (ch === '\r') {
+            const cmd = line.trim()
+            out += '\r\n'
+            if (cmd === 'dir' || cmd === 'ls') out += '\r\n    目录: D:\\工作区\r\n\r\nMode   LastWriteTime     Name\r\n----   -------------     ----\r\nd----  2026/11/21 10:02  src\r\nd----  2026/11/21 10:02  tests\r\n-a---  2026/11/20 18:40  README.md\r\n\r\n'
+            else if (cmd === 'git status') out += 'On branch main\r\n\x1b[31m\tmodified:   src/report.py\x1b[0m\r\n'
+            else if (cmd) out += '\x1b[90m（开发预览：这里不真的执行「' + cmd + '」）\x1b[0m\r\n'
+            out += '\x1b[32mPS D:\\工作区>\x1b[0m '
+            line = ''
+          } else if (ch === '\x7f') {
+            if (line) {
+              line = line.slice(0, -1)
+              out += '\b \b'
+            }
+          } else if (ch >= ' ') {
+            line += ch
+            out += ch
+          }
+        }
+        mockPtyLine.set(id, line)
+        if (out) emit({ type: 'pty.output', id, data: out })
+        return true
+      }
+      case 'pty.resize':
+        return true
+      case 'pty.close':
+        mockPtyLine.delete(String(p.id))
+        return true
       case 'code.load': {
         await sleep(80)
         const rel = String(p.path ?? '').replace(/\//g, '\\')

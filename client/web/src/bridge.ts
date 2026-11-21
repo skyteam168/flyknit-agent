@@ -387,6 +387,12 @@ class Bridge {
   saveCommands = (items: SlashCommand[]) => this.call<{ ok: boolean; message: string }>('commands.save', { items })
   /** 右侧「文件」标签：列工作区里的一个文件夹（path 是相对工作区的路径，空 = 工作区本身） */
   listWorkspace = (conversationId: string, path: string) => this.call<WorkspaceListing>('workspace.list', { conversationId, path })
+  /** 编码模式底部终端：员工自己的 PowerShell（宿主 pty.*，开发者工具开着、Windows 上才能开） */
+  openPty = (conversationId: string, cols: number, rows: number) =>
+    this.call<{ ok: boolean; id: string; title: string; cwd?: string; message: string }>('pty.open', { conversationId, cols, rows })
+  writePty = (id: string, data: string) => this.call<boolean>('pty.write', { id, data })
+  resizePty = (id: string, cols: number, rows: number) => this.call<boolean>('pty.resize', { id, cols, rows })
+  closePty = (id: string) => this.call<boolean>('pty.close', { id })
   /** 编码模式：读工作区里的一个文件（只读工作区里的；二进制、太大的只读） */
   loadCode = (conversationId: string, path: string) => this.call<CodeFile>('code.load', { conversationId, path })
   /** 编码模式：保存。version 是打开时的版本，期间被 AI 改过返回 conflict（不覆盖） */

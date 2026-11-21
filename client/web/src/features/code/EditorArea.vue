@@ -8,11 +8,30 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Bot, Code2, Save, X } from '@lucide/vue'
-import { current, toast } from '../../store'
+import { current, send, toast } from '../../store'
 import MonacoView from './MonacoView.vue'
-import { acceptDiff, activeTab, closeCodeTab, currentCode, isDirty, keepMine, saveCodeTab, takeTheirs } from './store'
+import { acceptDiff, activeTab, closeCodeTab, currentCode, isDirty, keepMine, saveCodeTab, selectionMarkdown, takeTheirs } from './store'
+import type { CodeSelection } from './store'
 
+const emit = defineEmits<{ insertText: [text: string] }>()
 const { t } = useI18n()
+
+/** Ctrl+L：选中的代码带上文件和行号放进输入框，员工接着说要做什么 */
+function addToChat(sel: CodeSelection) {
+  emit('insertText', selectionMarkdown(sel, t('ui.code.snippetHeader', { path: sel.path, from: sel.from, to: sel.to })))
+}
+
+/** Ctrl+K：在编辑器里直接说怎么改，交给 AI（只改选中的这几行） */
+async function quickEdit(sel: CodeSelection, instruction: string) {
+  const text = selectionMarkdown(sel, t('ui.code.quickEditPrompt', { path: sel.path, from: sel.from, to: sel.to, instruction }))
+  if (await send(text, { noSplit: true })) {
+    toast(t('ui.code.quickEditSent'))
+  } else {
+    // AI 正在做别的：先放进输入框，等它做完再发（或者员工自己插话）
+    emit('insertText', text)
+    toast(t('ui.code.quickEditBusy'))
+  }
+}
 const tabs = computed(() => currentCode.value?.tabs ?? [])
 
 async function save() {
@@ -77,7 +96,7 @@ const reasonText = computed(() => {
         <button type="button" class="primary" @click="acceptDiff(activeTab)">{{ t('ui.code.closeDiff') }}</button>
       </div>
       <div v-else-if="activeTab.readOnly" class="banner">{{ reasonText }}</div>
-      <MonacoView :tab="activeTab" @save="save" />
+      <MonacoView :tab="activeTab" @save="save" @add-to-chat="addToChat" @quick-edit="quickEdit" />
     </template>
     <div v-else class="empty">
       <Code2 :size="34" />

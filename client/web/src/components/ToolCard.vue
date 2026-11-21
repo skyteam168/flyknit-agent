@@ -5,6 +5,7 @@ import { Ban, Check, ChevronDown, CircleAlert, Hand, LoaderCircle, Puzzle, Shiel
 import type { ToolActivity } from '../types'
 import { mcpToolInfo, mcpToolLabel } from '../store'
 import VendorIcon from './VendorIcon.vue'
+import EditDiff from '../features/code/EditDiff.vue'
 
 const props = defineProps<{ tool: ToolActivity; conversationId?: string }>()
 const { t, te } = useI18n()
@@ -54,6 +55,8 @@ const expandable = computed(() => !quiet.value && (!!props.tool.output || (!!mcp
       <ChevronDown v-if="expandable" :size="15" class="chev" :class="{ up: open }" />
     </button>
 
+    <!-- AI 改文件：直接显示改了哪几行（features/code，参照 Cursor） -->
+    <EditDiff v-if="['edit_file', 'multi_edit', 'write_file'].includes(tool.name)" :name="tool.name" :args="tool.args" :state="tool.state" />
     <div v-if="open && mcp" class="mcp-detail">
       <section>
         <h4>{{ t('tool.mcpArgs') }}</h4>

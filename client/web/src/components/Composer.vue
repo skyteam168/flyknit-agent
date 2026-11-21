@@ -49,6 +49,7 @@ import { currentTeam } from '../features/teams/store'
 import AskBar from './AskBar.vue'
 import CompactingCard from './CompactingCard.vue'
 import PrivacyNotice from '../features/privacy/PrivacyNotice.vue'
+import RunSummary from '../features/code/RunSummary.vue'
 import UsageWarning from './UsageWarning.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -604,7 +605,18 @@ function focusInput() {
   box.value?.focus()
 }
 
-defineExpose({ fill, useSkill, focusInput, preview })
+/** 在已经写的内容后面接上一段（编码模式「添加到对话」：选中的代码带文件和行号） */
+function appendBlock(value: string) {
+  previewText.value = ''
+  text.value = text.value.trim() ? text.value.replace(/\s+$/, '') + '\n\n' + value : value
+  void nextTick(() => {
+    resize()
+    box.value?.focus()
+    box.value?.setSelectionRange(text.value.length, text.value.length)
+  })
+}
+
+defineExpose({ fill, appendBlock, useSkill, focusInput, preview })
 
 // ---------- 增强提示词：AI 把这句话改写清楚，原文留着可以一键恢复 ----------
 const enhancing = ref(false)
@@ -706,6 +718,8 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
     <SplitOffer />
     <CompactingCard v-if="!props.home" />
     <PrivacyNotice v-if="!props.home" />
+    <!-- 后台终端、这一轮改了几个文件（features/code，参照 Cursor） -->
+    <RunSummary v-if="!props.home" />
     <BatchConfirm v-if="!props.home" />
     <ConfirmBar v-if="!props.home" />
     <AskBar v-if="!props.home" />
