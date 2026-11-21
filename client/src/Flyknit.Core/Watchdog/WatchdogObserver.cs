@@ -14,7 +14,6 @@ public sealed class WatchdogObserver(IAgentObserver inner, ProgressSignals signa
     public void OnContent(string delta) => inner.OnContent(delta);
     public void OnReasoning(string delta) => inner.OnReasoning(delta);
     public void OnSources(IReadOnlyList<WebSource> sources) => inner.OnSources(sources);
-    public void OnMasked(IReadOnlyDictionary<string, int> counts) => inner.OnMasked(counts);
 
     public void OnAssistantMessage(ChatMessage message)
     {

@@ -337,6 +337,9 @@ public sealed partial class AgentHost : IDisposable
         // 上次留下的落盘工具结果：超过 7 天的清掉（后台做，不拖慢启动）
         _ = Task.Run(() => ToolOutputSpill.Prune(ToolOutputRoot));
         Server = new FlyknitServerClient(ProxyFactory.CreateHttpClient(settings), settings.ServerUrl, settings.DeviceToken);
+        // 数据保护提示（web features/privacy）：主对话、专家、子代理、团队成员发的请求都带所属对话的 id，
+        // 在网关这一层统一发，不用每种子任务的观察者各接一遍。只有类型和数量
+        Server.Masked += (conversationId, counts) => Events?.Post(new { type = "privacy.masked", conversationId, counts });
         Store = new ConversationStore(AppPaths.Database);
         // 任务账本（VNext 第 1 期）：上次没收尾的任务标成中断，升级前没跑完的对话补成任务
         Ledger = new Flyknit.Core.Tasks.TaskLedger(Store.Tasks, (what, ex) => Log.Warn(what, ex));
@@ -1962,10 +1965,6 @@ public sealed partial class AgentHost : IDisposable
                 conversationId = _id,
                 sources = sources.Select(s => new { title = s.Title, url = s.Url, snippet = s.Snippet }).ToList(),
             });
-
-        // 数据保护提示（web features/privacy）：只有类型和数量，界面上显示「已换成占位符，任务照常进行」
-        public void OnMasked(IReadOnlyDictionary<string, int> counts) =>
-            _events.Post(new { type = "privacy.masked", conversationId = _id, counts });
 
         public void OnAssistantMessage(ChatMessage message) =>
             _events.Post(new { type = "chat.message", conversationId = _id, message = MessageDto.From(message) });

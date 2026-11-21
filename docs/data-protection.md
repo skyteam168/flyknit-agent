@@ -24,7 +24,8 @@
    - 没有替换时一个字节都不动，原样转发。
 4. **不拦截，只提示**：一律换成占位符后照常发出。响应头 `X-Flyknit-Masked`（总数）和
    `X-Flyknit-Masked-Counts`（URL 编码的 JSON，如 `{"email":28}`，只有数量）告诉员工端换了什么；
-   员工端（`IStreamSink.OnMasked` → 事件 `privacy.masked` → web `features/privacy`）在输入框上方显示一条醒目提示，
+   员工端（网关客户端 `FlyknitServerClient.Masked` → 事件 `privacy.masked` → web `features/privacy`）在输入框上方显示一条醒目提示；
+   专家、子代理、团队成员发的请求带所属对话的 id，同样会提示，
    任务不停。以前的「发现就拦下」档（`dlp_block`）已去掉：员工看到的是「调用模型失败」、任务停在半路，点继续还是失败；
    数据库里留着的旧值读设置时会被丢掉，不起作用。
 5. **记录**：`dlp_events` 只记电脑、场景、处理方式、各类型数量，不记原值和对照表。

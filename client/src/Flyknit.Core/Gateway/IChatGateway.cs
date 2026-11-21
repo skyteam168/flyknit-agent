@@ -137,14 +137,6 @@ public interface IStreamSink
     void OnSources(IReadOnlyList<WebSource> sources)
     {
     }
-
-    /// <summary>
-    /// 服务端把这次要发给模型的内容里的敏感信息换成了占位符（各类型几处）。回答照常回来、任务不停，
-    /// 界面据此给员工一条醒目提示。流开始前由服务端一次下发。
-    /// </summary>
-    void OnMasked(IReadOnlyDictionary<string, int> counts)
-    {
-    }
 }
 
 public interface IChatGateway
