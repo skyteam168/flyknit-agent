@@ -2,7 +2,7 @@
 /**
  * 数据保护（docs/data-protection.md）：发给外部模型前的脱敏。
  * - 开关在安全中心（数据脱敏三项），可以按部门、按电脑设置；
- * - 这里看最近换掉 / 拦下了多少（只有数量，没有原值）；
+ * - 这里看最近换掉了多少（只有数量，没有原值）；
  * - 「试一试」：贴一段文字，看会被换成什么（不发给任何模型、不记录）。
  */
 import { computed, onMounted, ref } from 'vue'
@@ -87,12 +87,10 @@ async function tryIt() {
           </template>
           <div class="stats">
             <div><b>{{ total('masked') }}</b><span>处换成占位符</span><small>{{ summary?.requests.masked ?? 0 }} 次请求</small></div>
-            <div class="blocked"><b>{{ total('blocked') }}</b><span>处被拦下没发</span><small>{{ summary?.requests.blocked ?? 0 }} 次请求</small></div>
           </div>
-          <el-table :data="kinds.map((k) => ({ k, masked: summary?.totals.masked?.[k] ?? 0, blocked: summary?.totals.blocked?.[k] ?? 0 }))" size="small">
+          <el-table :data="kinds.map((k) => ({ k, masked: summary?.totals.masked?.[k] ?? 0 }))" size="small">
             <el-table-column label="类型"><template #default="{ row }">{{ label(row.k) }}</template></el-table-column>
             <el-table-column prop="masked" label="已替换" width="100" />
-            <el-table-column prop="blocked" label="已拦下" width="100" />
           </el-table>
         </el-card>
       </el-col>
@@ -130,7 +128,7 @@ async function tryIt() {
         <el-table-column prop="machine_name" label="电脑" />
         <el-table-column prop="scene" label="场景" width="110" />
         <el-table-column label="处理" width="100">
-          <template #default="{ row }"><el-tag :type="row.action === 'blocked' ? 'danger' : 'success'" size="small">{{ row.action === 'blocked' ? '拦下' : '已替换' }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="row.action === 'blocked' ? 'danger' : 'success'" size="small">{{ row.action === 'blocked' ? '拦下（旧版）' : '已替换' }}</el-tag></template>
         </el-table-column>
         <el-table-column label="明细"><template #default="{ row }">{{ fmtCounts(row.counts) }}</template></el-table-column>
       </el-table>
@@ -181,9 +179,6 @@ async function tryIt() {
 .stats b {
   font-size: 26px;
   color: var(--el-color-success);
-}
-.stats .blocked b {
-  color: var(--el-color-danger);
 }
 .stats small {
   color: var(--el-text-color-secondary);

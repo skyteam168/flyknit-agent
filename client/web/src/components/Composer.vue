@@ -48,6 +48,7 @@ import BatchConfirm from './BatchConfirm.vue'
 import { currentTeam } from '../features/teams/store'
 import AskBar from './AskBar.vue'
 import CompactingCard from './CompactingCard.vue'
+import PrivacyNotice from '../features/privacy/PrivacyNotice.vue'
 import UsageWarning from './UsageWarning.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -704,6 +705,7 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
   <div class="composer-wrap" :class="{ home: props.home }">
     <SplitOffer />
     <CompactingCard v-if="!props.home" />
+    <PrivacyNotice v-if="!props.home" />
     <BatchConfirm v-if="!props.home" />
     <ConfirmBar v-if="!props.home" />
     <AskBar v-if="!props.home" />

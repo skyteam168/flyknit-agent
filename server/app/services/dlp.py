@@ -97,8 +97,8 @@ class Policy:
     enabled: bool = False
     #: 手机号、邮箱也换（业务邮件、供应商电话多的部门可以关）
     contacts: bool = True
-    #: 有身份证、银行卡、手机号、邮箱时直接拦下不发，而不是换成占位符
-    block: bool = False
+    # 以前有「发现就拦下不发」的档（dlp_block）：员工看到的是「调用模型失败」，任务停在半路、点继续还是失败。
+    # 现在一律换成占位符兜底，员工端显示一条提示（X-Flyknit-Masked-Counts），任务照常做下去。
 
     @classmethod
     def from_security(cls, values: dict[str, Any]) -> "Policy":
@@ -107,7 +107,7 @@ class Policy:
             value = item.get("value") if isinstance(item, dict) else item
             return bool(value) if value is not None else default
 
-        return cls(enabled=v("dlp_enabled", False), contacts=v("dlp_contacts", True), block=v("dlp_block", False))
+        return cls(enabled=v("dlp_enabled", False), contacts=v("dlp_contacts", True))
 
 
 # ---------- 替换 ----------
@@ -220,8 +220,6 @@ def with_note(messages: list[Any]) -> list[Any]:
 class Outcome:
     body: dict[str, Any]
     vault: Vault
-    #: 拦截时给员工看的话；None 表示放行
-    blocked: str | None = None
 
 
 def describe(counts: Counter) -> str:
@@ -237,12 +235,6 @@ def protect(body: dict[str, Any], policy: Policy) -> Outcome:
     messages = mask_messages(body["messages"], vault, policy)
     if vault.total == 0:
         return Outcome(body, vault)
-    personal = Counter({k: n for k, n in vault.counts.items() if k != SECRET_LABEL})
-    if policy.block and sum(personal.values()):
-        return Outcome(body, vault, blocked=(
-            f"要发给模型的内容里有{describe(personal)}，按公司规定不能发给外部模型，这次没有发送。"
-            "请去掉这些内容（比如先删掉表格里的身份证、银行卡列）再试，或联系 IT。"
-        ))
     if not vault.empty:
         messages = with_note(messages)
     return Outcome({**body, "messages": messages}, vault)

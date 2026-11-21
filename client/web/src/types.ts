@@ -1070,6 +1070,8 @@ export type HostEvent =
   | { type: 'team.record'; conversationId: string; record: TeamRunRecord }
   | { type: 'team.grant'; conversationId: string; runId: string; labels: string[]; granted: boolean }
   | { type: 'notices.changed'; unread: number; supported: boolean; popup: string | null }
+  /** 数据保护：服务端把发给模型的内容里的敏感信息换成了占位符（只有类型和数量，没有原值） */
+  | { type: 'privacy.masked'; conversationId: string; counts: Record<string, number> }
   | { type: 'team.member'; conversationId: string; runId: string; expertId: string; status: TeamMemberState; note: string; subtaskId: string; callId: string }
   | ({ type: 'team.board'; conversationId: string; runId: string } & TeamBoardItem)
   | { type: 'team.round'; conversationId: string; runId: string; results: { expertId: string; status: string; delivery: string; retries: number }[] }

@@ -127,7 +127,8 @@ public sealed class SseAccumulator
         }
     }
 
-    public ChatTurn Build(string? modelName = null, int contextLength = 0, IReadOnlyList<WebSource>? sources = null)
+    public ChatTurn Build(string? modelName = null, int contextLength = 0, IReadOnlyList<WebSource>? sources = null,
+        IReadOnlyDictionary<string, int>? masked = null)
     {
         var calls = _calls.Values
             .Where(c => c.Name.Length > 0)
@@ -146,6 +147,7 @@ public sealed class SseAccumulator
             Usage = Usage,
             ContextLength = contextLength,
             Sources = sources ?? Array.Empty<WebSource>(),
+            Masked = masked ?? ChatTurn.EmptyMasked,
         };
     }
 

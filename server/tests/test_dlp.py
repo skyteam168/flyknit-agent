@@ -4,12 +4,13 @@
 - 识别靠校验压低误判：身份证校验码、银行卡 Luhn；18 位订单号这类不换；
 - 默认关，关着时请求原样转发；
 - 开着时上游只见占位符；非流式、流式（占位符被拆在两段里）、工具调用参数都能还原；
-- 拦截档：不发、给员工看原因；
+- 不拦截：一律换成占位符发出，响应头带各类型数量，员工端据此提示，任务不停；
 - 只记数量，日志里没有原值；管理端统计和试一试。
 """
 
 import json
 import logging
+from urllib.parse import unquote
 
 import httpx
 import pytest
@@ -167,22 +168,25 @@ async def test_streaming_restores_placeholders_split_across_chunks(client, devic
 
 
 @respx.mock
-async def test_block_mode_does_not_send(client, device_headers):
+async def test_never_blocks_and_tells_the_client_what_was_masked(client, device_headers):
+    """以前的「发现就拦下」档会让员工看到「调用模型失败」、任务停住；现在一律换成占位符照常发出。
+    数据库里留着旧的 dlp_block=true 也不起作用（未知键在读设置时丢掉）。"""
     await setup_models(client)
-    await dlp_on(client, dlp_block=True)
-    route = respx.post(UPSTREAM).mock(return_value=httpx.Response(200, json={"choices": []}))
-    r = await client.post("/api/v1/chat/completions", headers=device_headers, json=chat_body(f"身份证 {ID}"))
-    assert r.status_code == 400
-    err = r.json()["error"]
-    assert err["type"] == "sensitive_data_blocked" and "身份证 1 处" in err["message"]
-    assert ID not in err["message"]
-    assert not route.called
+    r = await client.put("/api/v1/admin/security", headers=ADMIN,
+                         json={"values": {"dlp_enabled": True, "dlp_block": True}, "locks": {}})
+    assert r.status_code == 200, r.text
+    route = respx.post(UPSTREAM).mock(return_value=httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "好"}}]}))
+    emails = " ".join(f"u{i}@corp.cn" for i in range(28))
+    r = await client.post("/api/v1/chat/completions", headers=device_headers, json=chat_body(f"身份证 {ID}，邮箱 {emails}"))
+    assert r.status_code == 200, r.text
+    sent = route.calls.last.request.content.decode()
+    assert ID not in sent and "u0@corp.cn" not in sent and "[邮箱_28]" in json.loads(sent)["messages"][1]["content"]
+    assert r.headers["x-flyknit-masked"] == "29"
+    counts = json.loads(unquote(r.headers["x-flyknit-masked-counts"]))
+    assert counts == {"id_card": 1, "email": 28}
+    assert ID not in r.headers["x-flyknit-masked-counts"]              # 头里只有数量
     async with db.get_sessionmaker()() as s:
-        assert (await s.scalars(sa.select(DlpEvent))).one().action == "blocked"
-    # 只有密码这类：照常隐藏后发出（不拦）
-    r = await client.post("/api/v1/chat/completions", headers=device_headers, json=chat_body("密码是Abc12345"))
-    assert r.status_code == 200
-    assert "Abc12345" not in route.calls.last.request.content.decode()
+        assert (await s.scalars(sa.select(DlpEvent))).one().action == "masked"
 
 
 @respx.mock

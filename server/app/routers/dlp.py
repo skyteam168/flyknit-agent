@@ -1,6 +1,6 @@
 """
 数据脱敏（docs/data-protection.md）的管理端接口：看统计、试一段文字。
-开关在安全中心（dlp_enabled / dlp_contacts / dlp_block），按全厂 → 部门 → 单台电脑生效。
+开关在安全中心（dlp_enabled / dlp_contacts），按全厂 → 部门 → 单台电脑生效。
 统计只有数量，没有原值。
 """
 
