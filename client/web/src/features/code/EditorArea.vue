@@ -4,15 +4,19 @@
  * - AI 改过的文件显示对比视图，上面一条「AI 改了这个文件」，看完点「收起对比」；
  * - 员工有没保存的修改时 AI 也改了：不动员工的内容，让员工选「用 AI 的」或「用我的」；
  * - Ctrl+S 保存；只读文件（二进制、太大、链接到工作区外）说明原因。
+ * - 标签栏参照 VS Code / Cursor：标签多了横向滚动（滚轮也能滚），当前标签自动滚到看得见的地方；
+ *   右边只留「保存」（有没保存的修改时）和「…」：「…」里列出没显示出来的标签、跟随 AI、在 VS Code 中打开、关闭其他 / 已保存 / 全部；
+ *   标签上右键：关闭、关闭其他、关闭右侧、关闭已保存、复制路径。
  */
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Bot, Code2, ExternalLink, FolderGit2, Save, X } from '@lucide/vue'
+import { Bot, Check, Code2, ExternalLink, FolderGit2, MoreHorizontal, Save, X } from '@lucide/vue'
 import { bridge } from '../../bridge'
+import Popover from '../../components/Popover.vue'
 import { current, send, toast } from '../../store'
 import MonacoView from './MonacoView.vue'
 import { acceptDiff, activeTab, closeCodeTab, currentCode, isDirty, keepMine, keepTurn, narrowToProject, pendingTurnFor, projects, saveCodeTab, selectionMarkdown, takeTheirs, undoTurn } from './store'
-import type { CodeSelection } from './store'
+import type { CodeSelection, CodeTab } from './store'
 
 const emit = defineEmits<{ insertText: [text: string] }>()
 const { t } = useI18n()
@@ -50,6 +54,96 @@ function close(path: string) {
   if (isDirty(tab) && !window.confirm(t('ui.code.closeDirty', { name: tab.name }))) return
   closeCodeTab(id, path)
 }
+
+/** 一次关几个标签：有没保存的先问一次 */
+function closeMany(list: CodeTab[]) {
+  const id = current.value?.id
+  if (!id || list.length === 0) return
+  const dirty = list.filter(isDirty).length
+  if (dirty > 0 && !window.confirm(t('ui.code.tabs.closeDirtyMany', { n: dirty }))) return
+  for (const tab of list) closeCodeTab(id, tab.path)
+}
+const closeOthers = (keep: CodeTab) => closeMany(tabs.value.filter((x) => x !== keep))
+const closeRight = (from: CodeTab) => closeMany(tabs.value.slice(tabs.value.indexOf(from) + 1))
+const closeSaved = () => closeMany(tabs.value.filter((x) => !isDirty(x)))
+const closeAll = () => closeMany([...tabs.value])
+
+// ---------- 标签多了：滚动、看不见的标签收进「…」 ----------
+
+const strip = ref<HTMLElement>()
+/** 没完整显示出来的标签（被挤到可视区域外面的） */
+const hidden = ref<string[]>([])
+function measure() {
+  const el = strip.value
+  if (!el) return
+  const box = el.getBoundingClientRect()
+  hidden.value = [...el.querySelectorAll<HTMLElement>('.tab')]
+    .filter((x) => {
+      const r = x.getBoundingClientRect()
+      return r.left < box.left - 1 || r.right > box.right + 1
+    })
+    .map((x) => x.dataset.path ?? '')
+}
+const hiddenTabs = computed(() => hidden.value.map((p) => tabs.value.find((x) => x.path === p)).filter((x): x is CodeTab => !!x))
+
+function reveal(path: string) {
+  void nextTick(() => {
+    const el = strip.value?.querySelector<HTMLElement>(`.tab[data-path="${CSS.escape(path)}"]`)
+    el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    measure()
+  })
+}
+function activate(path: string) {
+  if (!currentCode.value) return
+  currentCode.value.active = path
+  reveal(path)
+}
+/** 竖着滚滚轮也能横着翻标签（VS Code 一样） */
+function onWheel(e: WheelEvent) {
+  const el = strip.value
+  if (!el || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return
+  el.scrollLeft += e.deltaY
+  e.preventDefault()
+}
+
+watch(() => currentCode.value?.active, (path) => path && reveal(path))
+watch(() => tabs.value.map((x) => x.path).join('|'), () => void nextTick(measure))
+let resize: ResizeObserver | null = null
+onMounted(() => {
+  resize = new ResizeObserver(measure)
+  if (strip.value) resize.observe(strip.value)
+  measure()
+})
+onBeforeUnmount(() => {
+  resize?.disconnect()
+  document.removeEventListener('mousedown', closeMenu)
+})
+
+// ---------- 标签右键菜单 ----------
+
+const menu = ref<{ tab: CodeTab; x: number; y: number } | null>(null)
+function openMenu(e: MouseEvent, tab: CodeTab) {
+  menu.value = { tab, x: Math.min(e.clientX, window.innerWidth - 200), y: e.clientY }
+  document.addEventListener('mousedown', closeMenu)
+}
+function closeMenu(e?: MouseEvent) {
+  if (e && (e.target as HTMLElement).closest?.('.tab-menu')) return
+  menu.value = null
+  document.removeEventListener('mousedown', closeMenu)
+}
+function menuDo(fn: () => void) {
+  fn()
+  closeMenu()
+}
+async function copyPath(tab: CodeTab) {
+  try {
+    await navigator.clipboard.writeText(tab.fullPath)
+    toast(t('ui.code.tabs.copied'))
+  } catch {
+    toast(tab.fullPath)
+  }
+}
+const dirOf = (tab: CodeTab) => tab.path.slice(0, Math.max(0, tab.path.length - tab.name.length)).replace(/[\\/]+$/, '')
 
 /** 这个文件最近一次被 AI 改、还没处理的那一轮（对比条上的「保留 / 撤销此文件」用） */
 const fileTurn = computed(() => (current.value && activeTab.value ? pendingTurnFor(current.value.id, activeTab.value.fullPath) : null))
@@ -97,31 +191,82 @@ const reasonText = computed(() => {
 
 <template>
   <section class="editor-area">
-    <div class="tabs" role="tablist">
-      <div
-        v-for="tab in tabs"
-        :key="tab.path"
-        class="tab"
-        :class="{ on: currentCode?.active === tab.path }"
-        role="tab"
-        :aria-selected="currentCode?.active === tab.path"
-        :title="tab.path"
-        @click="currentCode!.active = tab.path"
-        @auxclick.middle="close(tab.path)"
-      >
-        <span class="name">{{ tab.name }}</span>
-        <span v-if="tab.aiChanged" class="ai" :title="t('ui.code.aiChanged')"><Bot :size="11" /></span>
-        <span v-if="isDirty(tab)" class="dirty" :title="t('ui.code.unsaved')">●</span>
-        <button type="button" class="x" :aria-label="t('ui.code.close')" @click.stop="close(tab.path)"><X :size="12" /></button>
+    <div class="tabbar">
+      <div ref="strip" class="tabs" role="tablist" @wheel="onWheel" @scroll.passive="measure">
+        <div
+          v-for="tab in tabs"
+          :key="tab.path"
+          class="tab"
+          :class="{ on: currentCode?.active === tab.path }"
+          role="tab"
+          :data-path="tab.path"
+          :aria-selected="currentCode?.active === tab.path"
+          :title="tab.path"
+          @click="activate(tab.path)"
+          @auxclick.middle="close(tab.path)"
+          @contextmenu.prevent="openMenu($event, tab)"
+        >
+          <span class="name">{{ tab.name }}</span>
+          <span v-if="tab.aiChanged" class="ai" :title="t('ui.code.aiChanged')"><Bot :size="11" /></span>
+          <span v-if="isDirty(tab)" class="dirty" :title="t('ui.code.unsaved')">●</span>
+          <button type="button" class="x" :aria-label="t('ui.code.close')" @click.stop="close(tab.path)"><X :size="12" /></button>
+        </div>
       </div>
-      <span class="spacer" />
-      <label v-if="currentCode" class="follow" :title="t('ui.code.followHint')">
-        <input v-model="currentCode.follow" type="checkbox" /> {{ t('ui.code.follow') }}
-      </label>
-      <button type="button" class="save" :title="t('ui.code.vscodeHint')" @click="openVsCode"><ExternalLink :size="13" /> VS Code</button>
-      <button v-if="activeTab && !activeTab.readOnly" type="button" class="save" :disabled="!isDirty(activeTab)" :title="t('ui.code.saveHint')" @click="save">
-        <Save :size="13" /> {{ t('ui.code.save') }}
-      </button>
+      <div class="actions">
+        <button v-if="activeTab && !activeTab.readOnly && isDirty(activeTab)" type="button" class="icon" :title="t('ui.code.saveHint')" :aria-label="t('ui.code.save')" @click="save">
+          <Save :size="15" />
+        </button>
+        <Popover placement="down" align="end" :width="300">
+          <template #trigger="{ toggle, open }">
+            <button
+              type="button"
+              class="icon more"
+              :class="{ on: open }"
+              :title="hiddenTabs.length ? t('ui.code.tabs.moreHidden', { n: hiddenTabs.length }) : t('ui.code.tabs.more')"
+              :aria-label="t('ui.code.tabs.more')"
+              @click="measure(), toggle()"
+            >
+              <MoreHorizontal :size="16" />
+              <span v-if="hiddenTabs.length" class="badge">{{ hiddenTabs.length }}</span>
+            </button>
+          </template>
+          <template #default="{ close: closePop }">
+            <div class="more-menu">
+              <template v-if="hiddenTabs.length">
+                <p class="group">{{ t('ui.code.tabs.hidden', { n: hiddenTabs.length }) }}</p>
+                <button v-for="tab in hiddenTabs" :key="tab.path" type="button" class="item file" :title="tab.path" @click="activate(tab.path), closePop()">
+                  <span class="fname">{{ tab.name }}</span>
+                  <span v-if="isDirty(tab)" class="dirty">●</span>
+                  <span class="dir">{{ dirOf(tab) }}</span>
+                </button>
+                <hr />
+              </template>
+              <button v-if="currentCode" type="button" class="item" :title="t('ui.code.followHint')" @click="currentCode.follow = !currentCode.follow">
+                <span class="check"><Check v-if="currentCode.follow" :size="13" /></span>{{ t('ui.code.follow') }}
+              </button>
+              <button type="button" class="item" :title="t('ui.code.vscodeHint')" @click="openVsCode(), closePop()">
+                <span class="check"><ExternalLink :size="13" /></span>{{ t('ui.code.tabs.vscode') }}
+              </button>
+              <template v-if="tabs.length">
+                <hr />
+                <button v-if="activeTab && tabs.length > 1" type="button" class="item" @click="closeOthers(activeTab), closePop()"><span class="check" />{{ t('ui.code.tabs.closeOthers') }}</button>
+                <button type="button" class="item" @click="closeSaved(), closePop()"><span class="check" />{{ t('ui.code.tabs.closeSaved') }}</button>
+                <button type="button" class="item" @click="closeAll(), closePop()"><span class="check" />{{ t('ui.code.tabs.closeAll') }}</button>
+              </template>
+            </div>
+          </template>
+        </Popover>
+      </div>
+    </div>
+    <!-- 标签右键菜单 -->
+    <div v-if="menu" class="tab-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" role="menu">
+      <button type="button" @click="menuDo(() => close(menu!.tab.path))">{{ t('ui.code.close') }}</button>
+      <button type="button" :disabled="tabs.length < 2" @click="menuDo(() => closeOthers(menu!.tab))">{{ t('ui.code.tabs.closeOthers') }}</button>
+      <button type="button" :disabled="tabs.indexOf(menu.tab) === tabs.length - 1" @click="menuDo(() => closeRight(menu!.tab))">{{ t('ui.code.tabs.closeRight') }}</button>
+      <button type="button" @click="menuDo(closeSaved)">{{ t('ui.code.tabs.closeSaved') }}</button>
+      <button type="button" @click="menuDo(closeAll)">{{ t('ui.code.tabs.closeAll') }}</button>
+      <hr />
+      <button type="button" @click="menuDo(() => void copyPath(menu!.tab))">{{ t('ui.code.tabs.copyPath') }}</button>
     </div>
 
     <!-- 当前项目（从打开的文件往上找到 package.json / .git 之类推断）；工作区比它大时可以一键收窄 -->
@@ -164,17 +309,31 @@ const reasonText = computed(() => {
   min-width: 0;
   background: var(--cloth);
 }
-.tabs {
+.tabbar {
+  position: relative;
+  z-index: 30;
   display: flex;
   flex: none;
   align-items: stretch;
   min-height: 34px;
-  overflow-x: auto;
   border-bottom: 1px solid var(--line);
   background: var(--loom);
 }
+.tabs {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tabs:hover {
+  scrollbar-width: thin;
+}
 .tab {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 5px;
   max-width: 220px;
@@ -219,34 +378,136 @@ const reasonText = computed(() => {
   opacity: 1;
   background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
-.spacer {
-  flex: 1;
-}
-.follow {
+.actions {
   display: flex;
+  flex: none;
   align-items: center;
-  gap: 4px;
-  padding: 0 10px;
-  color: var(--ink-soft);
-  font-size: calc(12px * var(--font-scale));
-  white-space: nowrap;
+  gap: 2px;
+  padding: 0 6px;
+  border-left: 1px solid var(--line);
 }
-.save {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  align-self: center;
-  margin-right: 8px;
-  padding: 3px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--cloth);
-  color: var(--ink);
-  font-size: calc(12px * var(--font-scale));
+.icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
   cursor: pointer;
 }
-.save:disabled {
-  opacity: 0.45;
+.icon:hover,
+.icon.on {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.icon.more:has(.badge) {
+  display: flex;
+  gap: 3px;
+  width: auto;
+  padding: 0 6px 0 4px;
+}
+.badge {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--indigo);
+  color: #fff;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+}
+.more-menu {
+  display: flex;
+  flex-direction: column;
+}
+.more-menu .group {
+  margin: 2px 8px 4px;
+  color: var(--ink-faint);
+  font-size: calc(11px * var(--font-scale));
+}
+.more-menu hr,
+.tab-menu hr {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font-size: calc(12.5px * var(--font-scale));
+  text-align: left;
+  cursor: pointer;
+}
+.item:hover {
+  background: color-mix(in srgb, var(--indigo) 14%, transparent);
+}
+.item .check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  color: var(--ink-soft);
+}
+.item.file {
+  gap: 6px;
+  padding-left: 12px;
+}
+.fname {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-size: calc(11px * var(--font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.tab-menu {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--cloth);
+  box-shadow: var(--shadow-pop);
+}
+.tab-menu button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font-size: calc(12.5px * var(--font-scale));
+  text-align: left;
+  cursor: pointer;
+}
+.tab-menu button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--indigo) 14%, transparent);
+}
+.tab-menu button:disabled {
+  opacity: 0.4;
   cursor: default;
 }
 .banner {

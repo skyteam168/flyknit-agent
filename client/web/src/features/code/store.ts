@@ -110,7 +110,8 @@ export const clampBottom = (px: number) => Math.round(Math.min(Math.max(px, 120)
 export const clampAgent = (px: number) => Math.round(Math.min(Math.max(px, 320), window.innerWidth * 0.5))
 
 /** 最多同时开这么多个标签：再多就把最早的、没改过的关掉 */
-const MaxTabs = 12
+// 标签栏能横向滚动、看不见的收进「…」，关掉的标签会释放编辑器内存，所以可以多开一些
+const MaxTabs = 20
 
 /**
  * 编辑器状态（打开的文件、当前标签）按工作区存，不按任务存（参照 Cursor：编辑器属于项目，右边的 AI 任务可以随便换）：
