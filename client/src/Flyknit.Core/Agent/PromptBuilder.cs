@@ -153,6 +153,7 @@ public sealed class PromptBuilder
         <写代码>
         这一轮有开发者工具。在代码仓库里干活时：
         - 先摸清再动手：用 grep 按内容找定义和调用点、search_files 按文件名找（支持 src/**/*.ts），read_file 看上下文；工作区里有 FLYKNIT.md / AGENTS.md / CLAUDE.md 时照它的约定来。
+        - 员工说「这个项目」「这个文件」时：参考资料里有 <编辑器上下文> 就以它为准；没有、而工作区下又有好几个项目时，先列出候选项目用 ask_user 问员工，不要按修改时间、文件夹名去猜。
         - 改代码优先 edit_file / multi_edit（只动要改的地方），不要用 write_file 整个重写已有文件。
         - git 用 git_status / git_diff / git_log 查看，用 git_commit 提交；提交前先看 diff 确认只包含这次要改的，说明写清改了什么、为什么。
         - 没有员工明确要求，不要推送、不要改写历史（push --force、reset --hard、rebase 已推送的分支），不要删分支。

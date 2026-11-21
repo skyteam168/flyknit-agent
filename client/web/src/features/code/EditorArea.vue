@@ -7,11 +7,11 @@
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Bot, Code2, ExternalLink, Save, X } from '@lucide/vue'
+import { Bot, Code2, ExternalLink, FolderGit2, Save, X } from '@lucide/vue'
 import { bridge } from '../../bridge'
 import { current, send, toast } from '../../store'
 import MonacoView from './MonacoView.vue'
-import { acceptDiff, activeTab, closeCodeTab, currentCode, isDirty, keepMine, saveCodeTab, selectionMarkdown, takeTheirs } from './store'
+import { acceptDiff, activeTab, closeCodeTab, currentCode, isDirty, keepMine, narrowToProject, projects, saveCodeTab, selectionMarkdown, takeTheirs } from './store'
 import type { CodeSelection } from './store'
 
 const emit = defineEmits<{ insertText: [text: string] }>()
@@ -62,6 +62,10 @@ async function openVsCode() {
   }
 }
 
+/** 当前文件属于工作区里的某个项目、而工作区比它大（D:\\AIWORK 里的 vue3-login）：提示可以收窄 */
+const project = computed(() => (current.value ? projects[current.value.id] : undefined))
+const base = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
+
 const reasonText = computed(() => {
   const r = activeTab.value?.reason ?? ''
   return r === 'binary' || r === 'tooLarge' || r === 'outside' ? t(`ui.code.readOnly.${r}`) : r
@@ -97,6 +101,14 @@ const reasonText = computed(() => {
       </button>
     </div>
 
+    <!-- 当前项目（从打开的文件往上找到 package.json / .git 之类推断）；工作区比它大时可以一键收窄 -->
+    <div v-if="project?.projectRoot && project.narrower" class="banner project">
+      <FolderGit2 :size="14" />
+      <span>{{ t('ui.code.project.current', { name: project.projectName, workspace: base(project.workspace) }) }}</span>
+      <button type="button" class="primary" :title="t('ui.code.project.narrowHint', { path: project.projectRoot })" @click="narrowToProject(current!.id)">
+        {{ t('ui.code.project.narrow') }}
+      </button>
+    </div>
     <template v-if="activeTab">
       <div v-if="activeTab.conflict" class="banner warn">
         <span>{{ t('ui.code.conflict') }}</span>
@@ -226,6 +238,10 @@ const reasonText = computed(() => {
 }
 .banner span {
   flex: 1;
+}
+.banner.project {
+  background: var(--thread-wash);
+  color: var(--ink);
 }
 .banner.ai {
   background: var(--indigo-wash);

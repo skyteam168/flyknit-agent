@@ -397,6 +397,9 @@ class Bridge {
   writePtyRun = (conversationId: string, runId: string, data: string) => this.call<boolean>('pty.runWrite', { conversationId, runId, data })
   resizePtyRun = (conversationId: string, runId: string, cols: number, rows: number) =>
     this.call<boolean>('pty.runResize', { conversationId, runId, cols, rows })
+  /** 编码模式：告诉宿主员工现在在看什么（AI 每轮据此知道「这个项目」「这个文件」指哪个）；返回推断出的当前项目 */
+  codeFocus = (conversationId: string, focus: { activeFile: string; line: number; selectionFrom: number; selectionTo: number; openFiles: string[] }) =>
+    this.call<{ projectRoot: string | null; projectName: string; workspace: string; narrower: boolean }>('code.focus', { conversationId, ...focus })
   /** 用员工自己装的 VS Code 打开这个对话的工作区（带了文件就跳过去） */
   openInVsCode = (conversationId: string, path = '', line = 0) =>
     this.call<{ ok: boolean; message: string }>('code.openInVsCode', { conversationId, path, line })

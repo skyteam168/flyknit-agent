@@ -33,7 +33,10 @@ public sealed class CodeFeature : IBridgeModule
         _log = log;
     }
 
-    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save", "code.openInVsCode" };
+    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save", "code.openInVsCode", "code.focus" };
+
+    /// <summary>每个对话的编辑器状态（code.focus 更新，EditorContextRunExtension 每轮读）。</summary>
+    public EditorContextStore Editors { get; } = new();
 
     /// <summary>启动 VS Code（测试里换成假的）。返回 false 表示没启动起来。</summary>
     public Func<ProcessStartInfo, bool> Launch { get; init; } = psi =>
@@ -54,6 +57,8 @@ public sealed class CodeFeature : IBridgeModule
             "code.load" => await Task.Run(() => Load(conversation, path), ct),
             "code.save" => await Task.Run(() => Save(conversation, path, args.Str("text"), args.Str("version")), ct),
             "code.openInVsCode" => OpenInVsCode(conversation, path, args.Int("line") ?? 0),
+            "code.focus" => await Task.Run(() => Focus(conversation, args.Str("activeFile"), args.Int("line") ?? 0, args.Int("selectionFrom") ?? 0,
+                args.Int("selectionTo") ?? 0, args.StrList("openFiles")), ct),
             _ => null,
         };
     }
@@ -130,6 +135,35 @@ public sealed class CodeFeature : IBridgeModule
         {
             return new SaveResult(false, false, baseVersion, "", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// 界面告诉宿主员工现在在看什么（编码模式切标签、移光标时）。路径都按这个对话的工作区校验，工作区外的不收；
+    /// 什么都没开（或者退出了编码模式）时清掉。返回推断出的当前项目，界面据此提示「设为这个任务的工作区」。
+    /// </summary>
+    public object Focus(string conversationId, string activeFile, int line, int selectionFrom, int selectionTo, IReadOnlyList<string> openFiles)
+    {
+        var root = _workspaceOf(conversationId);
+        string? Inside(string rel) => root is not null && rel.Length > 0 && WorkspaceBrowser.Resolve(root, rel) is { } full && File.Exists(full) ? full : null;
+        var active = Inside(activeFile);
+        var open = openFiles.Take(30).Select(Inside).Where(f => f is not null).Select(f => f!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (root is null || active is null && open.Count == 0)
+        {
+            Editors.Set(conversationId, null);
+            return new { projectRoot = (string?)null, projectName = "", workspace = root ?? "", narrower = false };
+        }
+        var project = ProjectInsight.FindRoot(active ?? open[0], root);
+        Editors.Set(conversationId, new EditorState
+        {
+            ActiveFile = active ?? "",
+            Line = Math.Max(0, line),
+            SelectionFrom = Math.Max(0, selectionFrom),
+            SelectionTo = Math.Max(0, selectionTo),
+            OpenFiles = open,
+            ProjectRoot = project,
+        });
+        var narrower = project is not null && !string.Equals(project.TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+        return new { projectRoot = project, projectName = project is null ? "" : Path.GetFileName(project.TrimEnd(Path.DirectorySeparatorChar)), workspace = root, narrower };
     }
 
     /// <summary>

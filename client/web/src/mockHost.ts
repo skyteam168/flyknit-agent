@@ -52,6 +52,9 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
 | 质检周报 | 品管部 | 12 月 |
 `
 /** 编码模式的开发预览：工作区里的几个代码文件（相对路径 → 内容） */
+  /** 开发预览：编码模式报给宿主的编辑器状态（测试里看） */
+  const mockFocus: unknown[] = []
+  ;(window as unknown as { __mockFocus: unknown[] }).__mockFocus = mockFocus
   let mockPtyCount = 0
   const mockPtyLine = new Map<string, string>()
   const mockCode = new Map<string, string>([
@@ -60,6 +63,7 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
     ['src\\config.yaml', "source: D:\\日报\noutput: D:\\报表\\产量汇总.xlsx\nshifts:\n  - 早班\n  - 夜班\n"],
     ['tests\\test_report.py', "from src.report import parse_date\n\ndef test_slash():\n    assert parse_date('2026/10/3').day == 3\n"],
     ['README.md', '# 产量报表脚本\n\n运行：`python -m src.report`\n'],
+    ['vue3-login\\src\\App.vue', '<script setup>\nimport LoginForm from \'./components/LoginForm.vue\'\n</script>\n\n<template>\n  <LoginForm />\n</template>\n'],
     ['requirements.txt', 'openpyxl==3.1.5\npytest==8.3.3\n'],
   ])
   const mockDocs = new Map<string, string>()
@@ -2309,6 +2313,12 @@ export function createMockHost(): HostTransport {
       case 'pty.close':
         mockPtyLine.delete(String(p.id))
         return true
+      case 'code.focus': {
+        mockFocus.push(p)
+        const file = String(p.activeFile ?? '')
+        const inVue = file.toLowerCase().startsWith('vue3-login')
+        return { projectRoot: inVue ? 'D:\\工作区\\vue3-login' : file ? 'D:\\工作区' : null, projectName: inVue ? 'vue3-login' : '工作区', workspace: 'D:\\工作区', narrower: inVue }
+      }
       case 'code.openInVsCode':
         return { ok: true, message: '' }
       case 'pty.runWrite':
@@ -2700,12 +2710,14 @@ export function createMockHost(): HostTransport {
       case 'workspace.list': {
         await sleep(120)
         const tree: Record<string, [string, boolean, number][]> = {
-          '': [['src', true, 0], ['tests', true, 0], ['日报', true, 0], ['报表', true, 0], ['node_modules', true, 0], ['README.md', false, 820], ['requirements.txt', false, 64], ['说明.md', false, 2310], ['产量汇总.xlsx', false, 48120], ['汇报.pptx', false, 183400], ['run.log', false, 920]],
+          '': [['vue3-login', true, 0], ['src', true, 0], ['tests', true, 0], ['日报', true, 0], ['报表', true, 0], ['node_modules', true, 0], ['README.md', false, 820], ['requirements.txt', false, 64], ['说明.md', false, 2310], ['产量汇总.xlsx', false, 48120], ['汇报.pptx', false, 183400], ['run.log', false, 920]],
           '日报': [['8月', true, 0], ['9月', true, 0], ['2026-10-31.xlsx', false, 15320]],
           '日报\\9月': [['2026-09-30.xlsx', false, 15102], ['2026-09-29.xlsx', false, 14980]],
           '报表': [['质检周报.docx', false, 33100], ['CFT 会议发言稿.md', false, 1840]],
           'src': [['report.py', false, 1320], ['mail_stats.py', false, 2410], ['config.yaml', false, 210]],
           'tests': [['test_report.py', false, 640]],
+          'vue3-login': [['src', true, 0], ['package.json', false, 410], ['vite.config.js', false, 220]],
+          'vue3-login\\src': [['App.vue', false, 1800], ['main.js', false, 160]],
         }
         const rel = String(p.path ?? '')
         const entries = (tree[rel] ?? []).map(([name, isDir, size]) => {

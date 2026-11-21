@@ -192,6 +192,12 @@ function attachSelectionUi(ed: Monaco.editor.IStandaloneCodeEditor) {
   }
 
   ed.onDidChangeCursorSelection(() => {
+    // 光标、选中的行记在标签上：AI 每轮据此知道员工说的「这里」是哪里（store.reportFocus）
+    const sel = ed.getSelection()
+    if (sel) {
+      const to = sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel.endLineNumber
+      props.tab.cursor = { line: sel.positionLineNumber, from: sel.isEmpty() ? 0 : sel.startLineNumber, to: sel.isEmpty() ? 0 : to }
+    }
     if (editing) return
     dom.classList.remove('editing')
     showBar()
