@@ -182,7 +182,8 @@ public class UserTerminalTests
             }
             return done(Seen());
         }
-        // 像员工一样：先等 cmd 打出提示符（「...>」）再敲命令。刚启动、cmd 还没开始读输入时写进去的字会丢
+        // 像员工一样：先等 cmd 打出提示符（「...>」）再敲命令。
+        // 测试进程的标准输出是重定向的（dotnet test）：子进程要是继承了它，提示符和输出会跑到那边去、这里一直等不到（STARTF_USESTDHANDLES 防的就是这个）
         Assert.True(await WaitFor(t => t.Contains('>'), 20), "没等到提示符：" + Escape(Seen()));
         console.Write("echo flyknit-pty-ok\r");
         // 回显的命令行里有一次，命令输出又有一次

@@ -78,6 +78,10 @@ public sealed class PseudoConsole : IDisposable
             }
             var startup = new STARTUPINFOEX { lpAttributeList = attributes };
             startup.StartupInfo.cb = Marshal.SizeOf<STARTUPINFOEX>();
+            // 明确告诉子进程：标准输入输出不用继承的（全是空），一律走伪控制台。
+            // 不设的话，本程序的标准输出被重定向时（从脚本、计划任务启动，或者测试里），子进程会把输出写到那边去，
+            // 终端里只剩一个空白画面（Windows CI 上就是这样：只看到启动画面，提示符和命令输出都没了）
+            startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
             if (!CreateProcessW(null, new StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, false,
                     EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, IntPtr.Zero,
                     Directory.Exists(workingDirectory) ? workingDirectory : null, ref startup, out var pi))
@@ -177,6 +181,7 @@ public sealed class PseudoConsole : IDisposable
     // ---------- Win32 ----------
 
     private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
+    private const int STARTF_USESTDHANDLES = 0x00000100;
     private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     private const int PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016;
 
