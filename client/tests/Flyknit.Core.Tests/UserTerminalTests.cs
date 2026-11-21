@@ -149,7 +149,7 @@ public class UserTerminalTests
         {
             return; // 伪控制台是 Windows 的系统接口；CI 的 Windows 机器上会真的跑
         }
-        using var console = PseudoConsole.Start("cmd.exe /d /q", Path.GetTempPath(), 100, 30);
+        using var console = PseudoConsole.Start("cmd.exe /d", Path.GetTempPath(), 100, 30);
         var output = new StringBuilder();
         var reading = Task.Run(async () =>
         {
@@ -163,24 +163,35 @@ public class UserTerminalTests
                 }
             }
         });
-        console.Write("echo flyknit-pty-ok\r");
-        for (var i = 0; i < 300; i++)
+        string Seen()
         {
             lock (output)
             {
-                if (output.ToString().Contains("flyknit-pty-ok\r\n") || output.ToString().Split("flyknit-pty-ok").Length > 2)
-                {
-                    break;
-                }
+                return output.ToString();
             }
-            await Task.Delay(50);
         }
-        console.Write("exit\r");
-        var code = await console.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token);
-        lock (output)
+        async Task<bool> WaitFor(Func<string, bool> done, int seconds)
         {
-            Assert.Contains("flyknit-pty-ok", output.ToString());
+            for (var i = 0; i < seconds * 20; i++)
+            {
+                if (done(Seen()))
+                {
+                    return true;
+                }
+                await Task.Delay(50);
+            }
+            return done(Seen());
         }
+        // 像员工一样：先等 cmd 打出提示符（「...>」）再敲命令。刚启动、cmd 还没开始读输入时写进去的字会丢
+        Assert.True(await WaitFor(t => t.Contains('>'), 20), "没等到提示符：" + Escape(Seen()));
+        console.Write("echo flyknit-pty-ok\r");
+        // 回显的命令行里有一次，命令输出又有一次
+        var echoed = await WaitFor(t => t.Split("flyknit-pty-ok").Length > 2, 20);
+        console.Write("exit\r");
+        var code = await console.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(20)).Token);
+        Assert.True(echoed, "没看到命令输出：" + Escape(Seen()));
         Assert.Equal(0, code);
     }
+
+    private static string Escape(string text) => text.Replace("\x1b", "\\e").Replace("\r", "\\r").Replace("\n", "\\n");
 }
