@@ -679,9 +679,11 @@ public class DelegationTests : IDisposable
     {
         var h = new Harness(new DelegationLimits { Timeout = TimeSpan.FromMilliseconds(300) });
         var release = new TaskCompletionSource();
+        var timedOut = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         // 不理会取消、晚到的工具结果
-        var stubborn = new FakeTool("stubborn", async (_, _) =>
+        var stubborn = new FakeTool("stubborn", async (_, ct) =>
         {
+            ct.Register(() => timedOut.TrySetResult());
             await release.Task;
             return ToolResult.Success("迟到");
         });
@@ -689,7 +691,9 @@ public class DelegationTests : IDisposable
         h.Gateway.Children(Call("stubborn", new { }), Call(SubmitResultTool.ToolName, Submit()));
 
         var task = Dispatch(h, Ctx());
-        await Task.Delay(500);
+        // 等时限真的到了（工具拿到的取消信号响了）再放出迟到的结果。
+        // 以前是固定等 500 ms：CI 机器忙时 300 ms 的时限回调可能比这 500 ms 还晚，迟到的结果先回来、专家照常交卷，测试就偶尔失败
+        await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(30));
         release.SetResult();
         await task;
 
