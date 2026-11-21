@@ -241,12 +241,6 @@ SETTINGS: tuple[Setting, ...] = (
         risk="关掉后只换身份证、银行卡，手机号和邮箱原样发给模型（业务邮件、供应商电话多的部门可以按部门关掉）。",
     ),
     Setting(
-        key="dlp_block", kind="bool", default=False, locked=True,
-        title="数据脱敏：发现身份证、银行卡等直接拦下，不发给模型",
-        risk="开着时不是换成占位符，而是整条请求拦下不发，员工会看到原因（适合人事、财务等不允许任何个人信息出网的部门）。"
-             "注意：读进来的表格里只要有这类数据，这次任务就做不下去。",
-    ),
-    Setting(
         key="subtask_token_budget", kind="int", default=40, locked=True,
         title="专家 / 子代理：单个子任务 token 上限（万）", minimum=5, maximum=500,
         risk="派一位专家或开一个子代理，最多从主任务剩下的预算里占多少 token，单位万。"

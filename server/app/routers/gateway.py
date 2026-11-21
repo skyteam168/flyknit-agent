@@ -148,10 +148,6 @@ async def chat_completions(
     guarded = dlp.protect(body, await _dlp_policy(session, device))
     vault = guarded.vault
     conversation_ref = str(body.get("conversation_id") or "")
-    if guarded.blocked:
-        await _dlp_record(session, device, vault, scene, conversation_ref, "blocked")
-        log.info("dlp blocked device=%s scene=%s %s", device.id, scene, dict(vault.counts))
-        return _error(400, guarded.blocked, "sensitive_data_blocked")
     outbound = guarded.body
     await _dlp_record(session, device, vault, scene, conversation_ref, "masked")
 
@@ -189,6 +185,8 @@ async def chat_completions(
     if vault.total:
         # 这次替换 / 隐藏了几处（员工端可以据此提示「已脱敏」）
         headers["X-Flyknit-Masked"] = str(vault.total)
+        # 各类型各几处（只有数量，没有原值）：员工端据此显示「已把邮箱 28 处换成占位符」的提示，任务不停
+        headers["X-Flyknit-Masked-Counts"] = quote(json.dumps(dict(vault.counts)), safe="")
 
     if upstream.status_code >= 400:
         try:

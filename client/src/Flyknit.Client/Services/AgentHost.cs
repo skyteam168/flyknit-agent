@@ -1963,6 +1963,10 @@ public sealed partial class AgentHost : IDisposable
                 sources = sources.Select(s => new { title = s.Title, url = s.Url, snippet = s.Snippet }).ToList(),
             });
 
+        // 数据保护提示（web features/privacy）：只有类型和数量，界面上显示「已换成占位符，任务照常进行」
+        public void OnMasked(IReadOnlyDictionary<string, int> counts) =>
+            _events.Post(new { type = "privacy.masked", conversationId = _id, counts });
+
         public void OnAssistantMessage(ChatMessage message) =>
             _events.Post(new { type = "chat.message", conversationId = _id, message = MessageDto.From(message) });
 

@@ -98,6 +98,14 @@ public sealed class ChatTurn
 
     /// <summary>联网搜索命中（服务端响应头 X-Flyknit-Sources）。</summary>
     public IReadOnlyList<WebSource> Sources { get; init; } = Array.Empty<WebSource>();
+
+    /// <summary>
+    /// 服务端数据脱敏这次把哪些内容换成了占位符、各几处（响应头 X-Flyknit-Masked-Counts，只有数量没有原值）。
+    /// 键：id_card / bank_card / phone / email / secret。没换时为空。
+    /// </summary>
+    public IReadOnlyDictionary<string, int> Masked { get; init; } = EmptyMasked;
+
+    internal static readonly IReadOnlyDictionary<string, int> EmptyMasked = new Dictionary<string, int>();
 }
 
 /// <param name="CachedTokens">输入里命中上游提示词缓存的部分（包含在 PromptTokens 里）。上游不报时为 0。</param>
@@ -127,6 +135,14 @@ public interface IStreamSink
 
     /// <summary>联网搜索结果（流开始前由服务端一次下发）。</summary>
     void OnSources(IReadOnlyList<WebSource> sources)
+    {
+    }
+
+    /// <summary>
+    /// 服务端把这次要发给模型的内容里的敏感信息换成了占位符（各类型几处）。回答照常回来、任务不停，
+    /// 界面据此给员工一条醒目提示。流开始前由服务端一次下发。
+    /// </summary>
+    void OnMasked(IReadOnlyDictionary<string, int> counts)
     {
     }
 }

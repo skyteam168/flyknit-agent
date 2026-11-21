@@ -1208,7 +1208,7 @@ class DlpEvent(Base):
     device_id: Mapped[int] = mapped_column(Integer, index=True)
     conversation_id: Mapped[str] = mapped_column(String(64), default="")
     scene: Mapped[str] = mapped_column(String(32), default="")
-    #: masked（换成占位符后发出）/ blocked（拦下没发）
+    #: masked（换成占位符后发出）/ blocked（旧版拦截档留下的记录，现在不再产生）
     action: Mapped[str] = mapped_column(String(12), default="masked")
     #: {"id_card": 2, "bank_card": 1, ...}
     counts: Mapped[dict] = mapped_column(JSON, default=dict)

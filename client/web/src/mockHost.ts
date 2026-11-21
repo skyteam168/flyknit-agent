@@ -1078,6 +1078,10 @@ export function createMockHost(): HostTransport {
     stopped.delete(id)
     const list = messages.get(id)!
     if (addUser) list.push({ id: messageId ?? uid(), role: 'user', content: text, attachments, createdAt: now() })
+    // 开发预览：带邮箱 / 18 位证件号时，模拟服务端「已脱敏」的提示（真实的数在服务端算）
+    const emails = text.match(/[\w.+-]+@[\w-]+\.[\w.]+/g)?.length ?? 0
+    const ids = text.match(/\b\d{17}[\dXx]\b/g)?.length ?? 0
+    if (emails || ids) emit({ type: 'privacy.masked', conversationId: id, counts: { ...(emails ? { email: emails } : {}), ...(ids ? { id_card: ids } : {}) } })
 
     if (c.teamId) {
       await teamTask(c, list, text)

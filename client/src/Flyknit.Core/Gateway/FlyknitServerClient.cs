@@ -1242,9 +1242,14 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
                 ? len
                 : 0;
             var sources = ParseSourcesHeader(resp);
+            var masked = ParseMaskedHeader(resp);
             if (sources.Count > 0)
             {
                 sink?.OnSources(sources);
+            }
+            if (masked.Count > 0)
+            {
+                sink?.OnMasked(masked);
             }
             var acc = new SseAccumulator(sink);
             using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -1273,7 +1278,7 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
                 {
                     throw new GatewayException(BrokenMessage, null, ex) { IsNetworkError = true };
                 }
-                return acc.Build(model, context, sources);
+                return acc.Build(model, context, sources, masked);
             }
 
             // 每读一行都重新计时：连接悄悄断掉（没有 FIN/RST）时不会一直挂着
@@ -1306,7 +1311,25 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
             {
                 throw new GatewayException(TruncatedMessage);
             }
-            return acc.Build(model, context, sources);
+            return acc.Build(model, context, sources, masked);
+        }
+    }
+
+    /// <summary>X-Flyknit-Masked-Counts：URL 编码的 JSON，如 {"email":28}。解析不了就当没有（只影响提示，不影响回答）。</summary>
+    internal static IReadOnlyDictionary<string, int> ParseMaskedHeader(HttpResponseMessage resp)
+    {
+        if (!resp.Headers.TryGetValues("X-Flyknit-Masked-Counts", out var values) || values.FirstOrDefault() is not { Length: > 0 } raw)
+        {
+            return ChatTurn.EmptyMasked;
+        }
+        try
+        {
+            var map = JsonSerializer.Deserialize<Dictionary<string, int>>(Uri.UnescapeDataString(raw));
+            return map is null ? ChatTurn.EmptyMasked : map.Where(kv => kv.Value > 0).ToDictionary(kv => kv.Key, kv => kv.Value);
+        }
+        catch (Exception ex) when (ex is JsonException or UriFormatException)
+        {
+            return ChatTurn.EmptyMasked;
         }
     }
 
