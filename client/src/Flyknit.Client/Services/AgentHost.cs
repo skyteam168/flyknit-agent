@@ -88,6 +88,9 @@ public sealed partial class AgentHost : IDisposable
     /// <summary>消息通知（docs/notices.md）：铃铛、消息中心、正文里的媒体代理。</summary>
     public Flyknit.Core.Notices.NoticeFeature Notices { get; }
 
+    /// <summary>编码模式：右侧「代码」标签读写工作区文件（Core/Code/CodeFeature）。</summary>
+    public Flyknit.Core.Code.CodeFeature Code { get; }
+
     /// <summary>功能模块注册的界面桥方法（界面桥先查这里，查不到再走自己的）。</summary>
     public Flyknit.Core.Hosting.BridgeModuleRegistry BridgeModules { get; }
 
@@ -398,7 +401,8 @@ public sealed partial class AgentHost : IDisposable
             _ => _settings.SoundOnFailed,
         });
         Notices = new Flyknit.Core.Notices.NoticeFeature(Server, evt => Events?.Post(evt), message => Log.Warn(message));
-        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices);
+        Code = new Flyknit.Core.Code.CodeFeature(WorkspaceOf, message => Log.Info(message));
+        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -2009,6 +2013,11 @@ public sealed partial class AgentHost : IDisposable
                 {
                     _host?.NoteDocumentWritten(_id, path, _events);
                 }
+            }
+            // 编码模式（web features/code）：AI 改了文件，代码标签里开着的刷新成改动对比，「跟随 AI」时自动打开
+            if (result.Ok && call.Name is "write_file" or "edit_file" or "multi_edit" && result.Outputs.Count > 0)
+            {
+                _events.Post(new { type = "code.changed", conversationId = _id, paths = result.Outputs, tool = call.Name });
             }
         }
 

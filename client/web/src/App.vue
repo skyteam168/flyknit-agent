@@ -38,6 +38,8 @@ import ExpertAvatar from './components/ExpertAvatar.vue'
 import ExpertDetail from './components/ExpertDetail.vue'
 import BrandLoader from './components/BrandLoader.vue'
 import { uploadDropped } from './library'
+import CodeWorkspace from './features/code/CodeWorkspace.vue'
+import { ide, ideActive } from './features/code/store'
 import { safeMode } from './render/useRichBlocks'
 import { closeFilesViewer, convFiles } from './conversationFiles'
 import {
@@ -130,6 +132,8 @@ const inConversation = computed(() => current.value !== null)
 const CHAT_MIN_WIDTH = 400
 const autoCollapseSidebar = computed(() => {
   if (narrow.value) return false // 窄窗口模式下不自动收起（已经是抽屉模式）
+  // 编码模式（AI IDE）：左边项目栏 + 编辑器 + 对话，主侧栏收起腾地方
+  if (ideActive.value && inConversation.value) return true
   if (!showRight.value || state.rightMax) return false
   // 计算聊天区域宽度 = 窗口宽度 - 侧边栏宽度 - 右侧面板宽度（预览、文稿、分屏用宽的那个，其余标签用窄的那个）
   const panel = rightPanelWide(state.rightTab, state.rightLayout.split) ? state.previewWidth : state.panelWidth
@@ -328,7 +332,13 @@ onBeforeUnmount(() => {
         <ConnectorsPage v-else-if="state.view === 'connectors'" @use="useExample" />
         <SkillsPage v-else-if="state.view === 'skills'" @use="useSkill" />
         <SchedulesPage v-else-if="state.view === 'schedules'" />
-        <div v-else-if="inConversation" v-show="!(state.rightMax && showRight)" class="conversation">
+        <div
+          v-else-if="inConversation"
+          v-show="!(state.rightMax && showRight && !ideActive)"
+          class="conversation"
+          :class="{ 'ide-agent': ideActive }"
+          :style="ideActive ? { width: ide.agentWidth + 'px' } : undefined"
+        >
           <!-- 专家对话：顶部标出是哪位专家；专家被下线了说一声 -->
           <!-- 团队对话：顶部团队条（团队名、成员、返回团队列表） -->
           <TeamBar v-if="current?.teamId" />
@@ -349,8 +359,11 @@ onBeforeUnmount(() => {
           <Composer ref="composer" />
         </div>
         <Home v-else ref="home" />
+        <!-- 编码模式（AI IDE，features/code）：左边项目 / 技能 / MCP / 知识，中间 Monaco，底部终端 / 日志 / Trace；
+             右边就是上面的对话（.ide-agent 用 order 排到最右） -->
+        <CodeWorkspace v-if="ideActive && inConversation" class="ide-main" @use-skill="useSkill" @use-text="useExample" />
         <!-- 右侧面板：计划 / 预览 / 改动 / 浏览器 / 会话信息，用标签切换 -->
-        <RightPanel v-if="showRight" />
+        <RightPanel v-if="showRight && !ideActive" />
       </div>
     </main>
 
@@ -468,6 +481,16 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+/* 编码模式：对话放到最右边，固定宽度（拖动 IDE 右边缘调） */
+.conversation.ide-agent {
+  flex: none;
+  order: 2;
+  min-width: 320px;
+  background: var(--loom);
+}
+.ide-main {
+  order: 1;
 }
 .expert-bar {
   display: flex;

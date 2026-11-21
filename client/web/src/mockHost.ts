@@ -51,7 +51,16 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
 | 考勤分析 | 人事部 | 11 月 |
 | 质检周报 | 品管部 | 12 月 |
 `
-const mockDocs = new Map<string, string>()
+/** 编码模式的开发预览：工作区里的几个代码文件（相对路径 → 内容） */
+  const mockCode = new Map<string, string>([
+    ['src\\report.py', "# -*- coding: utf-8 -*-\n\"\"\"汇总 D:\\日报 下的产量日报，按日期排好写进汇总表\"\"\"\nfrom datetime import datetime\n\ndef parse_date(text):\n    return datetime.strptime(text, '%Y/%m/%d')\n\n\ndef summarize(rows):\n    out = {}\n    for row in rows:\n        day = parse_date(row['日期'])\n        out.setdefault(day, 0)\n        out[day] += int(row['产量'])\n    return dict(sorted(out.items()))\n"],
+    ['src\\mail_stats.py', "import re, collections\n\nEMAIL_RE = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}')\n\ndef count_senders(lines):\n    return collections.Counter(m.group(0) for l in lines for m in EMAIL_RE.finditer(l))\n"],
+    ['src\\config.yaml', "source: D:\\日报\noutput: D:\\报表\\产量汇总.xlsx\nshifts:\n  - 早班\n  - 夜班\n"],
+    ['tests\\test_report.py', "from src.report import parse_date\n\ndef test_slash():\n    assert parse_date('2026/10/3').day == 3\n"],
+    ['README.md', '# 产量报表脚本\n\n运行：`python -m src.report`\n'],
+    ['requirements.txt', 'openpyxl==3.1.5\npytest==8.3.3\n'],
+  ])
+  const mockDocs = new Map<string, string>()
 function docVersion(text: string): string {
   let h = 0
   for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0
@@ -1109,7 +1118,30 @@ export function createMockHost(): HostTransport {
       emit({ type: 'terminal.output', conversationId: id, runId: once.id, text: ' ✓ src/report.test.ts (6 tests) 18ms\n Test Files  1 passed (1)\n' })
       emit({ type: 'terminal.ended', run: { ...once, running: false, exitCode: 0, endedAt: now() } })
     }
-    if (/给建议|suggest/i.test(text)) {
+    if (/改代码|修.*bug|fix bug|编码/i.test(text)) {
+      // 开发预览：AI 读代码、改代码（编码模式里能看到文件被打开、改动对比、底部 Trace）
+      const steps: [string, string, string, string?][] = [
+        ['read_file', '读取 src\\report.py', mockCode.get('src\\report.py') ?? ''],
+        ['grep', '搜索 parse_date', 'src\\report.py:4: def parse_date(text):\nsrc\\report.py:12:     day = parse_date(row["日期"])'],
+        ['edit_file', '修改 src\\report.py', '已修改 src\\report.py：替换 1 处', 'src\\report.py'],
+        ['run_shell', 'python -m pytest tests', '3 passed in 0.21s'],
+      ]
+      const lead = '我先看一下报表脚本里日期是怎么解析的。'
+      await stream(id, lead)
+      for (const [name, summary, output, changed] of steps) {
+        const callId = uid()
+        list.push({ id: uid(), role: 'assistant', content: '', toolCalls: [{ id: callId, name, arguments: JSON.stringify({ path: changed ?? '' }) }], createdAt: now() })
+        emit({ type: 'tool.started', conversationId: id, callId, name, summary, args: '{}', risk: 'auto' })
+        await sleep(500)
+        if (changed) {
+          mockCode.set(changed, (mockCode.get(changed) ?? '').replace("datetime.strptime(text, '%Y/%m/%d')", "datetime.strptime(text.replace('/', '-'), '%Y-%m-%d')"))
+        }
+        emit({ type: 'tool.finished', conversationId: id, callId, ok: true, output, decision: 'auto' })
+        if (changed) emit({ type: 'code.changed', conversationId: id, paths: ['D:\\工作区\\' + changed], tool: name })
+      }
+      finalText = '改好了：`parse_date` 现在同时认 `2026/10/3` 和 `2026-10-03` 两种写法，3 个测试都通过。改动在编辑器里能看到对比。'
+      await stream(id, '\n\n' + finalText)
+    } else if (/给建议|suggest/i.test(text)) {
       // 开发预览：AI 做事时顺带发现了范围外的问题，给一张「建议新任务」卡片
       const callId = uid()
       const args = JSON.stringify({
@@ -2228,6 +2260,20 @@ export function createMockHost(): HostTransport {
       case 'document.open':
         if (!mockDocs.has(p.path)) mockDocs.set(p.path, (mockPreviews[p.path] as { text?: string } | undefined)?.text ?? '# ' + String(p.path).split('\\').pop() + '\n')
         return { ok: true }
+      case 'code.load': {
+        await sleep(80)
+        const rel = String(p.path ?? '').replace(/\//g, '\\')
+        const text = mockCode.get(rel)
+        if (/\.(xlsx|docx|pptx)$/i.test(rel)) return { path: rel, fullPath: 'D:\\工作区\\' + rel, text: '', version: '', exists: true, readOnly: true, reason: 'binary' }
+        return { path: rel, fullPath: 'D:\\工作区\\' + rel, text: text ?? '', version: docVersion(text ?? ''), exists: text != null, readOnly: false, reason: '' }
+      }
+      case 'code.save': {
+        const rel = String(p.path ?? '')
+        const cur = mockCode.get(rel) ?? ''
+        if (mockCode.has(rel) && docVersion(cur) !== p.version) return { ok: false, conflict: true, version: docVersion(cur), currentText: cur, message: '' }
+        mockCode.set(rel, p.text)
+        return { ok: true, conflict: false, version: docVersion(p.text), currentText: '', message: '' }
+      }
       case 'document.load': {
         const text = mockDocs.get(p.path)
         await sleep(150)
@@ -2598,10 +2644,12 @@ export function createMockHost(): HostTransport {
       case 'workspace.list': {
         await sleep(120)
         const tree: Record<string, [string, boolean, number][]> = {
-          '': [['日报', true, 0], ['报表', true, 0], ['node_modules', true, 0], ['说明.md', false, 2310], ['产量汇总.xlsx', false, 48120], ['汇报.pptx', false, 183400], ['run.log', false, 920]],
+          '': [['src', true, 0], ['tests', true, 0], ['日报', true, 0], ['报表', true, 0], ['node_modules', true, 0], ['README.md', false, 820], ['requirements.txt', false, 64], ['说明.md', false, 2310], ['产量汇总.xlsx', false, 48120], ['汇报.pptx', false, 183400], ['run.log', false, 920]],
           '日报': [['8月', true, 0], ['9月', true, 0], ['2026-10-31.xlsx', false, 15320]],
           '日报\\9月': [['2026-09-30.xlsx', false, 15102], ['2026-09-29.xlsx', false, 14980]],
           '报表': [['质检周报.docx', false, 33100], ['CFT 会议发言稿.md', false, 1840]],
+          'src': [['report.py', false, 1320], ['mail_stats.py', false, 2410], ['config.yaml', false, 210]],
+          'tests': [['test_report.py', false, 640]],
         }
         const rel = String(p.path ?? '')
         const entries = (tree[rel] ?? []).map(([name, isDir, size]) => {

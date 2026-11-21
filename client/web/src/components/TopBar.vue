@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
+import CodeModeButton from '../features/code/CodeModeButton.vue'
 import { useI18n } from 'vue-i18n'
 import { Activity, Copy, Languages, Menu, MessageCircleQuestion, MessageSquare, Minus, PanelLeft, PanelRight, Pin, Plus, Puzzle, Square, Wrench, X } from '@lucide/vue'
 import { bridge } from '../bridge'
@@ -83,6 +84,8 @@ function openBackground() {
     </div>
 
     <ConversationFiles />
+    <!-- 编码模式（AI IDE，features/code）：开发者工具开着、办事对话选了工作区时出现 -->
+    <CodeModeButton v-if="state.view === 'chat'" />
     <button
       v-if="current && state.view === 'chat' && current.mode !== 'translate'"
       type="button"
