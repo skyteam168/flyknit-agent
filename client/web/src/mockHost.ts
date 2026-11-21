@@ -55,6 +55,8 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
   /** 开发预览：编码模式报给宿主的编辑器状态（测试里看） */
   const mockFocus: unknown[] = []
   ;(window as unknown as { __mockFocus: unknown[] }).__mockFocus = mockFocus
+  /** 开发预览：员工在文件树里新建的文件 / 文件夹（父路径 → [名字, 是不是文件夹, 大小]） */
+  const mockCreated: Record<string, [string, boolean, number][]> = {}
   let mockPtyCount = 0
   const mockPtyLine = new Map<string, string>()
   const mockCode = new Map<string, string>([
@@ -2313,6 +2315,17 @@ export function createMockHost(): HostTransport {
       case 'pty.close':
         mockPtyLine.delete(String(p.id))
         return true
+      case 'code.create': {
+        const parent = String(p.parent ?? '')
+        const name = String(p.name ?? '').trim()
+        if (!name || /[\\/:*?"<>|]/.test(name)) return { ok: false, path: '', message: '名字不能为空，也不能带 \\ / : * ? " < > | 这些字符' }
+        const list = (mockCreated[parent] ??= [])
+        if (list.some(([n]) => n === name)) return { ok: false, path: '', message: `已经有「${name}」了` }
+        list.push([name, !!p.directory, 0])
+        const path = parent ? parent + '\\' + name : name
+        if (!p.directory) mockCode.set(path, '')
+        return { ok: true, path, message: '' }
+      }
       case 'code.focus': {
         mockFocus.push(p)
         const file = String(p.activeFile ?? '')
@@ -2720,7 +2733,7 @@ export function createMockHost(): HostTransport {
           'vue3-login\\src': [['App.vue', false, 1800], ['main.js', false, 160]],
         }
         const rel = String(p.path ?? '')
-        const entries = (tree[rel] ?? []).map(([name, isDir, size]) => {
+        const entries = [...(tree[rel] ?? []), ...(mockCreated[rel] ?? [])].map(([name, isDir, size]) => {
           const path = rel ? rel + '\\' + name : name
           return { name, path, fullPath: 'D:\\工作区\\' + path, isDir, size, modifiedAt: ago(30), noise: name === 'node_modules', previewable: !isDir && /\.(md|xlsx|docx|pptx|log|txt)$/i.test(name) }
         })

@@ -308,6 +308,51 @@ async function onAiChanged(conversationId: string, paths: string[]) {
   }
 }
 
+// ---------- 项目文件树：选中的文件夹、新建文件 / 文件夹、全部收起（像 VS Code 的资源管理器） ----------
+
+export const tree = reactive<{
+  /** 每个对话选中的文件夹（新建放在这里；空 = 工作区根） */
+  selectedDir: Record<string, string>
+  /** 正在新建：在哪个文件夹下、建文件还是文件夹 */
+  creating: { conversationId: string; parent: string; directory: boolean } | null
+  /** 每加一次，所有展开的文件夹收起 */
+  collapseVersion: number
+  /** 工作区根节点是否展开 */
+  rootOpen: boolean
+}>({ selectedDir: {}, creating: null, collapseVersion: 0, rootOpen: true })
+
+export function startCreate(conversationId: string, directory: boolean) {
+  tree.rootOpen = true
+  tree.creating = { conversationId, parent: tree.selectedDir[conversationId] ?? '', directory }
+}
+
+/** 新建：成功后那一层重新列；文件接着在编辑器里打开 */
+export async function finishCreate(name: string) {
+  const c = tree.creating
+  tree.creating = null
+  if (!c || !name.trim()) return
+  try {
+    const r = await bridge.createCode(c.conversationId, c.parent, name.trim(), c.directory)
+    if (!r.ok) {
+      toast(r.message)
+      return
+    }
+    code.treeVersion[c.conversationId] = (code.treeVersion[c.conversationId] ?? 0) + 1
+    if (c.directory) tree.selectedDir[c.conversationId] = r.path
+    else await openCodeFile(c.conversationId, r.path)
+  } catch (e) {
+    toast(String((e as Error)?.message ?? e))
+  }
+}
+
+export function refreshTree(conversationId: string) {
+  code.treeVersion[conversationId] = (code.treeVersion[conversationId] ?? 0) + 1
+}
+
+export function collapseTree() {
+  tree.collapseVersion++
+}
+
 // ---------- 告诉 AI 员工在看什么（Core/Code/EditorContext）：当前文件、光标、打开的文件、推断出的当前项目 ----------
 
 export interface ProjectInfo {

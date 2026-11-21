@@ -137,7 +137,7 @@ public sealed class CodeFeatureTests : IDisposable
     [Fact]
     public async Task BridgeMethodsReturnCamelCaseFieldsTheUiReads()
     {
-        Assert.Equal(new[] { "code.load", "code.save", "code.openInVsCode", "code.focus" }, _code.Methods);
+        Assert.Equal(new[] { "code.load", "code.save", "code.openInVsCode", "code.focus", "code.create" }, _code.Methods);
         using var doc = JsonDocument.Parse("""{"conversationId":"c1","path":"src/app.py"}""");
         var result = await _code.HandleAsync("code.load", new BridgeArgs(doc.RootElement), CancellationToken.None);
         var json = JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -185,5 +185,43 @@ public sealed class CodeFeatureTests : IDisposable
         var onPath = new HashSet<string> { Path.Combine("/tools/VSCode/bin", "code.cmd"), custom };
         Assert.Equal(custom, VsCode.Find(k => env.GetValueOrDefault(k), onPath.Contains));
         Assert.Null(VsCode.Find(k => env.GetValueOrDefault(k), _ => false));
+    }
+
+    [Fact]
+    public void CreatesFilesAndFoldersInsideTheWorkspaceOnly()
+    {
+        var r = JsonSerializer.SerializeToElement(_code.Create("c1", "src", "util.py", false));
+        Assert.True(r.GetProperty("ok").GetBoolean());
+        Assert.Equal(Path.Combine("src", "util.py"), r.GetProperty("path").GetString());
+        Assert.True(File.Exists(Path.Combine(_root, "src", "util.py")));
+        Assert.True(JsonSerializer.SerializeToElement(_code.Create("c1", "", "docs", true)).GetProperty("ok").GetBoolean());
+        Assert.True(Directory.Exists(Path.Combine(_root, "docs")));
+        // 已经有的不覆盖
+        File.WriteAllText(Path.Combine(_root, "src", "util.py"), "keep");
+        Assert.False(JsonSerializer.SerializeToElement(_code.Create("c1", "src", "util.py", false)).GetProperty("ok").GetBoolean());
+        Assert.Equal("keep", File.ReadAllText(Path.Combine(_root, "src", "util.py")));
+        // 名字里带路径、非法字符、跳出工作区的都不行
+        foreach (var bad in new[] { "../x.txt", "a/b.txt", "a\\b.txt", "", "..", "con?.txt", "x.txt." })
+        {
+            Assert.False(JsonSerializer.SerializeToElement(_code.Create("c1", "", bad, false)).GetProperty("ok").GetBoolean(), bad);
+        }
+        Assert.False(JsonSerializer.SerializeToElement(_code.Create("c1", "..", "x.txt", false)).GetProperty("ok").GetBoolean());
+        Assert.False(JsonSerializer.SerializeToElement(_code.Create("other", "", "x.txt", false)).GetProperty("ok").GetBoolean());
+    }
+
+    [Fact]
+    public void CannotCreateThroughALinkPointingOutside()
+    {
+        var link = Path.Combine(_root, "linked");
+        try
+        {
+            Directory.CreateSymbolicLink(link, _outside);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return;
+        }
+        Assert.False(JsonSerializer.SerializeToElement(_code.Create("c1", "linked", "new.txt", false)).GetProperty("ok").GetBoolean());
+        Assert.False(File.Exists(Path.Combine(_outside, "new.txt")));
     }
 }
