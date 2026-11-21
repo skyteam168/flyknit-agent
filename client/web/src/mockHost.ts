@@ -59,6 +59,7 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
   const mockCreated: Record<string, [string, boolean, number][]> = {}
   let mockPtyCount = 0
   const mockPtyLine = new Map<string, string>()
+  let mockReportOriginal = ''
   const mockCode = new Map<string, string>([
     ['src\\report.py', "# -*- coding: utf-8 -*-\n\"\"\"汇总 D:\\日报 下的产量日报，按日期排好写进汇总表\"\"\"\nfrom datetime import datetime\n\ndef parse_date(text):\n    return datetime.strptime(text, '%Y/%m/%d')\n\n\ndef summarize(rows):\n    out = {}\n    for row in rows:\n        day = parse_date(row['日期'])\n        out.setdefault(day, 0)\n        out[day] += int(row['产量'])\n    return dict(sorted(out.items()))\n"],
     ['src\\mail_stats.py', "import re, collections\n\nEMAIL_RE = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}')\n\ndef count_senders(lines):\n    return collections.Counter(m.group(0) for l in lines for m in EMAIL_RE.finditer(l))\n"],
@@ -68,6 +69,7 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
     ['vue3-login\\src\\App.vue', '<script setup>\nimport LoginForm from \'./components/LoginForm.vue\'\n</script>\n\n<template>\n  <LoginForm />\n</template>\n'],
     ['requirements.txt', 'openpyxl==3.1.5\npytest==8.3.3\n'],
   ])
+  mockReportOriginal = mockCode.get('src\\report.py') ?? ''
   const mockDocs = new Map<string, string>()
 function docVersion(text: string): string {
   let h = 0
@@ -2385,6 +2387,11 @@ export function createMockHost(): HostTransport {
         const list = messages.get(p.conversationId) ?? []
         const lastUser = [...list].reverse().find((m) => m.role === 'user')
         if (!lastUser) return []
+        // 编码模式的「修 bug」演示：这一轮改了 report.py（保留 / 撤销 / 查看用）
+        if (/修.*bug|fix bug|改代码/i.test(lastUser.content)) {
+          const full = 'D:\\工作区\\src\\report.py'
+          return [{ turnId: lastUser.id, at: now(), files: [{ path: full, name: 'report.py', kind: 'modified', source: 'edit_file', times: 1, backup: 'mock:before.py', restorable: true, exists: true, reverted: revertedMock.has(full) }] }]
+        }
         return [{
           turnId: lastUser.id,
           at: now(),
@@ -2397,6 +2404,12 @@ export function createMockHost(): HostTransport {
         }]
       }
       case 'changes.revert': {
+        if (p.paths?.some?.((x: string) => x.endsWith('report.py')) || (!p.paths?.length && mockCode.get('src\\report.py')?.includes('两种写法都认'))) {
+          const full = 'D:\\工作区\\src\\report.py'
+          revertedMock.add(full)
+          mockCode.set('src\\report.py', mockReportOriginal)
+          return { reverted: [full], skipped: [] }
+        }
         const targets: string[] = p.paths?.length ? p.paths : [MOCK_XLSX, MOCK_MD, MOCK_NEW, MOCK_OLD]
         const reverted = targets.filter((x) => x !== MOCK_OLD)
         reverted.forEach((x) => revertedMock.add(x))

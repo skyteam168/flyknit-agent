@@ -489,6 +489,106 @@ export function switchTask(id: string) {
   if (state.currentId !== id) void openConversation(id)
 }
 
+// ---------- AI 改完后：保留 / 撤销 / 查看（参照 Cursor 的 Keep / Undo / Review） ----------
+//
+// AI 的改动一执行就已经写进磁盘了（和 Cursor 一样）。「保留」= 认可这一轮的改动（只是不再提示）；
+// 「撤销」= 用现有的按轮还原把这一轮改过的文件恢复成这一轮之前的样子；「查看」= 打开这一轮的改动对比。
+
+const KeptKey = 'flyknit.keptTurns'
+
+function readKept(): Record<string, string[]> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KeptKey) ?? '{}')
+    return raw && typeof raw === 'object' ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
+/** 每个对话里员工点过「保留」的轮次（记在本机，重启后不再提示） */
+export const kept = reactive<Record<string, string[]>>(readKept())
+
+function saveKept() {
+  try {
+    // 只留最近的一些，免得越攒越多
+    const entries = Object.entries(kept).slice(-200)
+    localStorage.setItem(KeptKey, JSON.stringify(Object.fromEntries(entries.map(([k, v]) => [k, v.slice(-50)]))))
+  } catch {
+    // 存不了就只在这次打开期间记住
+  }
+}
+
+const isKept = (conversationId: string, turnId: string) => (kept[conversationId] ?? []).includes(turnId)
+const openFiles = (t: ChangeTurn) => t.files.filter((f) => !f.reverted)
+
+/** 最近一轮还没处理（没保留、没全撤销）的改动 */
+export function pendingTurn(conversationId: string): ChangeTurn | null {
+  const turns = state.changes[conversationId] ?? []
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    if (!t.files.length) continue
+    return openFiles(t).length && !isKept(conversationId, t.turnId) ? t : null
+  }
+  return null
+}
+
+/** 这个文件最近一次被 AI 改、还没处理的那一轮 */
+export function pendingTurnFor(conversationId: string, fullPath: string): ChangeTurn | null {
+  const turns = state.changes[conversationId] ?? []
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    if (isKept(conversationId, t.turnId)) continue
+    if (openFiles(t).some((f) => samePath(f.path, fullPath))) return t
+  }
+  return null
+}
+
+/** 保留这一轮的改动：不再提示，编辑器里这些文件的对比收起 */
+export function keepTurn(conversationId: string, turnId: string) {
+  ;(kept[conversationId] ??= []).push(turnId)
+  saveKept()
+  const turn = (state.changes[conversationId] ?? []).find((t) => t.turnId === turnId)
+  for (const tab of code.byConversation[conversationId]?.tabs ?? []) {
+    if (turn?.files.some((f) => samePath(f.path, tab.fullPath))) acceptDiff(tab)
+  }
+}
+
+/**
+ * 撤销这一轮（或其中几个文件）的改动：恢复成这一轮之前的样子。会改员工电脑上的文件，先问；
+ * 员工在编辑器里还有没保存的修改时一并提醒（撤销后编辑器按磁盘重新读）。
+ */
+export async function undoTurn(conversationId: string, turnId: string, confirmText: (n: number, dirty: number) => string, done: (n: number) => string, paths?: string[]) {
+  const turn = (state.changes[conversationId] ?? []).find((t) => t.turnId === turnId)
+  if (!turn) return
+  const files = openFiles(turn).filter((f) => !paths || paths.some((p) => samePath(p, f.path)))
+  if (!files.length) return
+  const tabs = (code.byConversation[conversationId]?.tabs ?? []).filter((tab) => files.some((f) => samePath(f.path, tab.fullPath)))
+  if (!window.confirm(confirmText(files.length, tabs.filter(isDirty).length))) return
+  try {
+    const r = await bridge.revertChanges(conversationId, turnId, paths ? files.map((f) => f.path) : undefined)
+    toast(done(r.reverted.length))
+    if (r.skipped.length) toast(r.skipped.map((x) => `${x.path.split(/[\\/]/).pop()}：${x.reason}`).join('；'))
+  } catch (e) {
+    toast(String((e as Error)?.message ?? e))
+  } finally {
+    await loadChanges(conversationId)
+    for (const tab of tabs) {
+      try {
+        const file = await bridge.loadCode(conversationId, tab.path)
+        tab.saved = tab.draft = file.text
+        tab.version = file.version
+        tab.exists = file.exists
+        tab.before = null
+        tab.aiChanged = false
+        tab.conflict = null
+      } catch {
+        // 文件被撤销成「不存在」（AI 新建的）：读不到就关掉
+        closeCodeTab(conversationId, tab.path)
+      }
+    }
+  }
+}
+
 // ---------- 恢复到这里（参照 Cursor 的 Restore Checkpoint） ----------
 
 /**
