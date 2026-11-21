@@ -22,6 +22,7 @@ import type {
   PluginInfo,
   WorkspaceEntry,
   WorkspaceListing,
+  CodeFile,
   DocumentInfo,
   DocumentSaveResult,
   ChannelsInfo,
@@ -386,6 +387,11 @@ class Bridge {
   saveCommands = (items: SlashCommand[]) => this.call<{ ok: boolean; message: string }>('commands.save', { items })
   /** 右侧「文件」标签：列工作区里的一个文件夹（path 是相对工作区的路径，空 = 工作区本身） */
   listWorkspace = (conversationId: string, path: string) => this.call<WorkspaceListing>('workspace.list', { conversationId, path })
+  /** 编码模式：读工作区里的一个文件（只读工作区里的；二进制、太大的只读） */
+  loadCode = (conversationId: string, path: string) => this.call<CodeFile>('code.load', { conversationId, path })
+  /** 编码模式：保存。version 是打开时的版本，期间被 AI 改过返回 conflict（不覆盖） */
+  saveCode = (conversationId: string, path: string, text: string, version: string) =>
+    this.call<DocumentSaveResult>('code.save', { conversationId, path, text, version })
   // 仓库和 PR（开发者工具开着时）
   repoInfo = (conversationId: string) => this.call<RepoInfo | null>('repo.info', { conversationId })
   repoBranches = (conversationId: string) => this.call<string[]>('repo.branches', { conversationId })

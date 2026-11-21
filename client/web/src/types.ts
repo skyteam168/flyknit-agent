@@ -1072,6 +1072,8 @@ export type HostEvent =
   | { type: 'notices.changed'; unread: number; supported: boolean; popup: string | null }
   /** 数据保护：服务端把发给模型的内容里的敏感信息换成了占位符（只有类型和数量，没有原值） */
   | { type: 'privacy.masked'; conversationId: string; counts: Record<string, number> }
+  /** 编码模式：AI 用 write_file / edit_file / multi_edit 改了这些文件（完整路径） */
+  | { type: 'code.changed'; conversationId: string; paths: string[]; tool: string }
   | { type: 'team.member'; conversationId: string; runId: string; expertId: string; status: TeamMemberState; note: string; subtaskId: string; callId: string }
   | ({ type: 'team.board'; conversationId: string; runId: string } & TeamBoardItem)
   | { type: 'team.round'; conversationId: string; runId: string; results: { expertId: string; status: string; delivery: string; retries: number }[] }
@@ -1351,6 +1353,21 @@ export interface DocumentSaveResult {
   version: string
   currentText: string
   message: string
+}
+
+/** 编码模式：代码编辑器里打开的一个工作区文件（宿主 code.load，Core/Code/CodeFeature） */
+export interface CodeFile {
+  /** 工作区里的相对路径 */
+  path: string
+  fullPath: string
+  text: string
+  /** 内容指纹：保存时带上，期间被 AI 改过就不覆盖 */
+  version: string
+  exists: boolean
+  /** 只能看不能存 */
+  readOnly: boolean
+  /** binary / tooLarge / outside，或者一句错误说明 */
+  reason: string
 }
 
 /** 右侧「文件」标签里工作区的一项（宿主 workspace.list / workspace.search） */

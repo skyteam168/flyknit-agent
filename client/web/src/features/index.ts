@@ -5,3 +5,4 @@
 import './teams/store'
 import './notices/store'
 import './privacy/store'
+import './code/store'
