@@ -1621,7 +1621,7 @@ const zh = {
     browser: {
       untitled: "AI 浏览器",
       show: "显示浏览器窗口",
-      hint: "AI 在单独的浏览器窗口里操作网页，你随时可以看、可以自己点；提交类的操作会先问你。",
+      hint: "AI 在单独的浏览器窗口里操作网页，你随时可以看。AI 操作时页面会盖一层遮罩，免得误点打乱它；要自己操作请在窗口里点「接管」，做完点「交还给 AI」。提交类的操作会先问你。",
     },
     terminal: {
       title: "终端",
@@ -3696,7 +3696,7 @@ const vi: Messages = {
     browser: {
       untitled: "Trình duyệt AI",
       show: "Hiện cửa sổ trình duyệt",
-      hint: "AI thao tác web trong một cửa sổ trình duyệt riêng, bạn có thể xem và tự bấm bất cứ lúc nào; thao tác gửi sẽ hỏi bạn trước.",
+      hint: "AI thao tác web trong một cửa sổ trình duyệt riêng, bạn có thể xem bất cứ lúc nào. Khi AI đang thao tác, trang được phủ một lớp để tránh bấm nhầm làm rối AI; muốn tự thao tác hãy bấm «Tiếp quản» trong cửa sổ, xong thì bấm «Trả lại cho AI». Thao tác gửi sẽ hỏi bạn trước.",
     },
     terminal: {
       title: "Terminal",
@@ -5769,7 +5769,7 @@ const en: Messages = {
     browser: {
       untitled: "AI browser",
       show: "Show browser window",
-      hint: "The AI works in a separate browser window you can watch and use at any time; submit-type actions ask you first.",
+      hint: "The AI works in a separate browser window you can watch at any time. While it works, the page is covered so a stray click doesn't disrupt it; click Take Control in the window to use it yourself, then Hand back to AI. Submit-type actions ask you first.",
     },
     terminal: {
       title: "Terminal",

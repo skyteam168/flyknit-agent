@@ -9,6 +9,7 @@ namespace Flyknit.Client.Services;
 /// <summary>
 /// AI 浏览器：IT 在安全中心打开「浏览器操作」（默认关）后，办事对话里才有浏览器工具。
 /// 窗口第一次用到时才建，之后一直留着（关闭只是隐藏），登录过的内部系统不用每次重新登录。
+/// AI 操作时网页上有遮罩、员工可以「接管」（BrowserWindow / Core BrowserControl）。
 /// </summary>
 public sealed partial class AgentHost
 {
@@ -35,6 +36,8 @@ public sealed partial class AgentHost
                 action,
                 shot,
             });
+            // 这一轮任务结束（做完、停止、出错）：AI 不再操作，网页上的遮罩去掉；员工接管着的保持不变
+            RunFinished += _ => window.Control.Release();
             return window;
         });
     }
