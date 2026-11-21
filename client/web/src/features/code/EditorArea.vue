@@ -7,7 +7,8 @@
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Bot, Code2, Save, X } from '@lucide/vue'
+import { Bot, Code2, ExternalLink, Save, X } from '@lucide/vue'
+import { bridge } from '../../bridge'
 import { current, send, toast } from '../../store'
 import MonacoView from './MonacoView.vue'
 import { acceptDiff, activeTab, closeCodeTab, currentCode, isDirty, keepMine, saveCodeTab, selectionMarkdown, takeTheirs } from './store'
@@ -50,6 +51,17 @@ function close(path: string) {
   closeCodeTab(id, path)
 }
 
+/** 用员工自己装的 VS Code 打开工作区（开着文件就跳到这个文件） */
+async function openVsCode() {
+  if (!current.value) return
+  try {
+    const r = await bridge.openInVsCode(current.value.id, activeTab.value?.path ?? '')
+    toast(r.ok ? t('ui.code.vscodeOpened') : r.message)
+  } catch (e) {
+    toast(String((e as Error)?.message ?? e))
+  }
+}
+
 const reasonText = computed(() => {
   const r = activeTab.value?.reason ?? ''
   return r === 'binary' || r === 'tooLarge' || r === 'outside' ? t(`ui.code.readOnly.${r}`) : r
@@ -79,6 +91,7 @@ const reasonText = computed(() => {
       <label v-if="currentCode" class="follow" :title="t('ui.code.followHint')">
         <input v-model="currentCode.follow" type="checkbox" /> {{ t('ui.code.follow') }}
       </label>
+      <button type="button" class="save" :title="t('ui.code.vscodeHint')" @click="openVsCode"><ExternalLink :size="13" /> VS Code</button>
       <button v-if="activeTab && !activeTab.readOnly" type="button" class="save" :disabled="!isDirty(activeTab)" :title="t('ui.code.saveHint')" @click="save">
         <Save :size="13" /> {{ t('ui.code.save') }}
       </button>

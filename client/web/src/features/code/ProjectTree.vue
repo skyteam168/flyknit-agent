@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { ChevronDown, ChevronRight, FileCode2, Folder, FolderOpen, RefreshCw } from '@lucide/vue'
 import { bridge } from '../../bridge'
 import type { WorkspaceEntry } from '../../types'
-import { activeTab, openCodeFile } from './store'
+import { activeTab, code, openCodeFile } from './store'
 
 const props = defineProps<{ conversationId: string; path?: string; depth?: number }>()
 const { t } = useI18n()
@@ -34,6 +34,8 @@ async function load() {
 
 onMounted(load)
 watch(() => props.conversationId, load)
+// AI 新建 / 删除了文件：每一层（展开着的子文件夹也一样）各自重新列，展开状态不变
+watch(() => code.treeVersion[props.conversationId], load)
 
 function click(e: WorkspaceEntry) {
   if (e.isDir) open.value[e.path] = !open.value[e.path]

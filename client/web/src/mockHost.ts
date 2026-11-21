@@ -1108,12 +1108,13 @@ export function createMockHost(): HostTransport {
     if (/调试|终端|debug|terminal/i.test(text)) {
       // 开发预览：AI 在后台启动开发服务器调试，右侧出现「终端」标签，输出一段段推过来
       const runId = `t${uid().slice(0, 4)}`
-      const base = { id: runId, conversationId: id, command: 'npm run dev', shell: 'powershell', cwd: 'D:\\项目\\报表系统', background: true, startedAt: now(), running: true, stopped: false }
+      const base = { id: runId, conversationId: id, command: 'npm run dev', shell: 'powershell', cwd: 'D:\\项目\\报表系统', background: true, startedAt: now(), running: true, stopped: false, pty: true }
       terminalRuns.set(id, [...(terminalRuns.get(id) ?? []), base])
       emit({ type: 'terminal.started', run: base })
       for (const line of ['> report@1.0.0 dev', '> vite', '', '  VITE v5.4.0  ready in 412 ms', '  ➜  Local:   http://localhost:5173/', '[vite] page reload src/App.vue']) {
         await sleep(200)
         emit({ type: 'terminal.output', conversationId: id, runId, text: line + '\n' })
+        emit({ type: 'pty.runOutput', conversationId: id, runId, data: (line.includes('VITE') ? '\x1b[32m' + line + '\x1b[0m' : line.includes('Local') ? line.replace('http', '\x1b[36mhttp') + '\x1b[0m' : line) + '\r\n' })
       }
       const once = { ...base, id: `${runId}b`, command: 'npm test', background: false, startedAt: now() }
       emit({ type: 'terminal.started', run: once })
@@ -1145,6 +1146,7 @@ export function createMockHost(): HostTransport {
         }
         emit({ type: 'tool.finished', conversationId: id, callId, ok: true, output, decision: 'auto' })
         if (changed) emit({ type: 'code.changed', conversationId: id, paths: ['D:\\工作区\\' + changed], tool: name })
+        if (changed) emit({ type: 'code.treeChanged', conversationId: id, tool: name })
       }
       finalText = '改好了：`parse_date` 现在同时认 `2026/10/3` 和 `2026-10-03` 两种写法，3 个测试都通过。改动在编辑器里能看到对比。'
       await stream(id, '\n\n' + finalText)
@@ -2306,6 +2308,13 @@ export function createMockHost(): HostTransport {
         return true
       case 'pty.close':
         mockPtyLine.delete(String(p.id))
+        return true
+      case 'code.openInVsCode':
+        return { ok: true, message: '' }
+      case 'pty.runWrite':
+        emit({ type: 'pty.runOutput', conversationId: String(p.conversationId), runId: String(p.runId), data: String(p.data).replace('\r', '\r\n') })
+        return true
+      case 'pty.runResize':
         return true
       case 'code.load': {
         await sleep(80)

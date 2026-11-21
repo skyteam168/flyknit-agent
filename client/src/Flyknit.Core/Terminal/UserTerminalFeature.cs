@@ -24,6 +24,10 @@ public sealed class UserTerminalFeature : IBridgeModule, IDisposable
     private readonly Action<object> _post;
     private readonly Action<string> _log;
     private readonly Func<string, string, short, short, ITerminalSession> _start;
+
+    /// <summary>员工往 AI 的后台命令（伪控制台里跑的）敲字、调整大小：(对话, 命令编号, 内容) / (对话, 命令编号, 列, 行)。</summary>
+    public Func<string, string, string, bool>? WriteRun { get; init; }
+    public Func<string, string, short, short, bool>? ResizeRun { get; init; }
     private readonly ConcurrentDictionary<string, ITerminalSession> _sessions = new(StringComparer.Ordinal);
     private int _counter;
 
@@ -41,7 +45,7 @@ public sealed class UserTerminalFeature : IBridgeModule, IDisposable
         _start = start ?? StartPowerShell;
     }
 
-    public IReadOnlyCollection<string> Methods { get; } = new[] { "pty.open", "pty.write", "pty.resize", "pty.close" };
+    public IReadOnlyCollection<string> Methods { get; } = new[] { "pty.open", "pty.write", "pty.resize", "pty.close", "pty.runWrite", "pty.runResize" };
 
     public Task<object?> HandleAsync(string method, BridgeArgs args, CancellationToken ct)
     {
@@ -51,6 +55,8 @@ public sealed class UserTerminalFeature : IBridgeModule, IDisposable
             "pty.write" => Write(args.Str("id"), args.Str("data")),
             "pty.resize" => Resize(args.Str("id"), Clamp(args.Int("cols"), 120), Clamp(args.Int("rows"), 30)),
             "pty.close" => Close(args.Str("id")),
+            "pty.runWrite" => WriteRun?.Invoke(args.Str("conversationId"), args.Str("runId"), args.Str("data")) ?? false,
+            "pty.runResize" => ResizeRun?.Invoke(args.Str("conversationId"), args.Str("runId"), Clamp(args.Int("cols"), 120), Clamp(args.Int("rows"), 30)) ?? false,
             _ => null,
         };
         return Task.FromResult(result);

@@ -16,7 +16,7 @@
  */
 import { computed, reactive, watch } from 'vue'
 import { bridge } from '../../bridge'
-import { convState, current, loadChanges, registerFeature, state, toast } from '../../store'
+import { convState, current, draftMode, loadChanges, openConversation, registerFeature, state, toast } from '../../store'
 import type { ChangeTurn, CodeFile, HostEvent } from '../../types'
 
 export interface CodeTab {
@@ -110,7 +110,19 @@ export const clampAgent = (px: number) => Math.round(Math.min(Math.max(px, 320),
 /** 最多同时开这么多个标签：再多就把最早的、没改过的关掉 */
 const MaxTabs = 12
 
-export const code = reactive<{ byConversation: Record<string, ConversationCode> }>({ byConversation: {} })
+export const code = reactive<{ byConversation: Record<string, ConversationCode>; treeVersion: Record<string, number> }>({ byConversation: {}, treeVersion: {} })
+
+/** AI 新建 / 删除了文件：文件树重新列（连着几步只列一次） */
+const treeTimers = new Map<string, number>()
+function bumpTree(conversationId: string) {
+  clearTimeout(treeTimers.get(conversationId))
+  treeTimers.set(
+    conversationId,
+    window.setTimeout(() => {
+      code.treeVersion[conversationId] = (code.treeVersion[conversationId] ?? 0) + 1
+    }, 400),
+  )
+}
 
 function convOf(conversationId: string): ConversationCode {
   return (code.byConversation[conversationId] ??= { tabs: [], active: null, follow: true })
@@ -294,6 +306,71 @@ async function onAiChanged(conversationId: string, paths: string[]) {
   }
 }
 
+// ---------- 右边 AI Agent 的任务标签（参照 Cursor）：编码模式里新开任务、切换任务都不退出 IDE ----------
+
+/** 这个工作区里打开过的任务（标签），按打开顺序；关掉标签只是不显示，任务本身还在 */
+export const agentTabs = reactive<{ ids: string[] }>({ ids: [] })
+
+const sameDir = (a?: string | null, b?: string | null) => !!a && !!b && a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase()
+
+/** 同一个工作区里的办事任务，最近的在前（历史） */
+export const workspaceTasks = computed(() => {
+  const ws = current.value?.workspace
+  return state.conversations
+    .filter((c) => c.mode === 'agent' && sameDir(c.workspace, ws))
+    .slice()
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+})
+
+export function noteTab(id: string | null | undefined) {
+  if (id && !agentTabs.ids.includes(id)) agentTabs.ids.push(id)
+  if (agentTabs.ids.length > 8) agentTabs.ids.splice(0, agentTabs.ids.length - 8)
+}
+
+export function closeAgentTab(id: string) {
+  const i = agentTabs.ids.indexOf(id)
+  if (i < 0) return
+  agentTabs.ids.splice(i, 1)
+  if (state.currentId === id) {
+    const next = agentTabs.ids[Math.min(i, agentTabs.ids.length - 1)]
+    if (next) void openConversation(next)
+  }
+}
+
+/** 在当前工作区新开一个办事任务，留在编码模式里（不回首页） */
+export async function newTaskInIde(workspace?: string | null) {
+  const ws = workspace ?? current.value?.workspace
+  if (!ws) return
+  try {
+    const c = await bridge.createConversation('agent', draftMode.modelId, ws, draftMode.permission, null, null)
+    state.conversations.unshift(c)
+    state.currentId = c.id
+    convState(c.id).loaded = true
+    noteTab(c.id)
+    window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
+  } catch (e) {
+    toast(String((e as Error)?.message ?? e))
+  }
+}
+
+/**
+ * 编码模式开着时，侧栏的「新建任务」、Ctrl+N 也留在编码模式：它们会把当前对话清空（回首页），
+ * 这里接着在刚才那个工作区新开一个办事任务。
+ */
+let lastIdeWorkspace: string | null = null
+watch(
+  () => [state.currentId, ideActive.value] as const,
+  ([id, active], [prevId]) => {
+    if (active && current.value?.workspace) lastIdeWorkspace = current.value.workspace
+    if (!id && prevId && ide.on && state.view === 'chat' && lastIdeWorkspace && state.app?.developerTools) void newTaskInIde(lastIdeWorkspace)
+  },
+)
+
+export function switchTask(id: string) {
+  noteTab(id)
+  if (state.currentId !== id) void openConversation(id)
+}
+
 // ---------- 恢复到这里（参照 Cursor 的 Restore Checkpoint） ----------
 
 /**
@@ -344,6 +421,7 @@ registerFeature({
   id: 'code',
   eventPrefix: 'code.',
   onEvent(e: HostEvent) {
+    if (e.type === 'code.treeChanged') bumpTree(e.conversationId)
     if (e.type !== 'code.changed') return
     void onAiChanged(e.conversationId, e.paths)
   },

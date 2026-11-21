@@ -65,7 +65,13 @@ function runStatus(r: TerminalRun) {
           <span class="state" :class="{ on: selectedRun.running }">{{ runStatus(selectedRun) }}</span>
           <button v-if="selectedRun.running" type="button" class="stop" @click="stopTerminalRun(current!.id, selectedRun.id)"><Square :size="11" /> {{ t('ui.terminal.stop') }}</button>
         </header>
-        <pre>{{ selectedRun.output || t('ui.code.term.noOutput') }}</pre>
+        <!-- 在伪控制台里跑的（Windows 上的后台命令）：带颜色，员工能直接和它交互 -->
+        <XTermView
+          v-if="selectedRun.pty"
+          :key="'run' + selectedRun.id"
+          :run="{ conversationId: current!.id, runId: selectedRun.id, seed: selectedRun.raw, ended: !selectedRun.running }"
+        />
+        <pre v-else>{{ selectedRun.output || t('ui.code.term.noOutput') }}</pre>
       </div>
       <div v-else class="empty">
         <SquareTerminal :size="26" />

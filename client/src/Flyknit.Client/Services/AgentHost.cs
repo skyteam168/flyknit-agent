@@ -409,7 +409,11 @@ public sealed partial class AgentHost : IDisposable
             WorkspaceOf,
             () => OperatingSystem.IsWindows() && Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
             evt => Events?.Post(evt),
-            message => Log.Info(message));
+            message => Log.Info(message))
+        {
+            WriteRun = WriteTerminalRun,
+            ResizeRun = ResizeTerminalRun,
+        };
         BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code).Register(UserTerminals);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
@@ -2027,6 +2031,11 @@ public sealed partial class AgentHost : IDisposable
             if (result.Ok && call.Name is "write_file" or "edit_file" or "multi_edit" && result.Outputs.Count > 0)
             {
                 _events.Post(new { type = "code.changed", conversationId = _id, paths = result.Outputs, tool = call.Name });
+            }
+            // 编码模式的文件树：AI 新建 / 删除了文件（命令也可能建文件，比如 npm init、git checkout）时重新列一遍
+            if (result.Ok && call.Name is "write_file" or "delete_path" or "multi_edit" or "run_shell" or "git_commit")
+            {
+                _events.Post(new { type = "code.treeChanged", conversationId = _id, tool = call.Name });
             }
         }
 

@@ -52,6 +52,22 @@ export async function closePty(id: string) {
   }
 }
 
+// ---------- AI 的后台命令（伪控制台里跑的）：同样用 xterm 画，员工能往里敲字 ----------
+const runKey = (conversationId: string, runId: string) => conversationId + '\n' + runId
+
+/** xterm 挂到 AI 的一条后台命令上：先重放（事件里攒的，或者 terminal.list 带来的 seed），之后的新输出直接给它 */
+export function attachRun(conversationId: string, runId: string, seed: string | null | undefined, write: (data: string) => void) {
+  const key = runKey(conversationId, runId)
+  if (!scrollback.has(key) && seed) scrollback.set(key, seed)
+  listeners.set(key, write)
+  const old = scrollback.get(key)
+  if (old) write(old)
+}
+
+export function detachRun(conversationId: string, runId: string) {
+  listeners.delete(runKey(conversationId, runId))
+}
+
 /** xterm 挂上来：先重放留着的输出，之后的新输出直接给它 */
 export function attachPty(id: string, write: (data: string) => void) {
   listeners.set(id, write)
@@ -67,7 +83,12 @@ registerFeature({
   id: 'pty',
   eventPrefix: 'pty.',
   onEvent(e: HostEvent) {
-    if (e.type === 'pty.output') {
+    if (e.type === 'pty.runOutput') {
+      const key = runKey(e.conversationId, e.runId)
+      const next = (scrollback.get(key) ?? '') + e.data
+      scrollback.set(key, next.length > MaxScrollback ? next.slice(next.length - MaxScrollback) : next)
+      listeners.get(key)?.(e.data)
+    } else if (e.type === 'pty.output') {
       const next = (scrollback.get(e.id) ?? '') + e.data
       scrollback.set(e.id, next.length > MaxScrollback ? next.slice(next.length - MaxScrollback) : next)
       listeners.get(e.id)?.(e.data)

@@ -711,6 +711,9 @@ const zh = {
       backgroundTerminals: '{n} 个后台终端在运行',
       filesChanged: '{n} 个文件有改动',
       review: '查看',
+      vscodeHint: '用你电脑上的 VS Code 打开这个工作区（开着文件就跳到这个文件）',
+      vscodeOpened: '已在 VS Code 中打开',
+      agent: { newTask: '在这个工作区新建任务（不退出编码模式）', history: '这个工作区的历史任务', search: '搜索任务', untitled: '新任务' },
       term: { list: '终端', newShell: '新建 PowerShell', emptyHint: '这里显示 AI 跑的命令；也可以开一个自己的 PowerShell', none: '还没有终端', noOutput: '（还没有输出）', exited: '终端已结束（退出码 {code}）' },
     },
     notices: {
@@ -2838,6 +2841,9 @@ const vi: Messages = {
       backgroundTerminals: '{n} terminal nền đang chạy',
       filesChanged: '{n} tệp có thay đổi',
       review: 'Xem',
+      vscodeHint: 'Mở thư mục làm việc này bằng VS Code trên máy bạn (đang mở tệp thì nhảy tới tệp đó)',
+      vscodeOpened: 'Đã mở trong VS Code',
+      agent: { newTask: 'Tạo tác vụ mới trong thư mục này (không thoát chế độ lập trình)', history: 'Tác vụ trước đây của thư mục này', search: 'Tìm tác vụ', untitled: 'Tác vụ mới' },
       term: { list: 'Terminal', newShell: 'PowerShell mới', emptyHint: 'Lệnh AI chạy sẽ hiện ở đây; bạn cũng có thể mở PowerShell của riêng mình', none: 'Chưa có terminal', noOutput: '(chưa có đầu ra)', exited: 'Terminal đã kết thúc (mã thoát {code})' },
     },
     notices: {
@@ -4970,6 +4976,9 @@ const en: Messages = {
       backgroundTerminals: '{n} background terminals running',
       filesChanged: '{n} files changed',
       review: 'Review',
+      vscodeHint: 'Open this workspace in VS Code on your computer (jumps to the open file)',
+      vscodeOpened: 'Opened in VS Code',
+      agent: { newTask: 'New task in this workspace (stays in code mode)', history: 'Past tasks in this workspace', search: 'Search tasks', untitled: 'New task' },
       term: { list: 'Terminals', newShell: 'New PowerShell', emptyHint: "Commands the AI runs show up here; you can also open your own PowerShell", none: 'No terminals yet', noOutput: '(no output yet)', exited: 'Terminal exited (code {code})' },
     },
     notices: {

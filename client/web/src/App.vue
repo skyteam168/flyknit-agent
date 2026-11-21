@@ -39,6 +39,7 @@ import ExpertDetail from './components/ExpertDetail.vue'
 import BrandLoader from './components/BrandLoader.vue'
 import { uploadDropped } from './library'
 import CodeWorkspace from './features/code/CodeWorkspace.vue'
+import AgentTabs from './features/code/AgentTabs.vue'
 import { ide, ideActive } from './features/code/store'
 import { safeMode } from './render/useRichBlocks'
 import { closeFilesViewer, convFiles } from './conversationFiles'
@@ -339,6 +340,8 @@ onBeforeUnmount(() => {
           :class="{ 'ide-agent': ideActive }"
           :style="ideActive ? { width: ide.agentWidth + 'px' } : undefined"
         >
+          <!-- 编码模式：右边 AI Agent 顶上的任务标签、新建任务、历史（features/code） -->
+          <AgentTabs v-if="ideActive" />
           <!-- 专家对话：顶部标出是哪位专家；专家被下线了说一声 -->
           <!-- 团队对话：顶部团队条（团队名、成员、返回团队列表） -->
           <TeamBar v-if="current?.teamId" />

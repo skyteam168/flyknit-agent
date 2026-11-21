@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Flyknit.Core.Documents;
 using Flyknit.Core.Hosting;
@@ -32,7 +33,17 @@ public sealed class CodeFeature : IBridgeModule
         _log = log;
     }
 
-    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save" };
+    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save", "code.openInVsCode" };
+
+    /// <summary>启动 VS Code（测试里换成假的）。返回 false 表示没启动起来。</summary>
+    public Func<ProcessStartInfo, bool> Launch { get; init; } = psi =>
+    {
+        using var p = Process.Start(psi);
+        return p is not null;
+    };
+
+    /// <summary>找 VS Code 的 Code.exe（测试里换成假的）。</summary>
+    public Func<string?> FindVsCode { get; init; } = () => VsCode.Find(Environment.GetEnvironmentVariable, File.Exists);
 
     public async Task<object?> HandleAsync(string method, BridgeArgs args, CancellationToken ct)
     {
@@ -42,6 +53,7 @@ public sealed class CodeFeature : IBridgeModule
         {
             "code.load" => await Task.Run(() => Load(conversation, path), ct),
             "code.save" => await Task.Run(() => Save(conversation, path, args.Str("text"), args.Str("version")), ct),
+            "code.openInVsCode" => OpenInVsCode(conversation, path, args.Int("line") ?? 0),
             _ => null,
         };
     }
@@ -121,6 +133,38 @@ public sealed class CodeFeature : IBridgeModule
     }
 
     /// <summary>
+    /// 用员工自己装的 VS Code 打开这个对话的工作区（带了文件就跳到那个文件、那一行）。
+    /// 直接启动 Code.exe、参数逐个传，不经过 code.cmd 和命令行解释器（路径里有 &amp; 之类的也不会被当成命令）。
+    /// </summary>
+    public object OpenInVsCode(string conversationId, string relative, int line)
+    {
+        var root = _workspaceOf(conversationId);
+        if (root is null)
+        {
+            return new { ok = false, message = "这个对话还没选工作区" };
+        }
+        if (FindVsCode() is not { } exe)
+        {
+            return new { ok = false, message = "没找到 VS Code。装好后再试（https://code.visualstudio.com）" };
+        }
+        var psi = new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = root };
+        psi.ArgumentList.Add(root);
+        if (relative.Length > 0 && WorkspaceBrowser.Resolve(root, relative) is { } file && File.Exists(file))
+        {
+            psi.ArgumentList.Add("--goto");
+            psi.ArgumentList.Add(line > 0 ? $"{file}:{line}" : file);
+        }
+        try
+        {
+            return Launch(psi) ? new { ok = true, message = "" } : new { ok = false, message = "VS Code 没有启动起来" };
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            return new { ok = false, message = ex.Message };
+        }
+    }
+
+    /// <summary>
     /// 路径上每一段（从工作区往下）都不能是指到工作区外面的链接。文件本身是链接时看它的最终目标。
     /// 还不存在的部分跳过（新建文件）。
     /// </summary>
@@ -174,4 +218,32 @@ public sealed class CodeFeature : IBridgeModule
 public sealed record CodeFile(string Path, string FullPath, string Text, string Version, bool Exists, bool ReadOnly, string Reason)
 {
     public static CodeFile Missing(string path, string reason) => new(path, "", "", "", false, true, reason);
+}
+
+/// <summary>找员工电脑上装的 VS Code（用户安装版、系统安装版，或者 PATH 里的 code 命令旁边的 Code.exe）。</summary>
+public static class VsCode
+{
+    public static string? Find(Func<string, string?> env, Func<string, bool> exists)
+    {
+        var candidates = new List<string>();
+        void Add(string? baseDir, params string[] parts)
+        {
+            if (!string.IsNullOrWhiteSpace(baseDir))
+            {
+                candidates.Add(Path.Combine(new[] { baseDir }.Concat(parts).ToArray()));
+            }
+        }
+        Add(env("LOCALAPPDATA"), "Programs", "Microsoft VS Code", "Code.exe");
+        Add(env("ProgramFiles"), "Microsoft VS Code", "Code.exe");
+        Add(env("ProgramFiles(x86)"), "Microsoft VS Code", "Code.exe");
+        // PATH 里的 ...\Microsoft VS Code\bin\code.cmd → 上一层的 Code.exe（自定义安装位置）
+        foreach (var dir in (env("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (exists(Path.Combine(dir, "code.cmd")))
+            {
+                Add(Path.GetDirectoryName(dir.TrimEnd('\\', '/')), "Code.exe");
+            }
+        }
+        return candidates.FirstOrDefault(exists);
+    }
 }

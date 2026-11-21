@@ -393,6 +393,13 @@ class Bridge {
   writePty = (id: string, data: string) => this.call<boolean>('pty.write', { id, data })
   resizePty = (id: string, cols: number, rows: number) => this.call<boolean>('pty.resize', { id, cols, rows })
   closePty = (id: string) => this.call<boolean>('pty.close', { id })
+  /** 员工往 AI 的后台命令（伪控制台里跑的）敲字、调整大小 */
+  writePtyRun = (conversationId: string, runId: string, data: string) => this.call<boolean>('pty.runWrite', { conversationId, runId, data })
+  resizePtyRun = (conversationId: string, runId: string, cols: number, rows: number) =>
+    this.call<boolean>('pty.runResize', { conversationId, runId, cols, rows })
+  /** 用员工自己装的 VS Code 打开这个对话的工作区（带了文件就跳过去） */
+  openInVsCode = (conversationId: string, path = '', line = 0) =>
+    this.call<{ ok: boolean; message: string }>('code.openInVsCode', { conversationId, path, line })
   /** 编码模式：读工作区里的一个文件（只读工作区里的；二进制、太大的只读） */
   loadCode = (conversationId: string, path: string) => this.call<CodeFile>('code.load', { conversationId, path })
   /** 编码模式：保存。version 是打开时的版本，期间被 AI 改过返回 conflict（不覆盖） */
