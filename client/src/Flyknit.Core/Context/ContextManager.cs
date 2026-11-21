@@ -365,6 +365,22 @@ public sealed class ContextManager
         return CompactAsync(history, Measure(history), ct, lastUser, CleanFocus(focus));
     }
 
+    /// <summary>
+    /// 新开任务接着做时的交接摘要：整段对话（连同已有的摘要）重新摘一份，写给新任务看。不改动这个对话本身。
+    /// </summary>
+    public async Task<string?> SummarizeForHandoffAsync(IReadOnlyList<ChatMessage> messages, CancellationToken ct)
+    {
+        var old = messages.Where(m => m.Role != ChatRole.System && m.Content != ContinueMarker).ToList();
+        if (old.Count == 0)
+        {
+            return Summary;
+        }
+        return await SummarizeAsync(old, ct, HandoffFocus).ConfigureAwait(false);
+    }
+
+    /// <summary>交接摘要的重点（接在摘要提示词后面）。</summary>
+    public const string HandoffFocus = "这份摘要交给新开的任务接着做：写清楚任务目标、已经做完的、改过哪些文件和为什么、还没做完的事、员工提过的要求和注意事项；不要写过程中的寒暄和已经放弃的尝试。";
+
     /// <summary>压缩重点最长这么多字：是一句要求，不是一篇文章（也免得把整段对话塞进摘要提示词）。</summary>
     public const int MaxFocusChars = 300;
 

@@ -129,22 +129,45 @@ public sealed class PseudoConsole : IDisposable
         }
     }
 
-    /// <summary>等程序退出，返回退出码（拿不到时返回 -1）。</summary>
+    /// <summary>
+    /// 等程序退出，返回退出码（拿不到时返回 -1）。
+    /// 用 CreateProcess 给的进程句柄等、读退出码：按进程号另找的 Process 对象在命令很快结束时可能拿不到
+    /// （GetProcessById 时已经退出，或者读 ExitCode 抛异常），退出码就成了 -1（Windows CI 上真碰到过）。
+    /// </summary>
     public async Task<int> WaitForExitAsync(CancellationToken ct)
     {
-        if (_process is null)
+        // 复制一份句柄自己拿着：等的时候员工关了终端（Dispose 关掉原句柄）也不受影响
+        SafeWaitHandle own;
+        lock (_gate)
         {
-            return -1;
+            if (_disposed)
+            {
+                return -1;
+            }
+            var self = GetCurrentProcess();
+            if (!DuplicateHandle(self, _processHandle, self, out var dup, 0, false, DUPLICATE_SAME_ACCESS))
+            {
+                return -1;
+            }
+            own = new SafeWaitHandle(dup, ownsHandle: true);
         }
-        await _process.WaitForExitAsync(ct).ConfigureAwait(false);
+        using var handle = new ProcessHandleWait(own);
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registration = ThreadPool.RegisterWaitForSingleObject(handle, (_, _) => exited.TrySetResult(), null, Timeout.Infinite, executeOnlyOnce: true);
         try
         {
-            return _process.ExitCode;
+            await exited.Task.WaitAsync(ct).ConfigureAwait(false);
         }
-        catch (InvalidOperationException)
+        finally
         {
-            return -1;
+            registration.Unregister(null);
         }
+        return GetExitCodeProcess(own.DangerousGetHandle(), out var code) && code != STILL_ACTIVE ? (int)code : -1;
+    }
+
+    private sealed class ProcessHandleWait : WaitHandle
+    {
+        public ProcessHandleWait(SafeWaitHandle handle) => SafeWaitHandle = handle;
     }
 
     public void Dispose()
@@ -258,4 +281,17 @@ public sealed class PseudoConsole : IDisposable
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    private const uint STILL_ACTIVE = 259;
+    private const uint DUPLICATE_SAME_ACCESS = 0x00000002;
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DuplicateHandle(IntPtr hSourceProcessHandle, IntPtr hSourceHandle, IntPtr hTargetProcessHandle,
+        out IntPtr lpTargetHandle, uint dwDesiredAccess, bool bInheritHandle, uint dwOptions);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
 }

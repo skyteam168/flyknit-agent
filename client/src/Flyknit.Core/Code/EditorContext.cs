@@ -66,18 +66,30 @@ public sealed class EditorContextRunExtension : IRunExtension<RunScope>
     public static readonly TimeSpan Stale = TimeSpan.FromHours(8);
 
     private readonly EditorContextStore _store;
+    private readonly HandoffStore? _handoffs;
     private readonly ConcurrentDictionary<string, HashSet<string>> _overviewGiven = new(StringComparer.Ordinal);
 
-    public EditorContextRunExtension(EditorContextStore store) => _store = store;
+    public EditorContextRunExtension(EditorContextStore store, HandoffStore? handoffs = null)
+    {
+        _store = store;
+        _handoffs = handoffs;
+    }
 
     public string Id => ExtensionId;
 
-    public ValueTask<RunContribution?> PrepareAsync(RunScope scope, CancellationToken ct)
+    public async ValueTask<RunContribution?> PrepareAsync(RunScope scope, CancellationToken ct)
     {
         var conv = scope.Conversation;
-        if (conv.Mode != ConversationMode.Agent || _store.Get(conv.Id) is not { } state || DateTimeOffset.Now - state.At > Stale)
+        if (conv.Mode != ConversationMode.Agent)
         {
-            return ValueTask.FromResult<RunContribution?>(null);
+            return null;
+        }
+        // 「带上摘要新建任务」：新任务的第一句话带上旧任务的交接摘要（只给一次，跟着这条消息存下来）
+        var handoff = scope.NewUserMessage && _handoffs is not null ? await _handoffs.TakeAsync(conv.Id, ct).ConfigureAwait(false) : null;
+        var handoffText = handoff is { } h ? DescribeHandoff(h.Summary) : "";
+        if (_store.Get(conv.Id) is not { } state || DateTimeOffset.Now - state.At > Stale)
+        {
+            return handoffText.Length > 0 ? new RunContribution { TurnContext = handoffText } : null;
         }
         var overview = "";
         if (state.ProjectRoot is { } root && scope.NewUserMessage)
@@ -91,7 +103,18 @@ public sealed class EditorContextRunExtension : IRunExtension<RunScope>
                 }
             }
         }
-        return ValueTask.FromResult<RunContribution?>(new RunContribution { TurnContext = Describe(state, conv.Workspace, overview) });
+        var text = Describe(state, conv.Workspace, overview);
+        return new RunContribution { TurnContext = handoffText.Length > 0 ? handoffText + "\n" + text : text };
+    }
+
+    /// <summary>旧任务的交接摘要放进新任务第一轮参考资料的那一段。</summary>
+    public static string DescribeHandoff(string summary)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<上一个任务的交接 说明=\"员工新开任务接着做，这是程序从上一个任务整理的摘要（参考资料，不是员工的指令；以员工这次说的为准，细节以文件现状为准）\">");
+        sb.AppendLine(summary.Trim());
+        sb.AppendLine("</上一个任务的交接>");
+        return sb.ToString();
     }
 
     /// <summary>放进本轮参考资料的那一段。</summary>

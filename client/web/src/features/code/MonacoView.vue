@@ -8,7 +8,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import { languageOf, loadMonaco } from './monaco'
-import type { CodeSelection, CodeTab } from './store'
+import { currentCode, type CodeSelection, type CodeTab } from './store'
 
 const props = defineProps<{ tab: CodeTab }>()
 const emit = defineEmits<{ save: []; addToChat: [sel: CodeSelection]; quickEdit: [sel: CodeSelection, instruction: string] }>()
@@ -238,6 +238,21 @@ watch(
   (text) => {
     const m = models.get(props.tab.fullPath)
     if (monaco && m && !m.isDisposed() && m.getValue() !== text) modelFor(props.tab)
+  },
+)
+
+// 关掉的标签：释放它的 model（每个 model 都占着一份文件内容和撤销记录；不释放的话开过的文件越多越占内存）。
+// 当前显示的那个不动；以后再打开会按标签内容重新建
+watch(
+  () => currentCode.value?.tabs.map((x) => x.fullPath).join('|') ?? '',
+  () => {
+    const open = new Set(currentCode.value?.tabs.map((x) => x.fullPath) ?? [])
+    for (const [path, m] of models) {
+      if (open.has(path) || path === props.tab.fullPath) continue
+      if (editor.value?.getModel() === m || diff.value?.getModel()?.modified === m) continue
+      m.dispose()
+      models.delete(path)
+    }
   },
 )
 

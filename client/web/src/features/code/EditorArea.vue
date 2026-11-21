@@ -11,7 +11,7 @@ import { Bot, Code2, ExternalLink, FolderGit2, Save, X } from '@lucide/vue'
 import { bridge } from '../../bridge'
 import { current, send, toast } from '../../store'
 import MonacoView from './MonacoView.vue'
-import { acceptDiff, activeTab, closeCodeTab, currentCode, isDirty, keepMine, narrowToProject, projects, saveCodeTab, selectionMarkdown, takeTheirs } from './store'
+import { acceptDiff, activeTab, closeCodeTab, currentCode, isDirty, keepMine, keepTurn, narrowToProject, pendingTurnFor, projects, saveCodeTab, selectionMarkdown, takeTheirs, undoTurn } from './store'
 import type { CodeSelection } from './store'
 
 const emit = defineEmits<{ insertText: [text: string] }>()
@@ -49,6 +49,29 @@ function close(path: string) {
   if (!id || !tab) return
   if (isDirty(tab) && !window.confirm(t('ui.code.closeDirty', { name: tab.name }))) return
   closeCodeTab(id, path)
+}
+
+/** 这个文件最近一次被 AI 改、还没处理的那一轮（对比条上的「保留 / 撤销此文件」用） */
+const fileTurn = computed(() => (current.value && activeTab.value ? pendingTurnFor(current.value.id, activeTab.value.fullPath) : null))
+
+/** 保留这个文件的改动：收起对比（整轮都保留在输入框上方的「保留」） */
+function keepFile() {
+  const tab = activeTab.value
+  if (!tab) return
+  acceptDiff(tab)
+}
+
+/** 撤销这个文件的改动：恢复成 AI 这一轮改之前的样子 */
+function undoFile() {
+  const tab = activeTab.value
+  if (!tab || !current.value || !fileTurn.value) return
+  void undoTurn(
+    current.value.id,
+    fileTurn.value.turnId,
+    (n, dirty) => t('ui.code.decide.undoFileConfirm', { name: tab.name }) + (dirty ? '\n' + t('ui.code.decide.undoDirty', { n: dirty }) : ''),
+    (n) => t('ui.code.decide.undone', { n }),
+    [tab.fullPath],
+  )
 }
 
 /** 用员工自己装的 VS Code 打开工作区（开着文件就跳到这个文件） */
@@ -115,10 +138,11 @@ const reasonText = computed(() => {
         <button type="button" @click="takeTheirs(activeTab)">{{ t('ui.code.takeTheirs') }}</button>
         <button type="button" class="primary" @click="keepMine(current!.id, activeTab)">{{ t('ui.code.keepMine') }}</button>
       </div>
-      <div v-else-if="activeTab.before !== null" class="banner ai">
+      <div v-else-if="activeTab.before !== null || (activeTab.aiChanged && fileTurn)" class="banner ai">
         <Bot :size="14" />
-        <span>{{ t('ui.code.diffBanner') }}</span>
-        <button type="button" class="primary" @click="acceptDiff(activeTab)">{{ t('ui.code.closeDiff') }}</button>
+        <span>{{ activeTab.before !== null ? t('ui.code.diffBanner') : t('ui.code.decide.changedByAi') }}</span>
+        <button v-if="fileTurn" type="button" :title="t('ui.code.decide.undoFileHint')" @click="undoFile">{{ t('ui.code.decide.undoFile') }}</button>
+        <button type="button" class="primary" :title="t('ui.code.decide.keepFileHint')" @click="keepFile">{{ t('ui.code.decide.keepFile') }}</button>
       </div>
       <div v-else-if="activeTab.readOnly" class="banner">{{ reasonText }}</div>
       <MonacoView :tab="activeTab" @save="save" @add-to-chat="addToChat" @quick-edit="quickEdit" />

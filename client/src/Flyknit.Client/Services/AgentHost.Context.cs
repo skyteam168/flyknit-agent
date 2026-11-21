@@ -81,6 +81,50 @@ public sealed partial class AgentHost
     }
 
     /// <summary>
+    /// 编码模式「带上摘要新建任务」：把旧任务整理成一份交接摘要（不改动旧任务本身）。
+    /// 只给办事任务用；经服务端网关，和压缩对话一样计用量。没有内容时返回 null。
+    /// </summary>
+    public async Task<string?> HandoffSummaryAsync(string fromId, CancellationToken ct)
+    {
+        var conv = Store.Get(fromId);
+        if (conv is null || conv.Mode != ConversationMode.Agent)
+        {
+            return null;
+        }
+        var stored = Store.GetMessages(fromId);
+        var summary = conv.Summary;
+        var recent = (IEnumerable<ChatMessage>)stored;
+        var uptoIndex = conv.SummaryUpto is null ? -1 : stored.FindIndex(m => m.Id == conv.SummaryUpto);
+        if (uptoIndex >= 0)
+        {
+            recent = stored.Skip(uptoIndex + 1);
+        }
+        else
+        {
+            summary = null;
+        }
+        var list = TrimHistory(recent.ToList()).ToList();
+        if (summary is null && !list.Any(m => m.Role == ChatRole.User))
+        {
+            return null;
+        }
+        var context = new ContextManager(Server, "", summary, _contextLength, enableSessionMemory: false)
+        {
+            Scene = Scenes.Agent,
+            ModelId = conv.ModelId,
+        };
+        try
+        {
+            return await context.SummarizeForHandoffAsync(list, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Warn($"整理任务 {fromId} 的交接摘要失败", ex);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 员工手动「整理对话」：最近一问一答保留原文，之前的压成摘要（和自动压缩存的是同一份摘要）。
     /// AI 正在回答时不能整理。
     /// </summary>

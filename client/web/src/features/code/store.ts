@@ -112,7 +112,24 @@ export const clampAgent = (px: number) => Math.round(Math.min(Math.max(px, 320),
 /** 最多同时开这么多个标签：再多就把最早的、没改过的关掉 */
 const MaxTabs = 12
 
-export const code = reactive<{ byConversation: Record<string, ConversationCode>; treeVersion: Record<string, number> }>({ byConversation: {}, treeVersion: {} })
+/**
+ * 编辑器状态（打开的文件、当前标签）按工作区存，不按任务存（参照 Cursor：编辑器属于项目，右边的 AI 任务可以随便换）：
+ * 同一个工作区里新开任务、切换任务，打开的文件都还在。没有工作区的对话按对话 id 存。
+ */
+export const code = reactive<{ byEditor: Record<string, ConversationCode>; treeVersion: Record<string, number> }>({ byEditor: {}, treeVersion: {} })
+
+const workspaceKey = (ws: string) => 'ws:' + ws.replace(/[\\/]+$/, '').toLowerCase()
+
+/** 这个对话的编辑器状态存在哪个格子里 */
+export function editorKey(conversationId: string): string {
+  const ws = state.conversations.find((c) => c.id === conversationId)?.workspace
+  return ws ? workspaceKey(ws) : conversationId
+}
+
+/** 只看不建 */
+export function editorOf(conversationId: string): ConversationCode | undefined {
+  return code.byEditor[editorKey(conversationId)]
+}
 
 /** AI 新建 / 删除了文件：文件树重新列（连着几步只列一次） */
 const treeTimers = new Map<string, number>()
@@ -127,7 +144,7 @@ function bumpTree(conversationId: string) {
 }
 
 function convOf(conversationId: string): ConversationCode {
-  return (code.byConversation[conversationId] ??= { tabs: [], active: null, follow: true })
+  return (code.byEditor[editorKey(conversationId)] ??= { tabs: [], active: null, follow: true })
 }
 
 /** 当前对话能不能用编码模式：开发者工具开着、办事对话、选了工作区 */
@@ -372,7 +389,7 @@ function reportFocus() {
   focusTimer = window.setTimeout(async () => {
     const id = current.value?.id
     if (!id) return
-    const c = code.byConversation[id]
+    const c = editorOf(id)
     const tab = ideActive.value ? (c?.tabs.find((x) => x.path === c.active) ?? null) : null
     const focus = {
       activeFile: tab?.path ?? '',
@@ -396,7 +413,7 @@ function reportFocus() {
 watch(
   () => {
     const id = current.value?.id
-    const c = id ? code.byConversation[id] : undefined
+    const c = id ? editorOf(id) : undefined
     const tab = c?.tabs.find((x) => x.path === c.active)
     return [id, ideActive.value, c?.active, c?.tabs.map((x) => x.path).join('|'), tab?.cursor?.line, tab?.cursor?.from, tab?.cursor?.to, current.value?.workspace]
   },
@@ -411,14 +428,18 @@ export async function narrowToProject(conversationId: string) {
   const info = projects[conversationId]
   if (!info?.projectRoot || !info.narrower) return
   const root = info.projectRoot
-  const c = convOf(conversationId)
-  const activeFull = c.tabs.find((t) => t.path === c.active)?.fullPath ?? ''
-  c.tabs = c.tabs.flatMap((t) => {
+  // 编辑器按工作区存：收窄后这个任务换到项目的格子；原来大工作区的格子不动（别的任务可能还开着）
+  const old = convOf(conversationId)
+  const activeFull = old.tabs.find((t) => t.path === old.active)?.fullPath ?? ''
+  const moved = old.tabs.flatMap((t) => {
     const rel = relativeTo(root, t.fullPath)
     return rel ? [{ ...t, path: rel }] : []
   })
-  c.active = c.tabs.find((t) => samePath(t.fullPath, activeFull))?.path ?? c.tabs[0]?.path ?? null
   await moveToWorkspace(conversationId, root)
+  const c = convOf(conversationId)
+  for (const t of moved) if (!c.tabs.some((x) => samePath(x.fullPath, t.fullPath))) c.tabs.push(t)
+  trimTabs(c)
+  c.active = c.tabs.find((t) => samePath(t.fullPath, activeFull))?.path ?? c.active ?? c.tabs[0]?.path ?? null
   code.treeVersion[conversationId] = (code.treeVersion[conversationId] ?? 0) + 1
   lastFocus = ''
   reportFocus()
@@ -455,8 +476,11 @@ export function closeAgentTab(id: string) {
   }
 }
 
-/** 在当前工作区新开一个办事任务，留在编码模式里（不回首页） */
-export async function newTaskInIde(workspace?: string | null) {
+/**
+ * 在当前工作区新开一个办事任务，留在编码模式里（不回首页）。打开的文件不关（编辑器按工作区存）。
+ * handoffFrom：带上那个任务的交接摘要（对话太长、做下一件事时用），第一句话发出时交给 AI。
+ */
+export async function newTaskInIde(workspace?: string | null, opts: { handoffFrom?: string } = {}) {
   const ws = workspace ?? current.value?.workspace
   if (!ws) return
   try {
@@ -465,11 +489,76 @@ export async function newTaskInIde(workspace?: string | null) {
     state.currentId = c.id
     convState(c.id).loaded = true
     noteTab(c.id)
+    if (opts.handoffFrom) void startHandoff(c.id, opts.handoffFrom)
     window.dispatchEvent(new CustomEvent('flyknit:focus-input'))
   } catch (e) {
     toast(String((e as Error)?.message ?? e))
   }
 }
+
+// ---------- 带上摘要新建任务 ----------
+
+export interface Handoff {
+  from: string
+  fromTitle: string
+  status: 'working' | 'ready'
+  summary: string
+}
+
+/** 新任务 id → 带过来的交接摘要（第一轮做完就收起：摘要已经跟着第一句话存进历史） */
+export const handoffs = reactive<Record<string, Handoff>>({})
+
+async function startHandoff(to: string, from: string) {
+  const fromTitle = state.conversations.find((x) => x.id === from)?.title ?? ''
+  handoffs[to] = { from, fromTitle, status: 'working', summary: '' }
+  try {
+    const r = await bridge.codeHandoff(to, from)
+    const h = handoffs[to]
+    if (!h || h.from !== from) return // 员工点了「不带了」
+    if (r.ok && r.summary) {
+      h.status = 'ready'
+      h.summary = r.summary
+    } else {
+      delete handoffs[to]
+      if (r.message) toast(r.message)
+    }
+  } catch (e) {
+    delete handoffs[to]
+    toast(String((e as Error)?.message ?? e))
+  }
+}
+
+export function dropHandoff(to: string) {
+  delete handoffs[to]
+  void bridge.codeHandoffClear(to).catch(() => {})
+}
+
+// ---------- 该新开任务了：对话太长、换了项目 ----------
+
+/** 上下文用到这么多（占模型窗口）就建议新开任务；自动整理在 75% 左右 */
+export const LongContextRatio = 0.6
+
+/** 每个任务在做的项目（第一句话发出时员工看的那个项目） */
+const taskProject: Record<string, string> = {}
+/** 员工点了「不再提示」的：任务 id → 哪种提示 */
+export const hintDismissed = reactive<Record<string, { long?: boolean; project?: string }>>({})
+
+/** 这个任务现在打开的项目和它之前在做的项目不一样：返回 [现在, 之前] 的项目名 */
+export function projectSwitch(conversationId: string): [string, string] | null {
+  const now = projects[conversationId]?.projectRoot
+  const before = taskProject[conversationId]
+  if (!now || !before || sameDir(now, before)) return null
+  return [baseName(now), baseName(before)]
+}
+
+watch(
+  () => [current.value?.id, Math.max(current.value?.messageCount ?? 0, current.value ? (state.byId[current.value.id]?.messages.length ?? 0) : 0), current.value ? projects[current.value.id]?.projectRoot : null] as const,
+  ([id, count, root]) => {
+    if (!id || !root) return
+    // 还没说话：跟着员工看的项目走；说过话之后记住第一次的
+    if (count === 0 || !taskProject[id]) taskProject[id] = root
+  },
+)
 
 /**
  * 编码模式开着时，侧栏的「新建任务」、Ctrl+N 也留在编码模式：它们会把当前对话清空（回首页），
@@ -487,6 +576,106 @@ watch(
 export function switchTask(id: string) {
   noteTab(id)
   if (state.currentId !== id) void openConversation(id)
+}
+
+// ---------- AI 改完后：保留 / 撤销 / 查看（参照 Cursor 的 Keep / Undo / Review） ----------
+//
+// AI 的改动一执行就已经写进磁盘了（和 Cursor 一样）。「保留」= 认可这一轮的改动（只是不再提示）；
+// 「撤销」= 用现有的按轮还原把这一轮改过的文件恢复成这一轮之前的样子；「查看」= 打开这一轮的改动对比。
+
+const KeptKey = 'flyknit.keptTurns'
+
+function readKept(): Record<string, string[]> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KeptKey) ?? '{}')
+    return raw && typeof raw === 'object' ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
+/** 每个对话里员工点过「保留」的轮次（记在本机，重启后不再提示） */
+export const kept = reactive<Record<string, string[]>>(readKept())
+
+function saveKept() {
+  try {
+    // 只留最近的一些，免得越攒越多
+    const entries = Object.entries(kept).slice(-200)
+    localStorage.setItem(KeptKey, JSON.stringify(Object.fromEntries(entries.map(([k, v]) => [k, v.slice(-50)]))))
+  } catch {
+    // 存不了就只在这次打开期间记住
+  }
+}
+
+const isKept = (conversationId: string, turnId: string) => (kept[conversationId] ?? []).includes(turnId)
+const openFiles = (t: ChangeTurn) => t.files.filter((f) => !f.reverted)
+
+/** 最近一轮还没处理（没保留、没全撤销）的改动 */
+export function pendingTurn(conversationId: string): ChangeTurn | null {
+  const turns = state.changes[conversationId] ?? []
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    if (!t.files.length) continue
+    return openFiles(t).length && !isKept(conversationId, t.turnId) ? t : null
+  }
+  return null
+}
+
+/** 这个文件最近一次被 AI 改、还没处理的那一轮 */
+export function pendingTurnFor(conversationId: string, fullPath: string): ChangeTurn | null {
+  const turns = state.changes[conversationId] ?? []
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    if (isKept(conversationId, t.turnId)) continue
+    if (openFiles(t).some((f) => samePath(f.path, fullPath))) return t
+  }
+  return null
+}
+
+/** 保留这一轮的改动：不再提示，编辑器里这些文件的对比收起 */
+export function keepTurn(conversationId: string, turnId: string) {
+  ;(kept[conversationId] ??= []).push(turnId)
+  saveKept()
+  const turn = (state.changes[conversationId] ?? []).find((t) => t.turnId === turnId)
+  for (const tab of editorOf(conversationId)?.tabs ?? []) {
+    if (turn?.files.some((f) => samePath(f.path, tab.fullPath))) acceptDiff(tab)
+  }
+}
+
+/**
+ * 撤销这一轮（或其中几个文件）的改动：恢复成这一轮之前的样子。会改员工电脑上的文件，先问；
+ * 员工在编辑器里还有没保存的修改时一并提醒（撤销后编辑器按磁盘重新读）。
+ */
+export async function undoTurn(conversationId: string, turnId: string, confirmText: (n: number, dirty: number) => string, done: (n: number) => string, paths?: string[]) {
+  const turn = (state.changes[conversationId] ?? []).find((t) => t.turnId === turnId)
+  if (!turn) return
+  const files = openFiles(turn).filter((f) => !paths || paths.some((p) => samePath(p, f.path)))
+  if (!files.length) return
+  const tabs = (editorOf(conversationId)?.tabs ?? []).filter((tab) => files.some((f) => samePath(f.path, tab.fullPath)))
+  if (!window.confirm(confirmText(files.length, tabs.filter(isDirty).length))) return
+  try {
+    const r = await bridge.revertChanges(conversationId, turnId, paths ? files.map((f) => f.path) : undefined)
+    toast(done(r.reverted.length))
+    if (r.skipped.length) toast(r.skipped.map((x) => `${x.path.split(/[\\/]/).pop()}：${x.reason}`).join('；'))
+  } catch (e) {
+    toast(String((e as Error)?.message ?? e))
+  } finally {
+    await loadChanges(conversationId)
+    for (const tab of tabs) {
+      try {
+        const file = await bridge.loadCode(conversationId, tab.path)
+        tab.saved = tab.draft = file.text
+        tab.version = file.version
+        tab.exists = file.exists
+        tab.before = null
+        tab.aiChanged = false
+        tab.conflict = null
+      } catch {
+        // 文件被撤销成「不存在」（AI 新建的）：读不到就关掉
+        closeCodeTab(conversationId, tab.path)
+      }
+    }
+  }
 }
 
 // ---------- 恢复到这里（参照 Cursor 的 Restore Checkpoint） ----------
@@ -519,7 +708,7 @@ export async function restoreCheckpoint(conversationId: string, userMessageId: s
   } finally {
     await loadChanges(conversationId)
     // 编辑器里开着的文件按磁盘重新读
-    const c = code.byConversation[conversationId]
+    const c = editorOf(conversationId)
     for (const tab of c?.tabs ?? []) {
       if (isDirty(tab)) continue
       try {
@@ -538,6 +727,10 @@ export async function restoreCheckpoint(conversationId: string, userMessageId: s
 registerFeature({
   id: 'code',
   eventPrefix: 'code.',
+  onRunFinished(conversationId: string) {
+    // 交接摘要已经跟着第一句话交给 AI 了
+    if (handoffs[conversationId]?.status === 'ready') delete handoffs[conversationId]
+  },
   onEvent(e: HostEvent) {
     if (e.type === 'code.treeChanged') bumpTree(e.conversationId)
     if (e.type !== 'code.changed') return

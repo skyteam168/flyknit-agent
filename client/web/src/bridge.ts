@@ -403,6 +403,10 @@ class Bridge {
   /** 编码模式：告诉宿主员工现在在看什么（AI 每轮据此知道「这个项目」「这个文件」指哪个）；返回推断出的当前项目 */
   codeFocus = (conversationId: string, focus: { activeFile: string; line: number; selectionFrom: number; selectionTo: number; openFiles: string[] }) =>
     this.call<{ projectRoot: string | null; projectName: string; workspace: string; narrower: boolean }>('code.focus', { conversationId, ...focus })
+  /** 新任务带上旧任务的交接摘要：等摘要整理好才返回；第一句话发出时宿主放进参考资料（只给一次） */
+  codeHandoff = (conversationId: string, from: string) => this.call<{ ok: boolean; message: string; summary?: string }>('code.handoff', { conversationId, from })
+  /** 不带了（还在整理的也取消） */
+  codeHandoffClear = (conversationId: string) => this.call<{ ok: boolean }>('code.handoffClear', { conversationId })
   /** 用员工自己装的 VS Code 打开这个对话的工作区（带了文件就跳过去） */
   openInVsCode = (conversationId: string, path = '', line = 0) =>
     this.call<{ ok: boolean; message: string }>('code.openInVsCode', { conversationId, path, line })
