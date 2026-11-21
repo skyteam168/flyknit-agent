@@ -174,6 +174,8 @@ function openBackground() {
   gap: 6px;
   height: 52px;
   padding: 0 10px;
+  /* 标题栏下面一条横线：右侧面板、侧栏的竖线都接到这条线上，框架是闭合的（以前右侧面板的竖线在顶上像断了一截） */
+  border-bottom: 1px solid var(--line);
   background: var(--loom);
   app-region: drag;
   -webkit-app-region: drag;

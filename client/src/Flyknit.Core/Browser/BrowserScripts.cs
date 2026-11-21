@@ -101,6 +101,70 @@ public static class BrowserScripts
 
     public const string Back = "(() => { history.back(); return 'OK'; })()";
 
+    /// <summary>员工点遮罩上的「接管」时，页面发给宿主的消息。页面自己也能发，但最多只是把遮罩去掉，不涉及权限。</summary>
+    public const string TakeControlMessage = "fk:take-control";
+
+    /// <summary>
+    /// AI 操作时盖在网页上的遮罩（参照 Cursor 的 Take Control）。每个新页面创建时注入一次，定义 window.__fkGuard(on, text, button)。
+    /// - 放在 closed shadow DOM 里：读页面（querySelectorAll、body.innerText）看不到它，不会被当成可点的元素；
+    /// - 挡的是员工的真实点击和按键（isTrusted）：AI 用脚本触发的 click / input / keydown 不受影响；
+    /// - 滚轮不挡，员工可以上下看 AI 在做什么。
+    /// </summary>
+    public static readonly string Guard = """
+        (() => {
+          if (window.__fkGuard) return;
+          let host = null, on = false, label = '', button = '';
+          const blocked = ['mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu', 'pointerdown', 'pointerup', 'touchstart', 'keydown', 'keypress', 'keyup', 'paste', 'drop'];
+          const stop = (e) => {
+            if (!on || !e.isTrusted || e.target === host) return;
+            e.preventDefault(); e.stopImmediatePropagation();
+          };
+          blocked.forEach((t) => window.addEventListener(t, stop, true));
+          const render = () => {
+            if (!document.documentElement) return;
+            if (!on) { if (host) host.style.display = 'none'; return; }
+            if (!host) {
+              host = document.createElement('fk-ai-guard');
+              const root = host.attachShadow({ mode: 'closed' });
+              root.innerHTML = `
+                <style>
+                  .veil { position: fixed; inset: 0; z-index: 2147483647; cursor: not-allowed;
+                    background: rgba(24, 28, 48, .10); backdrop-filter: saturate(.9);
+                    box-shadow: inset 0 0 0 3px rgba(52, 70, 201, .55);
+                    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 28px;
+                    font: 13px/1.4 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+                  .pill { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; cursor: default;
+                    border-radius: 999px; background: rgba(22, 24, 34, .92); color: #fff;
+                    box-shadow: 0 8px 28px -6px rgba(0, 0, 0, .45); }
+                  .mouse { width: 18px; height: 18px; color: #9fb0ff; animation: nudge 1.6s ease-in-out infinite; }
+                  @keyframes nudge { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(3px, 3px); } }
+                  button { border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer;
+                    background: #3446c9; color: #fff; font: inherit; font-weight: 600; }
+                  button:hover { background: #2a3aad; }
+                </style>
+                <div class="veil"><div class="pill">
+                  <svg class="mouse" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3l14 7.5-6.2 1.7L10 18.5z"/></svg>
+                  <span class="label"></span><button type="button"></button>
+                </div></div>`;
+              root.querySelector('button').addEventListener('click', () => {
+                try { window.chrome.webview.postMessage('__MSG__'); } catch (_) {}
+              });
+              host.__fk = root;
+            }
+            host.__fk.querySelector('.label').textContent = label;
+            host.__fk.querySelector('button').textContent = button;
+            host.style.display = '';
+            if (!host.isConnected) document.documentElement.appendChild(host);
+          };
+          window.__fkGuard = (next, text, btn) => { on = !!next; label = text || ''; button = btn || ''; render(); return 'OK'; };
+          document.addEventListener('DOMContentLoaded', render);
+        })();
+        """.Replace("__MSG__", TakeControlMessage);
+
+    /// <summary>打开 / 去掉遮罩（文字由宿主按界面语言给）。页面还没注入过时什么都不做。</summary>
+    public static string SetGuard(bool on, string text, string button) =>
+        $"(() => window.__fkGuard ? window.__fkGuard({(on ? "true" : "false")}, {JsonSerializer.Serialize(text)}, {JsonSerializer.Serialize(button)}) : 'NONE')()";
+
     /// <summary>读页面脚本返回的 JSON。</summary>
     public static BrowserPage ParsePage(string json) =>
         JsonSerializer.Deserialize<BrowserPage>(json) ?? new BrowserPage();

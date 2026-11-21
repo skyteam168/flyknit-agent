@@ -1247,9 +1247,9 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
             {
                 sink?.OnSources(sources);
             }
-            if (masked.Count > 0)
+            if (masked.Count > 0 && !string.IsNullOrEmpty(request.ConversationId))
             {
-                sink?.OnMasked(masked);
+                Masked?.Invoke(request.ConversationId, masked);
             }
             var acc = new SseAccumulator(sink);
             using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -1314,6 +1314,13 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
             return acc.Build(model, context, sources, masked);
         }
     }
+
+    /// <summary>
+    /// 服务端把这次要发给模型的内容里的敏感信息换成了占位符（对话 id，各类型几处）。回答照常回来、任务不停，
+    /// 界面据此给员工一条醒目提示。主对话、专家、子代理、团队成员的请求都带所属对话的 id，所以都会触发。
+    /// 在收到响应头时（流开始前）触发；订阅方不能抛异常、不能阻塞。
+    /// </summary>
+    public event Action<string, IReadOnlyDictionary<string, int>>? Masked;
 
     /// <summary>X-Flyknit-Masked-Counts：URL 编码的 JSON，如 {"email":28}。解析不了就当没有（只影响提示，不影响回答）。</summary>
     internal static IReadOnlyDictionary<string, int> ParseMaskedHeader(HttpResponseMessage resp)
