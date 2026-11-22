@@ -10,13 +10,14 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Bot, Check, Code2, ExternalLink, FolderGit2, GitCompare, MoreHorizontal, Save, X } from '@lucide/vue'
+import { Bot, Check, Code2, ExternalLink, FolderGit2, GitCompare, MoreHorizontal, Save, ShieldCheck, X } from '@lucide/vue'
 import { bridge } from '../../bridge'
 import Popover from '../../components/Popover.vue'
 import { current, send, state, toast } from '../../store'
 import MonacoView from './MonacoView.vue'
 import { acceptDiff, activeTab, closeCodeTab, currentCode, executePlanInIde, isDirty, keepMine, keepTurn, narrowToProject, pendingTurnFor, planEdited, projects, saveCodeTab, selectionMarkdown, takeTheirs, undoTurn } from './store'
 import type { CodeSelection, CodeTab } from './store'
+import { lsp, serverFor, trustProject } from './lsp'
 
 const emit = defineEmits<{ insertText: [text: string] }>()
 const { t } = useI18n()
@@ -183,6 +184,24 @@ async function openVsCode() {
 const project = computed(() => (current.value ? projects[current.value.id] : undefined))
 const base = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 
+// ---------- 语言服务（./lsp.ts）：没信任的项目问一句；没装的语言提示找 IT ----------
+const lspServer = computed(() => (current.value && activeTab.value && !activeTab.value.virtual ? serverFor(current.value.id, activeTab.value.path) : null))
+const lspStatus = computed(() => (current.value ? lsp.status[current.value.id] : null))
+const askTrust = computed(() => {
+  const st = lspStatus.value
+  const ws = current.value?.workspace ?? ''
+  return !!st?.enabled && !st.trusted && !!lspServer.value?.available && !lsp.dismissed['trust:' + ws]
+})
+const lspMissing = computed(() => {
+  const s = lspServer.value
+  return !!lspStatus.value?.enabled && !!s && !s.available && !s.disabled && !lsp.dismissed['missing:' + s.id]
+})
+function trust(yes: boolean) {
+  if (!current.value) return
+  if (yes) void trustProject(current.value.id, true)
+  else lsp.dismissed['trust:' + (current.value.workspace ?? '')] = true
+}
+
 /** 方案标签：执行（改过的方案一起发过去） */
 const planEditedNow = computed(() => !!current.value && !!activeTab.value?.virtual && planEdited(current.value.id))
 function executePlan() {
@@ -253,6 +272,22 @@ const reasonText = computed(() => {
               <button type="button" class="item" :title="t('ui.code.vscodeHint')" @click="openVsCode(), closePop()">
                 <span class="check"><ExternalLink :size="13" /></span>{{ t('ui.code.tabs.vscode') }}
               </button>
+              <!-- 语言服务：哪些语言装了、这个项目信任了没有 -->
+              <template v-if="lspStatus?.enabled">
+                <hr />
+                <p class="group">{{ t('ui.code.lsp.title') }}</p>
+                <div v-for="sv in lspStatus.servers" :key="sv.id" class="item lsp-row" :title="sv.available ? sv.exe : t('ui.code.lsp.installHint', { hint: sv.installHint })">
+                  <span class="dot" :class="{ on: sv.available && lspStatus.trusted, off: !sv.available || sv.disabled }" />
+                  <span>{{ sv.name }}</span>
+                  <span class="lsp-state">{{ sv.disabled ? t('ui.code.lsp.disabled') : !sv.available ? t('ui.code.lsp.notInstalled') : sv.running ? t('ui.code.lsp.running') : t('ui.code.lsp.ready') }}</span>
+                </div>
+                <button v-if="lspStatus.trusted" type="button" class="item" @click="trustProject(current!.id, false), closePop()">
+                  <span class="check" />{{ t('ui.code.lsp.untrust') }}
+                </button>
+                <button v-else type="button" class="item" @click="trustProject(current!.id, true), closePop()">
+                  <span class="check"><ShieldCheck :size="13" /></span>{{ t('ui.code.lsp.trust') }}
+                </button>
+              </template>
               <template v-if="tabs.length">
                 <hr />
                 <button v-if="activeTab && tabs.length > 1" type="button" class="item" @click="closeOthers(activeTab), closePop()"><span class="check" />{{ t('ui.code.tabs.closeOthers') }}</button>
@@ -284,6 +319,17 @@ const reasonText = computed(() => {
       </button>
     </div>
     <template v-if="activeTab">
+      <!-- 语言服务：项目还没信任（语言服务会运行项目里的部分代码）、或者这台电脑没装这种语言的 -->
+      <div v-if="askTrust" class="banner lsp">
+        <ShieldCheck :size="14" />
+        <span>{{ t('ui.code.lsp.trustAsk', { name: lspServer!.name }) }}</span>
+        <button type="button" @click="trust(false)">{{ t('ui.code.lsp.notNow') }}</button>
+        <button type="button" class="primary" @click="trust(true)">{{ t('ui.code.lsp.trust') }}</button>
+      </div>
+      <div v-else-if="lspMissing" class="banner">
+        <span>{{ t('ui.code.lsp.missing', { name: lspServer!.name }) }}</span>
+        <button type="button" @click="lsp.dismissed['missing:' + lspServer!.id] = true">{{ t('ui.code.lsp.gotIt') }}</button>
+      </div>
       <!-- 计划模式的方案文档：可以直接改，改完点执行，以这一版为准 -->
       <div v-if="activeTab.virtual" class="banner plan">
         <span>{{ planEditedNow ? t('ui.code.plan.docEdited') : t('ui.code.plan.docHint') }}</span>
@@ -540,6 +586,36 @@ const reasonText = computed(() => {
 }
 .banner span {
   flex: 1;
+}
+.banner.lsp {
+  background: var(--indigo-wash);
+  color: var(--ink);
+}
+.lsp-row {
+  cursor: default;
+  font-size: calc(12px * var(--font-scale));
+}
+.lsp-row:hover {
+  background: transparent;
+}
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 4px 0 5px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+.dot.on {
+  background: var(--green, #3fb27f);
+}
+.dot.off {
+  background: color-mix(in srgb, var(--ink) 25%, transparent);
+}
+.lsp-state {
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-size: calc(11px * var(--font-scale));
 }
 .banner.git {
   background: var(--thread-wash);

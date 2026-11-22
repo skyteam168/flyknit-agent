@@ -8,6 +8,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import { languageOf, loadMonaco } from './monaco'
+import { bindModel, installLsp, uriFor } from './lsp'
 import { currentCode, type CodeSelection, type CodeTab } from './store'
 
 const props = defineProps<{ tab: CodeTab }>()
@@ -30,13 +31,18 @@ const isDark = () => document.documentElement.dataset.theme === 'dark'
 function modelFor(tab: CodeTab): Monaco.editor.ITextModel {
   let m = models.get(tab.fullPath)
   if (!m || m.isDisposed()) {
-    m = monaco!.editor.createModel(tab.draft, languageOf(tab.path))
+    // 真实文件的 model 用文件路径做 URI：语言服务的跨文件跳转、引用对得上；看引用时建过的预览 model 直接接过来用
+    const uri = tab.virtual ? undefined : uriFor(monaco!, tab.fullPath)
+    const existing = uri ? monaco!.editor.getModel(uri) : null
+    if (existing && existing.getValue() !== tab.draft) existing.setValue(tab.draft)
+    m = existing ?? monaco!.editor.createModel(tab.draft, languageOf(tab.path), uri)
     m.onDidChangeContent(() => {
       // 编辑器里的改动同步回标签（「未保存」的点、保存时用）
       const t = props.tab
       if (t.fullPath === tab.fullPath && !t.readOnly) t.draft = m!.getValue()
     })
     models.set(tab.fullPath, m)
+    if (!tab.virtual) bindModel(m, tab.path, tab.fullPath)
   } else if (m.getValue() !== tab.draft) {
     // 外面改了（AI 改了文件、员工选了「用 AI 的」）：整体换掉，光标位置尽量留着
     m.pushEditOperations([], [{ range: m.getFullModelRange(), text: tab.draft }], () => null)
@@ -237,6 +243,7 @@ function attachSelectionUi(ed: Monaco.editor.IStandaloneCodeEditor) {
 onMounted(async () => {
   try {
     monaco = await loadMonaco()
+    installLsp(monaco)
   } catch (e) {
     failed.value = String((e as Error)?.message ?? e)
     return

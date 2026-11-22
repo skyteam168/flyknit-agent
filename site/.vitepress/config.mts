@@ -71,6 +71,7 @@ export default defineConfig({
             { text: '配置模型', link: '/admin/models' },
             { text: '装到员工电脑', link: '/admin/rollout' },
             { text: '安全中心', link: '/admin/security-center' },
+            { text: '编码模式的语言服务', link: '/admin/language-servers' },
             { text: '管理后台一览', link: '/admin/console' },
           ],
         },

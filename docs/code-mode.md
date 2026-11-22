@@ -181,3 +181,18 @@ AI 还在做的时候不出现（做完再一起决定）。
 - 这些是员工在界面上点的操作，不走 AI 的命令确认；丢弃、推送在界面上先确认。AI 自己的 git 操作仍然是 `git_commit` / `create_pull_request` 等工具，照常确认。
 - 界面：点改动打开文件，`CodeTab.before` = HEAD 版本、`diffSource = 'git'`（横幅「和上次提交的对比」，可以直接改）；AI 这时改了这个文件，换成 AI 改之前的样子对比。
   AI 一轮做完、文件树变了、编辑器保存了都会刷新。
+
+## 16. 语言服务（LSP，Core `Lsp/`，界面 `features/code/lsp.ts`）
+
+- **安装**：IT 统一装（见帮助中心「管理员 → 编码模式的语言服务」）。`LspCatalog` 按顺序找：`C:\ProgramData\FlyknitBuddy\lsp\lsp.json` 里的命令 → 该目录（含 `bin`、`node_modules\.bin`）→ PATH。
+  语言：TS/JS/React（typescript-language-server；起不来时换 TypeScript 7 的 `tsc --lsp --stdio`）、Vue（vue-language-server，`hybridMode: false`）、Python（pyright / basedpyright / pylsp）、Go（gopls）、Java（jdtls，`-data {data}`）、C#（csharp-ls）。
+- **运行**：`LspHub` 按「项目根（按语言的标志文件往上找，最远到工作区根）+ 语言」起一个进程，同时最多 4 个，空闲 10 分钟关，失败 2 分钟内不重试；
+  员工没信任的工作区不起（`LspTrust`，`%APPDATA%\Flyknit\lsp-trust.json`）；IT 没开「开发者工具」一律不可用。客户端退出时一起关。
+- **协议**：`JsonRpcConnection`（Content-Length 分帧，单条 ≤ 64MB）、`LspClient`（整篇同步；诊断支持推送式和拉取式 `textDocument/diagnostic`；
+  对方问配置给空、不替它改文件 `workspace/applyEdit → applied:false`）。TS / Vue 的 `tsserver.path` / `tsdk` 先找项目的 `node_modules\typescript\lib`，再找语言服务旁边的。
+- **界面桥** `lsp.*`：status / trust / sync / close / diagnostics / request（白名单：completion、resolve、hover、signatureHelp、definition、typeDefinition、implementation、references、documentSymbol、prepareRename、rename）/ applyEdit（重命名在没打开的文件里的改动，只写工作区里的文本文件，一个不对整批不改）。结果里的 file:// 地址旁边加工作区相对路径。
+- **Monaco**：真实文件的 model 用 `Uri.file(完整路径)`；看引用 / 定义时没打开的文件建只读预览 model（最多 60 个）；`registerEditorOpener` 把跨文件跳转变成打开我们的标签；
+  内容停 500ms 同步一次并取诊断画 markers。没信任时编辑器上方问「信任并启用」，没装时提示找 IT；「…」菜单里看每种语言的状态、取消信任。
+- **AI 工具**（`LspRunExtension`，只读、可并行、不用确认）：`code_diagnostics`、`go_to_definition`、`find_references`、`document_symbols`（行列从 1 开始，可以给 symbol 代替列号）。
+  只在开发者工具开、办事模式、工作区已信任、本机至少装了一种语言服务时出现；用磁盘上的内容（AI 刚写的就是最新的）。
+- **测试**：`LspTests` 用进程内的假语言服务测分帧、同步、诊断、白名单、相对路径、重命名写盘、信任、IT 配置；装了真的 typescript-language-server / pyright 时再跑真实的（CI 没装就跳过）。
