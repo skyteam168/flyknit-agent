@@ -10,6 +10,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronRight, FilePen, SquareTerminal } from '@lucide/vue'
 import ContextHint from './ContextHint.vue'
+import TaskBoard from './TaskBoard.vue'
 import { current, currentState, openChanges, state } from '../../store'
 import { ide, ideActive, keepTurn, pendingTurn, undoTurn } from './store'
 
@@ -46,6 +47,8 @@ function showTerminals() {
 <template>
   <!-- 编码模式：上下文用量、该新开任务的提示、带过来的交接摘要 -->
   <ContextHint v-if="ideActive" />
+  <!-- 编码模式：任务进度看板（计划步骤 + 这一轮开出去的子代理），不用切回普通模式看「计划」面板 -->
+  <TaskBoard v-if="ideActive" />
   <div v-if="current && (running || files)" class="run-summary">
     <button v-if="running" type="button" @click="showTerminals">
       <ChevronRight :size="13" class="chev" />
