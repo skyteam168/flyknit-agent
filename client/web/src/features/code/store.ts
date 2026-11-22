@@ -43,6 +43,8 @@ export interface CodeTab {
   cursor?: { line: number; from: number; to: number }
   /** 不是磁盘上的文件（计划模式的「方案.md」）：不读写磁盘、不告诉宿主；saved 是 AI 给的那一版，draft 是员工改过的 */
   virtual?: boolean
+  /** 要跳到的位置（全局搜索点了某一处）；at 每次不同，编辑器看到新的就跳 */
+  reveal?: { line: number; column: number; length: number; at: number }
 }
 
 /** 编辑器里选中的一段代码：添加到对话（Ctrl+L）、快速修改（Ctrl+K）用 */
@@ -70,7 +72,7 @@ interface ConversationCode {
 /** IDE 布局（记住员工上次的选择） */
 interface IdeLayout {
   on: boolean
-  explorerTab: 'project' | 'skills' | 'mcp' | 'knowledge'
+  explorerTab: 'project' | 'search' | 'skills' | 'mcp' | 'knowledge'
   explorerOpen: boolean
   bottomOpen: boolean
   bottomTab: 'terminal' | 'logs' | 'trace'
@@ -188,6 +190,12 @@ function fromFile(file: CodeFile): CodeTab {
     conflict: null,
     loading: false,
   }
+}
+
+/** 打开文件并跳到某一处（全局搜索的结果） */
+export async function openCodeAt(conversationId: string, path: string, line: number, column = 1, length = 0) {
+  const tab = await openCodeFile(conversationId, path)
+  if (tab) tab.reveal = { line, column, length, at: Date.now() }
 }
 
 /** 打开工作区里的一个文件（已经开着就切过去） */
@@ -858,6 +866,20 @@ let planLabels = { fallback: 'Plan', todos: 'To-dos' }
 export function rememberPlanLabels(labels: { fallback: string; todos: string }) {
   planLabels = labels
 }
+
+// Ctrl+Shift+F：编码模式里打开左边的「搜索」（参照 VS Code）。编辑器里也能按（Monaco 自己没占这个键）
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (!ideActive.value || !(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || e.key.toLowerCase() !== 'f') return
+    e.preventDefault()
+    e.stopPropagation()
+    ide.explorerOpen = true
+    ide.explorerTab = 'search'
+    window.dispatchEvent(new CustomEvent('flyknit:code-search'))
+  },
+  true,
+)
 
 registerFeature({
   id: 'code',

@@ -8,6 +8,7 @@
  * 在普通浏览器中运行（npm run dev）时，使用 mockHost 模拟宿主。
  */
 import type { ProjectInfo } from './features/projects/types'
+import type { CodeSearchResult } from './features/code/types'
 import type { DocModel } from './documents'
 import type {
   RepoInfo,
@@ -405,6 +406,9 @@ class Bridge {
   codeFocus = (conversationId: string, focus: { activeFile: string; line: number; selectionFrom: number; selectionTo: number; openFiles: string[] }) =>
     this.call<{ projectRoot: string | null; projectName: string; workspace: string; narrower: boolean }>('code.focus', { conversationId, ...focus })
   /** 新任务带上旧任务的交接摘要：等摘要整理好才返回；第一句话发出时宿主放进参考资料（只给一次） */
+  /** 编码模式的全局搜索：只在这个任务的工作区里找（宿主最多找 20 秒，匹配太多时截断） */
+  codeSearch = (conversationId: string, q: { query: string; regex: boolean; matchCase: boolean; wholeWord: boolean; include: string; exclude: string }) =>
+    this.call<CodeSearchResult>('code.search', { conversationId, ...q }, undefined, 30_000)
   // ---------- 项目（左侧「项目」，features/projects） ----------
   projectList = () => this.call<ProjectInfo[]>('project.list')
   projectCreate = (p: { name: string; goal: string; notes: string; path?: string; parent?: string }) =>

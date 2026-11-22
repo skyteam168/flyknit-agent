@@ -1,15 +1,16 @@
 <script setup lang="ts">
 /**
- * IDE 左边：项目文件 / 技能 / MCP 连接器 / 知识（资料库）。
+ * IDE 左边：项目文件 / 搜索（Ctrl+Shift+F）/ 技能 / MCP 连接器 / 知识（资料库）。
  * 技能、连接器点一下用到右边的对话里（和技能页、连接器页里的「使用」一样）；知识里的文件点一下加进输入框当附件。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { BookOpen, FolderTree, Plug, Sparkles } from '@lucide/vue'
+import { BookOpen, FolderTree, Plug, Search, Sparkles } from '@lucide/vue'
 import { bridge } from '../../bridge'
 import { current, loadMcp, loadSkills, state, toast } from '../../store'
 import type { LibraryItem } from '../../types'
 import ProjectTree from './ProjectTree.vue'
+import SearchPane from './SearchPane.vue'
 import { ide } from './store'
 
 const emit = defineEmits<{ useSkill: [name: string]; useText: [text: string] }>()
@@ -17,6 +18,7 @@ const { t } = useI18n()
 
 const tabs = [
   { id: 'project', icon: FolderTree },
+  { id: 'search', icon: Search },
   { id: 'skills', icon: Sparkles },
   { id: 'mcp', icon: Plug },
   { id: 'knowledge', icon: BookOpen },
@@ -74,6 +76,7 @@ const dot = (status: string) => (status === 'connected' ? 'ok' : status === 'fai
     <div class="pane">
       <h3>{{ t(`ui.code.explorer.${ide.explorerTab}`) }}</h3>
       <ProjectTree v-if="ide.explorerTab === 'project' && current" :key="current.id" :conversation-id="current.id" />
+      <SearchPane v-else-if="ide.explorerTab === 'search'" />
 
       <template v-else-if="ide.explorerTab === 'skills'">
         <p class="hint">{{ t('ui.code.skillsHint') }}</p>

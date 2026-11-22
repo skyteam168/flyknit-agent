@@ -2440,6 +2440,42 @@ export function createMockHost(): HostTransport {
         if (!p.directory) mockCode.set(path, '')
         return { ok: true, path, message: '' }
       }
+      case 'code.search': {
+        // 在开发预览的几个代码文件里找（宿主是在整个工作区里找）
+        const query = String(p.query ?? '')
+        if (!query) return { files: [], total: 0, truncated: false, error: '' }
+        let re: RegExp
+        try {
+          let src = p.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          if (p.wholeWord) src = `(?<![\\p{L}\\p{N}_])${src}(?![\\p{L}\\p{N}_])`
+          re = new RegExp(src, p.matchCase ? 'gu' : 'giu')
+        } catch (e) {
+          return { files: [], total: 0, truncated: false, error: '正则表达式写错了：' + (e as Error).message }
+        }
+        const words = (v: unknown) => String(v ?? '').split(',').map((x) => x.trim().replace(/^\*/, '')).filter(Boolean)
+        const inc = words(p.include)
+        const exc = words(p.exclude)
+        const files: { path: string; hits: { line: number; column: number; length: number; text: string; textOffset: number }[] }[] = []
+        let total = 0
+        for (const [path, text] of mockCode) {
+          const low = path.toLowerCase()
+          if (inc.length && !inc.some((w) => low.includes(w.toLowerCase()))) continue
+          if (exc.some((w) => low.includes(w.toLowerCase()))) continue
+          const hits = []
+          for (const [i, line] of text.split('\n').entries()) {
+            for (const m of line.matchAll(re)) {
+              if (!m[0]) continue
+              hits.push({ line: i + 1, column: (m.index ?? 0) + 1, length: m[0].length, text: line, textOffset: 0 })
+            }
+          }
+          if (hits.length) {
+            files.push({ path, hits })
+            total += hits.length
+          }
+        }
+        await sleep(120)
+        return { files, total, truncated: false, error: '' }
+      }
       case 'code.handoff': {
         // 模拟整理摘要要等一会儿；点了「不带了」就取消
         const to = String(p.conversationId ?? '')
