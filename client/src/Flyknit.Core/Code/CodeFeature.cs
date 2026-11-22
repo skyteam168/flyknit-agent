@@ -33,7 +33,7 @@ public sealed class CodeFeature : IBridgeModule
         _log = log;
     }
 
-    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save", "code.openInVsCode", "code.focus", "code.create", "code.handoff", "code.handoffClear" };
+    public IReadOnlyCollection<string> Methods { get; } = new[] { "code.load", "code.save", "code.openInVsCode", "code.focus", "code.create", "code.handoff", "code.handoffClear", "code.search" };
 
     /// <summary>每个对话的编辑器状态（code.focus 更新，EditorContextRunExtension 每轮读）。</summary>
     public EditorContextStore Editors { get; } = new();
@@ -68,6 +68,8 @@ public sealed class CodeFeature : IBridgeModule
             "code.create" => await Task.Run(() => Create(conversation, args.Str("parent"), args.Str("name"), args.Bool("directory")), ct),
             "code.focus" => await Task.Run(() => Focus(conversation, args.Str("activeFile"), args.Int("line") ?? 0, args.Int("selectionFrom") ?? 0,
                 args.Int("selectionTo") ?? 0, args.StrList("openFiles")), ct),
+            "code.search" => await SearchAsync(conversation, args.Str("query"), args.Bool("regex"), args.Bool("matchCase"), args.Bool("wholeWord"),
+                args.Str("include"), args.Str("exclude"), ct),
             "code.handoff" => await HandoffAsync(conversation, args.Str("from")),
             "code.handoffClear" => ClearHandoff(conversation),
             _ => null,
@@ -101,6 +103,25 @@ public sealed class CodeFeature : IBridgeModule
         }
         _log($"新任务 {to} 带上任务 {from} 的交接摘要（{summary.Length} 字）");
         return new { ok = true, message = "", summary };
+    }
+
+    /// <summary>全局搜索（编码模式左边的「搜索」）：只在这个对话的工作区里找；最多 20 秒。</summary>
+    public async Task<SearchResult> SearchAsync(string conversationId, string query, bool regex, bool matchCase, bool wholeWord, string include, string exclude, CancellationToken ct)
+    {
+        if (_workspaceOf(conversationId) is not { Length: > 0 } ws || WorkspaceBrowser.Resolve(ws, "") is not { } root)
+        {
+            return new SearchResult(Array.Empty<SearchFileHits>(), 0, false, "这个任务没有工作区");
+        }
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
+        try
+        {
+            return await Task.Run(() => CodeSearch.Run(root, query, regex, matchCase, wholeWord, include, exclude, cts.Token), cts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return new SearchResult(Array.Empty<SearchFileHits>(), 0, true, "搜索太久了，换个更具体的词，或者用「包含的文件」缩小范围");
+        }
     }
 
     /// <summary>两个工作区是同一个，或者一个在另一个里面（收窄到项目之后新开的任务）。</summary>

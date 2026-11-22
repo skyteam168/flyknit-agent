@@ -43,6 +43,10 @@ export interface CodeTab {
   cursor?: { line: number; from: number; to: number }
   /** 不是磁盘上的文件（计划模式的「方案.md」）：不读写磁盘、不告诉宿主；saved 是 AI 给的那一版，draft 是员工改过的 */
   virtual?: boolean
+  /** 要跳到的位置（全局搜索点了某一处）；at 每次不同，编辑器看到新的就跳 */
+  reveal?: { line: number; column: number; length: number; at: number }
+  /** 对比视图是「源代码管理」打开的（和上次提交比），不是 AI 改的：横幅说法不同，没有「撤销此文件」 */
+  diffSource?: 'git'
 }
 
 /** 编辑器里选中的一段代码：添加到对话（Ctrl+L）、快速修改（Ctrl+K）用 */
@@ -70,7 +74,7 @@ interface ConversationCode {
 /** IDE 布局（记住员工上次的选择） */
 interface IdeLayout {
   on: boolean
-  explorerTab: 'project' | 'skills' | 'mcp' | 'knowledge'
+  explorerTab: 'project' | 'search' | 'git' | 'skills' | 'mcp' | 'knowledge'
   explorerOpen: boolean
   bottomOpen: boolean
   bottomTab: 'terminal' | 'logs' | 'trace'
@@ -190,6 +194,12 @@ function fromFile(file: CodeFile): CodeTab {
   }
 }
 
+/** 打开文件并跳到某一处（全局搜索的结果） */
+export async function openCodeAt(conversationId: string, path: string, line: number, column = 1, length = 0) {
+  const tab = await openCodeFile(conversationId, path)
+  if (tab) tab.reveal = { line, column, length, at: Date.now() }
+}
+
 /** 打开工作区里的一个文件（已经开着就切过去） */
 export async function openCodeFile(conversationId: string, path: string, opts: { focus?: boolean } = {}) {
   const c = convOf(conversationId)
@@ -281,6 +291,15 @@ export async function keepMine(conversationId: string, tab: CodeTab) {
 export function acceptDiff(tab: CodeTab) {
   tab.before = null
   tab.aiChanged = false
+  tab.diffSource = undefined
+}
+
+/** 源代码管理里点了一个改动：打开文件，和上次提交（HEAD）对比；新文件对比空白 */
+export async function openGitDiff(conversationId: string, workspacePath: string, headText: string) {
+  const tab = await openCodeFile(conversationId, workspacePath)
+  if (!tab) return
+  tab.before = headText
+  tab.diffSource = 'git'
 }
 
 /** 完整路径 → 工作区里的相对路径；不在工作区里返回 null */
@@ -306,7 +325,9 @@ async function onAiChanged(conversationId: string, paths: string[]) {
           // 员工也在改：不动编辑器里的内容，等员工决定
           tab.conflict = { text: file.text, version: file.version }
         } else {
-          tab.before = tab.before ?? tab.saved
+          // 正在看「和上次提交的对比」时 AI 改了：换成 AI 改之前的样子做对比
+          tab.before = tab.diffSource === 'git' ? tab.saved : (tab.before ?? tab.saved)
+          tab.diffSource = undefined
           tab.saved = tab.draft = file.text
           tab.version = file.version
           tab.exists = file.exists
@@ -589,6 +610,27 @@ watch(
   },
 )
 
+/**
+ * 进入编码模式（首页的「编码」、项目里的「在编码模式中打开」）：在这个工作区里接着最近的办事任务，没有就新开一个。
+ * newTask：总是新开一个任务。
+ */
+export async function enterIde(workspace: string, opts: { newTask?: boolean } = {}) {
+  if (!workspace || !state.app?.developerTools) return
+  state.view = 'chat'
+  toggleIde(true)
+  const latest = opts.newTask
+    ? undefined
+    : state.conversations
+        .filter((c) => c.mode === 'agent' && sameDir(c.workspace, workspace))
+        .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
+  if (latest) {
+    noteTab(latest.id)
+    await openConversation(latest.id)
+  } else {
+    await newTaskInIde(workspace)
+  }
+}
+
 export function switchTask(id: string) {
   noteTab(id)
   if (state.currentId !== id) void openConversation(id)
@@ -837,6 +879,20 @@ let planLabels = { fallback: 'Plan', todos: 'To-dos' }
 export function rememberPlanLabels(labels: { fallback: string; todos: string }) {
   planLabels = labels
 }
+
+// Ctrl+Shift+F：编码模式里打开左边的「搜索」（参照 VS Code）。编辑器里也能按（Monaco 自己没占这个键）
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (!ideActive.value || !(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || e.key.toLowerCase() !== 'f') return
+    e.preventDefault()
+    e.stopPropagation()
+    ide.explorerOpen = true
+    ide.explorerTab = 'search'
+    window.dispatchEvent(new CustomEvent('flyknit:code-search'))
+  },
+  true,
+)
 
 registerFeature({
   id: 'code',

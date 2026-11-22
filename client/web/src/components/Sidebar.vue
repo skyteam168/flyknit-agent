@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { openProjects } from '../features/projects/store'
 import UpdateBar from './UpdateBar.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -37,6 +38,7 @@ import {
   Wrench,
   X,
   ListChecks,
+  FolderKanban,
 } from '@lucide/vue'
 import KnitMark from './KnitMark.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -468,6 +470,15 @@ onBeforeUnmount(() => {
         <button v-if="state.app?.teams" type="button" :class="{ on: state.view === 'teams' }" @click="(openTeams(), emit('navigate'))">
           <Users :size="17" /> {{ t('ui.nav.teams') }}
         </button>
+        <!-- 项目（features/projects）：悬停时右边一个「+」直接新建 -->
+        <div class="nav-row" :class="{ on: state.view === 'projects' }">
+          <button type="button" :class="{ on: state.view === 'projects' }" @click="(openProjects(), emit('navigate'))">
+            <FolderKanban :size="17" /> {{ t('ui.nav.projects') }}
+          </button>
+          <button type="button" class="nav-add" :title="t('ui.projects.new')" :aria-label="t('ui.projects.new')" @click="(openProjects({ create: true }), emit('navigate'))">
+            <Plus :size="15" />
+          </button>
+        </div>
         <button type="button" :class="{ on: state.view === 'tasks' }" @click="(openTasks(), emit('navigate'))">
           <ListChecks :size="17" /> {{ t('ui.nav.taskCenter') }}
           <span v-if="runningCount || state.runs.interrupted.length" class="nav-badge" :class="{ warn: state.runs.interrupted.length && !runningCount }">
@@ -974,6 +985,34 @@ onBeforeUnmount(() => {
 .nav button:hover {
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--ink);
+}
+/* 「项目」一行：右边悬停才出现的「+」 */
+.nav-row {
+  position: relative;
+  display: flex;
+}
+.nav-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.nav .nav-add {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 7px;
+  opacity: 0;
+}
+.nav-row:hover .nav-add,
+.nav .nav-add:focus-visible {
+  opacity: 1;
+}
+.nav .nav-add:hover {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
 }
 .list {
   flex: 1;

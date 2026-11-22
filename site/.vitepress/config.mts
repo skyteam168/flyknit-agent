@@ -53,6 +53,7 @@ export default defineConfig({
         {
           text: '写程序的同事',
           items: [
+            { text: '项目', link: '/guide/projects' },
             { text: '编码模式（AI IDE）', link: '/guide/code-mode' },
             { text: '开发者工具与 PR', link: '/guide/developer' },
             { text: '沙箱任务', link: '/guide/sandbox' },

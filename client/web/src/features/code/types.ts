@@ -1,0 +1,47 @@
+/** 全局搜索（宿主 Core/Code/CodeSearch）：一处匹配。行、列从 1 开始；text 是这一行（太长时截了一段，textOffset 是这段在原行里的起点） */
+export interface CodeSearchHit {
+  line: number
+  column: number
+  length: number
+  text: string
+  textOffset: number
+}
+
+export interface CodeSearchFile {
+  path: string
+  hits: CodeSearchHit[]
+}
+
+export interface CodeSearchResult {
+  files: CodeSearchFile[]
+  total: number
+  truncated: boolean
+  error: string
+}
+
+/** 源代码管理（宿主 Core/Git/SourceControl）：一个改动。path 相对仓库根；workspacePath 相对工作区（不在工作区里为 null，打不开） */
+export interface ScmChange {
+  path: string
+  workspacePath: string | null
+  /** M 修改、A 新增（已暂存）、D 删除、R 改名、U 没跟踪的新文件、C 冲突 */
+  status: 'M' | 'A' | 'D' | 'R' | 'U' | 'C' | string
+  staged: boolean
+  oldPath: string
+}
+
+export interface ScmStatus {
+  isRepo: boolean
+  root: string
+  branch: string
+  detached: boolean
+  ahead: number
+  behind: number
+  hasUpstream: boolean
+  changes: ScmChange[]
+  error: string
+}
+
+export interface ScmResult {
+  ok: boolean
+  message: string
+}

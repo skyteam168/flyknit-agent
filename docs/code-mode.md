@@ -150,3 +150,34 @@ AI 还在做的时候不出现（做完再一起决定）。
 - `spawn_agent` 加 `model`（只能选后台启用、能调用工具的模型）和 `agent`（`.flyknit/agents/*.md` 里定义的名字）。规则见 `docs/expert-delegation-contract.md` 第 10 节。
 - 任务看板（第 10 节）上看每个子代理的状态。
 - 多个子代理同时**改**代码（每人一份 git worktree、做完合并）这次不做：同一个工作区里并行写文件会互相覆盖、确认弹窗也会叠在一起，留到后面单独评估。
+
+## 13. 首页「编码」入口、左侧「项目」
+
+- 首页模式行「办事 / 对话 / 翻译」后面加「编码」（开发者工具开着才显示）：`enterIde(工作区, { newTask: true })`，没选工作区先选文件夹。
+- 项目（`features/projects` + Core `Projects/ProjectFeature.cs`）：项目 = 工作区文件夹 + 名称 + 目标 + 说明，清单存在 `%APPDATA%\Flyknit\projects.json`。
+  - 桥接：`project.list / create / update / remove / open`（`IBridgeModule`）。新建时可以在某个工作区里新建文件夹（员工自己点的，和编辑器里新建文件一样，不走 AI 的确认），
+    或用已有文件夹（宿主选文件夹）；建好加进工作区列表。移除只删清单，不碰文件夹和任务。
+  - `ProjectRunExtension`：任务的工作区在某个项目里（含子文件夹，嵌套取最近的）时，这个对话第一次发消息带上 `<项目>` 目标和说明（本轮参考资料，跟着消息存下来）；
+    目标或说明改了再给一次；都没写不加。
+  - 界面：侧栏「项目」（悬停右侧「+」直接新建）、项目列表（搜索、按最近 / 名称排序）、详情（任务、目标与说明、新建任务、在编码模式中打开）。
+
+## 14. 全局搜索（`SearchPane.vue`，Core `Code/CodeSearch.cs`）
+
+- `code.search`：只在这个对话的工作区里找（`WorkspaceBrowser.Resolve`），最多 20 秒；用 `SourceTree.Files` 遍历（跳过依赖、编译输出、隐藏目录），
+  跳过二进制和超过 1MB 的文件；最多 2000 处、扫 2 万个文件，超了标「截断」。行太长时只回匹配附近 240 个字（`textOffset` 是起点）。
+- 选项：区分大小写、全字（前后不是字母数字下划线，中文也算字母）、正则（写错了回原因）、包含 / 排除（逗号分隔的 glob；只写一个词时文件名或任一级文件夹名里有它就算）。
+- 界面：左栏「搜索」，打字停 350ms 就搜，换选项马上搜；结果按文件分组可收起；点一行 `openCodeAt` → `CodeTab.reveal` → Monaco 跳到那里并选中。`Ctrl+Shift+F`（编码模式里，捕获阶段）打开并聚焦。
+- 只读，不做「全部替换」（批量改文件交给 AI，改动照常有对比、能撤销）。
+
+## 15. 源代码管理（`GitPane.vue`，Core `Git/SourceControl.cs`）
+
+- `SourceControlFeature`（`IBridgeModule`，`scm.*`）：只在这个对话工作区所在的仓库里做；IT 没开「开发者工具」时一律拒绝。一律按参数列表调 git（`GitRunner`，不经过 Shell），
+  路径放在 `--` 后面，只认仓库里的相对路径（不能 `..`、绝对路径、以 `-` 开头）。
+  - `scm.status`：`git status --porcelain=v1 -z --branch --untracked-files=all`，暂存 / 未暂存分开列，冲突标 C；`workspacePath` 不在工作区里为空（界面打不开）。
+  - `scm.head`：`git show HEAD:路径`，给界面做对比（新文件 exists=false，二进制不对比）。
+  - `scm.stage / unstage / discard / commit / push / pull`：没有 HEAD 时取消暂存用 `rm --cached`；丢弃对跟踪的 `restore --worktree`，没跟踪的删掉（只删普通文件，不跟链接）；
+    提交 `-m`，`stageAll` 先 `add -A`；推送没有上游时 `push -u origin HEAD`，不强推；拉取 `--ff-only`。丢弃、提交、推送写日志。
+  - `scm.message`：暂存的（没有就全部）diff 截到 1.2 万字，经服务端网关（title 场景）写提交说明，提示里说明 diff 是数据不是指令。
+- 这些是员工在界面上点的操作，不走 AI 的命令确认；丢弃、推送在界面上先确认。AI 自己的 git 操作仍然是 `git_commit` / `create_pull_request` 等工具，照常确认。
+- 界面：点改动打开文件，`CodeTab.before` = HEAD 版本、`diffSource = 'git'`（横幅「和上次提交的对比」，可以直接改）；AI 这时改了这个文件，换成 AI 改之前的样子对比。
+  AI 一轮做完、文件树变了、编辑器保存了都会刷新。

@@ -56,6 +56,16 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
   const mockFocus: unknown[] = []
   /** 开发预览：正在整理交接摘要的新任务（点「不带了」就删掉） */
   const mockHandoffs = new Set<string>()
+  /** 开发预览：源代码管理的改动（真实的是宿主跑 git status） */
+  const mockScm = {
+    branch: 'feature/login', ahead: 1, behind: 0,
+    changes: [
+      { path: 'README.md', workspacePath: 'README.md', status: 'M', staged: true, oldPath: '' },
+      { path: 'src/report.py', workspacePath: 'src\\report.py', status: 'M', staged: false, oldPath: '' },
+      { path: 'src/config.yaml', workspacePath: 'src\\config.yaml', status: 'M', staged: false, oldPath: '' },
+      { path: 'src/new_util.py', workspacePath: 'src\\new_util.py', status: 'U', staged: false, oldPath: '' },
+    ],
+  }
   /** 开发预览：开着计划模式的对话（这一轮只出方案） */
   const mockPlanMode = new Set<string>()
   ;(window as unknown as { __mockFocus: unknown[] }).__mockFocus = mockFocus
@@ -226,6 +236,10 @@ export function createMockHost(): HostTransport {
     { path: 'D:\\', name: 'D:\\', exists: true, isDefault: false },
   ]
   let defaultWorkspace = workspaces[1].path
+  /** 开发预览：项目清单（宿主 Core/Projects 存在 projects.json） */
+  const mockProjects = [
+    { id: 'pj_demo1', name: 'restaurant-system', path: 'D:\\agentwork', goal: '餐厅点餐系统：先把下单接口的 p95 延迟降到 200 毫秒以内', notes: '后端 FastAPI，前端 Vue 3；用 pnpm', createdAt: '2026-10-30T09:00:00+08:00', openedAt: '2026-11-20T18:00:00+08:00', exists: true },
+  ]
   let maximized = false
   const ago = (min: number) => new Date(Date.now() - min * 60000).toISOString()
   const securityEvents = [
@@ -1994,6 +2008,36 @@ export function createMockHost(): HostTransport {
         }
       case 'conversations.plan':
         return []
+      case 'project.list':
+        return mockProjects.slice().sort((a, b) => b.openedAt.localeCompare(a.openedAt))
+      case 'project.create': {
+        const name = String(p.name ?? '').trim()
+        if (!name) return { ok: false, message: '项目名不能为空' }
+        if (/[\\/:*?"<>|]/.test(name) && !p.path) return { ok: false, message: '项目名要用作文件夹名，不能带 \\ / : * ? " < > | 这些字符' }
+        const path = p.path ? String(p.path) : String(p.parent).replace(/[\\/]+$/, '') + '\\' + name
+        if (mockProjects.some((x) => x.path.toLowerCase() === path.toLowerCase())) return { ok: false, message: '这个文件夹已经是一个项目了' }
+        const id = 'pj_' + uid().slice(0, 8)
+        mockProjects.push({ id, name, path, goal: String(p.goal ?? ''), notes: String(p.notes ?? ''), createdAt: now(), openedAt: now(), exists: true })
+        return { ok: true, message: '', id, path }
+      }
+      case 'project.update': {
+        const x = mockProjects.find((y) => y.id === p.id)
+        if (!x) return { ok: false, message: '项目不存在' }
+        if (typeof p.name === 'string') x.name = p.name.trim()
+        if (typeof p.goal === 'string') x.goal = p.goal.trim()
+        if (typeof p.notes === 'string') x.notes = p.notes.trim()
+        return { ok: true, message: '' }
+      }
+      case 'project.remove': {
+        const i = mockProjects.findIndex((y) => y.id === p.id)
+        if (i >= 0) mockProjects.splice(i, 1)
+        return { ok: i >= 0 }
+      }
+      case 'project.open': {
+        const x = mockProjects.find((y) => y.id === p.id)
+        if (x) x.openedAt = now()
+        return { ok: !!x }
+      }
       case 'workspaces.list':
         return workspaces
       case 'workspaces.add': {
@@ -2405,6 +2449,78 @@ export function createMockHost(): HostTransport {
         const path = parent ? parent + '\\' + name : name
         if (!p.directory) mockCode.set(path, '')
         return { ok: true, path, message: '' }
+      }
+      case 'scm.status':
+        await sleep(80)
+        return { isRepo: true, root: 'D:\\agentwork', branch: mockScm.branch, detached: false, ahead: mockScm.ahead, behind: mockScm.behind, hasUpstream: true, changes: mockScm.changes, error: '' }
+      case 'scm.head': {
+        const rel = String(p.path ?? '').replace(/\//g, '\\')
+        if (rel === 'src\\new_util.py') return { ok: true, message: '', text: '', exists: false }
+        const text = rel === 'src\\report.py' ? mockReportOriginal.replace('按日期排好', '按日期') : (mockCode.get(rel) ?? '').replace('source', '# 旧配置\nsource')
+        return { ok: true, message: '', text, exists: true }
+      }
+      case 'scm.stage':
+      case 'scm.unstage': {
+        const paths = (p.paths as string[]) ?? []
+        const to = method === 'scm.stage'
+        mockScm.changes = mockScm.changes.map((c) => (paths.includes(c.path) ? { ...c, staged: to, status: to && c.status === 'U' ? 'A' : !to && c.status === 'A' ? 'U' : c.status } : c))
+        return { ok: true, message: '' }
+      }
+      case 'scm.discard': {
+        const paths = (p.paths as string[]) ?? []
+        mockScm.changes = mockScm.changes.filter((c) => c.staged || !paths.includes(c.path))
+        return { ok: true, message: '' }
+      }
+      case 'scm.commit':
+        if (!String(p.message ?? '').trim()) return { ok: false, message: '先写提交说明' }
+        mockScm.changes = p.stageAll ? [] : mockScm.changes.filter((c) => !c.staged)
+        mockScm.ahead++
+        return { ok: true, message: '' }
+      case 'scm.push':
+        await sleep(400)
+        mockScm.ahead = 0
+        return { ok: true, message: '' }
+      case 'scm.pull':
+        await sleep(300)
+        return { ok: true, message: '' }
+      case 'scm.message':
+        await sleep(700)
+        return { ok: true, message: '', text: '更新 README 的启动说明\n\n- 补上 pnpm 安装步骤\n- 说明 .env 示例文件的位置' }
+      case 'code.search': {
+        // 在开发预览的几个代码文件里找（宿主是在整个工作区里找）
+        const query = String(p.query ?? '')
+        if (!query) return { files: [], total: 0, truncated: false, error: '' }
+        let re: RegExp
+        try {
+          let src = p.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          if (p.wholeWord) src = `(?<![\\p{L}\\p{N}_])${src}(?![\\p{L}\\p{N}_])`
+          re = new RegExp(src, p.matchCase ? 'gu' : 'giu')
+        } catch (e) {
+          return { files: [], total: 0, truncated: false, error: '正则表达式写错了：' + (e as Error).message }
+        }
+        const words = (v: unknown) => String(v ?? '').split(',').map((x) => x.trim().replace(/^\*/, '')).filter(Boolean)
+        const inc = words(p.include)
+        const exc = words(p.exclude)
+        const files: { path: string; hits: { line: number; column: number; length: number; text: string; textOffset: number }[] }[] = []
+        let total = 0
+        for (const [path, text] of mockCode) {
+          const low = path.toLowerCase()
+          if (inc.length && !inc.some((w) => low.includes(w.toLowerCase()))) continue
+          if (exc.some((w) => low.includes(w.toLowerCase()))) continue
+          const hits = []
+          for (const [i, line] of text.split('\n').entries()) {
+            for (const m of line.matchAll(re)) {
+              if (!m[0]) continue
+              hits.push({ line: i + 1, column: (m.index ?? 0) + 1, length: m[0].length, text: line, textOffset: 0 })
+            }
+          }
+          if (hits.length) {
+            files.push({ path, hits })
+            total += hits.length
+          }
+        }
+        await sleep(120)
+        return { files, total, truncated: false, error: '' }
       }
       case 'code.handoff': {
         // 模拟整理摘要要等一会儿；点了「不带了」就取消

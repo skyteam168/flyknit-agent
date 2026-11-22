@@ -7,6 +7,8 @@
  *
  * 在普通浏览器中运行（npm run dev）时，使用 mockHost 模拟宿主。
  */
+import type { ProjectInfo } from './features/projects/types'
+import type { CodeSearchResult, ScmResult, ScmStatus } from './features/code/types'
 import type { DocModel } from './documents'
 import type {
   RepoInfo,
@@ -404,6 +406,30 @@ class Bridge {
   codeFocus = (conversationId: string, focus: { activeFile: string; line: number; selectionFrom: number; selectionTo: number; openFiles: string[] }) =>
     this.call<{ projectRoot: string | null; projectName: string; workspace: string; narrower: boolean }>('code.focus', { conversationId, ...focus })
   /** 新任务带上旧任务的交接摘要：等摘要整理好才返回；第一句话发出时宿主放进参考资料（只给一次） */
+  /** 编码模式的全局搜索：只在这个任务的工作区里找（宿主最多找 20 秒，匹配太多时截断） */
+  codeSearch = (conversationId: string, q: { query: string; regex: boolean; matchCase: boolean; wholeWord: boolean; include: string; exclude: string }) =>
+    this.call<CodeSearchResult>('code.search', { conversationId, ...q }, undefined, 30_000)
+  // ---------- 源代码管理（编码模式左栏，宿主 Core/Git/SourceControl） ----------
+  scmStatus = (conversationId: string) => this.call<ScmStatus>('scm.status', { conversationId }, undefined, 30_000)
+  /** 文件在上次提交里的内容（对比用）；新文件 exists=false */
+  scmHead = (conversationId: string, path: string) => this.call<{ ok: boolean; message: string; text: string; exists: boolean }>('scm.head', { conversationId, path })
+  scmStage = (conversationId: string, paths: string[]) => this.call<ScmResult>('scm.stage', { conversationId, paths }, undefined, 60_000)
+  scmUnstage = (conversationId: string, paths: string[]) => this.call<ScmResult>('scm.unstage', { conversationId, paths }, undefined, 60_000)
+  /** 丢弃改动（界面先确认）：跟踪的恢复原样，没跟踪的新文件删掉 */
+  scmDiscard = (conversationId: string, paths: string[]) => this.call<ScmResult>('scm.discard', { conversationId, paths }, undefined, 60_000)
+  scmCommit = (conversationId: string, message: string, stageAll: boolean) => this.call<ScmResult>('scm.commit', { conversationId, message, stageAll }, undefined, 60_000)
+  /** 推送（界面先确认） */
+  scmPush = (conversationId: string) => this.call<ScmResult>('scm.push', { conversationId }, undefined, 120_000)
+  scmPull = (conversationId: string) => this.call<ScmResult>('scm.pull', { conversationId }, undefined, 120_000)
+  /** AI 根据改动写提交说明（经服务端网关） */
+  scmMessage = (conversationId: string) => this.call<ScmResult & { text?: string }>('scm.message', { conversationId }, undefined, 90_000)
+  // ---------- 项目（左侧「项目」，features/projects） ----------
+  projectList = () => this.call<ProjectInfo[]>('project.list')
+  projectCreate = (p: { name: string; goal: string; notes: string; path?: string; parent?: string }) =>
+    this.call<{ ok: boolean; message: string; id?: string; path?: string }>('project.create', p)
+  projectUpdate = (id: string, patch: { name?: string; goal?: string; notes?: string }) => this.call<{ ok: boolean; message: string }>('project.update', { id, ...patch })
+  projectRemove = (id: string) => this.call<{ ok: boolean }>('project.remove', { id })
+  projectOpen = (id: string) => this.call<{ ok: boolean }>('project.open', { id })
   codeHandoff = (conversationId: string, from: string) => this.call<{ ok: boolean; message: string; summary?: string }>('code.handoff', { conversationId, from })
   /** 不带了（还在整理的也取消） */
   codeHandoffClear = (conversationId: string) => this.call<{ ok: boolean }>('code.handoffClear', { conversationId })

@@ -109,7 +109,22 @@ function render() {
       wordWrap: tab.virtual ? 'on' : 'off',
     })
   }
+  applyReveal()
 }
+
+// 全局搜索点了某一处：跳到那一行、选中匹配的那几个字（每次点击一个新的 at，同一个文件里换行也会跳）
+let revealedAt = 0
+function applyReveal() {
+  const r = props.tab.reveal
+  const ed = diff.value?.getModifiedEditor() ?? editor.value
+  if (!r || !ed || !monaco || r.at === revealedAt) return
+  revealedAt = r.at
+  const range = new monaco.Range(r.line, r.column, r.line, r.column + r.length)
+  ed.setSelection(range)
+  ed.revealRangeInCenter(range)
+  ed.focus()
+}
+watch(() => props.tab.reveal?.at, applyReveal)
 
 // ---------- 选中代码：浮条「添加到对话 Ctrl+L · 快速修改 Ctrl+K」（参照 Cursor） ----------
 function selectionOf(ed: Monaco.editor.ICodeEditor): CodeSelection | null {
