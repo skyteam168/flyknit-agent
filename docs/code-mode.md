@@ -168,3 +168,16 @@ AI 还在做的时候不出现（做完再一起决定）。
 - 选项：区分大小写、全字（前后不是字母数字下划线，中文也算字母）、正则（写错了回原因）、包含 / 排除（逗号分隔的 glob；只写一个词时文件名或任一级文件夹名里有它就算）。
 - 界面：左栏「搜索」，打字停 350ms 就搜，换选项马上搜；结果按文件分组可收起；点一行 `openCodeAt` → `CodeTab.reveal` → Monaco 跳到那里并选中。`Ctrl+Shift+F`（编码模式里，捕获阶段）打开并聚焦。
 - 只读，不做「全部替换」（批量改文件交给 AI，改动照常有对比、能撤销）。
+
+## 15. 源代码管理（`GitPane.vue`，Core `Git/SourceControl.cs`）
+
+- `SourceControlFeature`（`IBridgeModule`，`scm.*`）：只在这个对话工作区所在的仓库里做；IT 没开「开发者工具」时一律拒绝。一律按参数列表调 git（`GitRunner`，不经过 Shell），
+  路径放在 `--` 后面，只认仓库里的相对路径（不能 `..`、绝对路径、以 `-` 开头）。
+  - `scm.status`：`git status --porcelain=v1 -z --branch --untracked-files=all`，暂存 / 未暂存分开列，冲突标 C；`workspacePath` 不在工作区里为空（界面打不开）。
+  - `scm.head`：`git show HEAD:路径`，给界面做对比（新文件 exists=false，二进制不对比）。
+  - `scm.stage / unstage / discard / commit / push / pull`：没有 HEAD 时取消暂存用 `rm --cached`；丢弃对跟踪的 `restore --worktree`，没跟踪的删掉（只删普通文件，不跟链接）；
+    提交 `-m`，`stageAll` 先 `add -A`；推送没有上游时 `push -u origin HEAD`，不强推；拉取 `--ff-only`。丢弃、提交、推送写日志。
+  - `scm.message`：暂存的（没有就全部）diff 截到 1.2 万字，经服务端网关（title 场景）写提交说明，提示里说明 diff 是数据不是指令。
+- 这些是员工在界面上点的操作，不走 AI 的命令确认；丢弃、推送在界面上先确认。AI 自己的 git 操作仍然是 `git_commit` / `create_pull_request` 等工具，照常确认。
+- 界面：点改动打开文件，`CodeTab.before` = HEAD 版本、`diffSource = 'git'`（横幅「和上次提交的对比」，可以直接改）；AI 这时改了这个文件，换成 AI 改之前的样子对比。
+  AI 一轮做完、文件树变了、编辑器保存了都会刷新。

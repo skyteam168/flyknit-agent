@@ -10,7 +10,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Bot, Check, Code2, ExternalLink, FolderGit2, MoreHorizontal, Save, X } from '@lucide/vue'
+import { Bot, Check, Code2, ExternalLink, FolderGit2, GitCompare, MoreHorizontal, Save, X } from '@lucide/vue'
 import { bridge } from '../../bridge'
 import Popover from '../../components/Popover.vue'
 import { current, send, state, toast } from '../../store'
@@ -294,6 +294,12 @@ const reasonText = computed(() => {
         <button type="button" @click="takeTheirs(activeTab)">{{ t('ui.code.takeTheirs') }}</button>
         <button type="button" class="primary" @click="keepMine(current!.id, activeTab)">{{ t('ui.code.keepMine') }}</button>
       </div>
+      <!-- 源代码管理打开的对比：和上次提交比，可以直接在右边改 -->
+      <div v-else-if="activeTab.before !== null && activeTab.diffSource === 'git'" class="banner git">
+        <GitCompare :size="14" />
+        <span>{{ t('ui.code.git.diffBanner') }}</span>
+        <button type="button" class="primary" @click="acceptDiff(activeTab)">{{ t('ui.code.git.closeDiff') }}</button>
+      </div>
       <div v-else-if="activeTab.before !== null || (activeTab.aiChanged && fileTurn)" class="banner ai">
         <Bot :size="14" />
         <span>{{ activeTab.before !== null ? t('ui.code.diffBanner') : t('ui.code.decide.changedByAi') }}</span>
@@ -534,6 +540,10 @@ const reasonText = computed(() => {
 }
 .banner span {
   flex: 1;
+}
+.banner.git {
+  background: var(--thread-wash);
+  color: var(--ink);
 }
 .banner.plan {
   background: var(--amber-wash);

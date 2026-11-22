@@ -56,6 +56,16 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
   const mockFocus: unknown[] = []
   /** 开发预览：正在整理交接摘要的新任务（点「不带了」就删掉） */
   const mockHandoffs = new Set<string>()
+  /** 开发预览：源代码管理的改动（真实的是宿主跑 git status） */
+  const mockScm = {
+    branch: 'feature/login', ahead: 1, behind: 0,
+    changes: [
+      { path: 'README.md', workspacePath: 'README.md', status: 'M', staged: true, oldPath: '' },
+      { path: 'src/report.py', workspacePath: 'src\\report.py', status: 'M', staged: false, oldPath: '' },
+      { path: 'src/config.yaml', workspacePath: 'src\\config.yaml', status: 'M', staged: false, oldPath: '' },
+      { path: 'src/new_util.py', workspacePath: 'src\\new_util.py', status: 'U', staged: false, oldPath: '' },
+    ],
+  }
   /** 开发预览：开着计划模式的对话（这一轮只出方案） */
   const mockPlanMode = new Set<string>()
   ;(window as unknown as { __mockFocus: unknown[] }).__mockFocus = mockFocus
@@ -2440,6 +2450,42 @@ export function createMockHost(): HostTransport {
         if (!p.directory) mockCode.set(path, '')
         return { ok: true, path, message: '' }
       }
+      case 'scm.status':
+        await sleep(80)
+        return { isRepo: true, root: 'D:\\agentwork', branch: mockScm.branch, detached: false, ahead: mockScm.ahead, behind: mockScm.behind, hasUpstream: true, changes: mockScm.changes, error: '' }
+      case 'scm.head': {
+        const rel = String(p.path ?? '').replace(/\//g, '\\')
+        if (rel === 'src\\new_util.py') return { ok: true, message: '', text: '', exists: false }
+        const text = rel === 'src\\report.py' ? mockReportOriginal.replace('按日期排好', '按日期') : (mockCode.get(rel) ?? '').replace('source', '# 旧配置\nsource')
+        return { ok: true, message: '', text, exists: true }
+      }
+      case 'scm.stage':
+      case 'scm.unstage': {
+        const paths = (p.paths as string[]) ?? []
+        const to = method === 'scm.stage'
+        mockScm.changes = mockScm.changes.map((c) => (paths.includes(c.path) ? { ...c, staged: to, status: to && c.status === 'U' ? 'A' : !to && c.status === 'A' ? 'U' : c.status } : c))
+        return { ok: true, message: '' }
+      }
+      case 'scm.discard': {
+        const paths = (p.paths as string[]) ?? []
+        mockScm.changes = mockScm.changes.filter((c) => c.staged || !paths.includes(c.path))
+        return { ok: true, message: '' }
+      }
+      case 'scm.commit':
+        if (!String(p.message ?? '').trim()) return { ok: false, message: '先写提交说明' }
+        mockScm.changes = p.stageAll ? [] : mockScm.changes.filter((c) => !c.staged)
+        mockScm.ahead++
+        return { ok: true, message: '' }
+      case 'scm.push':
+        await sleep(400)
+        mockScm.ahead = 0
+        return { ok: true, message: '' }
+      case 'scm.pull':
+        await sleep(300)
+        return { ok: true, message: '' }
+      case 'scm.message':
+        await sleep(700)
+        return { ok: true, message: '', text: '更新 README 的启动说明\n\n- 补上 pnpm 安装步骤\n- 说明 .env 示例文件的位置' }
       case 'code.search': {
         // 在开发预览的几个代码文件里找（宿主是在整个工作区里找）
         const query = String(p.query ?? '')

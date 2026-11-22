@@ -45,6 +45,8 @@ export interface CodeTab {
   virtual?: boolean
   /** 要跳到的位置（全局搜索点了某一处）；at 每次不同，编辑器看到新的就跳 */
   reveal?: { line: number; column: number; length: number; at: number }
+  /** 对比视图是「源代码管理」打开的（和上次提交比），不是 AI 改的：横幅说法不同，没有「撤销此文件」 */
+  diffSource?: 'git'
 }
 
 /** 编辑器里选中的一段代码：添加到对话（Ctrl+L）、快速修改（Ctrl+K）用 */
@@ -72,7 +74,7 @@ interface ConversationCode {
 /** IDE 布局（记住员工上次的选择） */
 interface IdeLayout {
   on: boolean
-  explorerTab: 'project' | 'search' | 'skills' | 'mcp' | 'knowledge'
+  explorerTab: 'project' | 'search' | 'git' | 'skills' | 'mcp' | 'knowledge'
   explorerOpen: boolean
   bottomOpen: boolean
   bottomTab: 'terminal' | 'logs' | 'trace'
@@ -289,6 +291,15 @@ export async function keepMine(conversationId: string, tab: CodeTab) {
 export function acceptDiff(tab: CodeTab) {
   tab.before = null
   tab.aiChanged = false
+  tab.diffSource = undefined
+}
+
+/** 源代码管理里点了一个改动：打开文件，和上次提交（HEAD）对比；新文件对比空白 */
+export async function openGitDiff(conversationId: string, workspacePath: string, headText: string) {
+  const tab = await openCodeFile(conversationId, workspacePath)
+  if (!tab) return
+  tab.before = headText
+  tab.diffSource = 'git'
 }
 
 /** 完整路径 → 工作区里的相对路径；不在工作区里返回 null */
@@ -314,7 +325,9 @@ async function onAiChanged(conversationId: string, paths: string[]) {
           // 员工也在改：不动编辑器里的内容，等员工决定
           tab.conflict = { text: file.text, version: file.version }
         } else {
-          tab.before = tab.before ?? tab.saved
+          // 正在看「和上次提交的对比」时 AI 改了：换成 AI 改之前的样子做对比
+          tab.before = tab.diffSource === 'git' ? tab.saved : (tab.before ?? tab.saved)
+          tab.diffSource = undefined
           tab.saved = tab.draft = file.text
           tab.version = file.version
           tab.exists = file.exists

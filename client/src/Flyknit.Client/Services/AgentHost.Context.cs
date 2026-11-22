@@ -80,6 +80,30 @@ public sealed partial class AgentHost
         return string.IsNullOrEmpty(json) ? null : JsonNode.Parse(json);
     }
 
+    /// <summary>编码模式「源代码管理」的「AI 写提交说明」：经服务端网关（title 场景，按短请求计量）。</summary>
+    private async Task<string?> SuggestCommitMessageAsync(string diff, CancellationToken ct)
+    {
+        try
+        {
+            var turn = await Server.CompleteAsync(new ChatRequest
+            {
+                Scene = Scenes.Title,
+                Purpose = Purposes.Title,
+                Stream = false,
+                Temperature = 0.2,
+                MaxTokens = 400,
+                ExtraBody = new Dictionary<string, JsonNode?> { ["enable_thinking"] = false },
+                Messages = new[] { ChatMessage.System(Flyknit.Core.Git.SourceControlFeature.MessagePrompt), ChatMessage.User(diff) },
+            }, null, ct);
+            return turn.Content;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Warn("写提交说明失败", ex);
+            return null;
+        }
+    }
+
     /// <summary>
     /// 编码模式「带上摘要新建任务」：把旧任务整理成一份交接摘要（不改动旧任务本身）。
     /// 只给办事任务用；经服务端网关，和压缩对话一样计用量。没有内容时返回 null。

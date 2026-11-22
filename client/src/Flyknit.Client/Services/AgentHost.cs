@@ -94,6 +94,9 @@ public sealed partial class AgentHost : IDisposable
     /// <summary>左侧「项目」：项目清单（文件夹 + 目标 + 说明），见 Core/Projects。</summary>
     public Flyknit.Core.Projects.ProjectFeature Projects { get; }
 
+    /// <summary>编码模式左边的「源代码管理」（Core/Git/SourceControl）。</summary>
+    public Flyknit.Core.Git.SourceControlFeature SourceControl { get; }
+
     /// <summary>编码模式底部终端里员工自己的 PowerShell（Core/Terminal，开发者工具开着时可用）。</summary>
     public Flyknit.Core.Terminal.UserTerminalFeature UserTerminals { get; }
 
@@ -385,6 +388,10 @@ public sealed partial class AgentHost : IDisposable
         Mcp = new McpService(settings, Server, Tools, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
         Experts = new Flyknit.Core.Experts.ExpertCatalog(Path.Combine(AppPaths.Root, "experts.json"));
         // 编码模式的文件读写和编辑器状态：下面的运行扩展要用，先建好
+        SourceControl = new Flyknit.Core.Git.SourceControlFeature(WorkspaceOf, () => Security.On(SecuritySettings.DeveloperTools, fallback: false), message => Log.Info(message))
+        {
+            SuggestMessage = SuggestCommitMessageAsync,
+        };
         Projects = new Flyknit.Core.Projects.ProjectFeature(new Flyknit.Core.Projects.ProjectStore(Path.Combine(AppPaths.Root, "projects.json")), message => Log.Info(message));
         Code = new Flyknit.Core.Code.CodeFeature(WorkspaceOf, message => Log.Info(message)) { Summarize = HandoffSummaryAsync };
         // 功能模块（docs/extension-architecture.md）：底座只认扩展点，团队、派遣专家、子代理都从这里接进来。
@@ -427,7 +434,7 @@ public sealed partial class AgentHost : IDisposable
             WriteRun = WriteTerminalRun,
             ResizeRun = ResizeTerminalRun,
         };
-        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code).Register(UserTerminals).Register(Projects);
+        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code).Register(UserTerminals).Register(Projects).Register(SourceControl);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
