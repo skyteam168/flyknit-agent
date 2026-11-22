@@ -56,6 +56,8 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
   const mockFocus: unknown[] = []
   /** 开发预览：正在整理交接摘要的新任务（点「不带了」就删掉） */
   const mockHandoffs = new Set<string>()
+  /** 开发预览：开着计划模式的对话（这一轮只出方案） */
+  const mockPlanMode = new Set<string>()
   ;(window as unknown as { __mockFocus: unknown[] }).__mockFocus = mockFocus
   /** 开发预览：员工在文件树里新建的文件 / 文件夹（父路径 → [名字, 是不是文件夹, 大小]） */
   const mockCreated: Record<string, [string, boolean, number][]> = {}
@@ -1413,6 +1415,26 @@ export function createMockHost(): HostTransport {
       list.push({ id: uid(), role: 'tool', content: output, toolCallId: call, createdAt: now() })
       finalText = '表格建好了：[新员工名单](https://docs.qq.com/sheet/DEMO123)，包含姓名、部门、入职日期三列和 3 行示例数据。'
       await stream(id, finalText)
+    } else if (c.mode === 'agent' && mockPlanMode.has(id)) {
+      // 计划模式：只调研、出方案（编码模式里显示方案卡片，可以在编辑器里改方案、点执行）
+      emit({ type: 'chat.reasoning', conversationId: id, text: '先看登录页和用户接口，再给出分步方案，这一轮不改代码。' })
+      await sleep(500)
+      emit({
+        type: 'plan.updated',
+        conversationId: id,
+        plan: [
+          { step: '在 LoginForm.vue 加「记住密码」复选框', status: 'pending' },
+          { step: 'auth store 里按勾选把 token 存 localStorage 或 sessionStorage', status: 'pending' },
+          { step: '路由守卫启动时先从存储里恢复登录状态', status: 'pending' },
+          { step: '补两条单元测试：勾选 / 不勾选', status: 'pending' },
+          { step: '跑一遍测试和类型检查', status: 'pending' },
+        ],
+      } as never)
+      finalText =
+        '# 登录页加「记住密码」\n\n在 vue3-login 里给登录页加「记住密码」：勾选后把令牌存在 localStorage，下次打开自动登录；不勾选只存在 sessionStorage，关掉浏览器就失效。\n\n' +
+        '**会改的文件**：`src/components/LoginForm.vue`、`src/stores/auth.ts`、`src/router/index.ts`，新增 `tests/auth.spec.ts`。\n\n' +
+        '**风险**：localStorage 里的令牌能被页面脚本读到，建议令牌有效期不超过 7 天。需要你确认有效期。'
+      await stream(id, finalText)
     } else if (c.mode === 'agent' && /三个模块|子代理|subagent/i.test(text)) {
       // 模拟主助手开三个只读子代理同时调研三个模块（编码模式的任务看板看计划进度和子代理状态）
       const plan = [
@@ -2497,6 +2519,8 @@ export function createMockHost(): HostTransport {
         return c
       }
       case 'conversation.setPlanMode':
+        if (p.on) mockPlanMode.add(String(p.id))
+        else mockPlanMode.delete(String(p.id))
         return true
       case 'conversation.setLongMode': {
         const c = conversations.get(p.id)

@@ -50,6 +50,8 @@ import AskBar from './AskBar.vue'
 import CompactingCard from './CompactingCard.vue'
 import PrivacyNotice from '../features/privacy/PrivacyNotice.vue'
 import RunSummary from '../features/code/RunSummary.vue'
+// 编码模式下方案由 features/code 的方案卡片显示（这一行「方案好了」就不重复了）
+import { planCardVisible } from '../features/code/store'
 import UsageWarning from './UsageWarning.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -732,7 +734,7 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
         <button type="button" class="paused-go" @click="resumeInterrupted(interrupted.conversationId)"><Play :size="13" /> {{ t('ui.tasks.resume') }}</button>
       </div>
       <!-- 计划模式：方案好了，员工确认后才动手 -->
-      <div v-if="planReady && !props.home" class="paused-bar plan-bar">
+      <div v-if="planReady && !props.home && !planCardVisible" class="paused-bar plan-bar">
         <ClipboardList :size="14" />
         <span>{{ t('ui.planMode.ready') }}</span>
         <button type="button" class="paused-go ghost" @click="box?.focus()">{{ t('ui.planMode.revise') }}</button>
