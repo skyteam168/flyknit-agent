@@ -231,3 +231,9 @@
 - 子代理永远没有：`spawn_agent`（只开一层）、`ask_expert`、`ask_user`、`memory_write`、`suggest_task`、浏览器工具。
 - 每轮最多 8 个；每个从主任务剩余预算里预留（最多 40 万 token、至少留 3 万给主助手）；15 分钟、40 步上限。
 - 进度事件、存档沿用专家子任务（`expert.started / step / finished`，`expert.id = "subagent"`），界面用同一种卡片。
+- 模型（`model` 参数）：只能从后台启用、`supports_tools` 的模型里选（和员工输入框里能选的同一批，宿主缓存的 `/client/models`），按显示名或模型标识匹配；
+  选错了交回可选列表。网关照常按 `flyknit_model_id` 校验是否启用，不可用时退回场景配置的模型。
+- 项目子代理定义（`agent` 参数，`SubAgentDefinitions`）：工作区 `.flyknit/agents/*.md`，frontmatter 写 `name / description / model / read_only / tools`，正文是角色说明。
+  每轮由 `SubAgentRunExtension` 读一次（最多 20 个、每个 ≤ 8000 字、不读链接、疑似注入的跳过并写日志），列进 `spawn_agent` 的工具说明。
+  只能收紧：`tools` 和主助手这一轮的工具取交集；定义说只读就只读（参数 `read_only=false` 也不行）；角色说明经 `PromptInjectionGuard.Neutralize` 放进 `<子代理角色>`，标明不能放宽安全规则。
+  定义里的模型不可用时用主助手的模型照跑，结果里告诉主助手一句。

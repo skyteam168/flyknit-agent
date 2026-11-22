@@ -398,7 +398,11 @@ public sealed partial class AgentHost : IDisposable
                     scope => new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, scope.Confirm, () => AgentOptionsFor(scope.Conversation), _auditSink, Approvals, Store, DelegationEvents,
                             new Flyknit.Core.Agent.SubAgents.SubAgentLimits { MaxTokensSetting = SubtaskTokenCap })
                         .WithTraceSerializer((trace, stop) => Bridge.TraceDto.Serialize(trace, stop)),
-                    ChatExtraBody),
+                    ChatExtraBody,
+                    // 子代理能选的模型：和员工在输入框里能选的同一批（后台启用的），再去掉不能调用工具的；服务端还会再查是否启用
+                    () => (_models ?? new List<ClientModel>()).Where(m => m.SupportsTools)
+                        .Select(m => new Flyknit.Core.Agent.SubAgents.SubAgentModel(m.Id, m.Name, m.Model)).ToList(),
+                    message => Log.Warn(message)),
             },
             (extensionId, ex) => Log.Warn($"运行扩展 {extensionId} 准备失败，这一轮不出场", ex));
         Sounds = new SoundService(NotificationSoundChoice, cue => cue switch
