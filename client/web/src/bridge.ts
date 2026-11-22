@@ -7,6 +7,7 @@
  *
  * 在普通浏览器中运行（npm run dev）时，使用 mockHost 模拟宿主。
  */
+import type { ProjectInfo } from './features/projects/types'
 import type { DocModel } from './documents'
 import type {
   RepoInfo,
@@ -404,6 +405,13 @@ class Bridge {
   codeFocus = (conversationId: string, focus: { activeFile: string; line: number; selectionFrom: number; selectionTo: number; openFiles: string[] }) =>
     this.call<{ projectRoot: string | null; projectName: string; workspace: string; narrower: boolean }>('code.focus', { conversationId, ...focus })
   /** 新任务带上旧任务的交接摘要：等摘要整理好才返回；第一句话发出时宿主放进参考资料（只给一次） */
+  // ---------- 项目（左侧「项目」，features/projects） ----------
+  projectList = () => this.call<ProjectInfo[]>('project.list')
+  projectCreate = (p: { name: string; goal: string; notes: string; path?: string; parent?: string }) =>
+    this.call<{ ok: boolean; message: string; id?: string; path?: string }>('project.create', p)
+  projectUpdate = (id: string, patch: { name?: string; goal?: string; notes?: string }) => this.call<{ ok: boolean; message: string }>('project.update', { id, ...patch })
+  projectRemove = (id: string) => this.call<{ ok: boolean }>('project.remove', { id })
+  projectOpen = (id: string) => this.call<{ ok: boolean }>('project.open', { id })
   codeHandoff = (conversationId: string, from: string) => this.call<{ ok: boolean; message: string; summary?: string }>('code.handoff', { conversationId, from })
   /** 不带了（还在整理的也取消） */
   codeHandoffClear = (conversationId: string) => this.call<{ ok: boolean }>('code.handoffClear', { conversationId })

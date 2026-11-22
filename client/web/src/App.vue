@@ -40,6 +40,7 @@ import BrandLoader from './components/BrandLoader.vue'
 import { uploadDropped } from './library'
 import CodeWorkspace from './features/code/CodeWorkspace.vue'
 import AgentTabs from './features/code/AgentTabs.vue'
+import ProjectsPage from './features/projects/ProjectsPage.vue'
 import IdeWelcome from './features/code/IdeWelcome.vue'
 import { ide, ideActive, ideWelcome } from './features/code/store'
 import { safeMode } from './render/useRichBlocks'
@@ -334,6 +335,8 @@ onBeforeUnmount(() => {
         <ConnectorsPage v-else-if="state.view === 'connectors'" @use="useExample" />
         <SkillsPage v-else-if="state.view === 'skills'" @use="useSkill" />
         <SchedulesPage v-else-if="state.view === 'schedules'" />
+        <!-- 左侧「项目」（features/projects） -->
+        <ProjectsPage v-else-if="state.view === 'projects'" />
         <div
           v-else-if="inConversation"
           v-show="!(state.rightMax && showRight && !ideActive)"

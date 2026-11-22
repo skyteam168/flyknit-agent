@@ -226,6 +226,10 @@ export function createMockHost(): HostTransport {
     { path: 'D:\\', name: 'D:\\', exists: true, isDefault: false },
   ]
   let defaultWorkspace = workspaces[1].path
+  /** 开发预览：项目清单（宿主 Core/Projects 存在 projects.json） */
+  const mockProjects = [
+    { id: 'pj_demo1', name: 'restaurant-system', path: 'D:\\agentwork', goal: '餐厅点餐系统：先把下单接口的 p95 延迟降到 200 毫秒以内', notes: '后端 FastAPI，前端 Vue 3；用 pnpm', createdAt: '2026-10-30T09:00:00+08:00', openedAt: '2026-11-20T18:00:00+08:00', exists: true },
+  ]
   let maximized = false
   const ago = (min: number) => new Date(Date.now() - min * 60000).toISOString()
   const securityEvents = [
@@ -1994,6 +1998,36 @@ export function createMockHost(): HostTransport {
         }
       case 'conversations.plan':
         return []
+      case 'project.list':
+        return mockProjects.slice().sort((a, b) => b.openedAt.localeCompare(a.openedAt))
+      case 'project.create': {
+        const name = String(p.name ?? '').trim()
+        if (!name) return { ok: false, message: '项目名不能为空' }
+        if (/[\\/:*?"<>|]/.test(name) && !p.path) return { ok: false, message: '项目名要用作文件夹名，不能带 \\ / : * ? " < > | 这些字符' }
+        const path = p.path ? String(p.path) : String(p.parent).replace(/[\\/]+$/, '') + '\\' + name
+        if (mockProjects.some((x) => x.path.toLowerCase() === path.toLowerCase())) return { ok: false, message: '这个文件夹已经是一个项目了' }
+        const id = 'pj_' + uid().slice(0, 8)
+        mockProjects.push({ id, name, path, goal: String(p.goal ?? ''), notes: String(p.notes ?? ''), createdAt: now(), openedAt: now(), exists: true })
+        return { ok: true, message: '', id, path }
+      }
+      case 'project.update': {
+        const x = mockProjects.find((y) => y.id === p.id)
+        if (!x) return { ok: false, message: '项目不存在' }
+        if (typeof p.name === 'string') x.name = p.name.trim()
+        if (typeof p.goal === 'string') x.goal = p.goal.trim()
+        if (typeof p.notes === 'string') x.notes = p.notes.trim()
+        return { ok: true, message: '' }
+      }
+      case 'project.remove': {
+        const i = mockProjects.findIndex((y) => y.id === p.id)
+        if (i >= 0) mockProjects.splice(i, 1)
+        return { ok: i >= 0 }
+      }
+      case 'project.open': {
+        const x = mockProjects.find((y) => y.id === p.id)
+        if (x) x.openedAt = now()
+        return { ok: !!x }
+      }
       case 'workspaces.list':
         return workspaces
       case 'workspaces.add': {

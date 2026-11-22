@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
+  Code2,
   ArrowLeft,
   AppWindow,
   Eye,
@@ -22,7 +23,9 @@ import KnitMark from './KnitMark.vue'
 import Composer from './Composer.vue'
 import HomeIdeas from './HomeIdeas.vue'
 import ExpertAvatar from './ExpertAvatar.vue'
-import { currentExpert, draftMode, openExperts, setMode, setTranslate } from '../store'
+import { addWorkspace, currentExpert, draftMode, openExperts, selectedWorkspace, setMode, setTranslate, state } from '../store'
+// 编码模式（features/code）：首页「编码」直接进 IDE
+import { enterIde } from '../features/code/store'
 import type { Mode } from '../types'
 
 const { t } = useI18n()
@@ -65,6 +68,11 @@ const chips = computed(() => {
       ]
   }
 })
+
+async function startCoding() {
+  const ws = selectedWorkspace.value || (await addWorkspace())
+  if (ws) await enterIde(ws, { newTask: true })
+}
 
 const targetCode: Record<string, string> = { vi: 'vi', zh: 'zh-CN', en: 'en', km: 'km' }
 
@@ -134,6 +142,11 @@ async function pick(key: string) {
         >
           <span class="dot"><component :is="m.icon" :size="15" /></span>
           {{ t(`mode.${m.key}`) }}
+        </button>
+        <!-- 编码模式：开发者工具开着时显示，点了在当前工作区开一个任务、直接进 IDE（没选工作区先选文件夹） -->
+        <button v-if="state.app?.developerTools" type="button" role="radio" :aria-checked="false" :title="t('ui.home.codeHint')" @click="startCoding">
+          <span class="dot"><Code2 :size="15" /></span>
+          {{ t('ui.home.code') }}
         </button>
       </div>
 

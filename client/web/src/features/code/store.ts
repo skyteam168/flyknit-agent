@@ -589,6 +589,27 @@ watch(
   },
 )
 
+/**
+ * 进入编码模式（首页的「编码」、项目里的「在编码模式中打开」）：在这个工作区里接着最近的办事任务，没有就新开一个。
+ * newTask：总是新开一个任务。
+ */
+export async function enterIde(workspace: string, opts: { newTask?: boolean } = {}) {
+  if (!workspace || !state.app?.developerTools) return
+  state.view = 'chat'
+  toggleIde(true)
+  const latest = opts.newTask
+    ? undefined
+    : state.conversations
+        .filter((c) => c.mode === 'agent' && sameDir(c.workspace, workspace))
+        .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
+  if (latest) {
+    noteTab(latest.id)
+    await openConversation(latest.id)
+  } else {
+    await newTaskInIde(workspace)
+  }
+}
+
 export function switchTask(id: string) {
   noteTab(id)
   if (state.currentId !== id) void openConversation(id)
