@@ -100,7 +100,14 @@ function render() {
     } else if (editor.value.getModel() !== model) {
       editor.value.setModel(model)
     }
-    editor.value.updateOptions({ readOnly: tab.readOnly })
+    // 方案文档是中文说明：中文标点不当「易混淆字符」标黄框，打字时也不弹单词补全，长段落自动换行
+    editor.value.updateOptions({
+      readOnly: tab.readOnly,
+      unicodeHighlight: { ambiguousCharacters: !tab.virtual },
+      wordBasedSuggestions: tab.virtual ? 'off' : 'matchingDocuments',
+      quickSuggestions: tab.virtual ? false : { other: 'on', comments: 'off', strings: 'off' },
+      wordWrap: tab.virtual ? 'on' : 'off',
+    })
   }
 }
 

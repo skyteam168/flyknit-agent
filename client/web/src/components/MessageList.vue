@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Activity, Archive, ArrowDown, Brain, Info, Check, ChevronRight, ChevronUp, Clock, FilePen, GitBranch, ListChecks, Copy, Cpu, FileText, ImageIcon, OctagonAlert, Pencil, RefreshCw, RotateCcw, ThumbsDown, ThumbsUp } from '@lucide/vue'
 import { renderMarkdown, stripToolMarkup } from '../markdown'
@@ -199,6 +199,28 @@ function toggleFold(key: string) {
   else next.add(key)
   expanded.value = next
 }
+
+/**
+ * 别处要定位某次工具调用（编码模式任务看板里点了一个子代理）：它在折叠的「已完成 N 步」里就先展开，再滚过去、闪一下。
+ * 用通用的窗口事件（detail 是 callId），消息列表不认识具体功能。
+ */
+function revealCall(e: Event) {
+  const callId = (e as CustomEvent<string>).detail
+  const m = s.value?.messages.find((x) => x.toolCalls?.some((c) => c.id === callId))
+  const f = m ? folds.value.get(m.id) : undefined
+  if (f && !expanded.value.has(f.key)) toggleFold(f.key)
+  void nextTick(() =>
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-call-id="${CSS.escape(callId)}"]`)
+      if (!el) return
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      el.classList.add('flash')
+      window.setTimeout(() => el.classList.remove('flash'), 1400)
+    }),
+  )
+}
+window.addEventListener('flyknit:reveal-call', revealCall)
+onBeforeUnmount(() => window.removeEventListener('flyknit:reveal-call', revealCall))
 
 function foldText(f: Fold) {
   const names = f.labels.slice(0, 3).join(t('ui.fold.sep')) + (f.labels.length > 3 ? t('ui.fold.more') : '')

@@ -16,8 +16,8 @@
  */
 import { computed, reactive, watch } from 'vue'
 import { bridge } from '../../bridge'
-import { convState, current, draftMode, loadChanges, moveToWorkspace, openConversation, registerFeature, state, toast } from '../../store'
-import type { ChangeTurn, CodeFile, HostEvent } from '../../types'
+import { convState, current, draftMode, loadChanges, moveToWorkspace, openConversation, registerFeature, send, setPlanMode, state, toast } from '../../store'
+import type { ChangeTurn, CodeFile, HostEvent, UiMessage } from '../../types'
 
 export interface CodeTab {
   /** 工作区里的相对路径（读写用） */
@@ -41,6 +41,8 @@ export interface CodeTab {
   loading: boolean
   /** 光标所在行、选中的行（告诉 AI「这里」是哪里） */
   cursor?: { line: number; from: number; to: number }
+  /** 不是磁盘上的文件（计划模式的「方案.md」）：不读写磁盘、不告诉宿主；saved 是 AI 给的那一版，draft 是员工改过的 */
+  virtual?: boolean
 }
 
 /** 编辑器里选中的一段代码：添加到对话（Ctrl+L）、快速修改（Ctrl+K）用 */
@@ -162,7 +164,7 @@ export const activeTab = computed(() => {
   return c?.tabs.find((x) => x.path === c.active) ?? null
 })
 
-export const isDirty = (tab: CodeTab) => !tab.readOnly && tab.draft !== tab.saved
+export const isDirty = (tab: CodeTab) => !tab.readOnly && !tab.virtual && tab.draft !== tab.saved
 
 const samePath = (a: string, b: string) => a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase()
 
@@ -391,14 +393,15 @@ function reportFocus() {
     const id = current.value?.id
     if (!id) return
     const c = editorOf(id)
-    const tab = ideActive.value ? (c?.tabs.find((x) => x.path === c.active) ?? null) : null
+    const found = ideActive.value ? (c?.tabs.find((x) => x.path === c.active) ?? null) : null
+    const tab = found?.virtual ? null : found
     const focus = {
       activeFile: tab?.path ?? '',
       line: tab?.cursor?.line ?? 0,
       selectionFrom: tab?.cursor && tab.cursor.to > tab.cursor.from ? tab.cursor.from : 0,
       selectionTo: tab?.cursor && tab.cursor.to > tab.cursor.from ? tab.cursor.to : 0,
       // 退出编码模式时告诉宿主「什么都没开」，AI 不再拿旧的编辑器状态当参考
-      openFiles: ideActive.value ? (c?.tabs.map((x) => x.path) ?? []) : [],
+      openFiles: ideActive.value ? (c?.tabs.filter((x) => !x.virtual).map((x) => x.path) ?? []) : [],
     }
     const key = id + JSON.stringify(focus)
     if (key === lastFocus) return
@@ -723,7 +726,7 @@ export async function restoreCheckpoint(conversationId: string, userMessageId: s
     // 编辑器里开着的文件按磁盘重新读
     const c = editorOf(conversationId)
     for (const tab of c?.tabs ?? []) {
-      if (isDirty(tab)) continue
+      if (isDirty(tab) || tab.virtual) continue
       try {
         const file = await bridge.loadCode(conversationId, tab.path)
         tab.saved = tab.draft = file.text
@@ -735,6 +738,104 @@ export async function restoreCheckpoint(conversationId: string, userMessageId: s
       }
     }
   }
+}
+
+// ---------- 计划模式（参照 Cursor 的 Plan）：方案卡片、编辑器里可以改的「方案.md」、执行 ----------
+//
+// 计划模式本身在 Core（PlanMode：只读、拿掉会改东西的工具）；这里只管编码模式里怎么看、怎么改、怎么执行。
+// 方案文档不写进项目目录（不弄脏代码库）：只是编辑器里的一个虚拟标签，跟着工作区的编辑器存在内存里。
+
+const planPath = (conversationId: string) => `flyknit-plan/${conversationId}.md`
+
+/** 编码模式下，计划模式的这一轮跑完了、最后是 AI 的回答：显示方案卡片（代替输入框里那一行「方案好了」） */
+export const planCardVisible = computed(() => {
+  const c = current.value
+  if (!ideActive.value || !c || !state.planMode[c.id]) return false
+  const s = state.byId[c.id]
+  if (!s || s.busy) return false
+  return s.messages.length > 0 && s.messages[s.messages.length - 1].role === 'assistant'
+})
+
+/** 这一版方案：计划模式下 AI 最后的那段回答 */
+export function planAnswer(conversationId: string): UiMessage | null {
+  const msgs = state.byId[conversationId]?.messages ?? []
+  for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'assistant' && msgs[i].content.trim()) return msgs[i]
+  return null
+}
+
+/** 方案标题：回答开头的「# 标题」，没有就用任务标题 */
+export function planTitle(conversationId: string, fallback: string): string {
+  const head = /^\s*#{1,3}\s+(.+)$/m.exec(planAnswer(conversationId)?.content ?? '')
+  return (head?.[1] ?? state.conversations.find((c) => c.id === conversationId)?.title ?? '').trim() || fallback
+}
+
+/** 方案文档：标题 + AI 的说明 + 待办（员工在编辑器里改的就是这个） */
+export function planMarkdown(conversationId: string, labels: { fallback: string; todos: string }): string {
+  const answer = (planAnswer(conversationId)?.content ?? '').trim()
+  const title = planTitle(conversationId, labels.fallback)
+  const body = /^\s*#{1,3}\s+/.test(answer) ? answer : `# ${title}\n\n${answer}`
+  const plan = state.byId[conversationId]?.plan ?? []
+  const todos = plan.length ? `\n\n## ${labels.todos}\n\n` + plan.map((p) => `- [${p.status === 'completed' ? 'x' : ' '}] ${p.step}`).join('\n') : ''
+  return body + todos + '\n'
+}
+
+/** 方案标签（没开过就是 undefined） */
+export function planTab(conversationId: string): CodeTab | undefined {
+  return editorOf(conversationId)?.tabs.find((t) => t.fullPath === planPath(conversationId))
+}
+
+/** 员工在编辑器里改过方案 */
+export function planEdited(conversationId: string): boolean {
+  const tab = planTab(conversationId)
+  return !!tab && tab.draft.trim() !== tab.saved.trim()
+}
+
+/** 在编辑器里打开方案（已经开着就切过去；AI 出了新一版、员工又没改过时换成新的） */
+export function openPlanDoc(conversationId: string, labels: { fallback: string; todos: string; name: string }) {
+  const text = planMarkdown(conversationId, labels)
+  const c = convOf(conversationId)
+  let tab = planTab(conversationId)
+  if (!tab) {
+    tab = {
+      path: planPath(conversationId), fullPath: planPath(conversationId), name: labels.name, saved: text, draft: text, version: '', exists: true,
+      readOnly: false, reason: '', before: null, aiChanged: false, conflict: null, loading: false, virtual: true,
+    }
+    c.tabs.push(tab)
+    trimTabs(c)
+  } else if (!planEdited(conversationId)) {
+    tab.saved = tab.draft = text
+  }
+  c.active = tab.path
+}
+
+/**
+ * 按方案执行：退出计划模式，让 AI 动手。员工在编辑器里改过方案的，把改后的方案一起发过去（以这一版为准）。
+ * 发出去以后方案标签的「AI 那一版」换成这一版，免得下次又当成改过。
+ */
+export async function executePlanInIde(conversationId: string, text: { go: string; goEdited: string }) {
+  const tab = planTab(conversationId)
+  const edited = planEdited(conversationId)
+  await setPlanMode(false)
+  const ok = await send(edited && tab ? `${text.goEdited}\n\n${tab.draft.trim()}` : text.go, { noSplit: true })
+  if (ok && tab) tab.saved = tab.draft
+}
+
+// AI 出了新一版方案：开着的方案标签（员工没改过的）跟着换
+watch(
+  () => {
+    const id = current.value?.id
+    return id && planTab(id) ? [id, planAnswer(id)?.id, (state.byId[id]?.plan ?? []).map((p) => p.step + p.status).join('|')].join('#') : ''
+  },
+  () => {
+    const id = current.value?.id
+    const tab = id ? planTab(id) : undefined
+    if (id && tab && !planEdited(id)) tab.saved = tab.draft = planMarkdown(id, planLabels)
+  },
+)
+/** 方案文档里的「方案」「待办」这些字（界面语言在 PlanCard 里取，记下来给上面的 watch 用） */
+let planLabels = { fallback: 'Plan', todos: 'To-dos' }
+export function rememberPlanLabels(labels: { fallback: string; todos: string }) {
+  planLabels = labels
 }
 
 registerFeature({

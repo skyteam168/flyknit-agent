@@ -13,9 +13,9 @@ import { useI18n } from 'vue-i18n'
 import { Bot, Check, Code2, ExternalLink, FolderGit2, MoreHorizontal, Save, X } from '@lucide/vue'
 import { bridge } from '../../bridge'
 import Popover from '../../components/Popover.vue'
-import { current, send, toast } from '../../store'
+import { current, send, state, toast } from '../../store'
 import MonacoView from './MonacoView.vue'
-import { acceptDiff, activeTab, closeCodeTab, currentCode, isDirty, keepMine, keepTurn, narrowToProject, pendingTurnFor, projects, saveCodeTab, selectionMarkdown, takeTheirs, undoTurn } from './store'
+import { acceptDiff, activeTab, closeCodeTab, currentCode, executePlanInIde, isDirty, keepMine, keepTurn, narrowToProject, pendingTurnFor, planEdited, projects, saveCodeTab, selectionMarkdown, takeTheirs, undoTurn } from './store'
 import type { CodeSelection, CodeTab } from './store'
 
 const emit = defineEmits<{ insertText: [text: string] }>()
@@ -172,7 +172,7 @@ function undoFile() {
 async function openVsCode() {
   if (!current.value) return
   try {
-    const r = await bridge.openInVsCode(current.value.id, activeTab.value?.path ?? '')
+    const r = await bridge.openInVsCode(current.value.id, activeTab.value && !activeTab.value.virtual ? activeTab.value.path : '')
     toast(r.ok ? t('ui.code.vscodeOpened') : r.message)
   } catch (e) {
     toast(String((e as Error)?.message ?? e))
@@ -182,6 +182,12 @@ async function openVsCode() {
 /** 当前文件属于工作区里的某个项目、而工作区比它大（D:\\AIWORK 里的 vue3-login）：提示可以收窄 */
 const project = computed(() => (current.value ? projects[current.value.id] : undefined))
 const base = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
+
+/** 方案标签：执行（改过的方案一起发过去） */
+const planEditedNow = computed(() => !!current.value && !!activeTab.value?.virtual && planEdited(current.value.id))
+function executePlan() {
+  if (current.value) void executePlanInIde(current.value.id, { go: t('ui.planMode.go'), goEdited: t('ui.code.plan.goEdited') })
+}
 
 const reasonText = computed(() => {
   const r = activeTab.value?.reason ?? ''
@@ -266,7 +272,7 @@ const reasonText = computed(() => {
       <button type="button" @click="menuDo(closeSaved)">{{ t('ui.code.tabs.closeSaved') }}</button>
       <button type="button" @click="menuDo(closeAll)">{{ t('ui.code.tabs.closeAll') }}</button>
       <hr />
-      <button type="button" @click="menuDo(() => void copyPath(menu!.tab))">{{ t('ui.code.tabs.copyPath') }}</button>
+      <button v-if="!menu.tab.virtual" type="button" @click="menuDo(() => void copyPath(menu!.tab))">{{ t('ui.code.tabs.copyPath') }}</button>
     </div>
 
     <!-- 当前项目（从打开的文件往上找到 package.json / .git 之类推断）；工作区比它大时可以一键收窄 -->
@@ -278,6 +284,11 @@ const reasonText = computed(() => {
       </button>
     </div>
     <template v-if="activeTab">
+      <!-- 计划模式的方案文档：可以直接改，改完点执行，以这一版为准 -->
+      <div v-if="activeTab.virtual" class="banner plan">
+        <span>{{ planEditedNow ? t('ui.code.plan.docEdited') : t('ui.code.plan.docHint') }}</span>
+        <button v-if="current && state.planMode[current.id]" type="button" class="primary" @click="executePlan">{{ t('ui.code.plan.execute') }}</button>
+      </div>
       <div v-if="activeTab.conflict" class="banner warn">
         <span>{{ t('ui.code.conflict') }}</span>
         <button type="button" @click="takeTheirs(activeTab)">{{ t('ui.code.takeTheirs') }}</button>
@@ -523,6 +534,9 @@ const reasonText = computed(() => {
 }
 .banner span {
   flex: 1;
+}
+.banner.plan {
+  background: var(--amber-wash);
 }
 .banner.project {
   background: var(--thread-wash);

@@ -104,7 +104,7 @@ const plainText = computed(() => oneLine(props.tool.output ?? '', 160))
 </script>
 
 <template>
-  <div class="xtask" :class="[phase, `st-${status}`, { waiting }]">
+  <div class="xtask" :class="[phase, `st-${status}`, { waiting }]" :data-call-id="tool.callId">
     <div class="head">
       <ExpertAvatar v-if="expert" :avatar="expert.avatar" :name="expert.name" :id="expert.id" :size="30" />
       <span v-else class="avatar-ph"><BriefcaseBusiness :size="16" /></span>
@@ -499,5 +499,11 @@ const plainText = computed(() => oneLine(props.tool.output ?? '', 160))
   .spin {
     animation: none;
   }
+}
+/* 编码模式任务看板里点了这个子代理：闪一下，好找 */
+.xtask.flash {
+  outline: 2px solid var(--indigo);
+  outline-offset: 2px;
+  transition: outline-color 0.3s;
 }
 </style>

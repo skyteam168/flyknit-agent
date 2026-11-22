@@ -56,6 +56,8 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
   const mockFocus: unknown[] = []
   /** 开发预览：正在整理交接摘要的新任务（点「不带了」就删掉） */
   const mockHandoffs = new Set<string>()
+  /** 开发预览：开着计划模式的对话（这一轮只出方案） */
+  const mockPlanMode = new Set<string>()
   ;(window as unknown as { __mockFocus: unknown[] }).__mockFocus = mockFocus
   /** 开发预览：员工在文件树里新建的文件 / 文件夹（父路径 → [名字, 是不是文件夹, 大小]） */
   const mockCreated: Record<string, [string, boolean, number][]> = {}
@@ -1413,6 +1415,80 @@ export function createMockHost(): HostTransport {
       list.push({ id: uid(), role: 'tool', content: output, toolCallId: call, createdAt: now() })
       finalText = '表格建好了：[新员工名单](https://docs.qq.com/sheet/DEMO123)，包含姓名、部门、入职日期三列和 3 行示例数据。'
       await stream(id, finalText)
+    } else if (c.mode === 'agent' && mockPlanMode.has(id)) {
+      // 计划模式：只调研、出方案（编码模式里显示方案卡片，可以在编辑器里改方案、点执行）
+      emit({ type: 'chat.reasoning', conversationId: id, text: '先看登录页和用户接口，再给出分步方案，这一轮不改代码。' })
+      await sleep(500)
+      emit({
+        type: 'plan.updated',
+        conversationId: id,
+        plan: [
+          { step: '在 LoginForm.vue 加「记住密码」复选框', status: 'pending' },
+          { step: 'auth store 里按勾选把 token 存 localStorage 或 sessionStorage', status: 'pending' },
+          { step: '路由守卫启动时先从存储里恢复登录状态', status: 'pending' },
+          { step: '补两条单元测试：勾选 / 不勾选', status: 'pending' },
+          { step: '跑一遍测试和类型检查', status: 'pending' },
+        ],
+      } as never)
+      finalText =
+        '# 登录页加「记住密码」\n\n在 vue3-login 里给登录页加「记住密码」：勾选后把令牌存在 localStorage，下次打开自动登录；不勾选只存在 sessionStorage，关掉浏览器就失效。\n\n' +
+        '**会改的文件**：`src/components/LoginForm.vue`、`src/stores/auth.ts`、`src/router/index.ts`，新增 `tests/auth.spec.ts`。\n\n' +
+        '**风险**：localStorage 里的令牌能被页面脚本读到，建议令牌有效期不超过 7 天。需要你确认有效期。'
+      await stream(id, finalText)
+    } else if (c.mode === 'agent' && /三个模块|子代理|subagent/i.test(text)) {
+      // 模拟主助手开三个只读子代理同时调研三个模块（编码模式的任务看板看计划进度和子代理状态）
+      const plan = [
+        { step: '梳理用户模块', status: 'in_progress' },
+        { step: '梳理权限模块', status: 'in_progress' },
+        { step: '梳理订单模块', status: 'in_progress' },
+        { step: '汇总三个模块的关系和整体架构', status: 'pending' },
+      ]
+      const pushPlan = () => emit({ type: 'plan.updated', conversationId: id, plan: plan.map((x) => ({ ...x })) } as never)
+      pushPlan()
+      const lead = '我开三个只读子代理同时去看这三个模块，它们各自读代码、交回结论，我再汇总。'
+      await stream(id, lead)
+      const mods: [string, string, string][] = [
+        ['梳理用户模块', 'src\\user', '用户注册、登录、资料维护；对外接口 UserService.login / register'],
+        ['梳理权限模块', 'src\\auth', 'JWT 签发与校验、按角色的路由守卫；依赖用户模块取角色'],
+        ['梳理订单模块', 'src\\order', '下单、改单、导出；写操作都先过权限模块的 can() 检查'],
+      ]
+      const calls = mods.map(([d, p]) => ({ id: uid(), name: 'spawn_agent', arguments: JSON.stringify({ description: d, prompt: `读 ${p} 下的代码，交回：职责、主要文件、对外接口`, context: 'fresh', read_only: true }) }))
+      list.push({ id: uid(), role: 'assistant', content: lead, toolCalls: calls, createdAt: now() })
+      emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+      for (const [i, call] of calls.entries()) emit({ type: 'tool.started', conversationId: id, callId: call.id, name: 'spawn_agent', summary: mods[i][0], args: call.arguments, risk: 'auto' })
+      await Promise.all(
+        calls.map(async (call, i) => {
+          const [d, dir, finding] = mods[i]
+          const subtaskId = stId()
+          const expert = { id: 'subagent', name: d, avatar: '🤖', version: 0 }
+          const started = now()
+          let seq = 0
+          emit({ type: 'expert.started', conversationId: id, callId: call.id, subtaskId, seq: ++seq, expert, task: `读 ${dir} 下的代码`, startedAt: started } as never)
+          for (const [name, summary] of [['list_dir', dir], ['grep', 'export'], ['read_file', dir + '\\index.ts']]) {
+            emit({ type: 'expert.step', conversationId: id, callId: call.id, subtaskId, seq: ++seq, kind: 'tool_started', name, summary } as never)
+            await sleep(700 + i * 500)
+            emit({ type: 'expert.step', conversationId: id, callId: call.id, subtaskId, seq: ++seq, kind: 'tool_completed', name, summary, ok: true } as never)
+          }
+          const dto: SubtaskDto = {
+            id: subtaskId, callId: call.id, conversationId: id, expert, task: `读 ${dir} 下的代码`, context: '', status: 'completed', summary: finding,
+            findings: [{ id: 'F1', statement: finding, evidence: [], verification: 'supported', note: '' }], openQuestions: [], nextSuggestions: [], artifacts: [],
+            confidence: 0.8, toolCalls: [], tokens: { prompt: 42000, completion: 1800, estimated: false }, startedAt: started, finishedAt: now(), durationMs: 3000,
+            errorCode: '', error: '', trace: null,
+          }
+          emit({ type: 'expert.finished', conversationId: id, callId: call.id, subtaskId, seq: ++seq, subtask: dto } as never)
+          emit({ type: 'tool.finished', conversationId: id, callId: call.id, ok: true, output: finding, decision: 'auto' })
+          list.push({ id: uid(), role: 'tool', content: finding, toolCallId: call.id, toolName: 'spawn_agent', createdAt: now() })
+          plan[i].status = 'completed'
+          pushPlan()
+        }),
+      )
+      plan[3].status = 'in_progress'
+      pushPlan()
+      await sleep(600)
+      plan[3].status = 'completed'
+      pushPlan()
+      finalText = '三个模块看完了：用户模块管账号和登录，权限模块用 JWT 和角色守卫，订单模块的写操作都先过权限检查。依赖关系是 订单 → 权限 → 用户。'
+      await stream(id, finalText)
     } else if (c.mode === 'agent') {
       emit({ type: 'chat.reasoning', conversationId: id, text: '用户想整理文件。先查看目录，再列出计划，移动前需要确认。' })
       await sleep(400)
@@ -2443,6 +2519,8 @@ export function createMockHost(): HostTransport {
         return c
       }
       case 'conversation.setPlanMode':
+        if (p.on) mockPlanMode.add(String(p.id))
+        else mockPlanMode.delete(String(p.id))
         return true
       case 'conversation.setLongMode': {
         const c = conversations.get(p.id)
