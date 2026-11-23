@@ -54,12 +54,48 @@ def check_schema(schema: str) -> str:
     return schema
 
 
+# 连接池里闲着的连接最多用这么久就换新的（秒）。数据库在别的机器上时，中间的防火墙 / 网络设备会悄悄掐断长时间不说话的连接
+POOL_RECYCLE_SECONDS = 1800
+
+
 def make_engine(url: str, schema: str = "") -> AsyncEngine:
-    """PostgreSQL 指定了 schema 时，每个连接的 search_path 都设成它：表建在里面，查询也只看它。"""
+    """
+    PostgreSQL 指定了 schema 时，每个连接的 search_path 都设成它：表建在里面，查询也只看它。
+    网络数据库的连接池：取连接前先 ping 一下（断了就自动换一条），闲置的连接定期换新；
+    否则网络把空闲连接掐断后，下一个请求会拿到死连接直接 500（Windows 上是「信号灯超时时间已到」）。
+    """
     schema = check_schema(schema)
-    if schema and url.startswith("postgresql"):
-        return create_async_engine(url, future=True, connect_args={"server_settings": {"search_path": schema}})
-    return create_async_engine(url, future=True)
+    if not url.startswith("postgresql"):
+        return create_async_engine(url, future=True)
+    kwargs: dict[str, Any] = {"pool_pre_ping": True, "pool_recycle": POOL_RECYCLE_SECONDS}
+    if schema:
+        kwargs["connect_args"] = {"server_settings": {"search_path": schema}}
+    return create_async_engine(url, future=True, **kwargs)
+
+
+def is_connection_lost(exc: BaseException) -> bool:
+    """
+    数据库连接中途断了（不是 SQL 写错、也不是磁盘 / 权限问题）：重试一次通常就好。
+    条件：异常链里有数据库错误，并且是连接层面的（被标成连接失效，或者底下是连接断开 / 网络超时）。
+    """
+    from sqlalchemy.exc import DBAPIError
+
+    chain: list[BaseException] = []
+    cur: BaseException | None = exc
+    while cur is not None and len(chain) < 20:
+        chain.append(cur)
+        cur = cur.__cause__ or cur.__context__
+    db_errors = [e for e in chain if isinstance(e, DBAPIError)]
+    if not db_errors:
+        return False
+    if any(e.connection_invalidated for e in db_errors):
+        return True
+    return any(
+        isinstance(e, (ConnectionError, TimeoutError))
+        or type(e).__name__ in ("ConnectionDoesNotExistError", "ConnectionFailureError")
+        or (isinstance(e, OSError) and getattr(e, "winerror", None) in (64, 121, 10053, 10054, 10060))
+        for e in chain
+    )
 
 
 async def ensure_pg_schema(engine: AsyncEngine, schema: str) -> None:

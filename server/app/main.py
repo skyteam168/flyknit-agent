@@ -175,6 +175,18 @@ app.include_router(commands.client_router)
 async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
     """没预料到的异常：堆栈进日志，给调用方一句看得懂的中文，而不是光秃秃的 Internal Server Error。
     HTTPException 和参数校验错误有各自的处理器，不会走到这里。"""
+    from .db import is_connection_lost
+
+    if is_connection_lost(exc):
+        # 数据库连接中途断了：多半是网络掐断了空闲连接，下一次请求就会换新连接。回 503，员工端会自动重试，
+        # 不让员工看到「服务器内部错误」、任务也不会因此中断
+        logging.getLogger("flyknit").warning("数据库连接中断 %s %s：%s", request.method, request.url.path, exc)
+        message = "数据库连接暂时中断，请稍后重试"
+        return JSONResponse(
+            {"detail": message, "error": {"message": message, "type": "service_unavailable"}},
+            status_code=503,
+            headers={"Retry-After": "1"},
+        )
     logging.getLogger("flyknit").error("未处理的异常 %s %s", request.method, request.url.path, exc_info=exc)
     return JSONResponse({"detail": "服务器内部错误，请联系 IT 管理员查看日志"}, status_code=500)
 
