@@ -16,6 +16,7 @@
  */
 import { computed, reactive, watch } from 'vue'
 import { bridge } from '../../bridge'
+import { loadLspStatus } from './lsp'
 import { convState, current, draftMode, loadChanges, moveToWorkspace, openConversation, registerFeature, send, setPlanMode, state, toast } from '../../store'
 import type { ChangeTurn, CodeFile, HostEvent, UiMessage } from '../../types'
 
@@ -879,6 +880,25 @@ let planLabels = { fallback: 'Plan', todos: 'To-dos' }
 export function rememberPlanLabels(labels: { fallback: string; todos: string }) {
   planLabels = labels
 }
+
+// 语言服务（./lsp.ts）：跨文件跳到定义时打开那个文件；重命名改了没打开的文件时刷新文件树和开着的标签
+window.addEventListener('flyknit:open-code', (e) => {
+  const d = (e as CustomEvent<{ path: string; line: number; column: number }>).detail
+  const id = current.value?.id
+  if (id && d?.path) void openCodeAt(id, d.path, d.line, d.column, 0)
+})
+window.addEventListener('flyknit:files-changed', () => {
+  const id = current.value?.id
+  if (id) code.treeVersion[id] = (code.treeVersion[id] ?? 0) + 1
+})
+// 进编码模式、换任务、换工作区：查一下这个任务能用哪些语言服务
+watch(
+  () => [ideActive.value, current.value?.id, current.value?.workspace] as const,
+  ([active, id]) => {
+    if (active && id) void loadLspStatus(id)
+  },
+  { immediate: true },
+)
 
 // Ctrl+Shift+F：编码模式里打开左边的「搜索」（参照 VS Code）。编辑器里也能按（Monaco 自己没占这个键）
 window.addEventListener(

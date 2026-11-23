@@ -66,6 +66,9 @@ const MOCK_DOC_TEXT = `# CFT 会议发言稿：AI 数据治理与落地
       { path: 'src/new_util.py', workspacePath: 'src\\new_util.py', status: 'U', staged: false, oldPath: '' },
     ],
   }
+  /** 开发预览：语言服务（真实的是宿主起的 pyright / typescript-language-server 等） */
+  let mockLspTrusted = false
+  const mockLspText = new Map<string, string>()
   /** 开发预览：开着计划模式的对话（这一轮只出方案） */
   const mockPlanMode = new Set<string>()
   ;(window as unknown as { __mockFocus: unknown[] }).__mockFocus = mockFocus
@@ -2450,6 +2453,75 @@ export function createMockHost(): HostTransport {
         if (!p.directory) mockCode.set(path, '')
         return { ok: true, path, message: '' }
       }
+      case 'lsp.status':
+        return {
+          enabled: true,
+          trusted: mockLspTrusted,
+          servers: [
+            { id: 'typescript', name: 'TypeScript / JavaScript / React', extensions: ['.ts', '.tsx', '.js', '.jsx'], available: true, disabled: false, exe: 'C:\\Users\\demo\\AppData\\Roaming\\npm\\typescript-language-server.cmd', installHint: 'npm i -g typescript typescript-language-server', running: false },
+            { id: 'vue', name: 'Vue', extensions: ['.vue'], available: true, disabled: false, exe: 'vue-language-server.cmd', installHint: 'npm i -g typescript @vue/language-server', running: false },
+            { id: 'python', name: 'Python', extensions: ['.py', '.pyi'], available: true, disabled: false, exe: 'C:\\ProgramData\\FlyknitBuddy\\lsp\\node_modules\\.bin\\pyright-langserver.cmd', installHint: 'npm i -g pyright', running: mockLspTrusted },
+            { id: 'go', name: 'Go', extensions: ['.go'], available: false, disabled: false, exe: '', installHint: 'go install golang.org/x/tools/gopls@latest', running: false },
+            { id: 'java', name: 'Java', extensions: ['.java'], available: false, disabled: false, exe: '', installHint: 'Eclipse JDT Language Server', running: false },
+            { id: 'csharp', name: 'C#', extensions: ['.cs'], available: false, disabled: true, exe: '', installHint: 'dotnet tool install -g csharp-ls', running: false },
+          ],
+        }
+      case 'lsp.trust':
+        mockLspTrusted = !!p.trust
+        return { ok: true }
+      case 'lsp.sync':
+        if (!mockLspTrusted) return { ok: false, error: 'untrusted' }
+        mockLspText.set(String(p.path), String(p.text ?? ''))
+        return { ok: true }
+      case 'lsp.close':
+        return { ok: true }
+      case 'lsp.diagnostics': {
+        // 演示：parse_date 少了 import 时报错，TODO 报提示
+        const text = mockLspText.get(String(p.path)) ?? ''
+        const diagnostics = []
+        for (const [i, line] of text.split('\n').entries()) {
+          const todo = line.indexOf('TODO')
+          if (todo >= 0) diagnostics.push({ range: { start: { line: i, character: todo }, end: { line: i, character: todo + 4 } }, severity: 3, message: '还有没做完的事', source: 'pyright' })
+          const bad = line.indexOf('datetim(')
+          if (bad >= 0) diagnostics.push({ range: { start: { line: i, character: bad }, end: { line: i, character: bad + 7 } }, severity: 1, message: '"datetim" is not defined', source: 'pyright', code: 'reportUndefinedVariable' })
+        }
+        return { ok: true, diagnostics }
+      }
+      case 'lsp.request': {
+        if (!mockLspTrusted) return { ok: false, error: 'untrusted' }
+        if (p.text != null) mockLspText.set(String(p.path), String(p.text))
+        const range = (l: number, a: number, b: number) => ({ start: { line: l, character: a }, end: { line: l, character: b } })
+        switch (p.method) {
+          case 'textDocument/hover':
+            return { ok: true, result: { contents: { kind: 'markdown', value: '```python\n(function) def parse_date(text: str) -> datetime\n```\n把「2026/10/3」这样的日期字符串转成 datetime' } } }
+          case 'textDocument/completion':
+            return { ok: true, result: { isIncomplete: false, items: [
+              { label: 'parse_date', kind: 3, detail: '(text: str) -> datetime', insertText: 'parse_date' },
+              { label: 'summarize', kind: 3, detail: '(rows) -> dict', insertText: 'summarize' },
+              { label: 'datetime', kind: 7, detail: 'class datetime', insertText: 'datetime' },
+            ] } }
+          case 'textDocument/signatureHelp':
+            return { ok: true, result: { signatures: [{ label: 'parse_date(text: str) -> datetime', parameters: [{ label: 'text: str' }] }], activeSignature: 0, activeParameter: 0 } }
+          case 'textDocument/definition':
+            return { ok: true, result: [{ uri: 'file:///d%3A/x', path: 'src\\report.py', range: range(4, 4, 14) }] }
+          case 'textDocument/references':
+            return { ok: true, result: [
+              { uri: 'file:///d%3A/x', path: 'src\\report.py', range: range(4, 4, 14) },
+              { uri: 'file:///d%3A/x', path: 'src\\report.py', range: range(11, 14, 24) },
+              { uri: 'file:///d%3A/y', path: 'tests\\test_report.py', range: range(0, 23, 33) },
+              { uri: 'file:///d%3A/y', path: 'tests\\test_report.py', range: range(3, 11, 21) },
+            ] }
+          case 'textDocument/documentSymbol':
+            return { ok: true, result: [
+              { name: 'parse_date', kind: 12, range: { start: { line: 4, character: 0 }, end: { line: 5, character: 50 } }, selectionRange: range(4, 4, 14) },
+              { name: 'summarize', kind: 12, range: { start: { line: 8, character: 0 }, end: { line: 14, character: 40 } }, selectionRange: range(8, 4, 13) },
+            ] }
+          default:
+            return { ok: true, result: null }
+        }
+      }
+      case 'lsp.applyEdit':
+        return { ok: true, error: '', changed: ((p.edits as { path: string }[]) ?? []).map((e) => e.path) }
       case 'scm.status':
         await sleep(80)
         return { isRepo: true, root: 'D:\\agentwork', branch: mockScm.branch, detached: false, ahead: mockScm.ahead, behind: mockScm.behind, hasUpstream: true, changes: mockScm.changes, error: '' }

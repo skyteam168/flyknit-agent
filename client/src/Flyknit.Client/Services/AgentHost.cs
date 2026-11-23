@@ -94,6 +94,11 @@ public sealed partial class AgentHost : IDisposable
     /// <summary>左侧「项目」：项目清单（文件夹 + 目标 + 说明），见 Core/Projects。</summary>
     public Flyknit.Core.Projects.ProjectFeature Projects { get; }
 
+    /// <summary>编码模式的语言服务（Core/Lsp）：补全、跳转、引用、报错；AI 的 code_diagnostics 等工具也用它。</summary>
+    public Flyknit.Core.Lsp.LspFeature Lsp { get; }
+
+    private Timer? _lspTimer;
+
     /// <summary>编码模式左边的「源代码管理」（Core/Git/SourceControl）。</summary>
     public Flyknit.Core.Git.SourceControlFeature SourceControl { get; }
 
@@ -388,6 +393,14 @@ public sealed partial class AgentHost : IDisposable
         Mcp = new McpService(settings, Server, Tools, typeof(AgentHost).Assembly.GetName().Version?.ToString(3) ?? "0.1.0");
         Experts = new Flyknit.Core.Experts.ExpertCatalog(Path.Combine(AppPaths.Root, "experts.json"));
         // 编码模式的文件读写和编辑器状态：下面的运行扩展要用，先建好
+        // 语言服务：IT 装在 PATH 或 C:\ProgramData\FlyknitBuddy\lsp；员工信任了的项目才启动；空闲 10 分钟关掉
+        Lsp = new Flyknit.Core.Lsp.LspFeature(
+            new Flyknit.Core.Lsp.LspHub(new Flyknit.Core.Lsp.LspCatalog(Flyknit.Core.Lsp.LspCatalog.DefaultMachineDir),
+                new Flyknit.Core.Lsp.LspTrust(Path.Combine(AppPaths.Root, "lsp-trust.json")),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Flyknit", "lsp"),
+                message => Log.Info(message)),
+            WorkspaceOf, () => Security.On(SecuritySettings.DeveloperTools, fallback: false), message => Log.Info(message));
+        _lspTimer = new Timer(_ => _ = Lsp.Hub.SweepAsync(), null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
         SourceControl = new Flyknit.Core.Git.SourceControlFeature(WorkspaceOf, () => Security.On(SecuritySettings.DeveloperTools, fallback: false), message => Log.Info(message))
         {
             SuggestMessage = SuggestCommitMessageAsync,
@@ -406,6 +419,8 @@ public sealed partial class AgentHost : IDisposable
                 new Flyknit.Core.Code.EditorContextRunExtension(Code.Editors, Code.Handoffs),
                 // 项目：任务在某个项目的文件夹里时，第一次发消息带上项目目标和说明（Core/Projects）
                 new Flyknit.Core.Projects.ProjectRunExtension(Projects.Store),
+                // 语言服务工具（code_diagnostics / go_to_definition / find_references / document_symbols）：开发者工具 + 信任的项目 + 装了语言服务
+                new Flyknit.Core.Lsp.LspRunExtension(Lsp.Hub, () => Security.On(SecuritySettings.DeveloperTools, fallback: false)),
                 new Flyknit.Core.Experts.Delegation.DelegationRunExtension(DelegationEnabled, () => Experts.All, () => Dispatcher),
                 new Flyknit.Core.Agent.SubAgents.SubAgentRunExtension(Security,
                     scope => new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, scope.Confirm, () => AgentOptionsFor(scope.Conversation), _auditSink, Approvals, Store, DelegationEvents,
@@ -434,7 +449,7 @@ public sealed partial class AgentHost : IDisposable
             WriteRun = WriteTerminalRun,
             ResizeRun = ResizeTerminalRun,
         };
-        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code).Register(UserTerminals).Register(Projects).Register(SourceControl);
+        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code).Register(UserTerminals).Register(Projects).Register(SourceControl).Register(Lsp);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -1835,6 +1850,15 @@ public sealed partial class AgentHost : IDisposable
 
     public void Dispose()
     {
+        // 语言服务进程跟着程序退出（不留孤儿进程）
+        _lspTimer?.Dispose();
+        try
+        {
+            Lsp.Hub.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5));
+        }
+        catch (Exception)
+        {
+        }
         UserTerminals.Dispose();
         _watchCts.Cancel();
         foreach (var cts in _runs.Values)

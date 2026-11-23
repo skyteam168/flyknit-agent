@@ -45,3 +45,40 @@ export interface ScmResult {
   ok: boolean
   message: string
 }
+
+/** 语言服务（宿主 Core/Lsp） */
+export interface LspServerInfo {
+  id: string
+  name: string
+  extensions: string[]
+  available: boolean
+  disabled: boolean
+  exe: string
+  installHint: string
+  running: boolean
+}
+
+export interface LspStatus {
+  enabled: boolean
+  trusted: boolean
+  servers: LspServerInfo[]
+}
+
+/** error：untrusted / missing / disabled / unsupported / badPath / 启动失败的原因 */
+export interface LspReply {
+  ok: boolean
+  error?: string
+}
+
+export interface LspRange {
+  start: { line: number; character: number }
+  end: { line: number; character: number }
+}
+
+export interface LspDiagnostic {
+  range: LspRange
+  severity?: number
+  message: string
+  source?: string
+  code?: string | number
+}

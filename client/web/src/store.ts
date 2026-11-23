@@ -1315,6 +1315,7 @@ export async function setMode(mode: Mode) {
   if (c.mode === mode) return
   if (c.messageCount === 0 && (state.byId[c.id]?.messages.length ?? 0) === 0) {
     c.mode = mode
+    draftMode.mode = mode // 空任务显示成首页时，首页按钮跟着亮
     await bridge.setMode(c.id, mode).catch(fail)
     return
   }
@@ -1330,6 +1331,8 @@ export async function setTranslate(from: string, to: string) {
   }
   c.translateFrom = from
   c.translateTo = to
+  draftMode.translateFrom = from // 空任务显示成首页时，语言按钮跟着亮
+  draftMode.translateTo = to
   await bridge.setTranslate(c.id, from, to).catch(fail)
 }
 

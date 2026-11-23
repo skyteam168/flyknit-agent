@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { FilePlus2 } from '@lucide/vue'
 import Sidebar from './components/Sidebar.vue'
@@ -50,6 +50,7 @@ import {
   backTrace,
   closePreview,
   current,
+  draftMode,
   currentExpert,
   currentState,
   expertWithdrawn,
@@ -126,7 +127,26 @@ const showRight = computed(
       (!!currentTeamRun.value && !state.rightClosed)),
 )
 /** 有当前对话时显示对话视图，否则显示新任务首页 */
-const inConversation = computed(() => current.value !== null)
+/**
+ * 还没说过话的空任务（编码模式里新开的、带着工作区建好的）回到普通界面时：显示和首页一样的布局，不留一大片空白。
+ * 首页的输入框发出去就发到这个任务里（send 用的是 currentId），不会再多出一个空任务；选模式也改的是这个任务。
+ * 专家、团队任务有自己的界面，不算。
+ */
+const blankConversation = computed(() => {
+  const c = current.value
+  if (!c || ideActive.value || c.expertId || c.teamId) return false
+  const s = state.byId[c.id]
+  if (!s || !s.loaded || s.busy || s.draft) return false
+  return s.messages.length === 0 && (c.messageCount ?? 0) === 0
+})
+const inConversation = computed(() => current.value !== null && !blankConversation.value)
+// 首页的模式按钮、示例看的是 draftMode.mode：对上这个空任务的模式
+watch(blankConversation, (blank) => {
+  const c = current.value
+  if (!blank || !c) return
+  draftMode.mode = c.mode
+  if (c.translateTo) draftMode.translateTo = c.translateTo
+})
 
 /** 
  * 响应式布局：当预览区域打开且聊天区域太窄时，自动收起侧边栏

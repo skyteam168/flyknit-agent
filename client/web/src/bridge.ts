@@ -8,7 +8,7 @@
  * 在普通浏览器中运行（npm run dev）时，使用 mockHost 模拟宿主。
  */
 import type { ProjectInfo } from './features/projects/types'
-import type { CodeSearchResult, ScmResult, ScmStatus } from './features/code/types'
+import type { CodeSearchResult, LspDiagnostic, LspReply, LspStatus, ScmResult, ScmStatus } from './features/code/types'
 import type { DocModel } from './documents'
 import type {
   RepoInfo,
@@ -423,6 +423,21 @@ class Bridge {
   scmPull = (conversationId: string) => this.call<ScmResult>('scm.pull', { conversationId }, undefined, 120_000)
   /** AI 根据改动写提交说明（经服务端网关） */
   scmMessage = (conversationId: string) => this.call<ScmResult & { text?: string }>('scm.message', { conversationId }, undefined, 90_000)
+  // ---------- 语言服务（编码模式，宿主 Core/Lsp） ----------
+  lspStatus = (conversationId: string) => this.call<LspStatus>('lsp.status', { conversationId })
+  /** 信任 / 不再信任这个项目（语言服务会运行项目里的部分代码） */
+  lspTrust = (conversationId: string, trust: boolean) => this.call<{ ok: boolean }>('lsp.trust', { conversationId, trust })
+  /** 把编辑器里现在的内容告诉语言服务 */
+  lspSync = (conversationId: string, path: string, text: string) => this.call<LspReply>('lsp.sync', { conversationId, path, text }, undefined, 60_000)
+  lspClose = (conversationId: string, path: string) => this.call<LspReply>('lsp.close', { conversationId, path })
+  /** 转发一个只读请求（补全、悬停、跳转……）；带上 text 时先同步内容 */
+  lspRequest = (conversationId: string, path: string, method: string, params: Record<string, unknown>, text?: string) =>
+    this.call<LspReply & { result?: unknown }>('lsp.request', { conversationId, path, method, params, text }, undefined, 30_000)
+  lspDiagnostics = (conversationId: string, path: string, wait = true) =>
+    this.call<LspReply & { diagnostics?: LspDiagnostic[] }>('lsp.diagnostics', { conversationId, path, wait }, undefined, 30_000)
+  /** 重命名在没打开的文件里的改动：宿主写进工作区里的文件 */
+  lspApplyEdit = (conversationId: string, edits: { path: string; edits: unknown[] }[]) =>
+    this.call<LspReply & { changed?: string[] }>('lsp.applyEdit', { conversationId, edits }, undefined, 60_000)
   // ---------- 项目（左侧「项目」，features/projects） ----------
   projectList = () => this.call<ProjectInfo[]>('project.list')
   projectCreate = (p: { name: string; goal: string; notes: string; path?: string; parent?: string }) =>
