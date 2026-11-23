@@ -4,7 +4,7 @@
  * 点终端：编码模式下展开底部终端，否则打开右侧「终端」标签。
  * 改动这一行有「撤销 / 保留 / 查看」（Cursor 的 Undo / Keep / Review）：AI 的改动已经写进磁盘，
  * 保留 = 认可、不再提示；撤销 = 这一轮改过的文件恢复成这一轮之前的样子（先确认）；查看 = 打开对比。
- * 编码模式下上面再放一块 ContextHint（上下文用量、建议新开任务）。
+ * 改动这一行只在编码模式下显示。编码模式下上面再放一块 ContextHint（上下文用量、建议新开任务）。
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -20,7 +20,8 @@ const { t } = useI18n()
 const running = computed(() => (current.value ? (state.terminal[current.value.id] ?? []).filter((r) => r.running && r.background).length : 0))
 /** 最近一轮还没保留、没撤销的改动；AI 还在做的时候先不问（做完再一起决定） */
 const lastTurn = computed(() => (current.value ? pendingTurn(current.value.id) : null))
-const files = computed(() => lastTurn.value?.files.filter((f) => !f.reverted).length ?? 0)
+/** 改动这一行（撤销 / 保留 / 查看）只在编码模式里出现：普通办事时改动在右侧「改动」面板和消息下面的「改动了 N 个文件」里看，不再多占一行 */
+const files = computed(() => (ideActive.value ? lastTurn.value?.files.filter((f) => !f.reverted).length ?? 0 : 0))
 const busy = computed(() => !!currentState.value?.busy)
 
 function undo() {
