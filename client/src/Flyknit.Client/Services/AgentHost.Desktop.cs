@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Flyknit.Client.Windows;
+using Flyknit.Core.Agent;
 using Flyknit.Core.Desktop;
 using Flyknit.Core.Security;
 using Flyknit.Core.Storage;
