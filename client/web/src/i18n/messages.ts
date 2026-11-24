@@ -949,7 +949,7 @@ const zh = {
       dissolveBody: '正在进行的团队任务会照常做完；已有的对话和记录都会保留，IT 可以在后台恢复。',
       dissolved: '已解散「{name}」',
       cancel: '取消',
-      tool: { shell: '执行命令', write: '写文件', browser: '浏览器', mcp: '连接器', developer: '开发者工具' },
+      tool: { shell: '执行命令', write: '写文件', browser: '浏览器', mcp: '连接器', developer: '开发者工具', desktop: '电脑操作' },
       editor: {
         newTitle: '新建团队',
         editTitle: '编辑团队',
@@ -3270,7 +3270,7 @@ const vi: Messages = {
       dissolveBody: 'Công việc nhóm đang chạy vẫn làm xong; hội thoại và bản ghi được giữ lại, IT có thể khôi phục.',
       dissolved: 'Đã giải tán「{name}」',
       cancel: 'Hủy',
-      tool: { shell: 'Chạy lệnh', write: 'Ghi tệp', browser: 'Trình duyệt', mcp: 'Kết nối', developer: 'Công cụ lập trình' },
+      tool: { shell: 'Chạy lệnh', write: 'Ghi tệp', browser: 'Trình duyệt', mcp: 'Kết nối', developer: 'Công cụ lập trình', desktop: 'Thao tác máy tính' },
       editor: {
         newTitle: 'Tạo nhóm',
         editTitle: 'Sửa nhóm',
@@ -5596,7 +5596,7 @@ const en: Messages = {
       dissolveBody: 'Team tasks in progress will finish; conversations and records are kept, and IT can restore the team.',
       dissolved: 'Disbanded "{name}"',
       cancel: 'Cancel',
-      tool: { shell: 'Run commands', write: 'Write files', browser: 'Browser', mcp: 'Connectors', developer: 'Developer tools' },
+      tool: { shell: 'Run commands', write: 'Write files', browser: 'Browser', mcp: 'Connectors', developer: 'Developer tools', desktop: 'Computer use' },
       editor: {
         newTitle: 'New team',
         editTitle: 'Edit team',

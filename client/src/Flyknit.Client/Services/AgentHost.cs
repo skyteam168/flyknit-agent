@@ -421,6 +421,8 @@ public sealed partial class AgentHost : IDisposable
                 new Flyknit.Core.Projects.ProjectRunExtension(Projects.Store),
                 // 语言服务工具（code_diagnostics / go_to_definition / find_references / document_symbols）：开发者工具 + 信任的项目 + 装了语言服务
                 new Flyknit.Core.Lsp.LspRunExtension(Lsp.Hub, () => Security.On(SecuritySettings.DeveloperTools, fallback: false)),
+                // 电脑操作（desktop_* 工具，UI Automation）：IT 打开「电脑操作」+ 办事对话；能操作哪些程序看命令策略 desktop_apps
+                new Flyknit.Core.Desktop.DesktopRunExtension(() => DesktopEnabled, DesktopFor, DesktopOptionsNow),
                 new Flyknit.Core.Experts.Delegation.DelegationRunExtension(DelegationEnabled, () => Experts.All, () => Dispatcher),
                 new Flyknit.Core.Agent.SubAgents.SubAgentRunExtension(Security,
                     scope => new Flyknit.Core.Agent.SubAgents.SubAgentRunner(Server, scope.Confirm, () => AgentOptionsFor(scope.Conversation), _auditSink, Approvals, Store, DelegationEvents,

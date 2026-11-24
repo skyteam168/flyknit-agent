@@ -261,6 +261,20 @@ SETTINGS: tuple[Setting, ...] = (
              "外部网站、提交 / 保存 / 删除类按钮、身份证银行卡号会先问员工；密码和验证码一律不代填；「仅可查看」权限下不能填写和提交。默认关闭。",
     ),
     Setting(
+        key="computer_use", kind="bool", default=False, locked=True,
+        title="电脑操作（AI 操作 Windows 程序）",
+        risk="打开后，办事模式下 AI 能读取并操作 IT 允许的 Windows 程序窗口（ERP、WMS 等没有接口的老客户端）：按控件点击、填写、按键、滚动，"
+             "读的是系统的无障碍信息，不截图。只能操作「允许的程序」名单里的程序（名单为空 = 一个都不能操作）；命令行、系统管理工具、"
+             "资源管理器、浏览器、远程桌面和 FlyknitBuddy 自己永远不能操作。密码框不代填，会提交、保存、删除的操作先问员工，"
+             "「仅可查看」权限下不能填写和提交；AI 操作时屏幕顶部有提示条，员工随时可以点「停止」。默认关闭。",
+    ),
+    Setting(
+        key="computer_use_confirm_all", kind="bool", default=True, locked=True,
+        title="电脑操作：每一步都先确认",
+        risk="关闭后，电脑操作里普通的点击、填写、翻页不再逐次确认（会提交、保存、删除的操作、敏感信息照样先问）。"
+             "建议先开着用一段时间，确认 AI 在你们的程序上操作可靠后再关。默认打开。",
+    ),
+    Setting(
         key="background_commands", kind="bool", default=False, locked=True,
         title="后台命令（调试用）",
         risk="打开后，办事模式下 AI 能在后台启动一直运行的程序（开发服务器、监听编译），随时查看输出、用完停掉，用来调试程序和网页。"

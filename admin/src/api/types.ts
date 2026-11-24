@@ -982,7 +982,7 @@ export interface DeviceAccess {
 }
 
 // ---------- 团队（docs/team-mode.md）----------
-export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer'
+export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer' | 'desktop'
 export interface TeamMember {
   expert_id: string
   note: string

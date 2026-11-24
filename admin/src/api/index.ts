@@ -318,6 +318,9 @@ export const api = {
   deleteInstructionTemplate: (id: number) => del(`/instruction-templates/${id}`),
 
   // 安全中心（IT 配置，下发到员工端）
+  // 命令策略（禁止规则、网络白名单、电脑操作允许的程序等），整份读写
+  policy: () => get<Record<string, unknown>>('/policy'),
+  savePolicy: (policy: Record<string, unknown>) => put<Record<string, unknown>>('/policy', policy),
   securityCatalog: () => get<SecurityCatalogItem[]>('/security/catalog'),
   security: () => get<SecurityDefaults>('/security'),
   setSecurity: (values: Record<string, boolean | number>, locks: Record<string, boolean>) =>

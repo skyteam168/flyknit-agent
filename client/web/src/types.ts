@@ -1506,7 +1506,7 @@ export interface PluginInfo {
 }
 
 // ---------- 团队（docs/team-mode.md）：字段和服务端一致（下划线命名） ----------
-export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer'
+export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer' | 'desktop'
 export interface TeamMember {
   expert_id: string
   note: string

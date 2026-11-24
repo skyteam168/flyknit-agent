@@ -158,6 +158,31 @@ async def test_policy_allowed_domains_are_normalized(client):
     assert r.status_code == 400
 
 
+async def test_policy_desktop_apps_are_normalized_and_reach_clients(client, device_headers):
+    """电脑操作允许的程序：默认空；保存时只留进程名、统一小写补 .exe、去重；不像进程名的拒收；员工端拉配置能拿到。"""
+    policy = (await client.get("/api/v1/admin/policy", headers=ADMIN)).json()
+    assert policy["desktop_apps"] == []
+
+    policy["desktop_apps"] = ["C:\\Program Files\\ERP\\ERP.EXE", "wms", "erp.exe", " Kingdee K3 "]
+    r = await client.put("/api/v1/admin/policy", headers=ADMIN, json=policy)
+    assert r.status_code == 200
+    assert r.json()["desktop_apps"] == ["erp.exe", "wms.exe", "kingdee k3.exe"]
+    data = (await client.get("/api/v1/client/config", headers=device_headers)).json()
+    assert data["policy"]["desktop_apps"] == ["erp.exe", "wms.exe", "kingdee k3.exe"]
+
+    for bad in (["erp<script>"], [""], [123], "erp.exe"):
+        policy["desktop_apps"] = bad
+        r = await client.put("/api/v1/admin/policy", headers=ADMIN, json=policy)
+        assert r.status_code == 400, bad
+
+
+async def test_computer_use_settings_default_off_and_locked(client):
+    """电脑操作默认关、锁定；「每一步都先确认」默认开、锁定。"""
+    catalog = {i["key"]: i for i in (await client.get("/api/v1/admin/security/catalog", headers=ADMIN)).json()}
+    assert catalog["computer_use"]["default"] is False and catalog["computer_use"]["locked_by_default"] is True
+    assert catalog["computer_use_confirm_all"]["default"] is True and catalog["computer_use_confirm_all"]["locked_by_default"] is True
+
+
 async def test_old_stored_policy_gets_new_fields(client, device_headers):
     # 模拟老版本存下的策略：没有 allowed_domains
     from app.db import get_sessionmaker

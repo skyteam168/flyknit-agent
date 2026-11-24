@@ -116,4 +116,7 @@ DEFAULT_POLICY: dict = {
     # 内网地址（10.x、172.16-31.x、192.168.x、127.x）和不带点的内网主机名一律放行：
     # 厂内的 ERP、MES 大多直接用 IP 或机器名访问，逐个登记不现实
     "allow_private_network": True,
+    # 电脑操作（安全中心「电脑操作」打开后才用）：允许 AI 操作的 Windows 程序，写进程名（如 erp.exe）。
+    # 默认空 = 一个都不能操作；命令行、系统工具、资源管理器、浏览器、FlyknitBuddy 自己写进来也不生效（员工端写死拦下）。
+    "desktop_apps": [],
 }

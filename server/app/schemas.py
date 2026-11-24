@@ -1014,7 +1014,7 @@ class SubtaskAdminOut(BaseModel):
 
 
 # ---------- 团队（docs/team-mode.md）----------
-TEAM_TOOL_KINDS = ("shell", "write", "browser", "mcp", "developer")
+TEAM_TOOL_KINDS = ("shell", "write", "browser", "mcp", "developer", "desktop")
 
 
 class TeamMember(BaseModel):
@@ -1035,7 +1035,7 @@ class TeamIn(BaseModel):
     leader_note: ClipOrEmpty(1000) = ""
     members: list[TeamMember] = Field(min_length=2, max_length=8)
     model_id: int | None = None
-    disabled_tools: list[Literal["shell", "write", "browser", "mcp", "developer"]] = []
+    disabled_tools: list[Literal["shell", "write", "browser", "mcp", "developer", "desktop"]] = []
     read_only: bool = False
     #: 当队长的专家（空 = 主助手）；不能同时是成员
     leader_expert_id: ClipOrEmpty(40) = ""
@@ -1059,7 +1059,7 @@ class TeamAdminIn(BaseModel):
     leader_note: ClipOrEmpty(1000) = ""
     members: list[TeamMember] = Field(min_length=2, max_length=8)
     model_id: int | None = None
-    disabled_tools: list[Literal["shell", "write", "browser", "mcp", "developer"]] = []
+    disabled_tools: list[Literal["shell", "write", "browser", "mcp", "developer", "desktop"]] = []
     read_only: bool = False
     leader_expert_id: ClipOrEmpty(40) = ""
     examples: list[ClipOrEmpty(200)] = Field(default=[], max_length=5)

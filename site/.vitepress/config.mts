@@ -48,6 +48,7 @@ export default defineConfig({
             { text: '团队', link: '/guide/teams' },
             { text: '技能', link: '/guide/skills' },
             { text: '连接器', link: '/guide/connectors' },
+            { text: '电脑操作', link: '/guide/computer-use' },
           ],
         },
         {

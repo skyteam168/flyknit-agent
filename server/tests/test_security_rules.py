@@ -132,6 +132,9 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "dlp_contacts",
         # 客户端 AgentHost 读它决定这一轮有没有浏览器工具
         "browser_tools",
+        # 客户端 AgentHost.Desktop 读这两项：电脑操作开关、每一步都先确认（docs/computer-use.md）
+        "computer_use",
+        "computer_use_confirm_all",
         # 客户端读它决定能不能在后台启动命令（run_shell background=true、shell_output、shell_stop）
         "background_commands",
         # 客户端 AgentHost.DeveloperToolsFor 读它：grep、multi_edit、git_* 和 code 场景

@@ -12,9 +12,10 @@ public static class ToolKinds
     public const string Browser = "browser";
     public const string Mcp = "mcp";
     public const string Developer = "developer";
+    public const string Desktop = "desktop";
 
     /// <summary>认识的全部类别（外部传进来的只收这些，和服务端一致）。</summary>
-    public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.Ordinal) { Shell, Write, Browser, Mcp, Developer };
+    public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.Ordinal) { Shell, Write, Browser, Mcp, Developer, Desktop };
 
     private static readonly HashSet<string> ShellTools = new(StringComparer.Ordinal) { "run_shell", "shell_output", "shell_stop", "open_app" };
     private static readonly HashSet<string> WriteTools = new(StringComparer.Ordinal) { "write_file", "edit_file", "multi_edit", "delete_path" };
@@ -31,6 +32,7 @@ public static class ToolKinds
         Browser => tool.Name.StartsWith("browser_", StringComparison.Ordinal),
         Mcp => tool is McpTool || tool.Name.StartsWith(McpNames.Prefix, StringComparison.Ordinal),
         Developer => DeveloperTools.Contains(tool.Name) || tool.Name.StartsWith("git_", StringComparison.Ordinal),
+        Desktop => tool.Name.StartsWith("desktop_", StringComparison.Ordinal),
         _ => false,
     };
 }

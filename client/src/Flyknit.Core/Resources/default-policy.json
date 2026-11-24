@@ -89,5 +89,6 @@
     "localhost",
     "shenzhougroup.com"
   ],
-  "allow_private_network": true
+  "allow_private_network": true,
+  "desktop_apps": []
 }

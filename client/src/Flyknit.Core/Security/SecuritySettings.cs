@@ -76,6 +76,12 @@ public sealed class SecuritySettings
     /// <summary>AI 浏览器（看得见的网页窗口里打开、读、点、填）。默认关闭，IT 打开后才有浏览器工具。</summary>
     public const string BrowserTools = "browser_tools";
 
+    /// <summary>电脑操作（computer use）：AI 读取、操作 IT 允许的 Windows 程序窗口（UI Automation）。默认关闭。</summary>
+    public const string ComputerUse = "computer_use";
+
+    /// <summary>电脑操作时每一次点击、填写、按键都先问员工。默认开。</summary>
+    public const string ComputerUseConfirmAll = "computer_use_confirm_all";
+
     /// <summary>后台命令（开发服务器、监听编译这类一直运行的程序）。默认关闭，IT 打开后 run_shell 才能 background=true。</summary>
     public const string BackgroundCommands = "background_commands";
 
