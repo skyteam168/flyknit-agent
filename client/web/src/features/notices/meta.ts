@@ -1,4 +1,4 @@
-import { CalendarDays, CircleArrowUp, FileText, Lightbulb, Megaphone, ShieldAlert, Sparkles, Wrench } from '@lucide/vue'
+import { CalendarDays, ChartColumn, CircleArrowUp, FileText, Lightbulb, Megaphone, ShieldAlert, Sparkles, Wrench } from '@lucide/vue'
 import type { Component } from 'vue'
 import type { NoticeKind } from '../../types'
 
@@ -12,6 +12,8 @@ export const NOTICE_KINDS: Record<NoticeKind, { icon: Component; color: string; 
   event: { icon: CalendarDays, color: 'var(--indigo)', wash: 'var(--indigo-wash)' },
   tip: { icon: Lightbulb, color: 'var(--amber)', wash: 'var(--amber-wash)' },
   general: { icon: Megaphone, color: 'var(--thread)', wash: 'var(--thread-wash)' },
+  // 无人值守任务的结果（docs/unattended-jobs.md）
+  report: { icon: ChartColumn, color: 'var(--indigo)', wash: 'var(--indigo-wash)' },
 }
 
 export const kindMeta = (kind: string) => NOTICE_KINDS[kind as NoticeKind] ?? NOTICE_KINDS.general

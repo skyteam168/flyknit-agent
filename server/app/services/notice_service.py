@@ -24,7 +24,7 @@ from ..models import Device, Notice
 from . import item_scope
 
 #: 消息类型：员工端按类型显示图标和颜色，后台按类型筛选
-KINDS = ("upgrade", "feature", "maintenance", "security", "policy", "event", "tip", "general")
+KINDS = ("upgrade", "feature", "maintenance", "security", "policy", "event", "tip", "general", "report")
 KIND_LABELS = {
     "upgrade": "系统升级",
     "feature": "功能介绍",
@@ -34,6 +34,7 @@ KIND_LABELS = {
     "event": "培训活动",
     "tip": "使用技巧",
     "general": "一般通知",
+    "report": "定时报告",
 }
 
 MAX_BODY = 200_000

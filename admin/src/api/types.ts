@@ -1114,3 +1114,48 @@ export interface NoticeReader {
   department: string
   read_at: string
 }
+
+// 无人值守任务（docs/unattended-jobs.md）
+export type UnattendedKind = 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'hourly'
+export interface UnattendedSchedule {
+  kind: UnattendedKind
+  time: string
+  days?: number[]
+  day?: number
+  every?: number
+}
+export interface UnattendedJob {
+  id: number
+  name: string
+  prompt: string
+  device_id: number | null
+  device_name: string
+  device_online: boolean
+  permission: 'readonly' | 'workspace'
+  rehearsal: boolean
+  enabled: boolean
+  schedule: UnattendedSchedule
+  schedule_text: string
+  utc_offset: number
+  notify_departments: string[]
+  notify_devices: number[]
+  next_run_at: string | null
+  last_run_at: string | null
+  run_count: number
+  skipped_at: string | null
+  created_by: string
+  created_at: string
+}
+export type UnattendedJobIn = Omit<UnattendedJob, 'id' | 'device_name' | 'device_online' | 'schedule_text' | 'next_run_at' | 'last_run_at' | 'run_count' | 'skipped_at' | 'created_by' | 'created_at'> & { device_id: number }
+export interface UnattendedRun {
+  id: number
+  job_id: number | null
+  job_name: string
+  status: string
+  error: string
+  answer: string
+  rehearsal: boolean
+  delivered: boolean
+  created_at: string
+  finished_at: string | null
+}

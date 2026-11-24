@@ -61,7 +61,8 @@ public sealed partial class AgentHost
     public async Task<ChannelRoute> RouteChannelMessageAsync(ChannelTask task, CancellationToken ct)
     {
         var execute = new ChannelRoute(false, "", task.ConversationId);
-        if (!RouterOn || task.Channel == "mobile")
+        // 无人值守任务：每次运行都是独立的一件事（按时间表来的），不归档、不合并成追问
+        if (!RouterOn || task.Channel is "mobile" or "unattended")
         {
             return execute;
         }

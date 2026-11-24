@@ -1,5 +1,5 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
-import type { Department, DeviceAccess, ItemScope, LayerPolicy, ScopeKind, SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun,
+import type { Department, DeviceAccess, ItemScope, LayerPolicy, ScopeKind, SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun, UnattendedJob, UnattendedJobIn, UnattendedRun,
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
@@ -263,6 +263,13 @@ export const api = {
   deleteDevice: (id: number) => del(`/devices/${id}`),
   updateDevice: (id: number, body: Partial<{ disabled: boolean; owner: string; department: string; note: string }>) =>
     patch<Device>(`/devices/${id}`, body),
+  // 无人值守任务：服务端按时间表派到常开的执行机，结果发到消息中心
+  unattended: () => get<{ enabled: boolean; items: UnattendedJob[]; runs: UnattendedRun[] }>('/unattended'),
+  setUnattendedSwitch: (enabled: boolean) => put<{ enabled: boolean }>('/unattended/switch', { enabled }),
+  createUnattended: (body: UnattendedJobIn) => post<UnattendedJob>('/unattended', body),
+  updateUnattended: (id: number, body: Partial<UnattendedJobIn>) => patch<UnattendedJob>(`/unattended/${id}`, body),
+  deleteUnattended: (id: number) => del(`/unattended/${id}`),
+  runUnattended: (id: number) => post<{ message_id: number }>(`/unattended/${id}/run`, {}),
   eventTriggers: () => get<{ enabled: boolean; items: EventTrigger[]; runs: EventRun[] }>('/event-triggers'),
   setEventSwitch: (enabled: boolean) => put<{ enabled: boolean }>('/event-triggers/switch', { enabled }),
   createEventTrigger: (body: Omit<EventTrigger, 'device_name' | 'token_prefix' | 'fire_count' | 'last_fired_at' | 'created_by' | 'url' | 'token'>) =>

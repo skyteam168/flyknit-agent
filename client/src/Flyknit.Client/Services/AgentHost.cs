@@ -958,8 +958,8 @@ public sealed partial class AgentHost : IDisposable
                 Scene = scene,
                 NewUserMessage = newUser is not null,
                 ReadOnlyRun = planMode || rehearsal,
-                // 定时任务、文件夹监视、事件触发：没人在电脑前点卡片
-                Unattended = grant is { Origin: "schedule" or "folder" or "event" },
+                // 定时任务、文件夹监视、事件触发、无人值守任务：没人在电脑前点卡片
+                Unattended = grant is { Origin: "schedule" or "folder" or "event" or "unattended" },
                 Confirm = confirm,
                 Post = events.Post,
             };
