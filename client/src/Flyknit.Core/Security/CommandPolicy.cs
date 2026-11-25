@@ -62,6 +62,9 @@ public sealed class PolicyConfig
     /// <summary>网络白名单。写 example.com 同时放行它的子域名，写 * 等于不限制。</summary>
     [JsonPropertyName("allowed_domains")] public List<string> AllowedDomains { get; set; } = new();
 
+    /// <summary>电脑操作（computer use）允许 AI 操作的程序（进程名，如 erp.exe）。空 = 一个都不能操作。</summary>
+    [JsonPropertyName("desktop_apps")] public List<string> DesktopApps { get; set; } = new();
+
     /// <summary>内网地址和不带点的内网主机名是否一律放行。</summary>
     [JsonPropertyName("allow_private_network")] public bool AllowPrivateNetwork { get; set; } = true;
 

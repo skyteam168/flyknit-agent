@@ -48,6 +48,7 @@ export default defineConfig({
             { text: '团队', link: '/guide/teams' },
             { text: '技能', link: '/guide/skills' },
             { text: '连接器', link: '/guide/connectors' },
+            { text: '电脑操作', link: '/guide/computer-use' },
           ],
         },
         {
@@ -71,6 +72,7 @@ export default defineConfig({
             { text: '配置模型', link: '/admin/models' },
             { text: '装到员工电脑', link: '/admin/rollout' },
             { text: '安全中心', link: '/admin/security-center' },
+            { text: '无人值守任务', link: '/admin/unattended' },
             { text: '编码模式的语言服务', link: '/admin/language-servers' },
             { text: '管理后台一览', link: '/admin/console' },
           ],

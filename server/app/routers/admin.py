@@ -307,6 +307,19 @@ async def get_policy(session: AsyncSession = Depends(get_session)):
 _DOMAIN = re.compile(r"^(\*|(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)$")
 
 
+_APP_NAME = re.compile(r"^[A-Za-z0-9_.\- ]{1,80}$")
+
+
+def _normalize_app(raw: object) -> str:
+    """程序白名单的一项：只留进程名（去掉路径），统一小写、补上 .exe；不像进程名的返回空。"""
+    if not isinstance(raw, str):
+        return ""
+    name = raw.strip().replace("/", "\\").split("\\")[-1].strip().lower()
+    if name and not name.endswith(".exe"):
+        name += ".exe"
+    return name if _APP_NAME.match(name) and name != ".exe" else ""
+
+
 def _normalize_domain(raw: str) -> str:
     """管理员多半会直接粘网址进来，把协议、路径、端口剥掉只留主机名。"""
     text = str(raw).strip().lower()
@@ -337,6 +350,17 @@ async def put_policy(policy: dict, session: AsyncSession = Depends(get_session))
             if domain not in domains:
                 domains.append(domain)
         policy["allowed_domains"] = domains
+    if "desktop_apps" in policy:
+        if not isinstance(policy["desktop_apps"], list):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "desktop_apps 必须是程序名列表")
+        apps: list[str] = []
+        for raw in policy["desktop_apps"]:
+            name = _normalize_app(raw)
+            if not name:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"程序名无效：{raw}（写进程名，如 erp.exe）")
+            if name not in apps:
+                apps.append(name)
+        policy["desktop_apps"] = apps
     if "allow_private_network" in policy:
         policy["allow_private_network"] = bool(policy["allow_private_network"])
     try:

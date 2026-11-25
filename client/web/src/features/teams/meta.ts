@@ -14,4 +14,4 @@ export const TEAM_ICONS: Record<string, Component> = {
 export const teamIcon = (name: string): Component => TEAM_ICONS[name] ?? UsersRound
 
 /** 团队可以关掉的工具类别（只能收紧） */
-export const TEAM_TOOL_KINDS = ['shell', 'write', 'browser', 'mcp', 'developer'] as const
+export const TEAM_TOOL_KINDS = ['shell', 'write', 'browser', 'mcp', 'developer', 'desktop'] as const

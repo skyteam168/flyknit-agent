@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .. import crypto
 from ..models import ChannelBindCode, ChannelBinding, ChannelMessage, Device
-from . import mobile_hub, settings_store
+from . import mobile_hub, settings_store, unattended_service
 from .dingtalk import BotMessage, DingTalkApi, StreamStatus, for_dingtalk, run_stream
 from .wecom import WeComBot
 
@@ -362,6 +362,12 @@ class Hub:
             row.replied = await mobile_hub.hub.task_changed(row)
         elif row.channel == "event":
             pass  # 事件触发没有人等回复：结果在后台「事件触发」和这台电脑的对话里看
+        elif row.channel == unattended_service.CHANNEL:
+            # 无人值守任务：结果作为「定时报告」发到指定部门 / 电脑的消息中心（没指定收件人就只在后台看）
+            try:
+                row.replied = await unattended_service.deliver(session, row)
+            except Exception:  # noqa: BLE001  送达失败不能让回报失败（执行机会一直重报）
+                log.warning("无人值守任务结果送达失败（消息 %s）", row.id, exc_info=True)
         else:
             text = for_dingtalk(answer) if ok and answer.strip() else f"没办成：{error or '未知原因'}"
             row.replied = await self.say(row.channel, row.reply_webhook, row.reply_webhook_expires, row.external_id, text)

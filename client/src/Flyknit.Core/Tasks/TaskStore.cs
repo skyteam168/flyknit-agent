@@ -95,9 +95,12 @@ public static class TaskOrigins
     public const string Event = "event";
     public const string PullRequest = "pr";
 
+    /// <summary>无人值守任务：服务端按时间表派到常开执行机的（docs/unattended-jobs.md）。</summary>
+    public const string Unattended = "unattended";
+
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
-        Ui, Mobile, DingTalk, WeCom, Instruction, Schedule, Folder, Event, PullRequest,
+        Ui, Mobile, DingTalk, WeCom, Instruction, Schedule, Folder, Event, PullRequest, Unattended,
     };
 }
 

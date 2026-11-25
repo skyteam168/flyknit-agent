@@ -16,8 +16,8 @@ from sqlalchemy.engine import make_url
 
 from . import __version__, db
 from .config import Settings, get_settings
-from .routers import admin, agents, channels, chats, client, commands, departments, events, grants, plugins, tool_rules, console, experts, feedback, gateway, instructions, landing, mcp, mcp_runtime, mobile, mobile_releases, releases, speech, subtasks, teams, notices, dlp
-from .services import channel_hub, housekeeping, usage_store
+from .routers import admin, agents, channels, chats, client, commands, departments, events, grants, plugins, tool_rules, console, experts, feedback, gateway, instructions, landing, mcp, mcp_runtime, mobile, mobile_releases, releases, speech, subtasks, teams, notices, dlp, unattended
+from .services import channel_hub, housekeeping, unattended_service, usage_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -107,12 +107,15 @@ async def lifespan(app: FastAPI):
 
     # 钉钉通道：按后台配置连上钉钉 Stream，没开就只做定时清理
     channels = asyncio.create_task(channel_hub.hub.supervise(db.get_sessionmaker(), app.state.http))
+    # 无人值守任务：按时间表派到常开的执行机（总开关默认关，关着时只顺延不派发）
+    unattended = asyncio.create_task(unattended_service.run_forever(db.get_sessionmaker()))
 
     yield
 
-    channels.cancel()
-    with suppress(asyncio.CancelledError):
-        await channels
+    for task in (channels, unattended):
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
     if chore is not None:
         chore.cancel()
         with suppress(asyncio.CancelledError):
@@ -145,6 +148,7 @@ app.include_router(plugins.admin_router)
 app.include_router(grants.client_router)
 app.include_router(events.public_router)
 app.include_router(events.admin_router)
+app.include_router(unattended.router)
 app.include_router(grants.admin_router)
 app.include_router(plugins.client_router)
 app.include_router(experts.admin_router)

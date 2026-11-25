@@ -13,7 +13,7 @@ namespace Flyknit.Core.Security;
 public sealed record TaskGrant
 {
     /// <summary>pr：盯 PR 的自动修复；folder：文件夹监视（以前借用 event）。</summary>
-    public static readonly string[] Origins = { "mobile", "dingtalk", "wecom", "instruction", "schedule", "event", "folder", "pr" };
+    public static readonly string[] Origins = { "mobile", "dingtalk", "wecom", "instruction", "schedule", "event", "folder", "pr", "unattended" };
 
     public string Id { get; init; } = "g" + Guid.NewGuid().ToString("N");
     public string ConversationId { get; init; } = "";

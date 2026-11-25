@@ -1506,7 +1506,7 @@ export interface PluginInfo {
 }
 
 // ---------- 团队（docs/team-mode.md）：字段和服务端一致（下划线命名） ----------
-export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer'
+export type TeamToolKind = 'shell' | 'write' | 'browser' | 'mcp' | 'developer' | 'desktop'
 export interface TeamMember {
   expert_id: string
   note: string
@@ -1668,7 +1668,7 @@ export interface TeamRunView {
 }
 
 /** 消息通知（docs/notices.md）。正文只在详情里有，已经过服务端和界面两道清洗 */
-export type NoticeKind = 'upgrade' | 'feature' | 'maintenance' | 'security' | 'policy' | 'event' | 'tip' | 'general'
+export type NoticeKind = 'upgrade' | 'feature' | 'maintenance' | 'security' | 'policy' | 'event' | 'tip' | 'general' | 'report'
 export interface Notice {
   id: string
   kind: NoticeKind

@@ -260,6 +260,42 @@ class Plugin(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class UnattendedJob(Base):
+    """
+    无人值守任务（docs/unattended-jobs.md）：服务端按时间表把任务派到一台常开的执行机（装了 FlyknitBuddy 的专用电脑），
+    做完的结果作为一条「定时报告」发到指定部门 / 电脑的消息中心。员工电脑关机也照常跑。
+
+    - 派发复用通道消息（ChannelMessage，channel=unattended）：执行机领取、没人确认的操作一律拒绝、权限按 permission 封顶；
+    - 时间表 schedule：{"kind": daily|weekdays|weekly|monthly|hourly, "time": "HH:MM", "days": [1..7], "day": 1..28, "every": 1..12}；
+    - 时区用固定的 UTC 偏移（分钟）：越南、中国都没有夏令时，不需要时区库。
+    """
+
+    __tablename__ = "unattended_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    #: 权限上限：readonly / workspace（没人在场，不给 full）
+    permission: Mapped[str] = mapped_column(String(20), default="readonly")
+    #: 只预演：只读调研、列出会做的修改，不真的改（新建默认开）
+    rehearsal: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    schedule: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    utc_offset: Mapped[int] = mapped_column(Integer, default=420)
+    #: 结果发给谁（消息中心）：部门 ∪ 电脑；两个都空 = 不发，只在后台看（不会变成全公司）
+    notify_departments: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    notify_devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
+    #: 上一次因为前一次还没做完而跳过的时间（后台提示）
+    skipped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class EventTrigger(Base):
     """
     事件触发：外部系统（ERP、MES、共享盘的同步脚本……）带密钥 POST 到 /api/v1/hooks/{id}，
@@ -1147,7 +1183,7 @@ class Notice(Base):
     __tablename__ = "notices"
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    #: upgrade / feature / maintenance / security / policy / event / tip / general（notice_service.KINDS）
+    #: upgrade / feature / maintenance / security / policy / event / tip / general / report（notice_service.KINDS；report = 无人值守任务的结果）
     kind: Mapped[str] = mapped_column(String(20), default="general")
     title: Mapped[str] = mapped_column(String(120))
     #: 列表里的一行摘要；空 = 从正文取

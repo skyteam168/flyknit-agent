@@ -5,6 +5,7 @@ import { Lock, Refresh } from '@element-plus/icons-vue'
 import { api } from '@/api'
 import type { SecurityCatalogItem, SecurityEffectiveItem } from '@/api/types'
 import { auth } from '@/store/auth'
+import DesktopAppsCard from '@/components/DesktopAppsCard.vue'
 
 const catalog = ref<SecurityCatalogItem[]>([])
 const loading = ref(false)
@@ -164,6 +165,7 @@ function budgetWarning(key: string): string {
           />
         </div>
       </div>
+      <DesktopAppsCard :can-edit="canEdit" />
     </div>
   </div>
 </template>

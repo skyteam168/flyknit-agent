@@ -898,6 +898,7 @@ const zh = {
         event: '培训活动',
         tip: '使用技巧',
         general: '一般通知',
+        report: '定时报告',
       },
     },
     teams: {
@@ -949,7 +950,7 @@ const zh = {
       dissolveBody: '正在进行的团队任务会照常做完；已有的对话和记录都会保留，IT 可以在后台恢复。',
       dissolved: '已解散「{name}」',
       cancel: '取消',
-      tool: { shell: '执行命令', write: '写文件', browser: '浏览器', mcp: '连接器', developer: '开发者工具' },
+      tool: { shell: '执行命令', write: '写文件', browser: '浏览器', mcp: '连接器', developer: '开发者工具', desktop: '电脑操作' },
       editor: {
         newTitle: '新建团队',
         editTitle: '编辑团队',
@@ -1982,7 +1983,7 @@ const zh = {
       filter: { all: '全部', active: '进行中', waiting: '等确认', interrupted: '中断', finished: '已结束' },
       allOrigins: '全部来源',
       noMatch: '没有符合筛选条件的任务',
-      from: { ui: '自己发起', mobile: '手机', dingtalk: '钉钉', wecom: '企业微信', instruction: '指令中心', schedule: '定时任务', folder: '文件夹监视', event: '事件触发', pr: 'PR 自动修复' },
+      from: { ui: '自己发起', mobile: '手机', dingtalk: '钉钉', wecom: '企业微信', instruction: '指令中心', schedule: '定时任务', folder: '文件夹监视', event: '事件触发', pr: 'PR 自动修复', unattended: '无人值守任务' },
       state: { pending: '等待开始', running: '进行中', waiting_confirm: '等你确认', interrupted: '中断', done: '已完成', failed: '没做完', stopped: '已停止' },
       requestedBy: '发起：{who}',
       runs: '{n} 轮',
@@ -3219,6 +3220,7 @@ const vi: Messages = {
         event: 'Đào tạo & sự kiện',
         tip: 'Mẹo sử dụng',
         general: 'Thông báo chung',
+        report: 'Báo cáo định kỳ',
       },
     },
     teams: {
@@ -3270,7 +3272,7 @@ const vi: Messages = {
       dissolveBody: 'Công việc nhóm đang chạy vẫn làm xong; hội thoại và bản ghi được giữ lại, IT có thể khôi phục.',
       dissolved: 'Đã giải tán「{name}」',
       cancel: 'Hủy',
-      tool: { shell: 'Chạy lệnh', write: 'Ghi tệp', browser: 'Trình duyệt', mcp: 'Kết nối', developer: 'Công cụ lập trình' },
+      tool: { shell: 'Chạy lệnh', write: 'Ghi tệp', browser: 'Trình duyệt', mcp: 'Kết nối', developer: 'Công cụ lập trình', desktop: 'Thao tác máy tính' },
       editor: {
         newTitle: 'Tạo nhóm',
         editTitle: 'Sửa nhóm',
@@ -4310,7 +4312,7 @@ const vi: Messages = {
       filter: { all: 'Tất cả', active: 'Đang chạy', waiting: 'Chờ xác nhận', interrupted: 'Bị gián đoạn', finished: 'Đã kết thúc' },
       allOrigins: 'Mọi nguồn',
       noMatch: 'Không có việc nào khớp bộ lọc',
-      from: { ui: 'Tự giao', mobile: 'Điện thoại', dingtalk: 'DingTalk', wecom: 'WeCom', instruction: 'Trung tâm lệnh', schedule: 'Việc định kỳ', folder: 'Theo dõi thư mục', event: 'Sự kiện', pr: 'Tự sửa PR' },
+      from: { ui: 'Tự giao', mobile: 'Điện thoại', dingtalk: 'DingTalk', wecom: 'WeCom', instruction: 'Trung tâm lệnh', schedule: 'Việc định kỳ', folder: 'Theo dõi thư mục', event: 'Sự kiện', pr: 'Tự sửa PR', unattended: 'Việc tự động (không người trực)' },
       state: { pending: 'Chờ bắt đầu', running: 'Đang chạy', waiting_confirm: 'Chờ bạn xác nhận', interrupted: 'Bị gián đoạn', done: 'Đã xong', failed: 'Chưa xong', stopped: 'Đã dừng' },
       requestedBy: 'Người giao: {who}',
       runs: '{n} lượt',
@@ -5545,6 +5547,7 @@ const en: Messages = {
         event: 'Training & events',
         tip: 'Tips',
         general: 'Announcement',
+        report: 'Scheduled report',
       },
     },
     teams: {
@@ -5596,7 +5599,7 @@ const en: Messages = {
       dissolveBody: 'Team tasks in progress will finish; conversations and records are kept, and IT can restore the team.',
       dissolved: 'Disbanded "{name}"',
       cancel: 'Cancel',
-      tool: { shell: 'Run commands', write: 'Write files', browser: 'Browser', mcp: 'Connectors', developer: 'Developer tools' },
+      tool: { shell: 'Run commands', write: 'Write files', browser: 'Browser', mcp: 'Connectors', developer: 'Developer tools', desktop: 'Computer use' },
       editor: {
         newTitle: 'New team',
         editTitle: 'Edit team',
@@ -6636,7 +6639,7 @@ const en: Messages = {
       filter: { all: 'All', active: 'Running', waiting: 'Needs confirmation', interrupted: 'Interrupted', finished: 'Finished' },
       allOrigins: 'All sources',
       noMatch: 'No tasks match the filter',
-      from: { ui: 'Started by you', mobile: 'Phone', dingtalk: 'DingTalk', wecom: 'WeCom', instruction: 'Instruction center', schedule: 'Scheduled task', folder: 'Folder watch', event: 'Event', pr: 'PR auto-fix' },
+      from: { ui: 'Started by you', mobile: 'Phone', dingtalk: 'DingTalk', wecom: 'WeCom', instruction: 'Instruction center', schedule: 'Scheduled task', folder: 'Folder watch', event: 'Event', pr: 'PR auto-fix', unattended: 'Unattended job' },
       state: { pending: 'Waiting to start', running: 'Running', waiting_confirm: 'Needs your confirmation', interrupted: 'Interrupted', done: 'Done', failed: 'Not finished', stopped: 'Stopped' },
       requestedBy: 'Requested by {who}',
       runs: '{n} runs',

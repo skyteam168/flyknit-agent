@@ -19,7 +19,7 @@ const devices = ref<Device[]>([])
 const loading = ref(false)
 const tab = ref<'all' | 'it' | 'department' | 'personal' | 'dissolved'>('all')
 
-const TOOL_LABEL: Record<TeamToolKind, string> = { shell: '执行命令', write: '写文件', browser: '浏览器', mcp: '连接器', developer: '开发者工具' }
+const TOOL_LABEL: Record<TeamToolKind, string> = { shell: '执行命令', write: '写文件', browser: '浏览器', mcp: '连接器', developer: '开发者工具', desktop: '电脑操作' }
 const SOURCE_LABEL: Record<Team['source'], string> = { it: 'IT 下发', department: '部门', personal: '个人' }
 const ICONS = [
   ['team', '团队'], ['truck', '交付'], ['chart', '报表'], ['search', '追溯'], ['clip', '清单'], ['gear', '设备'],
