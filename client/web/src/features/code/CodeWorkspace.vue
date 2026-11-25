@@ -33,7 +33,7 @@ function up(e: PointerEvent) {
 
 <template>
   <div class="ide" :class="{ dragging }">
-    <ExplorerPane v-if="ide.explorerOpen" @use-skill="(n) => emit('useSkill', n)" @use-text="(x) => emit('useText', x)" />
+    <ExplorerPane @use-skill="(n) => emit('useSkill', n)" @use-text="(x) => emit('useText', x)" />
     <div class="center">
       <EditorArea @insert-text="(x) => emit('insertText', x)" />
       <BottomPanel />

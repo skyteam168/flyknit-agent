@@ -42,7 +42,7 @@ import CodeWorkspace from './features/code/CodeWorkspace.vue'
 import AgentTabs from './features/code/AgentTabs.vue'
 import ProjectsPage from './features/projects/ProjectsPage.vue'
 import IdeWelcome from './features/code/IdeWelcome.vue'
-import { ide, ideActive, ideWelcome } from './features/code/store'
+import { ide, ideActive, ideWelcome, toggleExplorer } from './features/code/store'
 import { safeMode } from './render/useRichBlocks'
 import { closeFilesViewer, convFiles } from './conversationFiles'
 import {
@@ -185,7 +185,8 @@ function wireShortcuts() {
     else if (state.view === 'chat' && currentState.value?.busy) void stop()
   })
   registerShortcut('chat.focusInput', () => composer.value?.focusInput())
-  registerShortcut('sidebar.toggle', toggleSidebar)
+  // 编码模式里 Ctrl+B 收起 / 打开文件目录（主侧栏在编码模式里本来就收着，和 VS Code 一样）；其他时候切换主侧栏
+  registerShortcut('sidebar.toggle', () => (ideActive.value && inConversation.value ? toggleExplorer() : toggleSidebar()))
   registerShortcut('preview.toggle', togglePreview)
   registerShortcut('font.increase', () => stepFontScale(1))
   registerShortcut('font.decrease', () => stepFontScale(-1))

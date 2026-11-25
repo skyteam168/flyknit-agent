@@ -2,6 +2,8 @@
 /**
  * IDE 左边：项目文件 / 搜索（Ctrl+Shift+F）/ 源代码管理（git）/ 技能 / MCP 连接器 / 知识（资料库）。
  * 技能、连接器点一下用到右边的对话里（和技能页、连接器页里的「使用」一样）；知识里的文件点一下加进输入框当附件。
+ *
+ * 参照 VS Code：左边的图标栏一直在；内容区可以收起（Ctrl+B，或再点一下当前图标），右边缘拖动调宽度。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -12,7 +14,7 @@ import type { LibraryItem } from '../../types'
 import ProjectTree from './ProjectTree.vue'
 import SearchPane from './SearchPane.vue'
 import GitPane from './GitPane.vue'
-import { ide } from './store'
+import { clampExplorer, ide } from './store'
 
 const emit = defineEmits<{ useSkill: [name: string]; useText: [text: string] }>()
 const { t } = useI18n()
@@ -56,26 +58,55 @@ function attach(item: LibraryItem) {
   toast(t('ui.code.attached', { name: item.name }))
 }
 
+/** 点图标：换到那一栏；点的就是当前这栏且开着 → 收起（和 VS Code 一样） */
+function pick(id: (typeof tabs)[number]['id']) {
+  if (ide.explorerOpen && ide.explorerTab === id) {
+    ide.explorerOpen = false
+    return
+  }
+  ide.explorerTab = id
+  ide.explorerOpen = true
+}
+
+// 右边缘拖动调宽度（记住）
+const dragging = ref(false)
+let startX = 0
+let startW = 0
+function down(e: PointerEvent) {
+  dragging.value = true
+  startX = e.clientX
+  startW = ide.explorerWidth
+  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  e.preventDefault()
+}
+function move(e: PointerEvent) {
+  if (dragging.value) ide.explorerWidth = clampExplorer(startW + e.clientX - startX)
+}
+function up(e: PointerEvent) {
+  dragging.value = false
+  ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
+}
+
 const dot = (status: string) => (status === 'connected' ? 'ok' : status === 'failed' || status === 'needsauth' ? 'bad' : 'idle')
 </script>
 
 <template>
-  <aside class="explorer">
+  <aside class="explorer" :class="{ collapsed: !ide.explorerOpen, dragging }" :style="ide.explorerOpen ? { width: ide.explorerWidth + 'px' } : undefined">
     <nav class="rail" role="tablist">
       <button
         v-for="tab in tabs"
         :key="tab.id"
         type="button"
         role="tab"
-        :aria-selected="ide.explorerTab === tab.id"
-        :class="{ on: ide.explorerTab === tab.id }"
+        :aria-selected="ide.explorerOpen && ide.explorerTab === tab.id"
+        :class="{ on: ide.explorerOpen && ide.explorerTab === tab.id }"
         :title="t(`ui.code.explorer.${tab.id}`)"
-        @click="ide.explorerTab = tab.id"
+        @click="pick(tab.id)"
       >
         <component :is="tab.icon" :size="17" />
       </button>
     </nav>
-    <div class="pane">
+    <div v-if="ide.explorerOpen" class="pane" :class="{ fill: ide.explorerTab === 'project' }">
       <h3>{{ t(`ui.code.explorer.${ide.explorerTab}`) }}</h3>
       <ProjectTree v-if="ide.explorerTab === 'project' && current" :key="current.id" :conversation-id="current.id" />
       <SearchPane v-else-if="ide.explorerTab === 'search'" />
@@ -115,11 +146,25 @@ const dot = (status: string) => (status === 'connected' ? 'ok' : status === 'fai
         <p v-if="knowledgeLoaded && !knowledge.length" class="muted">{{ t('ui.code.empty') }}</p>
       </template>
     </div>
+    <div
+      v-if="ide.explorerOpen"
+      class="grip"
+      :class="{ active: dragging }"
+      role="separator"
+      aria-orientation="vertical"
+      :title="t('ui.code.explorerResize')"
+      @pointerdown="down"
+      @pointermove="move"
+      @pointerup="up"
+      @pointercancel="up"
+      @dblclick="ide.explorerWidth = 260"
+    />
   </aside>
 </template>
 
 <style scoped>
 .explorer {
+  position: relative;
   display: flex;
   flex: none;
   width: 260px;
@@ -153,11 +198,40 @@ const dot = (status: string) => (status === 'connected' ? 'ok' : status === 'fai
   color: var(--indigo);
   background: var(--indigo-wash);
 }
+.explorer.collapsed {
+  width: auto;
+}
+.explorer.collapsed .rail {
+  border-right: 0;
+}
 .pane {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
   padding: 8px 4px 12px;
+}
+/* 项目文件：文件树自己滚（上下 + 左右），标题和按钮固定在上面 */
+.pane.fill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.pane.fill > h3 {
+  flex: none;
+}
+.grip {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+}
+.grip:hover,
+.grip.active {
+  background: color-mix(in srgb, var(--indigo) 45%, transparent);
 }
 h3 {
   margin: 2px 8px 8px;

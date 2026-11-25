@@ -91,7 +91,7 @@ defineExpose({ reload: load })
 </script>
 
 <template>
-  <div class="tree">
+  <div class="tree" :class="{ top: !depth }">
     <div v-if="!depth" class="tree-head" :title="current?.workspace ?? ''">
       <button type="button" class="root" @click="(tree.rootOpen = !tree.rootOpen), (tree.selectedDir[conversationId] = '')">
         <ChevronDown v-if="tree.rootOpen" :size="13" />
@@ -105,7 +105,9 @@ defineExpose({ reload: load })
         <button type="button" class="icon" :title="t('ui.code.tree.collapse')" @click="collapseTree()"><ChevronsDownUp :size="14" /></button>
       </span>
     </div>
-    <template v-if="depth || tree.rootOpen">
+    <!-- 最外层自己滚动（上下 + 左右，参照 VS Code）：目录很深、名字很长时横向拖着看全，标题和按钮不跟着滚 -->
+    <div v-if="depth || tree.rootOpen" :class="{ scroller: !depth }">
+    <div :class="{ inner: !depth }">
     <p v-if="error" class="muted">{{ error }}</p>
     <p v-else-if="loading && !entries.length" class="muted">{{ t('ui.code.loading') }}</p>
     <div v-if="creatingHere" class="create" :style="{ paddingLeft: 6 + ((depth ?? 0) + (depth ? 0 : 0)) * 12 + 'px' }">
@@ -145,12 +147,31 @@ defineExpose({ reload: load })
       </li>
     </ul>
     <p v-if="truncated" class="muted small">{{ t('ui.code.truncated') }}</p>
-    </template>
+    </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.tree.top {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+}
+/* 和最宽的那一行一样宽（至少和面板一样宽）：每行的悬停底色都铺满，横向滚动条能拖到最长的名字 */
+.inner {
+  width: max-content;
+  min-width: 100%;
+}
 .tree-head {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -250,10 +271,7 @@ ul {
   color: var(--amber);
 }
 .name {
-  min-width: 0;
-  overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .icon {
   display: grid;
