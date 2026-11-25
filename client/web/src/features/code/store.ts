@@ -77,6 +77,8 @@ interface IdeLayout {
   on: boolean
   explorerTab: 'project' | 'search' | 'git' | 'skills' | 'mcp' | 'knowledge'
   explorerOpen: boolean
+  /** 左栏（图标栏 + 内容）的宽度，右边缘拖动调 */
+  explorerWidth: number
   bottomOpen: boolean
   bottomTab: 'terminal' | 'logs' | 'trace'
   bottomHeight: number
@@ -84,12 +86,14 @@ interface IdeLayout {
 }
 
 const LayoutKey = 'flyknit.ide'
-const defaults: IdeLayout = { on: false, explorerTab: 'project', explorerOpen: true, bottomOpen: true, bottomTab: 'trace', bottomHeight: 220, agentWidth: 420 }
+const defaults: IdeLayout = { on: false, explorerTab: 'project', explorerOpen: true, explorerWidth: 260, bottomOpen: true, bottomTab: 'trace', bottomHeight: 220, agentWidth: 420 }
 
 function readLayout(): IdeLayout {
   try {
     const raw = JSON.parse(localStorage.getItem(LayoutKey) ?? '{}')
-    return { ...defaults, ...(raw && typeof raw === 'object' ? raw : {}) }
+    const layout = { ...defaults, ...(raw && typeof raw === 'object' ? raw : {}) }
+    if (typeof layout.explorerWidth !== 'number' || !Number.isFinite(layout.explorerWidth)) layout.explorerWidth = defaults.explorerWidth
+    return layout
   } catch {
     return { ...defaults }
   }
@@ -114,6 +118,7 @@ export function toggleIde(on = !ide.on) {
 }
 
 export const clampBottom = (px: number) => Math.round(Math.min(Math.max(px, 120), window.innerHeight * 0.7))
+export const clampExplorer = (px: number) => Math.round(Math.min(Math.max(px, 180), Math.max(180, window.innerWidth * 0.45)))
 export const clampAgent = (px: number) => Math.round(Math.min(Math.max(px, 320), window.innerWidth * 0.5))
 
 /** 最多同时开这么多个标签：再多就把最早的、没改过的关掉 */
@@ -899,6 +904,11 @@ watch(
   },
   { immediate: true },
 )
+
+/** Ctrl+B（快捷键表里的「切换左侧栏」）在编码模式里：收起 / 打开左边的文件目录，编辑器就宽了（和 VS Code 一样） */
+export function toggleExplorer() {
+  ide.explorerOpen = !ide.explorerOpen
+}
 
 // Ctrl+Shift+F：编码模式里打开左边的「搜索」（参照 VS Code）。编辑器里也能按（Monaco 自己没占这个键）
 window.addEventListener(
