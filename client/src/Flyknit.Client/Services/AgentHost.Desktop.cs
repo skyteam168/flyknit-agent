@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Concurrent;
+using System.Threading;
+using System.Windows.Threading;
 using Flyknit.Client.Windows;
 using Flyknit.Core.Agent;
 using Flyknit.Core.Desktop;
@@ -29,33 +32,44 @@ public sealed partial class AgentHost
         {
             return null;
         }
-        return _desktopDrivers.GetOrAdd(conv.Id, id => new UiaDesktopDriver(window => ShowDesktopBanner(id, window.Title)));
+        return _desktopDrivers.GetOrAdd(conv.Id, id => new UiaDesktopDriver(window => ShowDesktopBanner(id, window)));
     }
 
-    private void ShowDesktopBanner(string conversationId, string windowTitle)
+    private void ShowDesktopBanner(string conversationId, DesktopWindow window)
     {
         if (System.Windows.Application.Current is not { } app)
         {
             return;
         }
-        app.Dispatcher.BeginInvoke(() =>
+        // 同步等提示条摆好再操作：员工要在 AI 动手之前就看到（异步的话快的操作做完了提示条才出来）。
+        // 界面线程忙时最多等 2 秒；提示条出错只记日志，不影响这一步（底座的确认照常生效）。
+        try
         {
-            if (_desktopBanner is null)
+            app.Dispatcher.Invoke(() => ShowBannerOnUi(app, conversationId, window), DispatcherPriority.Send, CancellationToken.None, TimeSpan.FromSeconds(2));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Error("电脑操作：提示条显示失败", ex);
+        }
+    }
+
+    private void ShowBannerOnUi(System.Windows.Application app, string conversationId, DesktopWindow window)
+    {
+        if (_desktopBanner is null)
+        {
+            _desktopBanner = new DesktopBanner();
+            _desktopBanner.StopRequested += id =>
             {
-                _desktopBanner = new DesktopBanner();
-                _desktopBanner.StopRequested += id =>
-                {
-                    Log.Info($"电脑操作：员工点了提示条上的「停止」（对话 {id}）");
-                    Stop(id);
-                };
-                // 任务结束（做完、停止、出错）：提示条收起，这个对话的编号作废（下次重新读）
-                RunFinished += info =>
-                {
-                    _desktopDrivers.TryRemove(info.ConversationId, out _);
-                    app.Dispatcher.BeginInvoke(() => _desktopBanner?.HideFor(info.ConversationId));
-                };
-            }
-            _desktopBanner.ShowFor(conversationId, windowTitle);
-        });
+                Log.Info($"电脑操作：员工点了提示条上的「停止」（对话 {id}）");
+                Stop(id);
+            };
+            // 任务结束（做完、停止、出错）：提示条收起，这个对话的编号作废（下次重新读）
+            RunFinished += info =>
+            {
+                _desktopDrivers.TryRemove(info.ConversationId, out _);
+                app.Dispatcher.BeginInvoke(() => _desktopBanner?.HideFor(info.ConversationId));
+            };
+        }
+        _desktopBanner.ShowFor(conversationId, window.Title, window.Handle);
     }
 }
