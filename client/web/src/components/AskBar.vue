@@ -70,6 +70,8 @@ function skip() {
       <MessageCircleQuestion :size="16" />
       <strong>{{ t('tool.askTitle') }}</strong>
     </div>
+    <!-- 问题多时只有这一块滚动；标题和「确认并继续」「跳过」一直看得见（窗口矮、上面还有待办面板时不会被挤出去） -->
+    <div class="questions">
     <div v-for="(q, qi) in questions" :key="qi" class="question" :class="{ sep: qi > 0 }">
       <div class="q-title">
         <span v-if="q.header" class="chip">{{ q.header }}</span>
@@ -116,6 +118,7 @@ function skip() {
         </div>
       </div>
     </div>
+    </div>
     <div class="actions">
       <button type="button" class="btn primary" :disabled="!ready" :title="ready ? '' : t('tool.askPending')" @click="submit">
         <Check :size="15" /> {{ t('tool.askSubmit') }}
@@ -127,9 +130,14 @@ function skip() {
 
 <style scoped>
 .ask-bar {
+  display: flex;
+  flex-direction: column;
+  /* 输入框上方空间不够时可以变矮（Composer 里 composer-wrap 是竖排、允许收缩），变矮的只是中间的问题列表 */
+  flex: 0 1 auto;
+  min-height: 120px;
   max-width: var(--column);
   max-height: 60vh;
-  overflow: auto;
+  overflow: hidden;
   margin: 0 auto 10px;
   padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--indigo) 30%, var(--line));
@@ -139,6 +147,7 @@ function skip() {
   animation: rise 160ms ease-out;
 }
 .head {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -239,11 +248,21 @@ function skip() {
   font: inherit;
   font-size: var(--t-sm);
 }
+.questions {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 -14px;
+  padding: 0 14px;
+  overflow-y: auto;
+}
 .actions {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 10px;
+  margin: 0 -14px;
+  padding: 10px 14px 0;
+  border-top: 1px solid var(--line);
 }
 .btn:disabled {
   opacity: 0.5;

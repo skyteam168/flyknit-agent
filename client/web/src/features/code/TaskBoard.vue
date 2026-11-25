@@ -136,6 +136,12 @@ function reveal(callId: string) {
 
 <style scoped>
 .task-board {
+  /* 输入框上方是竖排可收缩的（见 Composer）：空间不够时列表部分自己滚动，最矮也留出标题行 */
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: calc(16px + 19px * var(--font-scale));
+  width: 100%;
   max-width: var(--column);
   margin: 0 auto 6px;
   overflow: hidden;
@@ -145,6 +151,7 @@ function reveal(callId: string) {
   font-size: calc(12.5px * var(--font-scale));
 }
 .head {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -213,6 +220,7 @@ function reveal(callId: string) {
   transition: width 300ms ease;
 }
 .body {
+  min-height: 0;
   max-height: 240px;
   padding: 2px 12px 10px 30px;
   overflow-y: auto;
