@@ -17,6 +17,7 @@ public sealed class DesktopBanner : Window
 {
     private readonly TextBlock _text = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.White, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 560 };
     private string _conversationId = "";
+    private long _target;
 
     /// <summary>员工点了「停止」：对话 ID。</summary>
     public event Action<string>? StopRequested;
@@ -65,16 +66,19 @@ public sealed class DesktopBanner : Window
         SizeChanged += (_, _) => Place();
     }
 
-    /// <summary>显示（或更新）：正在操作哪个对话的哪个窗口。</summary>
-    public void ShowFor(string conversationId, string windowTitle)
+    /// <summary>显示（或更新）：正在操作哪个对话的哪个窗口。每次操作前都调用。</summary>
+    public void ShowFor(string conversationId, string windowTitle, long targetHandle)
     {
         _conversationId = conversationId;
+        _target = targetHandle;
         _text.Text = NativeStrings.T("desktop.banner").Replace("{title}", windowTitle);
         if (!IsVisible)
         {
             Show();
+            Log.Info($"电脑操作：显示提示条（对话 {conversationId}，窗口「{windowTitle}」）");
         }
         Place();
+        Raise();
     }
 
     /// <summary>这个对话的任务结束了：收起（别的对话在用时不收）。</summary>
@@ -86,11 +90,34 @@ public sealed class DesktopBanner : Window
         }
     }
 
+    /// <summary>
+    /// 放在 AI 正在操作的那个窗口所在屏幕的顶部居中（多屏时员工看的是那块屏幕，不一定是主屏）。
+    /// </summary>
     private void Place()
     {
-        var area = SystemParameters.WorkArea;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var screen = _target != 0
+            ? System.Windows.Forms.Screen.FromHandle(new IntPtr(_target))
+            : System.Windows.Forms.Screen.PrimaryScreen;
+        var area = screen is null
+            ? SystemParameters.WorkArea
+            : new Rect(screen.WorkingArea.Left / dpi.DpiScaleX, screen.WorkingArea.Top / dpi.DpiScaleY,
+                screen.WorkingArea.Width / dpi.DpiScaleX, screen.WorkingArea.Height / dpi.DpiScaleY);
         Left = area.Left + (area.Width - ActualWidth) / 2;
         Top = area.Top + 6;
+    }
+
+    /// <summary>
+    /// 重新压到最上面：聊天窗口（浮窗 / 置顶模式）也是置顶窗口，员工点一下确认它就盖到提示条上面了，
+    /// 所以每次操作前都重新置顶一次。不激活（不抢目标窗口的焦点）。
+    /// </summary>
+    private void Raise()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+        {
+            SetWindowPos(hwnd, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040); // HWND_TOPMOST；NOSIZE | NOMOVE | NOACTIVATE | SHOWWINDOW
+        }
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -117,4 +144,5 @@ public sealed class DesktopBanner : Window
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
 }
