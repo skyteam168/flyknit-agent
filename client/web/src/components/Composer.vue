@@ -1214,6 +1214,20 @@ function openFromMore(which: 'skills' | 'mcp', close: () => void) {
 .composer-wrap {
   padding: 0 32px 14px;
 }
+/*
+ * 对话里：输入框上方的待办面板、确认条、「需要你选一下」可能一起出现，加起来比窗口还高。
+ * 竖排 + 允许收缩：消息列表先让出空间，还不够就让问题列表、待办列表自己滚动；输入框本身不缩，按钮不会被挤出窗口。
+ */
+.composer-wrap:not(.home) {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 1;
+  min-height: 0;
+}
+.composer-wrap:not(.home) > .card {
+  flex: none;
+  width: 100%;
+}
 .composer-wrap.home {
   padding: 0;
 }
