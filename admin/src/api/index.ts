@@ -1,5 +1,5 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
-import type { EvalRunDetail, EvalRunSummary, EvalSuite, EvalSuiteIn, HookCallRow, HookIn, HookItem, HookTestResult, Department, DeviceAccess, ItemScope, LayerPolicy, ScopeKind, SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun, UnattendedJob, UnattendedJobIn, UnattendedRun,
+import type { ObservabilityConfig, ObservabilityIn, EvalRunDetail, EvalRunSummary, EvalSuite, EvalSuiteIn, HookCallRow, HookIn, HookItem, HookTestResult, Department, DeviceAccess, ItemScope, LayerPolicy, ScopeKind, SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun, UnattendedJob, UnattendedJobIn, UnattendedRun,
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
@@ -283,6 +283,9 @@ export const api = {
   runEval: (id: number, note: string) => post<EvalRunSummary>(`/evals/${id}/run`, { note }),
   evalRuns: (id: number) => get<{ items: EvalRunSummary[] }>(`/evals/${id}/runs`),
   evalRun: (runId: number) => get<EvalRunDetail>(`/evals/runs/${runId}`),
+  observability: () => get<ObservabilityConfig>('/observability'),
+  saveObservability: (body: ObservabilityIn) => put<ObservabilityConfig>('/observability', body),
+  testObservability: () => post<{ ok: boolean; error: string; latency_ms: number }>('/observability/test', {}),
   eventTriggers: () => get<{ enabled: boolean; items: EventTrigger[]; runs: EventRun[] }>('/event-triggers'),
   setEventSwitch: (enabled: boolean) => put<{ enabled: boolean }>('/event-triggers/switch', { enabled }),
   createEventTrigger: (body: Omit<EventTrigger, 'device_name' | 'token_prefix' | 'fire_count' | 'last_fired_at' | 'created_by' | 'url' | 'token'>) =>
