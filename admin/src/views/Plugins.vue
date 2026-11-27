@@ -6,7 +6,7 @@ import { api } from '@/api'
 import type { PluginConnector, PluginItem, PluginPreview } from '@/api/types'
 
 /**
- * 插件：一包技能 + 专家 + 连接器 + 快捷指令 + 工具规则（目录结构同 Claude Code plugins），按部门一键下发。
+ * 插件：一包技能 + 专家 + 连接器 + 快捷指令 + 工具规则 + HTTP 钩子（目录结构同 Claude Code plugins），按部门一键下发。
  * 安装后内容出现在各自的页面（带「插件」标记），下发范围由服务端过滤：范围外的电脑什么都拿不到。
  * 再传同一个插件就是升级；卸载会把它带来的东西一起删掉。
  */
@@ -32,6 +32,7 @@ const partLabels: Record<string, string> = {
   connectors: '连接器',
   commands: '快捷指令',
   rules: '工具规则',
+  hooks: '钩子',
 }
 
 async function load() {
@@ -121,7 +122,7 @@ async function remove(p: PluginItem) {
   const c = p.counts
   await ElMessageBox.confirm(
     `卸载「${p.name || p.id}」会一起删掉它带来的 ${c.skills} 个技能、${c.experts} 位专家、${c.connectors} 个连接器、` +
-      `${c.commands} 个快捷指令和 ${c.rules} 条工具规则。员工端下次拉配置时自动收起来。`,
+      `${c.commands} 个快捷指令、${c.rules} 条工具规则和 ${c.hooks ?? 0} 个钩子。员工端下次拉配置时自动收起来。`,
     '卸载插件',
     { type: 'warning', confirmButtonText: '卸载', cancelButtonText: '取消' },
   )
@@ -140,7 +141,8 @@ const parts = (c: Record<string, number>) => Object.entries(partLabels).filter((
         <h2>插件</h2>
         <p class="sub">
           把一个部门要用的技能、专家、连接器、快捷指令、工具规则打成一包，按部门一键下发。目录结构和 Claude Code 插件一样，
-          社区插件可以直接导入。插件里要在员工电脑上执行脚本的 hooks 不支持，请改写成 <code>rules.json</code> 工具规则。
+          社区插件可以直接导入。插件里要在员工电脑上执行脚本的 hooks 不支持，请改写成 <code>rules.json</code> 工具规则，
+          或 <code>hooks/http.json</code> 的 HTTP 钩子（服务端去调；装进来是关着的，超级管理员在「钩子」页审核、填好密钥后再打开）。
         </p>
       </div>
       <el-button type="primary" :icon="Upload" @click="openInstall">安装插件</el-button>
@@ -193,6 +195,7 @@ const parts = (c: Record<string, number>) => Object.entries(partLabels).filter((
             </li>
             <li v-for="c in p.manifest.commands" :key="'k' + c.name">快捷指令 <code>/{{ c.name }}</code> {{ c.title }}</li>
             <li v-for="(r, i) in p.manifest.rules" :key="'r' + i">工具规则「{{ r.name }}」：{{ r.action }} {{ r.tools }}</li>
+            <li v-for="(h, i) in p.manifest.hooks ?? []" :key="'h' + i">钩子「{{ h.name }}」：{{ h.tools }} → {{ h.url }}（需超级管理员审核后打开）</li>
           </ul>
           <el-alert v-for="w in p.manifest.warnings" :key="w" :title="w" type="warning" :closable="false" show-icon class="warn" />
           <small class="meta">来源：{{ p.origin }} · 安装人：{{ p.installed_by }}</small>

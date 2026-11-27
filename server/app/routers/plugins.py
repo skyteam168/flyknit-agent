@@ -26,10 +26,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..db import get_session
 from ..deps import admin_name, require_admin, require_device
-from ..models import Device, Expert, ExpertVersion, McpVendor, Plugin, SkillPackage
+from ..models import Device, Expert, ExpertVersion, Hook, McpVendor, Plugin, SkillPackage
 from ..schemas import ExpertFields
 from ..services import config_events, department_store, expert_registry, mcp_catalog, plugin_package, plugin_scope, skill_library
 from . import commands as commands_router
+from . import hooks as hooks_router
 from . import tool_rules as tool_rules_router
 
 admin_router = APIRouter(prefix="/api/v1/admin/plugins", tags=["plugins"], dependencies=[Depends(require_admin)])
@@ -64,7 +65,7 @@ def _depts(items: list[str]) -> list[str]:
 
 
 def _counts(manifest: dict) -> dict:
-    return {k: len(manifest.get(k) or []) for k in ("skills", "commands", "experts", "connectors", "rules")}
+    return {k: len(manifest.get(k) or []) for k in ("skills", "commands", "experts", "connectors", "rules", "hooks")}
 
 
 def _out(p: Plugin) -> dict:
@@ -85,6 +86,26 @@ def _check_rules(parsed: plugin_package.ParsedPlugin) -> list[dict]:
         except ValidationError as exc:
             msg = exc.errors()[0].get("msg", "") if exc.errors() else str(exc)
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"rules.json 第 {i} 条规则不合法：{msg}") from exc
+    return out
+
+
+#: 钩子定义里决定「发什么、发给谁、出错怎么办」的字段：升级插件时这些都没变才保留启用状态和密钥
+HOOK_DEFINITION = ("events", "tools", "match", "url", "timeout_ms", "on_error", "skip_tls_verify")
+
+
+def _check_hooks(parsed: plugin_package.ParsedPlugin) -> list[dict]:
+    """和后台新建钩子同一套校验；插件里的钩子不带密钥，不带范围（跟插件的下发范围走）。"""
+    out, names = [], set()
+    for i, h in enumerate(parsed.hooks[: hooks_router.MAX_HOOKS], 1):
+        try:
+            item = hooks_router.HookIn(**{k: v for k, v in h.items() if k not in ("scope_departments", "scope_devices", "enabled")})
+        except (ValidationError, TypeError) as exc:
+            msg = exc.errors()[0].get("msg", str(exc)) if isinstance(exc, ValidationError) else str(exc)
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"hooks/http.json 第 {i} 个钩子不合法：{msg}") from exc
+        if item.name in names:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"hooks/http.json 里有两个钩子都叫「{item.name}」")
+        names.add(item.name)
+        out.append(item.model_dump(exclude={"secret", "enabled", "scope_departments", "scope_devices"}))
     return out
 
 
@@ -246,6 +267,9 @@ async def _remove_parts(session: AsyncSession, plugin_id: str, keep: dict[str, s
     for row in (await session.scalars(select(McpVendor).where(McpVendor.plugin == plugin_id))).all():
         if row.id not in keep.get("connectors", set()):
             await session.delete(row)
+    for row in (await session.scalars(select(Hook).where(Hook.plugin == plugin_id))).all():
+        if row.name not in keep.get("hooks", set()):
+            await session.delete(row)
     await session.flush()
 
 
@@ -265,12 +289,14 @@ async def install(session: AsyncSession, parsed: plugin_package.ParsedPlugin, or
     owned = {p["vendor_id"]: p for p in plan if p["result"] != REUSE}
     rules = _check_rules(parsed)
     commands = _check_commands(parsed)
+    hooks = _check_hooks(parsed)
 
     existing = await session.get(Plugin, parsed.id)
     await _remove_parts(session, parsed.id, keep={
         "skills": {s.name for s in parsed.skills},
         "experts": {e["id"] for e in parsed.experts},
         "connectors": set(owned),
+        "hooks": {h["name"] for h in hooks},
     })
     plugin = existing or Plugin(id=parsed.id)
     plugin.name, plugin.version, plugin.description = parsed.name, parsed.version, parsed.description
@@ -328,8 +354,21 @@ async def install(session: AsyncSession, parsed: plugin_package.ParsedPlugin, or
         row.source_server_name = c["source_server_name"][:100]
         # 管理员已经填好的预填值（preset_enc）保留：字段对不上时员工连接会提示要填
 
+    # HTTP 钩子：装进来一律关着、没有密钥，超级管理员在「钩子」页看过、填好密钥再打开。
+    # 升级插件时定义完全没变的保留原来的启用状态和密钥；变了（换地址、多发事件……）就关掉、清掉密钥，重新审核
+    for h in hooks:
+        row = await session.scalar(select(Hook).where(Hook.plugin == parsed.id, Hook.name == h["name"]))
+        if row is not None and all(getattr(row, k) == h[k] for k in HOOK_DEFINITION):
+            continue
+        if row is None:
+            row = Hook(plugin=parsed.id, created_by=who)
+            session.add(row)
+        for k, v in h.items():
+            setattr(row, k, v)
+        row.enabled, row.secret_enc = False, ""
     manifest = parsed.summary()
-    manifest["commands"], manifest["rules"] = commands, rules
+    manifest["commands"], manifest["rules"], manifest["hooks"] = commands, rules, \
+        [{k: h[k] for k in ("name", "events", "tools", "match", "url")} for h in hooks]
     manifest["connectors"] = plan  # 每个服务的处理结果（NEW / UPDATE / REUSE_EXISTING / RENAMED）和落到哪个连接器
     plugin.manifest = manifest
     await session.commit()
@@ -353,9 +392,11 @@ async def preview(file: UploadFile = File(...), rename: list[str] = Query(defaul
     parsed = _parse(await file.read())
     rules = _check_rules(parsed)
     commands = _check_commands(parsed)
+    hooks = _check_hooks(parsed)
     plan = await plan_connectors(session, parsed, _parse_renames(rename))
     summary = parsed.summary()
     summary["commands"], summary["rules"], summary["connectors"] = commands, rules, plan
+    summary["hooks"] = [{k: h[k] for k in ("name", "events", "tools", "match", "url")} for h in hooks]
     existing = await session.get(Plugin, parsed.id)
     return {
         "id": parsed.id, "name": parsed.name, "version": parsed.version, "description": parsed.description,

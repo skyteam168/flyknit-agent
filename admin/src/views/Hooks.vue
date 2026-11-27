@@ -174,7 +174,9 @@ const eventText = (h: HookItem) => h.events.map((e) => EVENTS.find((x) => x.valu
       <el-table-column label="钩子" min-width="200">
         <template #default="{ row }">
           <strong>{{ row.name }}</strong>
+          <el-tag v-if="row.plugin" size="small" type="info" class="tag">插件 {{ row.plugin }}</el-tag>
           <div class="muted">{{ eventText(row as HookItem) }}</div>
+          <div v-if="row.plugin && !row.enabled" class="muted warn">插件装进来的钩子默认关着：确认地址可信、填好签名密钥后再打开</div>
         </template>
       </el-table-column>
       <el-table-column label="工具 / 参数" min-width="170" show-overflow-tooltip>

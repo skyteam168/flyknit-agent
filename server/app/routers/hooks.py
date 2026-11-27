@@ -147,7 +147,7 @@ def _out(h: Hook) -> dict:
         "url": h.url, "has_secret": bool(h.secret_enc), "timeout_ms": h.timeout_ms, "on_error": h.on_error,
         "skip_tls_verify": h.skip_tls_verify, "enabled": h.enabled,
         "scope_departments": list(h.scope_departments or []), "scope_devices": list(h.scope_devices or []),
-        "created_by": h.created_by, "created_at": h.created_at, "updated_at": h.updated_at,
+        "plugin": h.plugin or "", "created_by": h.created_by, "created_at": h.created_at, "updated_at": h.updated_at,
     }
 
 
