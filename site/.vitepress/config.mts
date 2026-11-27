@@ -75,6 +75,7 @@ export default defineConfig({
             { text: '无人值守任务', link: '/admin/unattended' },
             { text: '回归评测', link: '/admin/evals' },
             { text: '钩子', link: '/admin/hooks' },
+            { text: '可观测性', link: '/admin/observability' },
             { text: '编码模式的语言服务', link: '/admin/language-servers' },
             { text: '管理后台一览', link: '/admin/console' },
           ],

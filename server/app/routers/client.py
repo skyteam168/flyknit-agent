@@ -35,7 +35,7 @@ from ..schemas import (
     MachineInfoIn,
     SceneInfo,
 )
-from ..services import config_events, device_identity, hook_service, device_security, item_scope, plugin_scope, legal_store, model_router, security_settings, settings_store, skill_library, usage_store, web_search
+from ..services import config_events, device_identity, hook_service, telemetry, device_security, item_scope, plugin_scope, legal_store, model_router, security_settings, settings_store, skill_library, usage_store, web_search
 from ..services.settings_store import get_policy
 
 from . import tool_rules
@@ -270,6 +270,7 @@ async def report_audit(
         if item.occurred_at is not None:
             row.occurred_at = item.occurred_at
         session.add(row)
+        telemetry.tool_call(device=device, item=item, mcp_source=row.mcp_source)  # OpenTelemetry（总开关关着时什么都不做）
         if item.decision == "blocked":
             # 被阻止的危险命令：写入告警日志，后续可接入邮件 / 企业微信通知
             log.warning(

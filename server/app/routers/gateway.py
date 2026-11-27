@@ -5,6 +5,7 @@
 
 import json
 import logging
+import time
 from urllib.parse import quote
 
 import anyio
@@ -17,7 +18,7 @@ from ..db import get_session
 from ..deps import require_device
 from ..models import ChatRecord, Device, DlpEvent
 from ..db import get_sessionmaker
-from ..services import chat_archive, device_security, dlp, model_router, subtask_store, usage_store, web_search
+from ..services import chat_archive, device_security, dlp, model_router, subtask_store, telemetry, usage_store, web_search
 
 log = logging.getLogger("flyknit.gateway")
 router = APIRouter(prefix="/api/v1", tags=["gateway"])
@@ -81,6 +82,7 @@ async def chat_completions(
         return _error(400, "请求体不是合法的 JSON", "invalid_request_error")
     if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
         return _error(400, "缺少 messages", "invalid_request_error")
+    started_ns = time.time_ns()  # OpenTelemetry：这次模型调用从这里开始算（docs/observability.md）
 
     # 专家派遣的子任务：先过子任务的几道闸（已结束、超时、开关关了、预算用完），再走下面的配额和转发
     subtask_id = body.pop("flyknit_subtask_id", None)
@@ -171,6 +173,8 @@ async def chat_completions(
         upstream, target = await model_router.open_upstream(client, targets, outbound)
     except model_router.UpstreamUnavailable as exc:
         log.warning("upstream unavailable scene=%s device=%s: %s", scene, device.id, exc)
+        telemetry.model_call(device=device, scene=scene, purpose=purpose, model="", start_ns=started_ns, status=502,
+                             conversation_id=conversation_ref[:64], subtask=bool(subtask_id), error="模型服务暂时不可用")
         return _error(502, f"模型服务暂时不可用：{exc}")
 
     # HTTP 头只能是 latin-1，模型显示名可能是中文，统一做 URL 编码（客户端解码）
@@ -189,6 +193,8 @@ async def chat_completions(
         headers["X-Flyknit-Masked-Counts"] = quote(json.dumps(dict(vault.counts)), safe="")
 
     if upstream.status_code >= 400:
+        telemetry.model_call(device=device, scene=scene, purpose=purpose, model=target.display_name, start_ns=started_ns,
+                             status=upstream.status_code, conversation_id=conversation_ref[:64], subtask=bool(subtask_id))
         try:
             content = await upstream.aread()
         except httpx.HTTPError as exc:
@@ -205,6 +211,7 @@ async def chat_completions(
 
     device_id = device.id
     machine_name, user_name = device.machine_name, device.user_name
+    telemetry_device = telemetry.snapshot(device)
     conversation_id = str(body.get("conversation_id") or "")[:64]
     # 请求体带的是整段历史，每轮重发一遍；只取这一轮新增的那条用户消息
     user_text, attachments = chat_archive.new_user_message(body["messages"])
@@ -241,6 +248,10 @@ async def chat_completions(
 
     async def save_usage(prompt: int, completion: int, cached: int = 0) -> None:
         """用量记在服务端自己解析出来的数字上，和客户端上报无关。"""
+        # OpenTelemetry：一次成功的模型调用（只有用量和耗时，没有内容）。流式在流结束时才到这里，耗时含生成时间
+        telemetry.model_call(device=telemetry_device, scene=scene, purpose=purpose, model=target.display_name,
+                             start_ns=started_ns, status=200, prompt=prompt, completion=completion, cached=cached,
+                             conversation_id=conversation_id, subtask=bool(subtask_id))
         if prompt <= 0 and completion <= 0:
             return
         try:

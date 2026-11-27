@@ -1266,3 +1266,32 @@ export interface EvalResultRow {
 export interface EvalRunDetail extends EvalRunSummary {
   results: EvalResultRow[]
 }
+
+/** OpenTelemetry 导出（docs/observability.md） */
+export interface ObservabilityConfig {
+  enabled: boolean
+  endpoint: string
+  headers: { name: string; has_value: boolean }[]
+  service_name: string
+  include_identity: boolean
+  timeout_ms: number
+  traces_url: string
+  stats: {
+    queued: number
+    sent: number
+    dropped: number
+    failed_batches: number
+    last_error: string
+    last_error_at: string | null
+    last_sent_at: string | null
+  }
+}
+/** value 不传 = 保持原来的值；'' = 清空 */
+export interface ObservabilityIn {
+  enabled: boolean
+  endpoint: string
+  headers: { name: string; value?: string }[]
+  service_name: string
+  include_identity: boolean
+  timeout_ms: number
+}
