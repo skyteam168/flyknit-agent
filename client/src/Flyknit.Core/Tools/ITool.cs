@@ -193,6 +193,9 @@ public sealed class ToolContext
     /// <summary>IT 写的工具规则（拦截 / 必须确认 / 提醒 / 结果打码）。</summary>
     public Security.ToolRules? Rules { get; init; }
 
+    /// <summary>IT 配的钩子（docs/hooks.md）：调用工具前问一下、做完通知一下。只能收紧。为空 = 没有钩子。</summary>
+    public Security.ToolHooks? Hooks { get; init; }
+
     private readonly string? _workingDirectory;
 
     public string WorkingDirectory
@@ -299,6 +302,7 @@ public sealed class ToolContext
         RunId = runId,
         LoadedTools = new HashSet<string>(LoadedTools, StringComparer.Ordinal),
         Rules = Rules,
+        Hooks = Hooks,
         WorkingDirectory = WorkingDirectory,
         Memory = Memory,
         UserRequest = UserRequest,

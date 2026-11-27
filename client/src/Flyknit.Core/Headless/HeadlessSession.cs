@@ -19,6 +19,8 @@ public sealed class HeadlessEnvironment
     public SecuritySettings Security { get; init; } = new();
     public CommandPolicy Policy { get; init; } = CommandPolicy.Default();
     public ToolRules ToolRules { get; init; } = ToolRules.None;
+    /// <summary>IT 配的钩子（docs/hooks.md）；没有时为空。</summary>
+    public ToolHooks? Hooks { get; init; }
 
     /// <summary>员工确认过的「以后自动执行」规则（和员工端同一个文件）。为空时不读也不记。</summary>
     public ApprovalStore? Approvals { get; init; }
@@ -230,6 +232,7 @@ public sealed class HeadlessSession
             ConversationId = Id,
             LoadedTools = _loadedTools,
             Rules = _env.ToolRules,
+            Hooks = _env.Hooks,
             UserRequest = text,
             Workspace = Workspace,
             Permission = Permission,

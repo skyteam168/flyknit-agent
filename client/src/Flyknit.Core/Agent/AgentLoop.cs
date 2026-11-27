@@ -923,6 +923,11 @@ public sealed class AgentLoop
                 step.Dispose();
                 return PreparedCall.Done(call, false);
             }
+            // IT 的钩子（docs/hooks.md）：问一下公司的安全检查，只会收紧（拦下、必须确认）
+            if (context.Hooks is { IsEmpty: false } hooks)
+            {
+                decision = await hooks.BeforeAsync(HookCallOf(call, context), decision, token);
+            }
 
             obs.OnToolStarted(call, summary, decision);
             var audit = new AuditEntry
@@ -1107,6 +1112,7 @@ public sealed class AgentLoop
             _audit.Record(audit);
 
             obs.OnToolFinished(call, result, p.DecisionText);
+            ctx.Hooks?.After(HookCallOf(call, ctx), result.Ok, result.Output);
             var text = result.Output;
             if (result.Outputs.Count > 0)
             {
@@ -1145,6 +1151,9 @@ public sealed class AgentLoop
             SaveCheckpoint();
             return result.Ok;
         }
+
+        static HookCall HookCallOf(ToolCall call, ToolContext context) =>
+            new(call.Name, call.ArgumentsJson, context.ConversationId, context.RunId, context.TaskId, context.GrantId);
 
         // 一个调用的最终判定：工具自己的判定 → IT 的工具规则（只收紧）→ 污染模式（只收紧）
         PolicyDecision Decide(ToolCall call, ITool tool, JsonElement args, ToolContext context)

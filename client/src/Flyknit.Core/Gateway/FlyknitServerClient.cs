@@ -40,6 +40,8 @@ public sealed class ClientConfig
     [JsonPropertyName("web_search_enabled")] public bool WebSearchEnabled { get; set; }
     /// <summary>IT 写的工具规则（只带启用的）。旧版服务端没有这一项。</summary>
     [JsonPropertyName("tool_rules")] public List<Flyknit.Core.Security.ToolRule> ToolRules { get; set; } = new();
+    /// <summary>IT 配的钩子的匹配条件（docs/hooks.md）。旧版服务端、总开关关着时为空。</summary>
+    [JsonPropertyName("hooks")] public List<Flyknit.Core.Security.HookSpec> Hooks { get; set; } = new();
 }
 
 public sealed class ClientModel
@@ -279,7 +281,7 @@ public sealed class ChannelBindCode
 
 /// <summary>与 Flyknit 服务端通信：模型网关、设备注册、配置、审计。</summary>
 public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flyknit.Core.Mcp.IMcpRuntimeSource, Flyknit.Core.Experts.Delegation.ISubtaskRegistry,
-    Flyknit.Core.Teams.ITeamService, Flyknit.Core.Notices.INoticeService
+    Flyknit.Core.Teams.ITeamService, Flyknit.Core.Notices.INoticeService, Flyknit.Core.Security.IHookClient
 {
     private HttpClient _http;
     private string? _token;
@@ -463,6 +465,37 @@ public sealed class FlyknitServerClient : IChatGateway, IEmbeddingGateway, Flykn
         });
         using var resp = await SendAsync(req, ct);
         return (int)resp.StatusCode;
+    }
+
+    /// <summary>钩子 pre_tool（docs/hooks.md）：服务端去问匹配的钩子，回答最严的那个。</summary>
+    public async Task<Flyknit.Core.Security.HookVerdict> CheckAsync(Flyknit.Core.Security.HookCall call, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/hooks/check");
+        req.Content = JsonContent.Create(new
+        {
+            tool = call.Tool, arguments = call.Arguments, conversation_id = call.ConversationId,
+            run_id = call.RunId, task_id = call.TaskId, grant_id = call.GrantId,
+        });
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        var root = doc.RootElement;
+        var decision = root.TryGetProperty("decision", out var d) ? d.GetString() : null;
+        var reason = root.TryGetProperty("reason", out var r) ? r.GetString() ?? "" : "";
+        return new Flyknit.Core.Security.HookVerdict(Flyknit.Core.Security.HookVerdict.Parse(decision), reason);
+    }
+
+    /// <summary>钩子 post_tool / stop：服务端后台转发，马上返回。</summary>
+    public async Task NotifyAsync(string hookEvent, Flyknit.Core.Security.HookCall call, bool ok, string summary, string status, CancellationToken ct)
+    {
+        using var req = Authorized(HttpMethod.Post, "api/v1/client/hooks/notify");
+        req.Content = JsonContent.Create(new
+        {
+            @event = hookEvent, tool = call.Tool, arguments = call.Arguments, conversation_id = call.ConversationId,
+            run_id = call.RunId, task_id = call.TaskId, grant_id = call.GrantId, ok, summary, status,
+        });
+        using var resp = await SendAsync(req, ct);
+        await EnsureOk(resp, ct);
     }
 
     public async Task ReportAuditAsync(IReadOnlyList<AuditEntry> items, CancellationToken ct)

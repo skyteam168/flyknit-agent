@@ -149,6 +149,7 @@ public static class CliHost
             Security = security,
             Policy = config.Policy is not null ? new CommandPolicy(config.Policy) : CommandPolicy.Default(),
             ToolRules = new ToolRules(config.ToolRules),
+            Hooks = config.Hooks.Count > 0 ? new ToolHooks(config.Hooks, server) : null,
             Approvals = new ApprovalStore(profile.ApprovalRulesFile),
             Audit = audit,
             Actor = actor,

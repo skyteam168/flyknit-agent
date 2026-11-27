@@ -35,7 +35,7 @@ from ..schemas import (
     MachineInfoIn,
     SceneInfo,
 )
-from ..services import config_events, device_identity, device_security, item_scope, plugin_scope, legal_store, model_router, security_settings, settings_store, skill_library, usage_store, web_search
+from ..services import config_events, device_identity, hook_service, device_security, item_scope, plugin_scope, legal_store, model_router, security_settings, settings_store, skill_library, usage_store, web_search
 from ..services.settings_store import get_policy
 
 from . import tool_rules
@@ -210,6 +210,7 @@ async def client_config(
         revision=config_events.current(), owner=device.owner, department=device.department,
         web_search_enabled=search_ready,
         tool_rules=await tool_rules.current(session, device),
+        hooks=await hook_service.client_specs(session, device),
     )
 
 
