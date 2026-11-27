@@ -351,6 +351,80 @@ class HookCall(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class EvalSuite(Base):
+    """
+    回归评测的题集（docs/evals.md）：一组固定的问题，派到一台执行机上用某位专家（或普通办事助手）回答，
+    服务端按每题的检查项（必须包含 / 不能包含 / 正则）和评分标准（模型打分）判分。改了专家、技能、模型、提示词之后跑一遍，
+    和上一次比，看哪些题变差了。只预演、只读，不会真的改任何东西。
+    """
+
+    __tablename__ = "eval_suites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    #: 用哪位专家回答；空 = 普通办事助手
+    expert_id: Mapped[str] = mapped_column(String(40), default="")
+    #: 在哪台电脑上跑（执行机）
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    #: 权限上限：readonly / workspace（反正只预演，不会真的改）
+    permission: Mapped[str] = mapped_column(String(20), default="readonly")
+    #: 有评分标准的题，模型打分不低于这个算通过（0-100）
+    pass_score: Mapped[int] = mapped_column(Integer, default=60)
+    #: [{id, prompt, must_include: [..], must_not_include: [..], regex, rubric}]
+    cases: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class EvalRun(Base):
+    """题集跑的一次。results 里每题一条；全部出结果后 status=done，算出通过数、平均分、和上一次比变差的题。"""
+
+    __tablename__ = "eval_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    suite_id: Mapped[int | None] = mapped_column(ForeignKey("eval_suites.id", ondelete="CASCADE"), nullable=True, index=True)
+    #: running / done
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    #: 这次跑之前改了什么（管理员写的备注，比如「专家改到 v3」）
+    note: Mapped[str] = mapped_column(String(300), default="")
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    expert_id: Mapped[str] = mapped_column(String(40), default="")
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    passed: Mapped[int] = mapped_column(Integer, default=0)
+    #: 平均分（0-100），全部出结果后才有
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: 上一次通过、这一次没通过的题（题目 id）
+    regressions: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EvalResult(Base):
+    """一题的结果：AI 的回答、每个检查项、模型打分。"""
+
+    __tablename__ = "eval_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("eval_runs.id", ondelete="CASCADE"), index=True)
+    case_id: Mapped[str] = mapped_column(String(40), default="")
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("channel_messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    #: pending（等执行机）/ judging（等模型打分）/ done
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    answer: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(String(2000), default="")
+    #: [{name, ok, detail}]
+    checks: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    judge_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    judge_reason: Mapped[str] = mapped_column(String(1000), default="")
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class EventTrigger(Base):
     """
     事件触发：外部系统（ERP、MES、共享盘的同步脚本……）带密钥 POST 到 /api/v1/hooks/{id}，
@@ -1058,6 +1132,8 @@ class ChannelMessage(Base):
     #: 事件触发（channel=event）：这次任务的权限上限和是否只预演；别的通道为空 / False
     permission: Mapped[str] = mapped_column(String(20), default="")
     rehearsal: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    #: 回归评测（channel=eval）：用哪位专家回答；空 = 普通办事助手。别的通道为空
+    expert_id: Mapped[str] = mapped_column(String(40), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

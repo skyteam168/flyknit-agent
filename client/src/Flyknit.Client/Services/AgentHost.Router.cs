@@ -62,7 +62,7 @@ public sealed partial class AgentHost
     {
         var execute = new ChannelRoute(false, "", task.ConversationId);
         // 无人值守任务：每次运行都是独立的一件事（按时间表来的），不归档、不合并成追问
-        if (!RouterOn || task.Channel is "mobile" or "unattended")
+        if (!RouterOn || task.Channel is "mobile" or "unattended" or "eval")
         {
             return execute;
         }
