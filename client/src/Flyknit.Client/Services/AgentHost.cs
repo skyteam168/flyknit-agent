@@ -961,7 +961,7 @@ public sealed partial class AgentHost : IDisposable
                 NewUserMessage = newUser is not null,
                 ReadOnlyRun = planMode || rehearsal,
                 // 定时任务、文件夹监视、事件触发、无人值守任务：没人在电脑前点卡片
-                Unattended = grant is { Origin: "schedule" or "folder" or "event" or "unattended" },
+                Unattended = grant is { Origin: "schedule" or "folder" or "event" or "unattended" or "eval" },
                 Confirm = confirm,
                 Post = events.Post,
             };
@@ -1249,7 +1249,8 @@ public sealed partial class AgentHost : IDisposable
             // 被用户中途停止的任务同样复盘——用户喊停往往说明做错了方向，这是最该记下来的教训（只记教训，不记成功经验）。
             // 专家对话不自动复盘：里面是业务系统的数据和专家的做法，不该变成员工的个人记忆
             // （员工明说「记住」时照样能用 memory_write 记）
-            if (_settings.EnableLearning && conv.Mode == ConversationMode.Agent && conv.ExpertId is null && !LearningPolicy.From(Security).Nothing
+            // 回归评测的题不复盘：测试题不是员工的事，记进长期记忆会污染下一次评测和员工的使用
+            if (_settings.EnableLearning && conv.Mode == ConversationMode.Agent && conv.ExpertId is null && grant?.Origin != "eval" && !LearningPolicy.From(Security).Nothing
                 && Reflector.ShouldReflect(result.NewMessages, 0))
             {
                 var previous = stored.Take(stored.Count - 1).LastOrDefault(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)?.Content ?? "";

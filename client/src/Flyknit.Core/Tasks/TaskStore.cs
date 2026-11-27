@@ -98,9 +98,12 @@ public static class TaskOrigins
     /// <summary>无人值守任务：服务端按时间表派到常开执行机的（docs/unattended-jobs.md）。</summary>
     public const string Unattended = "unattended";
 
+    /// <summary>回归评测：后台派到执行机的固定题（docs/evals.md）。</summary>
+    public const string Eval = "eval";
+
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
-        Ui, Mobile, DingTalk, WeCom, Instruction, Schedule, Folder, Event, PullRequest, Unattended,
+        Ui, Mobile, DingTalk, WeCom, Instruction, Schedule, Folder, Event, PullRequest, Unattended, Eval,
     };
 }
 

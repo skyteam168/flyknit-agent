@@ -74,6 +74,8 @@ class ChannelTaskOut(BaseModel):
     #: 事件触发：权限上限（readonly / workspace / full）和是否只预演；别的通道为空 / False
     permission: str = ""
     rehearsal: bool = False
+    #: 回归评测：用哪位专家回答；空 = 普通办事助手
+    expert_id: str = ""
 
 
 class ChannelPollOut(BaseModel):
@@ -142,7 +144,7 @@ async def poll_messages(
         binding = await session.get(ChannelBinding, r.binding_id) if r.binding_id else None
         out.append(ChannelTaskOut(id=r.id, channel=r.channel, text=r.text, sender=r.external_name,
                                   conversation_id=binding.conversation_id if binding else "",
-                                  permission=r.permission or "", rehearsal=bool(r.rehearsal)))
+                                  permission=r.permission or "", rehearsal=bool(r.rehearsal), expert_id=r.expert_id or ""))
     return ChannelPollOut(messages=out)
 
 

@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .. import crypto
 from ..models import ChannelBindCode, ChannelBinding, ChannelMessage, Device
-from . import mobile_hub, settings_store, unattended_service
+from . import eval_service, mobile_hub, settings_store, unattended_service
 from .dingtalk import BotMessage, DingTalkApi, StreamStatus, for_dingtalk, run_stream
 from .wecom import WeComBot
 
@@ -362,6 +362,14 @@ class Hub:
             row.replied = await mobile_hub.hub.task_changed(row)
         elif row.channel == "event":
             pass  # 事件触发没有人等回复：结果在后台「事件触发」和这台电脑的对话里看
+        elif row.channel == eval_service.CHANNEL:
+            # 回归评测：算检查项、后台打分，结果在后台「回归评测」里看（docs/evals.md）
+            try:
+                from ..db import get_sessionmaker
+
+                await eval_service.on_finish(session, row, get_sessionmaker())
+            except Exception:  # noqa: BLE001  判分失败不能让回报失败（执行机会一直重报）
+                log.warning("回归评测记录结果失败（消息 %s）", row.id, exc_info=True)
         elif row.channel == unattended_service.CHANNEL:
             # 无人值守任务：结果作为「定时报告」发到指定部门 / 电脑的消息中心（没指定收件人就只在后台看）
             try:
@@ -395,7 +403,7 @@ class Hub:
             return r.text if len(r.text) <= 30 else r.text[:30] + "…"
 
         for r in stale:
-            if r.channel == "event":
+            if r.channel in ("event", eval_service.CHANNEL):
                 continue
             if r.channel == mobile_hub.CHANNEL:
                 await mobile_hub.hub.task_changed(r)
@@ -403,7 +411,7 @@ class Hub:
             await self.say(r.channel, r.reply_webhook, r.reply_webhook_expires, r.external_id,
                            f"你的电脑一直没有上线，「{short(r)}」已取消。需要的话开机后再发一次。")
         for r in lost:
-            if r.channel == "event":
+            if r.channel in ("event", eval_service.CHANNEL):
                 continue
             if r.channel == mobile_hub.CHANNEL:
                 r.replied = await mobile_hub.hub.task_changed(r)

@@ -21,7 +21,7 @@ client_router = APIRouter(prefix="/api/v1/client/grants", tags=["grants"])
 admin_router = APIRouter(prefix="/api/v1/admin/grants", tags=["grants"], dependencies=[Depends(require_admin)])
 
 #: folder：文件夹监视（以前借用 event）；pr：盯 PR 的自动修复。和 schedule 一样是本机发起的，服务端没有记录可核对
-ORIGINS = ("mobile", "dingtalk", "wecom", "instruction", "schedule", "event", "folder", "pr", "unattended")
+ORIGINS = ("mobile", "dingtalk", "wecom", "instruction", "schedule", "event", "folder", "pr", "unattended", "eval")
 PERMISSION_RANK = {"readonly": 0, "workspace": 1, "full": 2}
 #: 服务端自己有记录、可以核对的来源
 CHANNELS = ("mobile", "dingtalk", "wecom")
@@ -67,6 +67,15 @@ async def _verify(session: AsyncSession, device: Device, data: GrantIn) -> tuple
         if PERMISSION_RANK[data.permission] > PERMISSION_RANK.get(ceiling, 0):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"这个无人值守任务最多只能「{ceiling}」，授权超出了")
         return f"无人值守:{msg.external_name or msg.external_id}", msg.text
+    if data.origin == "eval":
+        # 回归评测：后台派的固定题（docs/evals.md），按派发记录核对电脑和权限上限
+        msg = await session.get(ChannelMessage, int(data.reference)) if data.reference.isdigit() else None
+        if msg is None or msg.device_id != device.id or msg.channel != "eval":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "找不到派给这台电脑的这道评测题，不能据此授权")
+        ceiling = msg.permission or "readonly"
+        if PERMISSION_RANK[data.permission] > PERMISSION_RANK.get(ceiling, 0):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"这次评测最多只能「{ceiling}」，授权超出了")
+        return f"回归评测:{msg.external_name or msg.external_id}", msg.text
     if data.origin in CHANNELS:
         msg = await session.get(ChannelMessage, int(data.reference)) if data.reference.isdigit() else None
         if msg is None or msg.device_id != device.id:

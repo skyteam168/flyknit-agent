@@ -1202,3 +1202,67 @@ export interface HookTestResult {
   error: string
   latency_ms: number
 }
+
+/** 回归评测（docs/evals.md） */
+export interface EvalCase {
+  id: string
+  prompt: string
+  must_include: string[]
+  must_not_include: string[]
+  regex: string
+  rubric: string
+}
+export interface EvalRunSummary {
+  id: number
+  suite_id: number
+  status: 'running' | 'done'
+  note: string
+  device_id: number | null
+  expert_id: string
+  total: number
+  passed: number
+  score: number | null
+  regressions: string[]
+  created_by: string
+  created_at: string
+  finished_at: string | null
+}
+export interface EvalSuite {
+  id: number
+  name: string
+  description: string
+  expert_id: string
+  expert_name: string
+  device_id: number | null
+  device_name: string
+  device_online: boolean
+  permission: 'readonly' | 'workspace'
+  pass_score: number
+  cases: EvalCase[]
+  created_by: string
+  updated_at: string
+  last_run: EvalRunSummary | null
+}
+export type EvalSuiteIn = Pick<EvalSuite, 'name' | 'description' | 'expert_id' | 'device_id' | 'permission' | 'pass_score' | 'cases'>
+export interface EvalCheck {
+  name: string
+  ok: boolean
+  detail: string
+}
+export interface EvalResultRow {
+  id: number
+  case_id: string
+  prompt: string
+  status: 'pending' | 'judging' | 'done'
+  answer: string
+  error: string
+  checks: EvalCheck[]
+  judge_score: number | null
+  judge_reason: string
+  score: number
+  passed: boolean
+  finished_at: string | null
+}
+export interface EvalRunDetail extends EvalRunSummary {
+  results: EvalResultRow[]
+}

@@ -191,6 +191,9 @@ public sealed class ChannelTask
 
     /// <summary>事件触发：只预演，不真的执行。</summary>
     [JsonPropertyName("rehearsal")] public bool Rehearsal { get; set; }
+
+    /// <summary>回归评测（channel=eval）：用哪位专家回答；空 = 普通办事助手。</summary>
+    [JsonPropertyName("expert_id")] public string ExpertId { get; set; } = "";
 }
 
 internal sealed class ChannelPoll

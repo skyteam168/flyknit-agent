@@ -29,7 +29,7 @@ public sealed partial class AgentHost
     {
         var (grant, report) = IssueGrant(conv, origin, reference, requestedBy, instruction, ct, ceiling);
         // 服务端派的（事件触发、无人值守任务）带数字编号，服务端按派发记录核对电脑和权限上限
-        if (origin is not ("mobile" or "dingtalk" or "wecom" or "instruction") && !(origin is "event" or "unattended" && reference.Length > 0 && reference.All(char.IsDigit)))
+        if (origin is not ("mobile" or "dingtalk" or "wecom" or "instruction") && !(origin is "event" or "unattended" or "eval" && reference.Length > 0 && reference.All(char.IsDigit)))
         {
             return (grant, null);
         }

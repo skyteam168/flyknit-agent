@@ -199,7 +199,7 @@ public sealed class ChannelRelay : IDisposable
             var where = AgentHost.ChannelName(task.Channel);
             _notify($"{where}消息", $"{who} 在{where}里让 FlyknitBuddy 办事：{Short(task.Text)}");
             var outcome = await _host.RunChannelMessageAsync(task.Text, task.Sender, conversationId, token, task.Channel, task.Id,
-                task.Permission, task.Rehearsal);
+                task.Permission, task.Rehearsal, task.ExpertId);
             await _host.Server.FinishChannelAsync(task.Id, outcome.Ok, outcome.Answer, outcome.Error, outcome.ConversationId, token);
             Log.Info($"钉钉消息 {task.Id} 回报完成 ok={outcome.Ok}");
         }
