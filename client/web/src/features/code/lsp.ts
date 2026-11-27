@@ -18,6 +18,9 @@ type M = typeof Monaco
 /** 每个对话的语言服务状态（宿主查的：开关、是否信任、哪些语言装了） */
 export const lsp = reactive<{ status: Record<string, LspStatus | null>; dismissed: Record<string, boolean> }>({ status: {}, dismissed: {} })
 
+/** 编辑器里所有打开的文件的报错 / 警告个数（底部状态栏显示，像 VS Code 的 ⊗ 0 ⚠ 0） */
+export const problems = reactive({ errors: 0, warnings: 0 })
+
 export async function loadLspStatus(conversationId: string) {
   try {
     lsp.status[conversationId] = await bridge.lspStatus(conversationId)
@@ -239,6 +242,20 @@ export function installLsp(m: M) {
   monacoRef = m
   if (installed) return
   installed = true
+
+  // 报错 / 警告个数：任何文件的标记变了就重新数一遍（语言服务、Monaco 自带的检查都算）
+  const recount = () => {
+    let errors = 0
+    let warnings = 0
+    for (const mk of m.editor.getModelMarkers({})) {
+      if (mk.severity === m.MarkerSeverity.Error) errors++
+      else if (mk.severity === m.MarkerSeverity.Warning) warnings++
+    }
+    problems.errors = errors
+    problems.warnings = warnings
+  }
+  m.editor.onDidChangeMarkers(recount)
+  m.editor.onWillDisposeModel(() => window.setTimeout(recount, 0))
 
   // 跨文件跳转：打开对应的标签（不是 Monaco 自己的编辑器）
   m.editor.registerEditorOpener({

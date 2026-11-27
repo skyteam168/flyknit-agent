@@ -3,12 +3,13 @@
  * 一个终端画面（xterm.js）：员工自己的 PowerShell（id），或者 AI 在伪控制台里跑的后台命令（run）。
  * 键盘输入原样交给宿主；跟着面板大小调行列数。
  */
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { bridge } from '../../bridge'
 import { attachPty, attachRun, detachPty, detachRun } from './pty'
+import { editorPrefs } from './prefs'
 
 const props = defineProps<{ id?: string; run?: { conversationId: string; runId: string; seed?: string | null; ended?: boolean } }>()
 
@@ -26,6 +27,7 @@ let fit: FitAddon | null = null
 let resize: ResizeObserver | null = null
 let observer: MutationObserver | null = null
 let timer = 0
+let stopPrefs: (() => void) | null = null
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 const theme = () => ({
@@ -46,7 +48,8 @@ function refit() {
 onMounted(() => {
   term = new Terminal({
     fontFamily: "'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace",
-    fontSize: 13,
+    // 字号跟着编辑器外观里设的走（员工把代码字调大了，终端也一起大）
+    fontSize: editorPrefs.fontSize,
     cursorBlink: true,
     scrollback: 5000,
     allowProposedApi: false,
@@ -65,9 +68,15 @@ onMounted(() => {
   observer = new MutationObserver(() => term && (term.options.theme = theme()))
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
   term.focus()
+  stopPrefs = watch(() => editorPrefs.fontSize, (n) => {
+    if (!term) return
+    term.options.fontSize = n
+    refit()
+  })
 })
 
 onBeforeUnmount(() => {
+  stopPrefs?.()
   clearTimeout(timer)
   if (props.run) detachRun(props.run.conversationId, props.run.runId)
   else if (props.id) detachPty(props.id)

@@ -21,6 +21,12 @@ export interface PtySession {
 const MaxScrollback = 400_000
 
 export const pty = reactive<{ sessions: PtySession[] }>({ sessions: [] })
+
+/**
+ * 这次打开客户端后已经自动开过终端的对话（参照 VS Code：打开项目，底部就有一个在项目目录里的终端）。
+ * 每个对话只自动开一次：员工自己把它关了，就不再自动开回来。
+ */
+export const autoOpened = new Set<string>()
 const scrollback = new Map<string, string>()
 const listeners = new Map<string, (data: string) => void>()
 

@@ -43,6 +43,7 @@ import AgentTabs from './features/code/AgentTabs.vue'
 import ProjectsPage from './features/projects/ProjectsPage.vue'
 import IdeWelcome from './features/code/IdeWelcome.vue'
 import { ide, ideActive, ideWelcome, toggleExplorer } from './features/code/store'
+import IdeStatusBar from './features/code/IdeStatusBar.vue'
 import { safeMode } from './render/useRichBlocks'
 import { closeFilesViewer, convFiles } from './conversationFiles'
 import {
@@ -395,6 +396,8 @@ onBeforeUnmount(() => {
         <!-- 右侧面板：计划 / 预览 / 改动 / 浏览器 / 会话信息，用标签切换 -->
         <RightPanel v-if="showRight && !ideActive" />
       </div>
+      <!-- 编码模式最下面的状态栏（分支、报错个数、语言服务、光标、终端），参照 VS Code -->
+      <IdeStatusBar v-if="ideActive && inConversation" />
     </main>
 
     <div v-if="dragging > 0" class="dropzone" aria-hidden="true">
