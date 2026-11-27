@@ -4,13 +4,22 @@
  * 右边的 AI Agent 就是这个对话（App 里原来的对话区，编码模式下放窄、放在最右边），不另做一份。
  * 右边缘的竖条拖动调对话区的宽度。
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import PreviewPane from '../../components/PreviewPane.vue'
+import { closePreview, current, state } from '../../store'
 import BottomPanel from './BottomPanel.vue'
 import EditorArea from './EditorArea.vue'
 import ExplorerPane from './ExplorerPane.vue'
-import { clampAgent, ide } from './store'
+import { clampAgent, ide, inWorkspace, openInEditor } from './store'
 
 const emit = defineEmits<{ useSkill: [name: string]; useText: [text: string]; insertText: [text: string] }>()
+
+// 对话里点「预览」：编码模式没有普通界面的右侧分屏，预览放在编辑器右边（对话区左边）。
+// 工作区里的文本文件多一个「在编辑器里打开」，打开后预览收起
+const editable = computed(() => !!current.value && !!state.preview && inWorkspace(current.value.id, state.preview.file.path))
+async function editFile(path: string) {
+  if (current.value && (await openInEditor(current.value.id, path))) closePreview()
+}
 
 const dragging = ref(false)
 let startX = 0
@@ -38,6 +47,7 @@ function up(e: PointerEvent) {
       <EditorArea @insert-text="(x) => emit('insertText', x)" />
       <BottomPanel />
     </div>
+    <PreviewPane v-if="state.preview" class="ide-preview" ide :open-in-editor="editable ? editFile : undefined" />
     <div
       class="agent-grip"
       :class="{ active: dragging }"
@@ -69,6 +79,9 @@ function up(e: PointerEvent) {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+.ide-preview {
+  max-width: 60%;
 }
 .agent-grip {
   flex: none;

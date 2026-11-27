@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BrandLoader from './BrandLoader.vue'
-import { ExternalLink, FolderOpen, PenLine, X } from '@lucide/vue'
+import { Code2, ExternalLink, FolderOpen, PenLine, X } from '@lucide/vue'
 import { renderMarkdown } from '../markdown'
 import { closePreview, current as currentConv, launchFile, openDocument, revealFile, setPreviewWidth, state } from '../store'
 import { useRichBlocks } from '../render/useRichBlocks'
@@ -12,6 +12,8 @@ import HtmlFrame from './HtmlFrame.vue'
 import { highlightCode } from '../highlight'
 
 // 右侧分屏：按宿主给的 kind 渲染，不在这里二次判断扩展名
+// 编码模式里放在编辑器右边（CodeWorkspace），传 openInEditor：文本类文件可以转到编辑器里改，代替文档画布（编码模式不显示画布）
+const props = defineProps<{ ide?: boolean; openInEditor?: (path: string) => void }>()
 const { t } = useI18n()
 
 const preview = computed(() => state.preview)
@@ -30,7 +32,8 @@ watch(
 
 const sections = computed(() => doc.value?.sections ?? [])
 /** Markdown 文稿可以转到文档画布里直接改 */
-const editable = computed(() => !!currentConv.value && /\.(md|markdown)$/i.test(state.preview?.file.path ?? ''))
+const editable = computed(() => !props.ide && !!currentConv.value && /\.(md|markdown)$/i.test(state.preview?.file.path ?? ''))
+const toEditor = computed(() => !!props.openInEditor && ['text', 'markdown', 'html', 'diagram'].includes(doc.value?.kind ?? ''))
 const current = computed(() => sections.value[activeSection.value] ?? null)
 
 // 流程图源码（.mmd / .dot）直接渲染成图，渲染不了再退回源码
@@ -51,6 +54,7 @@ useRichBlocks(body, () => [state.preview?.file.path, doc.value?.kind, doc.value?
 
 // ---------- 拖拽调整宽度 ----------
 const dragging = ref(false)
+const pane = ref<HTMLElement>()
 
 function startDrag(e: PointerEvent) {
   dragging.value = true
@@ -61,8 +65,8 @@ function startDrag(e: PointerEvent) {
 
 function onDrag(e: PointerEvent) {
   if (!dragging.value) return
-  // 分屏在右侧，所以宽度 = 窗口右边缘到鼠标的距离
-  setPreviewWidth(window.innerWidth - e.clientX)
+  // 宽度 = 分屏右边缘到鼠标的距离（普通界面右边缘就是窗口边；编码模式右边还有对话区）
+  setPreviewWidth((pane.value?.getBoundingClientRect().right ?? window.innerWidth) - e.clientX)
 }
 
 function endDrag(e: PointerEvent) {
@@ -77,7 +81,7 @@ function onKeyResize(e: KeyboardEvent) {
 </script>
 
 <template>
-  <aside v-if="preview" class="preview" :style="{ width: state.previewWidth + 'px' }">
+  <aside v-if="preview" ref="pane" class="preview" :style="{ width: state.previewWidth + 'px' }">
     <div
       class="grip"
       :class="{ dragging }"
@@ -96,6 +100,9 @@ function onKeyResize(e: KeyboardEvent) {
       <span class="name" :title="preview.file.path">{{ preview.file.name }}</span>
       <button v-if="editable" type="button" class="ico" :title="t('ui.doc.openInCanvas')" @click="openDocument(currentConv!.id, preview.file.path)">
         <PenLine :size="15" />
+      </button>
+      <button v-if="toEditor" type="button" class="ico" :title="t('ui.preview.openInEditor')" @click="props.openInEditor!(preview.file.path)">
+        <Code2 :size="15" />
       </button>
       <button type="button" class="ico" :title="t('ui.outputs.openWithDefault')" @click="launchFile(preview.file)">
         <ExternalLink :size="15" />

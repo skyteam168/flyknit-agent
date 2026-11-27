@@ -1300,6 +1300,7 @@ const zh = {
     preview: {
       pdfPages: '共 {n} 页', pdfLoading: '正在打开 PDF…', pdfFailed: 'PDF 打开失败：{error}', zoomIn: '放大', zoomOut: '缩小',
       close: '关闭预览',
+      openInEditor: '在编辑器里打开（可以改）',
       loading: '正在读取…',
       unsupported: '这种格式不能在这里预览',
       mediaError: '这个文件的编码在这里放不了，可以用系统自带的播放器打开',
@@ -3660,6 +3661,7 @@ const vi: Messages = {
     preview: {
       pdfPages: '{n} trang', pdfLoading: 'Đang mở PDF…', pdfFailed: 'Không mở được PDF: {error}', zoomIn: 'Phóng to', zoomOut: 'Thu nhỏ',
       close: 'Đóng xem trước',
+      openInEditor: 'Mở trong trình soạn thảo (sửa được)',
       loading: 'Đang đọc…',
       unsupported: 'Định dạng này không xem trước được ở đây',
       mediaError: 'Không phát được mã hóa của tệp này ở đây, hãy mở bằng trình phát mặc định của hệ thống',
@@ -6025,6 +6027,7 @@ const en: Messages = {
     preview: {
       pdfPages: '{n} pages', pdfLoading: 'Opening PDF…', pdfFailed: 'Could not open this PDF: {error}', zoomIn: 'Zoom in', zoomOut: 'Zoom out',
       close: 'Close preview',
+      openInEditor: 'Open in editor (editable)',
       loading: 'Reading…',
       unsupported: "This format can't be previewed here",
       mediaError: "This file's encoding can't be played here. Open it with the system player instead",
