@@ -296,6 +296,61 @@ class UnattendedJob(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class Hook(Base):
+    """
+    钩子（docs/hooks.md）：IT 配置的 HTTP 地址，AI 调用工具前（pre_tool）、工具做完（post_tool）、一轮任务结束（stop）时，
+    服务端把这件事发给它。pre_tool 的回答只能收紧：allow（照旧）/ ask（必须员工确认，不能记成以后自动）/ deny（拦下）。
+
+    地址和签名密钥只在服务端，员工端只拿到「哪些事件、哪些工具」用来判断要不要问（/client/config 的 hooks）。
+    """
+
+    __tablename__ = "hooks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    #: pre_tool / post_tool / stop 的子集
+    events: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    #: 工具名，逗号分开，支持 * 通配（mcp__erp__*）；空或 * 表示所有工具。stop 不看这一项
+    tools: Mapped[str] = mapped_column(String(500), default="*")
+    #: 参数（JSON 原文）要匹配的正则；空表示不看参数
+    match: Mapped[str] = mapped_column(String(500), default="")
+    url: Mapped[str] = mapped_column(String(1000), default="")
+    #: 签名密钥（加密存储）：请求带 X-Flyknit-Signature: sha256=HMAC(密钥, 请求体)
+    secret_enc: Mapped[str] = mapped_column(Text, default="")
+    timeout_ms: Mapped[int] = mapped_column(Integer, default=3000)
+    #: pre_tool 时钩子没回应 / 出错怎么办：ask（默认，改成要员工确认）/ deny（拦下）/ allow（照旧）
+    on_error: Mapped[str] = mapped_column(String(10), default="ask")
+    #: 内网自签 HTTPS 时勾上
+    skip_tls_verify: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: 使用范围：部门 ∪ 电脑；两个都空 = 全公司（services/item_scope.py）
+    scope_departments: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    scope_devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class HookCall(Base):
+    """钩子的调用记录（后台「钩子」页看最近的；和审计日志同一保留期）。不存参数原文，只存工具名和结果。"""
+
+    __tablename__ = "hook_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hook_id: Mapped[int | None] = mapped_column(ForeignKey("hooks.id", ondelete="CASCADE"), nullable=True, index=True)
+    event: Mapped[str] = mapped_column(String(20), default="")
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    conversation_id: Mapped[str] = mapped_column(String(64), default="")
+    tool_name: Mapped[str] = mapped_column(String(100), default="")
+    #: pre_tool：allow / ask / deny；post_tool、stop：sent
+    decision: Mapped[str] = mapped_column(String(10), default="")
+    reason: Mapped[str] = mapped_column(String(500), default="")
+    #: 出错时的原因（超时、连不上、回答看不懂）；空 = 正常
+    error: Mapped[str] = mapped_column(String(300), default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class EventTrigger(Base):
     """
     事件触发：外部系统（ERP、MES、共享盘的同步脚本……）带密钥 POST 到 /api/v1/hooks/{id}，

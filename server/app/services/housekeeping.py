@@ -20,7 +20,7 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AdminAccess, AdminSession, AuditLog, ChatRecord, Subtask
+from ..models import AdminAccess, AdminSession, AuditLog, ChatRecord, HookCall, Subtask
 
 log = logging.getLogger("flyknit.housekeeping")
 
@@ -51,6 +51,7 @@ async def purge(session: AsyncSession, retention: dict | None = None) -> dict[st
         ("chat", ChatRecord, conf["chat_days"]),
         ("audit", AuditLog, conf["audit_days"]),
         ("subtasks", Subtask, conf["audit_days"]),
+        ("hook_calls", HookCall, conf["audit_days"]),
         ("access", AdminAccess, conf["access_days"]),
     ):
         result = await session.execute(delete(model).where(model.created_at < cutoff(days)))

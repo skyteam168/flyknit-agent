@@ -616,6 +616,8 @@ public sealed partial class AgentHost : IDisposable
             WebSearchEnabled = config.WebSearchEnabled;
             // IT 的工具规则：下一轮任务起生效（正在跑的这一轮用开始时的那份）
             ToolRules = new Flyknit.Core.Security.ToolRules(config.ToolRules);
+            // IT 的钩子（docs/hooks.md）：同样下一轮起生效；总开关关着时服务端下发的是空的
+            ToolHooks = config.Hooks.Count > 0 ? new Flyknit.Core.Security.ToolHooks(config.Hooks, Server) : null;
             RefreshTaskBudget();
             _configTimer.Change(TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
             // 顺带把本机信息报上去。配置拉得到就说明在线，两件事本来就是同一个信号。
@@ -1051,6 +1053,7 @@ public sealed partial class AgentHost : IDisposable
                 ConversationId = id,
                 LoadedTools = LoadedToolsOf(id),
                 Rules = ToolRules,
+                Hooks = ToolHooks,
                 UserRequest = text,
                 Workspace = workspace,
                 Permission = permission,
@@ -1229,6 +1232,13 @@ public sealed partial class AgentHost : IDisposable
                 usage = result.Usage is { } u ? new { promptTokens = u.PromptTokens, completionTokens = u.CompletionTokens } : null,
             });
             RunFinished?.Invoke(new RunFinishedInfo(id, Store.Get(id)?.Title ?? "", LastAnswer(result.NewMessages), result.StopReason));
+            // 钩子 stop：办事任务一轮结束（对话、翻译不发，里面没有工具调用）
+            if (conv.Mode == ConversationMode.Agent)
+            {
+                ctx.Hooks?.Finished(id, runId, ctx.TaskId, ctx.GrantId,
+                    result.StopReason switch { AgentStopReason.Completed => "succeeded", AgentStopReason.Cancelled => "stopped", _ => "failed" },
+                    LastAnswer(result.NewMessages));
+            }
 
             if (needsTitle && result.StopReason != AgentStopReason.Cancelled)
             {
@@ -1359,6 +1369,9 @@ public sealed partial class AgentHost : IDisposable
 
     /// <summary>IT 在后台写的工具规则（拦截 / 必须确认 / 提醒 / 结果打码），随配置刷新。</summary>
     public Flyknit.Core.Security.ToolRules ToolRules { get; private set; } = Flyknit.Core.Security.ToolRules.None;
+
+    /// <summary>IT 配的钩子（调用工具前问一下、做完 / 任务结束通知一下），随配置刷新；没有钩子时为空。</summary>
+    public Flyknit.Core.Security.ToolHooks? ToolHooks { get; private set; }
 
     /// <summary>落盘的工具结果放在这里；启动时清掉 7 天前的。</summary>
     private static string ToolOutputRoot => Path.Combine(AppPaths.Temp, "tool-outputs");
@@ -1772,6 +1785,7 @@ public sealed partial class AgentHost : IDisposable
                 ConversationId = conv.Id,
                 LoadedTools = LoadedToolsOf(conv.Id),
                 Rules = ToolRules,
+                Hooks = ToolHooks,
                 UserRequest = prompt,
                 Workspace = workspace,
                 Permission = permission,

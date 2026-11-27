@@ -342,6 +342,8 @@ class ClientConfigOut(BaseModel):
     web_search_enabled: bool = False
     #: IT 写的工具规则（拦截 / 必须确认 / 提醒 / 结果打码），只带启用的
     tool_rules: list[dict] = Field(default_factory=list)
+    #: 钩子的匹配条件（docs/hooks.md）：只有事件、工具、参数匹配、出错怎么办，没有地址和密钥。总开关关着时为空
+    hooks: list[dict] = Field(default_factory=list)
 
 
 class DevicePolicyIn(BaseModel):

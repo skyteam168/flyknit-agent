@@ -1,5 +1,5 @@
 import { del, download, downloadPost, get, patch, post, put, request, upload } from './http'
-import type { Department, DeviceAccess, ItemScope, LayerPolicy, ScopeKind, SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun, UnattendedJob, UnattendedJobIn, UnattendedRun,
+import type { HookCallRow, HookIn, HookItem, HookTestResult, Department, DeviceAccess, ItemScope, LayerPolicy, ScopeKind, SlashCommand, ToolRule, PluginItem, PluginPreview, TaskGrant, EventTrigger, EventRun, UnattendedJob, UnattendedJobIn, UnattendedRun,
   ChannelBinding,
   ChannelMessageRow,
   DingTalkConfig,
@@ -270,6 +270,12 @@ export const api = {
   updateUnattended: (id: number, body: Partial<UnattendedJobIn>) => patch<UnattendedJob>(`/unattended/${id}`, body),
   deleteUnattended: (id: number) => del(`/unattended/${id}`),
   runUnattended: (id: number) => post<{ message_id: number }>(`/unattended/${id}/run`, {}),
+  hooks: () => get<{ enabled: boolean; items: HookItem[]; calls: HookCallRow[] }>('/hooks'),
+  setHooksSwitch: (enabled: boolean) => put<{ enabled: boolean }>('/hooks/switch', { enabled }),
+  createHook: (body: HookIn) => post<HookItem>('/hooks', body),
+  updateHook: (id: number, body: Partial<HookIn>) => patch<HookItem>(`/hooks/${id}`, body),
+  deleteHook: (id: number) => del(`/hooks/${id}`),
+  testHook: (id: number) => post<HookTestResult>(`/hooks/${id}/test`, {}),
   eventTriggers: () => get<{ enabled: boolean; items: EventTrigger[]; runs: EventRun[] }>('/event-triggers'),
   setEventSwitch: (enabled: boolean) => put<{ enabled: boolean }>('/event-triggers/switch', { enabled }),
   createEventTrigger: (body: Omit<EventTrigger, 'device_name' | 'token_prefix' | 'fire_count' | 'last_fired_at' | 'created_by' | 'url' | 'token'>) =>

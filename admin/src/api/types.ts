@@ -1159,3 +1159,46 @@ export interface UnattendedRun {
   created_at: string
   finished_at: string | null
 }
+
+/** 钩子（docs/hooks.md）：AI 调用工具前后、任务结束时通知 IT 的 HTTP 地址 */
+export type HookEvent = 'pre_tool' | 'post_tool' | 'stop'
+export interface HookItem {
+  id: number
+  name: string
+  events: HookEvent[]
+  tools: string
+  match: string
+  url: string
+  has_secret: boolean
+  timeout_ms: number
+  on_error: 'ask' | 'deny' | 'allow'
+  skip_tls_verify: boolean
+  enabled: boolean
+  scope_departments: string[]
+  scope_devices: number[]
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+/** secret：undefined = 不改；'' = 去掉签名 */
+export type HookIn = Omit<HookItem, 'id' | 'has_secret' | 'created_by' | 'created_at' | 'updated_at'> & { secret?: string }
+export interface HookCallRow {
+  id: number
+  hook_id: number | null
+  hook_name: string
+  event: HookEvent
+  device_id: number | null
+  tool_name: string
+  decision: string
+  reason: string
+  error: string
+  latency_ms: number
+  created_at: string
+}
+export interface HookTestResult {
+  ok: boolean
+  decision: string | null
+  reason: string
+  error: string
+  latency_ms: number
+}

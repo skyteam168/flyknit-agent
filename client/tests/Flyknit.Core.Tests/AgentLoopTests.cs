@@ -199,6 +199,42 @@ public class AgentLoopTests : IDisposable
     }
 
     [Fact]
+    public async Task AHookCanForceConfirmationAndBlockButNeverLoosen()
+    {
+        var file = Path.Combine(_dir, "a.txt");
+        File.WriteAllText(file, "hello");
+        var read = $"{{\"path\":{Json(file)}}}";
+        var client = new ToolHooksTests.FakeHookClient
+        {
+            Answer = c => c.Tool == "read_file" ? new HookVerdict(HookDecision.Ask, "读文件要登记") : new HookVerdict(HookDecision.Deny, "不许写"),
+        };
+        var hooks = new ToolHooks(new[] { new HookSpec { Id = 1, Events = new() { ToolHooks.PreTool, ToolHooks.PostTool } } }, client);
+        var approvals = new ApprovalStore();
+        var confirm = new FixedConfirm(ConfirmChoice.AllowForSession);
+        var gateway = new ScriptedGateway(
+            Call("read_file", read), Call("read_file", read),
+            Call("write_file", $"{{\"path\":{Json(Path.Combine(_dir, "b.txt"))},\"content\":\"x\"}}"),
+            new ChatTurn { Content = "好了" });
+        var ctx = Context();
+        ctx = new ToolContext { Policy = ctx.Policy, ConversationId = "c1", Workspace = _dir, Security = ctx.Security, RunId = "run-1", Hooks = hooks };
+        var observer = new Observer();
+        var history = new List<ChatMessage> { ChatMessage.User("读两次再写") };
+
+        await new AgentLoop(gateway, ToolRegistry.CreateDefault(), confirm, approvals: approvals)
+            .RunAsync(history, Scenes.Agent, ctx, observer, true, CancellationToken.None);
+
+        // 读文件本来自动：钩子要求确认，选了「本次都允许」第二次照样问
+        Assert.Equal(2, confirm.Requests.Count);
+        Assert.All(confirm.Requests, r => Assert.Contains("读文件要登记", r.Decision.Reason));
+        Assert.All(confirm.Requests, r => Assert.True(r.Decision.AlwaysAsk));
+        // 写文件被拦下，文件没写出来
+        Assert.Contains("start:write_file:Blocked", observer.Events);
+        Assert.False(File.Exists(Path.Combine(_dir, "b.txt")));
+        Assert.Equal(new[] { "read_file", "read_file", "write_file" }, client.Checked.Select(c => c.Tool));
+        Assert.All(client.Checked, c => Assert.Equal("run-1", c.RunId));
+    }
+
+    [Fact]
     public async Task ReadsFileAutomaticallyAndFinishes()
     {
         var file = Path.Combine(_dir, "a.txt");

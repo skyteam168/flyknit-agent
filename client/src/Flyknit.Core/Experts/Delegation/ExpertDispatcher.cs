@@ -234,6 +234,7 @@ public sealed class ExpertDispatcher
                 Security = parent.Security,
                 // IT 的工具规则对专家同样生效
                 Rules = parent.Rules,
+                Hooks = parent.Hooks,
                 GrantId = parent.GrantId,
                 TaskId = parent.TaskId,
                 // 员工在主助手或别的专家卡片上点过「本任务内不再询问」的，这位专家沿用（只是员工本人给过的授权，
