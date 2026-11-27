@@ -1264,6 +1264,12 @@ const zh = {
     },
     imageView: {
       openOutside: '用系统程序打开',
+      count: '第 {i} 项，共 {n} 项',
+      loading: '正在读取图片…',
+      prev: '上一张',
+      next: '下一张',
+      stripTip: '这一轮 AI 看过或生成的图片（点开看大图）',
+      more: '还有 {n} 张',
     },
     quota: {
       aria: '今日额度已用 {p}%，点击查看用量',
@@ -3618,6 +3624,12 @@ const vi: Messages = {
     },
     imageView: {
       openOutside: 'Mở bằng chương trình hệ thống',
+      count: 'Mục {i} / {n}',
+      loading: 'Đang đọc ảnh…',
+      prev: 'Ảnh trước',
+      next: 'Ảnh sau',
+      stripTip: 'Ảnh AI đã xem hoặc tạo ra trong lượt này (bấm để xem lớn)',
+      more: 'Còn {n} ảnh',
     },
     quota: {
       aria: 'Đã dùng {p}% hạn mức hôm nay, bấm để xem chi tiết',
@@ -5977,6 +5989,12 @@ const en: Messages = {
     },
     imageView: {
       openOutside: 'Open in default app',
+      count: '{i} of {n}',
+      loading: 'Loading image…',
+      prev: 'Previous',
+      next: 'Next',
+      stripTip: 'Images the AI looked at or created in this turn (click to enlarge)',
+      more: '{n} more',
     },
     quota: {
       aria: '{p}% of today’s quota used, click for details',

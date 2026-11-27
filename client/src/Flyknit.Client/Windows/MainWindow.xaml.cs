@@ -67,9 +67,11 @@ public partial class MainWindow : Window, IWindowActions
                 _settings.WindowMaximized = WindowState == WindowState.Maximized;
             }
             Bridge?.Post(new { type = "window.state", maximized = WindowState == WindowState.Maximized });
+            FitMaximized();
         };
         SizeChanged += (_, _) =>
         {
+            FitMaximized(); // 最大化着换了显示器 / 分辨率：重新量一次
             // 对话浮窗的小尺寸不记：下次正常打开还是原来的大小
             if (WindowState == WindowState.Normal && !_compact)
             {
@@ -761,6 +763,41 @@ public partial class MainWindow : Window, IWindowActions
     private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
 
     // ---------- 最大化尺寸 ----------
+
+    /// <summary>
+    /// 最大化时内容收进屏幕工作区：无边框窗口带着系统边框样式（为了最小化动画）最大化时，Windows 常把窗口四边各推出去几个像素
+    /// （边框厚度），底部那几像素就压在任务栏下面——编码模式最下面的状态栏被挡住一截。
+    /// 不猜边框多厚：直接量窗口实际超出工作区多少，内容就往里收多少（换显示器、改缩放比例都对）。
+    /// </summary>
+    private void FitMaximized()
+    {
+        if (Content is not FrameworkElement root)
+        {
+            return;
+        }
+        if (WindowState != WindowState.Maximized)
+        {
+            root.Margin = new Thickness(0);
+            return;
+        }
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (hwnd == IntPtr.Zero || monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info) || !GetWindowRect(hwnd, out var rect))
+        {
+            return;
+        }
+        // 物理像素 → WPF 的设备无关单位
+        var scale = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice ?? System.Windows.Media.Matrix.Identity;
+        root.Margin = new Thickness(
+            Math.Max(0, info.Work.Left - rect.Left) * scale.M11,
+            Math.Max(0, info.Work.Top - rect.Top) * scale.M22,
+            Math.Max(0, rect.Right - info.Work.Right) * scale.M11,
+            Math.Max(0, rect.Bottom - info.Work.Bottom) * scale.M22);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
 
     private const int WmGetMinMaxInfo = 0x0024;
     private const uint MonitorDefaultToNearest = 2;
