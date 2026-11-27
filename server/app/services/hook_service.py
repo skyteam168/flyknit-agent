@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..crypto import decrypt
 from ..models import Device, Hook, HookCall
-from . import item_scope, settings_store
+from . import item_scope, plugin_scope, settings_store
 
 log = logging.getLogger("flyknit.hooks")
 
@@ -71,20 +71,25 @@ def matches(hook: Hook, event: str, tool: str = "", args_json: str = "") -> bool
     return True
 
 
-async def applicable(session: AsyncSession, device: Device | None, event: str) -> list[Hook]:
+async def _visible(session: AsyncSession, device: Device | None) -> list[Hook]:
+    """启用的、在范围里的钩子；插件带来的还要插件启用且在插件的下发范围里。"""
     rows = (await session.scalars(select(Hook).where(Hook.enabled.is_(True)).order_by(Hook.id))).all()
-    return [h for h in rows if event in (h.events or []) and item_scope.in_scope(h, device)]
+    plugins = await plugin_scope.visible_ids(session, device) if any(h.plugin for h in rows) else set()
+    return [h for h in rows if item_scope.visible(h, device, plugins)]
+
+
+async def applicable(session: AsyncSession, device: Device | None, event: str) -> list[Hook]:
+    return [h for h in await _visible(session, device) if event in (h.events or [])]
 
 
 async def client_specs(session: AsyncSession, device: Device) -> list[dict]:
     """员工端配置里下发的：只有匹配条件，没有地址和密钥。总开关关着时为空。"""
     if not await master_on(session):
         return []
-    rows = (await session.scalars(select(Hook).where(Hook.enabled.is_(True)).order_by(Hook.id))).all()
     return [
         {"id": h.id, "events": list(h.events or []), "tools": h.tools or "*", "match": h.match or "",
          "on_error": h.on_error, "timeout_ms": h.timeout_ms}
-        for h in rows if item_scope.in_scope(h, device)
+        for h in await _visible(session, device)
     ]
 
 

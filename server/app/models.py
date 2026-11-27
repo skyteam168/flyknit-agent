@@ -326,6 +326,8 @@ class Hook(Base):
     #: 使用范围：部门 ∪ 电脑；两个都空 = 全公司（services/item_scope.py）
     scope_departments: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     scope_devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    #: 由哪个插件装进来的（plugins.id）。空 = 管理员直接建的；插件的钩子还要在插件的下发范围里
+    plugin: Mapped[str] = mapped_column(String(40), default="")
     created_by: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

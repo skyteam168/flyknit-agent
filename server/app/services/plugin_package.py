@@ -1,4 +1,4 @@
-"""插件包：把技能 + 专家 + 连接器 + 快捷指令 + 工具规则打成一包，IT 按部门一键下发。
+"""插件包：把技能 + 专家 + 连接器 + 快捷指令 + 工具规则 + 钩子打成一包，IT 按部门一键下发。
 
 目录结构沿用 Claude Code 的 plugins（社区插件可以直接导入）：
 
@@ -8,12 +8,16 @@
     ├── skills/<名字>/SKILL.md        技能（社区 SKILL.md 标准）
     ├── agents/*.md                  专家：frontmatter name / description / tools / disallowedTools，正文是工作方式
     ├── .mcp.json                    连接器：{"mcpServers": {...}}，和 Claude Code 一样
-    └── rules.json                   工具规则（我们自己的声明式规则，可放在 hooks/rules.json）
+    ├── rules.json                   工具规则（我们自己的声明式规则，可放在 hooks/rules.json）
+    └── hooks/http.json              HTTP 钩子（docs/hooks.md）：[{name, events, tools, match, url, timeout_ms, on_error}]
 
 也认 .flyknit-plugin/plugin.json 和根目录的 plugin.json。
 
 和 Claude Code 不一样的地方（安全边界，不是没做完）：
-- hooks/hooks.json 里的 command 类 hook 要在员工电脑上执行脚本，**一律拒收**；改写成 rules.json 的声明式规则。
+- hooks/hooks.json 里的 command 类 hook 要在员工电脑上执行脚本，**一律拒收**；改写成 rules.json 的声明式规则，
+  或者 hooks/http.json 的 HTTP 钩子（服务端去调，员工电脑不跑任何脚本）。
+- HTTP 钩子装进来一律是**关着的**、不带签名密钥：钩子能收到员工调用工具的参数，要超级管理员在「钩子」页看过、
+  填好密钥再打开（装插件的普通管理员打不开）。
 - 连接器里的 ${VAR} 只认填写项（员工连接时填，或管理员预填），不读员工电脑的环境变量；
   用到 ${CLAUDE_PLUGIN_ROOT} 的本地进程（要在员工电脑上跑插件自带的脚本）不支持。
 - 专家只能做减法：Claude Code 的 tools 白名单里没有写入类工具时，专家记成「只读」；
@@ -62,6 +66,8 @@ class ParsedPlugin:
     connectors: list[dict] = field(default_factory=list)
     #: tool_rules.ToolRule 的 dict（未校验，路由层校验）
     rules: list[dict] = field(default_factory=list)
+    #: hooks.HookIn 的 dict（未校验，路由层校验；不能带 secret）
+    hooks: list[dict] = field(default_factory=list)
     #: 不影响安装、但管理员该知道的事（例如忽略了哪个文件）
     warnings: list[str] = field(default_factory=list)
 
@@ -78,6 +84,7 @@ class ParsedPlugin:
                             "source_manifest": c["source_manifest"], "source_mcp_config": c["source_mcp_config"]}
                            for c in self.connectors],
             "rules": self.rules,
+            "hooks": [{k: h.get(k) for k in ("name", "events", "tools", "match", "url")} for h in self.hooks],
             "warnings": self.warnings,
         }
 
@@ -167,8 +174,9 @@ def parse(data: bytes, subdir: str = "") -> ParsedPlugin:
         _experts(files, text, plugin)
         _connectors(files, text, plugin, manifest, manifest_rel)
         _rules(files, text, plugin)
+        _http_hooks(files, text, plugin)
 
-        if not (plugin.skills or plugin.commands or plugin.experts or plugin.connectors or plugin.rules):
+        if not (plugin.skills or plugin.commands or plugin.experts or plugin.connectors or plugin.rules or plugin.hooks):
             raise PluginError("插件里没有可用的内容（技能、快捷指令、专家、连接器、工具规则都没有）")
         return plugin
 
@@ -289,3 +297,21 @@ def _rules(files: dict, text, plugin: ParsedPlugin) -> None:
     if not isinstance(items, list):
         raise PluginError(f"{rel} 应该是规则数组，或 {{\"rules\": [...]}}")
     plugin.rules = [r for r in items if isinstance(r, dict)]
+
+
+def _http_hooks(files: dict, text, plugin: ParsedPlugin) -> None:
+    """hooks/http.json：HTTP 钩子的定义（不含密钥）。校验在路由层（和后台新建钩子同一套）。"""
+    rel = next((r for r in ("hooks/http.json", "http-hooks.json") if r in files), None)
+    if rel is None:
+        return
+    try:
+        data = json.loads(text(rel))
+    except ValueError as exc:
+        raise PluginError(f"{rel} 不是合法的 JSON：{exc}") from exc
+    items = data.get("hooks") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        raise PluginError(f"{rel} 应该是钩子数组，或 {{\"hooks\": [...]}}")
+    for h in items:
+        if isinstance(h, dict) and ("secret" in h or "secret_enc" in h):
+            raise PluginError(f"{rel} 里不能写签名密钥：装好后由超级管理员在「钩子」页填写")
+    plugin.hooks = [h for h in items if isinstance(h, dict)]

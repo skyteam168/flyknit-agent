@@ -50,7 +50,7 @@ async def test_install_materializes_everything(client, device_headers):
     assert preview.status_code == 200, preview.text
     p = preview.json()
     assert p["id"] == "qc" and p["conflicts"] == [] and p["upgrade_from"] is None
-    assert p["counts"] == {"skills": 1, "commands": 1, "experts": 1, "connectors": 1, "rules": 1}
+    assert p["counts"] == {"skills": 1, "commands": 1, "experts": 1, "connectors": 1, "rules": 1, "hooks": 0}
     # Claude Code 的 $1 / $ARGUMENTS 换成我们的 {参数}
     assert p["manifest"]["commands"][0]["template"] == "汇总 {arg1} 的质检数据，写成日报。补充：{arguments}"
 

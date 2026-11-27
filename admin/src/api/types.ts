@@ -838,6 +838,8 @@ export interface PluginManifest {
   experts: { id: string; name: string; description: string }[]
   connectors: PluginConnector[]
   rules: ToolRule[]
+  /** HTTP 钩子（装进来是关着的，超级管理员在「钩子」页审核后打开） */
+  hooks?: { name: string; events: string[]; tools: string; match: string; url: string }[]
   warnings: string[]
 }
 
@@ -847,6 +849,8 @@ export interface PluginCounts {
   experts: number
   connectors: number
   rules: number
+  /** HTTP 钩子（旧版服务端没有这一项） */
+  hooks?: number
 }
 
 export interface PluginItem {
@@ -1176,12 +1180,14 @@ export interface HookItem {
   enabled: boolean
   scope_departments: string[]
   scope_devices: number[]
+  /** 由哪个插件装进来的；空 = 管理员直接建的 */
+  plugin?: string
   created_by: string
   created_at: string
   updated_at: string
 }
 /** secret：undefined = 不改；'' = 去掉签名 */
-export type HookIn = Omit<HookItem, 'id' | 'has_secret' | 'created_by' | 'created_at' | 'updated_at'> & { secret?: string }
+export type HookIn = Omit<HookItem, 'id' | 'has_secret' | 'plugin' | 'created_by' | 'created_at' | 'updated_at'> & { secret?: string }
 export interface HookCallRow {
   id: number
   hook_id: number | null

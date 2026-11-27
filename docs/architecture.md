@@ -607,9 +607,10 @@ MCP 地址、介绍页（从页面里找 mcpServers 配置、`claude mcp add`、
 | `.claude-plugin/plugin.json` 的 `mcpServers`（对象，或包内文件路径）+ `.mcp.json` / `mcp.json` | `mcp_vendors`（`source_type=plugin` + 来源列） | 见下面「插件 MCP」 |
 | `commands/*.md` | 插件清单，`/client/commands` 合并下发 | `$1…$9` → `{arg1}…`，`$ARGUMENTS` → `{arguments}`；同名时后台手写的优先；`!\`命令\`` 不执行 |
 | `rules.json` / `hooks/rules.json` | 插件清单，`/client/config` 的 `tool_rules` 合并下发 | 同「工具规则」校验；`hooks/hooks.json` 里的 command 类 hook（要在员工电脑上跑脚本）整包拒收 |
+| `hooks/http.json` | `hooks`（`plugin=<插件>`，docs/hooks.md） | 同后台新建钩子的校验；**装进来一律关着、没有密钥**，包里写密钥整包拒收；只有超级管理员能打开；升级时定义（事件、工具、参数匹配、地址、超时、出错处理）完全没变才保留启用状态和密钥，变了就关掉重新审核；跟插件的下发范围走 |
 
 下发范围 `plugins.departments`（空 = 全公司，按 `devices.department` 匹配）在服务端过滤：`plugin_scope.visible_ids` 用在技能列表和下载、
-专家、连接器、快捷指令、工具规则这几个员工端接口上，范围外或停用的插件带来的东西一样都拿不到。再传同一插件 = 升级（新版没有的删掉）；
+专家、连接器、快捷指令、工具规则、钩子（下发的匹配条件和 `check` / `notify` 时选钩子）这几个员工端接口上，范围外或停用的插件带来的东西一样都拿不到。再传同一插件 = 升级（新版没有的删掉）；
 同名且不是本插件装的东西直接拒绝（409）。员工端「设置 → 插件」只读查看；插件不再下发时，它装进 org 目录的技能会被删掉（`AppSettings.PluginSkills`）。
 
 ### 插件 MCP（PluginMcpResolver）
