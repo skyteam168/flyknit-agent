@@ -8,6 +8,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import { languageOf, loadMonaco } from './monaco'
+import { defineThemes, editorPrefs, prefOptions, themeName } from './prefs'
 import { bindModel, installLsp, uriFor } from './lsp'
 import { currentCode, type CodeSelection, type CodeTab } from './store'
 
@@ -52,11 +53,10 @@ function modelFor(tab: CodeTab): Monaco.editor.ITextModel {
 
 const common = (): Monaco.editor.IEditorOptions => ({
   automaticLayout: false,
-  fontSize: 13,
-  fontFamily: 'Cascadia Code, Consolas, "Courier New", monospace',
-  minimap: { enabled: false },
+  // 字号、粗细、字体、行高、缩略图：员工在「…」→「编辑器外观」里设的（prefs.ts）
+  ...prefOptions(),
   scrollBeyondLastLine: false,
-  wordWrap: 'off',
+  wordWrap: editorPrefs.wordWrap ? 'on' : 'off',
   renderWhitespace: 'selection',
   smoothScrolling: true,
 })
@@ -112,7 +112,7 @@ function render() {
       unicodeHighlight: { ambiguousCharacters: !tab.virtual },
       wordBasedSuggestions: tab.virtual ? 'off' : 'matchingDocuments',
       quickSuggestions: tab.virtual ? false : { other: 'on', comments: 'off', strings: 'off' },
-      wordWrap: tab.virtual ? 'on' : 'off',
+      wordWrap: tab.virtual || editorPrefs.wordWrap ? 'on' : 'off',
     })
   }
   applyReveal()
@@ -224,7 +224,7 @@ function attachSelectionUi(ed: Monaco.editor.IStandaloneCodeEditor) {
     const sel = ed.getSelection()
     if (sel) {
       const to = sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel.endLineNumber
-      props.tab.cursor = { line: sel.positionLineNumber, from: sel.isEmpty() ? 0 : sel.startLineNumber, to: sel.isEmpty() ? 0 : to }
+      props.tab.cursor = { line: sel.positionLineNumber, column: sel.positionColumn, from: sel.isEmpty() ? 0 : sel.startLineNumber, to: sel.isEmpty() ? 0 : to }
     }
     if (editing) return
     dom.classList.remove('editing')
@@ -248,8 +248,9 @@ onMounted(async () => {
     failed.value = String((e as Error)?.message ?? e)
     return
   }
-  monaco.editor.setTheme(isDark() ? 'vs-dark' : 'vs')
-  observer = new MutationObserver(() => monaco?.editor.setTheme(isDark() ? 'vs-dark' : 'vs'))
+  defineThemes(monaco)
+  monaco.editor.setTheme(themeName(isDark()))
+  observer = new MutationObserver(() => monaco?.editor.setTheme(themeName(isDark())))
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
   resize = new ResizeObserver(() => {
     editor.value?.layout()
@@ -258,6 +259,18 @@ onMounted(async () => {
   if (host.value) resize.observe(host.value)
   render()
 })
+
+// 员工改了编辑器外观：马上生效（主题是全局的，字号这些每个编辑器各自改）
+watch(
+  () => ({ ...editorPrefs }),
+  () => {
+    if (!monaco) return
+    monaco.editor.setTheme(themeName(isDark()))
+    const opts = { ...prefOptions(), wordWrap: (props.tab.virtual || editorPrefs.wordWrap ? 'on' : 'off') as 'on' | 'off' }
+    editor.value?.updateOptions(opts)
+    diff.value?.updateOptions(opts)
+  },
+)
 
 // 换了文件、AI 改了（before 出现或变了）、只读变了：重画一次（只一个 watch，免得同一次变化画两遍、对比算到一半被换掉）
 watch(() => [props.tab.fullPath, props.tab.before, props.tab.readOnly], render)

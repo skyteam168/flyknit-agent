@@ -4,14 +4,16 @@
  * - 员工自己的 PowerShell：可以开好几个，直接敲命令（和自己打开 PowerShell 一样，不经过 AI）；
  * - AI 跑的命令（run_shell，包括一直在跑的后台命令，比如开发服务器）：看输出，还在跑的可以停。
  *   AI 的命令照样走命令确认，这里只是看和停。
+ * - 打开项目时自动开一个在项目目录里的终端（每个对话一次，员工关掉了就不再自动开）；右边的列表左边缘拖动调宽度。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Bot, Plus, Square, SquareTerminal, X } from '@lucide/vue'
 import { current, state, stopTerminalRun } from '../../store'
 import type { TerminalRun } from '../../types'
 import XTermView from './XTermView.vue'
-import { closePty, openPty, pty } from './pty'
+import { autoOpened, closePty, openPty, pty } from './pty'
+import { clampTermList, ide } from './store'
 
 const { t } = useI18n()
 
@@ -41,6 +43,35 @@ async function newShell() {
   const s = await openPty(current.value.id, 120, 30)
   opening.value = false
   if (s) selected.value = 'pty:' + s.id
+}
+
+// 打开项目（看到终端面板）时自动开一个：这个对话还没有自己的终端，而且这次还没自动开过
+function autoOpen() {
+  const c = current.value
+  if (!c?.workspace || autoOpened.has(c.id)) return
+  autoOpened.add(c.id)
+  if (!mine.value.length) void newShell()
+}
+onMounted(autoOpen)
+watch(() => current.value?.id, autoOpen)
+
+// 终端列表的宽度：左边缘拖动（记住）
+const dragging = ref(false)
+let startX = 0
+let startW = 0
+function down(e: PointerEvent) {
+  dragging.value = true
+  startX = e.clientX
+  startW = ide.termListWidth
+  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  e.preventDefault()
+}
+function move(e: PointerEvent) {
+  if (dragging.value) ide.termListWidth = clampTermList(startW + startX - e.clientX)
+}
+function up(e: PointerEvent) {
+  dragging.value = false
+  ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
 }
 
 const base = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
@@ -79,7 +110,18 @@ function runStatus(r: TerminalRun) {
         <button type="button" class="primary" :disabled="opening" @click="newShell"><Plus :size="13" /> {{ t('ui.code.term.newShell') }}</button>
       </div>
     </div>
-    <aside class="list">
+    <div
+      class="grip"
+      :class="{ active: dragging }"
+      role="separator"
+      aria-orientation="vertical"
+      @pointerdown="down"
+      @pointermove="move"
+      @pointerup="up"
+      @pointercancel="up"
+      @dblclick="ide.termListWidth = 260"
+    />
+    <aside class="list" :style="{ width: ide.termListWidth + 'px' }">
       <header>
         <span>{{ t('ui.code.term.list') }}</span>
         <button type="button" class="icon" :title="t('ui.code.term.newShell')" :disabled="opening" @click="newShell"><Plus :size="14" /></button>
@@ -121,8 +163,19 @@ function runStatus(r: TerminalRun) {
   flex-direction: column;
   width: 260px;
   overflow-y: auto;
-  border-left: 1px solid var(--line);
   background: var(--loom);
+}
+.grip {
+  flex: none;
+  width: 5px;
+  margin-right: -3px;
+  border-left: 1px solid var(--line);
+  cursor: col-resize;
+  z-index: 2;
+}
+.grip:hover,
+.grip.active {
+  background: color-mix(in srgb, var(--indigo) 45%, transparent);
 }
 .list header {
   display: flex;

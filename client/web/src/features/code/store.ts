@@ -41,7 +41,7 @@ export interface CodeTab {
   conflict: { text: string; version: string } | null
   loading: boolean
   /** 光标所在行、选中的行（告诉 AI「这里」是哪里） */
-  cursor?: { line: number; from: number; to: number }
+  cursor?: { line: number; column?: number; from: number; to: number }
   /** 不是磁盘上的文件（计划模式的「方案.md」）：不读写磁盘、不告诉宿主；saved 是 AI 给的那一版，draft 是员工改过的 */
   virtual?: boolean
   /** 要跳到的位置（全局搜索点了某一处）；at 每次不同，编辑器看到新的就跳 */
@@ -83,16 +83,19 @@ interface IdeLayout {
   bottomTab: 'terminal' | 'logs' | 'trace'
   bottomHeight: number
   agentWidth: number
+  /** 底部终端右边的终端列表宽度，左边缘拖动调 */
+  termListWidth: number
 }
 
 const LayoutKey = 'flyknit.ide'
-const defaults: IdeLayout = { on: false, explorerTab: 'project', explorerOpen: true, explorerWidth: 260, bottomOpen: true, bottomTab: 'trace', bottomHeight: 220, agentWidth: 420 }
+const defaults: IdeLayout = { on: false, explorerTab: 'project', explorerOpen: true, explorerWidth: 260, bottomOpen: true, bottomTab: 'terminal', bottomHeight: 220, agentWidth: 420, termListWidth: 260 }
 
 function readLayout(): IdeLayout {
   try {
     const raw = JSON.parse(localStorage.getItem(LayoutKey) ?? '{}')
     const layout = { ...defaults, ...(raw && typeof raw === 'object' ? raw : {}) }
     if (typeof layout.explorerWidth !== 'number' || !Number.isFinite(layout.explorerWidth)) layout.explorerWidth = defaults.explorerWidth
+    if (typeof layout.termListWidth !== 'number' || !Number.isFinite(layout.termListWidth)) layout.termListWidth = defaults.termListWidth
     return layout
   } catch {
     return { ...defaults }
@@ -119,6 +122,7 @@ export function toggleIde(on = !ide.on) {
 
 export const clampBottom = (px: number) => Math.round(Math.min(Math.max(px, 120), window.innerHeight * 0.7))
 export const clampExplorer = (px: number) => Math.round(Math.min(Math.max(px, 180), Math.max(180, window.innerWidth * 0.45)))
+export const clampTermList = (px: number) => Math.round(Math.min(Math.max(px, 160), Math.max(160, window.innerWidth * 0.4)))
 export const clampAgent = (px: number) => Math.round(Math.min(Math.max(px, 320), window.innerWidth * 0.5))
 
 /** 最多同时开这么多个标签：再多就把最早的、没改过的关掉 */
@@ -398,6 +402,98 @@ export function refreshTree(conversationId: string) {
 
 export function collapseTree() {
   tree.collapseVersion++
+  if (current.value) expanded[editorKey(current.value.id)] = {}
+}
+
+// ---------- 重新打开客户端后原样恢复（参照 VS Code）：打开的文件、当前标签、展开的文件夹 ----------
+//
+// 按工作区记在本机（和编辑器状态同一个格子）。员工手动关掉的标签、收起的文件夹不会回来——记的就是关之前的样子。
+// 虚拟标签（计划模式的「方案.md」）不记；文件已经不在了的，恢复时跳过、不报错。
+
+const SessionKey = 'flyknit.ide.session'
+interface SavedEditor {
+  tabs: string[]
+  active: string | null
+  /** 展开着的文件夹（相对路径） */
+  expanded: string[]
+}
+
+function readSession(): Record<string, SavedEditor> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SessionKey) ?? '{}')
+    return raw && typeof raw === 'object' ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
+const saved: Record<string, SavedEditor> = readSession()
+
+/** 每个工作区展开着的文件夹：路径 → true。文件树（ProjectTree）直接读写这里 */
+export const expanded = reactive<Record<string, Record<string, boolean>>>(
+  Object.fromEntries(Object.entries(saved).map(([k, v]) => [k, Object.fromEntries((v.expanded ?? []).map((p) => [p, true]))])),
+)
+
+export function expandedOf(conversationId: string): Record<string, boolean> {
+  return (expanded[editorKey(conversationId)] ??= {})
+}
+
+/** 这次打开客户端后已经恢复过（或者本来就是新开）的格子：只有它们的状态会写回去，免得还没恢复就被空状态覆盖 */
+const restored = new Set<string>()
+
+function saveSession() {
+  for (const key of new Set([...Object.keys(code.byEditor), ...Object.keys(expanded)])) {
+    if (!restored.has(key)) continue
+    const c = code.byEditor[key]
+    saved[key] = {
+      tabs: (c?.tabs ?? []).filter((t) => !t.virtual).map((t) => t.path).slice(-MaxTabs),
+      active: c?.active && c.tabs.some((t) => t.path === c.active && !t.virtual) ? c.active : null,
+      expanded: Object.entries(expanded[key] ?? {}).filter(([, on]) => on).map(([p]) => p).slice(0, 500),
+    }
+  }
+  try {
+    // 只留最近用过的 50 个工作区
+    const entries = Object.entries(saved).slice(-50)
+    localStorage.setItem(SessionKey, JSON.stringify(Object.fromEntries(entries)))
+  } catch {
+    // 存不了就只在这次打开期间记住
+  }
+}
+
+let saveTimer = 0
+watch(
+  () => [
+    Object.entries(code.byEditor).map(([k, c]) => k + ':' + c.tabs.map((t) => t.path).join('|') + '>' + (c.active ?? '')).join(';'),
+    JSON.stringify(expanded),
+  ],
+  () => {
+    clearTimeout(saveTimer)
+    saveTimer = window.setTimeout(saveSession, 300)
+  },
+)
+
+/** 进入编码模式的这个对话：把这个工作区上次开着的文件重新打开（每次启动只做一次） */
+async function restoreEditor(conversationId: string) {
+  const key = editorKey(conversationId)
+  if (restored.has(key)) return
+  restored.add(key)
+  const last = saved[key]
+  if (!last?.tabs?.length) return
+  const c = convOf(conversationId)
+  for (const path of last.tabs) {
+    if (c.tabs.some((x) => samePath(x.path, path))) continue
+    try {
+      const file = await bridge.loadCode(conversationId, path)
+      if (!file.fullPath || !file.exists) continue // 文件已经删了 / 不能打开：跳过，不提示
+      if (c.tabs.some((x) => samePath(x.path, path))) continue
+      c.tabs.push(fromFile(file))
+    } catch {
+      // 读不了就跳过
+    }
+  }
+  if (last.active && c.tabs.some((x) => x.path === last.active)) c.active = last.active
+  else if (!c.active && c.tabs.length) c.active = c.tabs[c.tabs.length - 1].path
+  saveSession()
 }
 
 // ---------- 告诉 AI 员工在看什么（Core/Code/EditorContext）：当前文件、光标、打开的文件、推断出的当前项目 ----------
@@ -909,6 +1005,15 @@ watch(
 export function toggleExplorer() {
   ide.explorerOpen = !ide.explorerOpen
 }
+
+// 进入编码模式、切到另一个工作区的任务：恢复那个工作区上次开着的文件
+watch(
+  () => [ideActive.value, current.value?.id, current.value?.workspace] as const,
+  ([active, id]) => {
+    if (active && id) void restoreEditor(id)
+  },
+  { immediate: true },
+)
 
 // Ctrl+Shift+F：编码模式里打开左边的「搜索」（参照 VS Code）。编辑器里也能按（Monaco 自己没占这个键）
 window.addEventListener(

@@ -13,6 +13,7 @@ import { useI18n } from 'vue-i18n'
 import { Bot, Check, Code2, ExternalLink, FolderGit2, GitCompare, MoreHorizontal, Save, ShieldCheck, X } from '@lucide/vue'
 import { bridge } from '../../bridge'
 import Popover from '../../components/Popover.vue'
+import { EDITOR_FONTS, EDITOR_THEMES, FONT_WEIGHTS, clampFont, editorPrefs, resetEditorPrefs } from './prefs'
 import { current, send, state, toast } from '../../store'
 import MonacoView from './MonacoView.vue'
 import { acceptDiff, activeTab, closeCodeTab, currentCode, executePlanInIde, isDirty, keepMine, keepTurn, narrowToProject, pendingTurnFor, planEdited, projects, saveCodeTab, selectionMarkdown, takeTheirs, undoTurn } from './store'
@@ -272,6 +273,46 @@ const reasonText = computed(() => {
               <button type="button" class="item" :title="t('ui.code.vscodeHint')" @click="openVsCode(), closePop()">
                 <span class="check"><ExternalLink :size="13" /></span>{{ t('ui.code.tabs.vscode') }}
               </button>
+              <!-- 编辑器外观：主题、字号、粗细、字体、行高、换行、缩略图、连字（每个员工自己的偏好，记在本机） -->
+              <hr />
+              <p class="group">{{ t('ui.code.appearance.title') }}</p>
+              <div class="pref">
+                <label>{{ t('ui.code.appearance.theme') }}</label>
+                <select v-model="editorPrefs.theme">
+                  <option v-for="th in EDITOR_THEMES" :key="th" :value="th">{{ t(`ui.code.appearance.themes.${th}`) }}</option>
+                </select>
+              </div>
+              <div class="pref">
+                <label>{{ t('ui.code.appearance.fontSize') }}</label>
+                <span class="stepper">
+                  <button type="button" :aria-label="t('ui.code.appearance.smaller')" @click="editorPrefs.fontSize = clampFont(editorPrefs.fontSize - 1)">−</button>
+                  <b>{{ editorPrefs.fontSize }}</b>
+                  <button type="button" :aria-label="t('ui.code.appearance.larger')" @click="editorPrefs.fontSize = clampFont(editorPrefs.fontSize + 1)">+</button>
+                </span>
+              </div>
+              <div class="pref">
+                <label>{{ t('ui.code.appearance.fontWeight') }}</label>
+                <select v-model="editorPrefs.fontWeight">
+                  <option v-for="w in FONT_WEIGHTS" :key="w" :value="w">{{ t(`ui.code.appearance.weights.w${w}`) }}</option>
+                </select>
+              </div>
+              <div class="pref">
+                <label>{{ t('ui.code.appearance.font') }}</label>
+                <select v-model="editorPrefs.font">
+                  <option v-for="f in EDITOR_FONTS" :key="f.id" :value="f.id">{{ t(`ui.code.appearance.fonts.${f.id}`) }}</option>
+                </select>
+              </div>
+              <div class="pref">
+                <label>{{ t('ui.code.appearance.lineHeight') }}</label>
+                <select v-model.number="editorPrefs.lineHeight">
+                  <option :value="0">{{ t('ui.code.appearance.lineAuto') }}</option>
+                  <option v-for="h in [18, 20, 22, 24, 26, 28]" :key="h" :value="h">{{ h }}</option>
+                </select>
+              </div>
+              <label class="pref check-row"><input v-model="editorPrefs.wordWrap" type="checkbox" />{{ t('ui.code.appearance.wordWrap') }}</label>
+              <label class="pref check-row"><input v-model="editorPrefs.minimap" type="checkbox" />{{ t('ui.code.appearance.minimap') }}</label>
+              <label class="pref check-row" :title="t('ui.code.appearance.ligaturesHint')"><input v-model="editorPrefs.ligatures" type="checkbox" />{{ t('ui.code.appearance.ligatures') }}</label>
+              <button type="button" class="item" @click="resetEditorPrefs()"><span class="check" />{{ t('ui.code.appearance.reset') }}</button>
               <!-- 语言服务：哪些语言装了、这个项目信任了没有 -->
               <template v-if="lspStatus?.enabled">
                 <hr />
@@ -486,6 +527,50 @@ const reasonText = computed(() => {
 .more-menu {
   display: flex;
   flex-direction: column;
+}
+.pref {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 10px;
+  font-size: calc(12.5px * var(--font-scale));
+}
+.pref label {
+  color: var(--ink-soft);
+}
+.pref select {
+  max-width: 160px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--cloth);
+  color: var(--ink);
+  font: inherit;
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.stepper button {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--cloth);
+  color: var(--ink);
+  cursor: pointer;
+}
+.stepper b {
+  min-width: 20px;
+  text-align: center;
+  font-weight: 600;
+}
+.check-row {
+  justify-content: flex-start;
+  color: var(--ink);
+  cursor: pointer;
 }
 .more-menu .group {
   margin: 2px 8px 4px;

@@ -9,13 +9,14 @@ import { ChevronDown, ChevronRight, ChevronsDownUp, FileCode2, FilePlus, Folder,
 import { bridge } from '../../bridge'
 import type { WorkspaceEntry } from '../../types'
 import { current } from '../../store'
-import { activeTab, code, collapseTree, finishCreate, openCodeFile, refreshTree, startCreate, tree } from './store'
+import { activeTab, code, collapseTree, expandedOf, finishCreate, openCodeFile, refreshTree, startCreate, tree } from './store'
 
 const props = defineProps<{ conversationId: string; path?: string; depth?: number }>()
 const { t } = useI18n()
 
 const entries = ref<WorkspaceEntry[]>([])
-const open = ref<Record<string, boolean>>({})
+/** 展开着的文件夹：按工作区记在 store 里（关掉客户端再打开还是这样，见 store 的「原样恢复」） */
+const open = computed(() => expandedOf(props.conversationId))
 const loading = ref(false)
 const error = ref('')
 const truncated = ref(false)
@@ -40,14 +41,13 @@ onMounted(load)
 watch(() => props.conversationId, load)
 // AI 新建 / 删除了文件：每一层（展开着的子文件夹也一样）各自重新列，展开状态不变
 watch(() => code.treeVersion[props.conversationId], load)
-// 全部收起
-watch(() => tree.collapseVersion, () => (open.value = {}))
 
 const parentOf = (p: string) => p.split(/[\\/]/).slice(0, -1).join('\\')
 
 function click(e: WorkspaceEntry) {
   if (e.isDir) {
-    open.value[e.path] = !open.value[e.path]
+    if (open.value[e.path]) delete open.value[e.path]
+    else open.value[e.path] = true
     tree.selectedDir[props.conversationId] = e.path
   } else {
     tree.selectedDir[props.conversationId] = parentOf(e.path)

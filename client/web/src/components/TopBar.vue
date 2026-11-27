@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import CodeModeButton from '../features/code/CodeModeButton.vue'
+import { ideActive } from '../features/code/store'
+import KnitMark from './KnitMark.vue'
 import { useI18n } from 'vue-i18n'
 import { Activity, Copy, Languages, Menu, MessageCircleQuestion, MessageSquare, Minus, PanelLeft, PanelRight, Pin, Plus, Puzzle, Square, Wrench, X } from '@lucide/vue'
 import { bridge } from '../bridge'
@@ -56,7 +58,12 @@ function openBackground() {
 
 <template>
   <header class="topbar" @dblclick.self="toggleMaximize">
-    <button type="button" class="icon-btn" :aria-label="t('topbar.menu')" @click="emit('toggleSidebar')">
+    <!-- 编码模式：主侧栏本来就收着，这里放产品标志和名字（像 VS Code、Cursor 左上角），员工知道这是 FlyknitBuddy -->
+    <div v-if="ideActive && !narrow" class="brand" :title="t('app.name')">
+      <KnitMark :size="22" />
+      <strong>{{ t('app.short') }}</strong>
+    </div>
+    <button v-else type="button" class="icon-btn" :aria-label="t('topbar.menu')" @click="emit('toggleSidebar')">
       <component :is="narrow ? Menu : PanelLeft" :size="18" />
     </button>
     <button v-if="sidebarHidden && current" type="button" class="icon-btn" :title="t('sidebar.newChat')" @click="startNew">
@@ -170,6 +177,17 @@ function openBackground() {
   font-size: var(--t-xs);
   font-weight: 500;
   white-space: nowrap;
+}
+.brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 4px;
+  color: var(--ink);
+  font-size: calc(13.5px * var(--font-scale));
+  letter-spacing: 0.01em;
+  user-select: none;
 }
 .topbar {
   display: flex;
