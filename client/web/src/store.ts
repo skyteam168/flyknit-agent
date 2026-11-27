@@ -210,7 +210,8 @@ export const state = reactive({
   /** 在客户端里查看全文的文本附件（粘贴的文本、txt / md 等） */
   textView: null as AttachmentRef | null,
   /** 大图查看器（首页输入框里的图片、窄窗口时点图片） */
-  imageView: null as { src: string; name: string; path: string } | null,
+  /** 大图查看器；items 有值时是一组图片（对话里 AI 看过的图），可以左右翻（imageGallery.ts） */
+  imageView: null as { src: string; name: string; path: string; items?: { name: string; path: string }[]; index?: number } | null,
   /** 右侧分屏预览 */
   preview: null as { file: OutputFile; doc: PreviewDoc | null; loading: boolean; error: string } | null,
   /** 分屏宽度（像素），拖拽后记住 */

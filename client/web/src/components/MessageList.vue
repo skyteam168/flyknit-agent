@@ -16,6 +16,8 @@ import ExpertTaskCard from './ExpertTaskCard.vue'
 import SuggestionCard from './SuggestionCard.vue'
 import { AskExpertTool, SpawnAgentTool, isSubtaskTool } from '../subtasks'
 import OutputFiles from './OutputFiles.vue'
+import ProcessImages from './ProcessImages.vue'
+import { isImagePath, type GalleryImage } from '../imageGallery'
 import { snippet } from '../pasted'
 import { formatSize } from '../library'
 
@@ -131,6 +133,8 @@ interface Fold {
   labels: string[]
   seconds: string | null
   outputs: OutputFile[]
+  /** 这一轮 AI 看过的图片（工具结果里存下来的截图、读过的图片）和生成的图片：摘要行右边的缩略图 */
+  images: GalleryImage[]
   /** 收起来的过程里 AI 建议的新任务：卡片照样露在外面，不能被折叠藏掉 */
   suggestions: { id: string; arguments: string }[]
 }
@@ -180,12 +184,31 @@ const folds = computed(() => {
       labels,
       seconds: answer.trace ? traceSeconds(answer.trace) : null,
       outputs: process.flatMap((m) => m.outputs ?? []),
+      images: turnImages(st.messages, new Set(calls.map((c) => c.id)), process.flatMap((m) => m.outputs ?? [])),
       suggestions: calls.filter((c) => c.name === 'suggest_task').map((c) => ({ id: c.id, arguments: c.arguments })),
     }
     for (const m of process) byId.set(m.id, fold)
   }
   return byId
 })
+
+/** 这一轮的图片：工具结果带的图片附件（按调用顺序）+ 生成的图片文件，同一个文件只算一次 */
+function turnImages(all: UiMessage[], callIds: Set<string>, outputs: OutputFile[]): GalleryImage[] {
+  const out: GalleryImage[] = []
+  const seen = new Set<string>()
+  const add = (path: string, name: string) => {
+    const key = path.toLowerCase()
+    if (!path || seen.has(key)) return
+    seen.add(key)
+    out.push({ path, name: name || path.split(/[\\/]/).pop() || path })
+  }
+  for (const m of all) {
+    if (m.role !== 'tool' || !m.toolCallId || !callIds.has(m.toolCallId)) continue
+    for (const a of m.attachments ?? []) if (a.mime?.startsWith('image/') && a.localPath) add(a.localPath, a.fileName)
+  }
+  for (const f of outputs) if (f.exists !== false && isImagePath(f.path)) add(f.path, f.name)
+  return out
+}
 
 /** 这条消息被折叠起来了（不画）；摘要行画在每段过程的第一条消息的位置 */
 function folded(m: UiMessage) {
@@ -474,8 +497,8 @@ const isImage = (mime: string) => mime.startsWith('image/')
         <!-- 一轮做完后的过程：一行摘要，点开看每一步 -->
         <template v-else-if="folds.get(m.id)">
           <template v-for="f in [folds.get(m.id)!]" :key="'fold' + f.key">
+            <div v-if="f.key === m.id" class="fold-row">
             <button
-              v-if="f.key === m.id"
               type="button"
               class="fold"
               :class="{ open: expanded.has(f.key) }"
@@ -488,6 +511,8 @@ const isImage = (mime: string) => mime.startsWith('image/')
               <span v-if="f.seconds" class="fold-time">{{ t('ui.fold.seconds', { s: f.seconds }) }}</span>
               <ChevronRight :size="14" class="chev" />
             </button>
+            <ProcessImages v-if="f.images.length" :images="f.images" class="fold-images" />
+            </div>
             <OutputFiles v-if="f.key === m.id && !expanded.has(f.key) && f.outputs.length" :files="f.outputs" />
             <template v-if="f.key === m.id && !expanded.has(f.key)">
               <SuggestionCard v-for="sg in f.suggestions" :key="sg.id" :call-id="sg.id" :args="sg.arguments" :conversation-id="current!.id" />
@@ -931,6 +956,20 @@ const isImage = (mime: string) => mime.startsWith('image/')
   color: var(--ink-faint);
   font-size: var(--t-sm);
   text-align: left;
+}
+.fold-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 0 0 8px;
+}
+.fold-row .fold {
+  margin: 0;
+  min-width: 0;
+}
+.fold-images {
+  margin-left: auto;
 }
 .fold:hover {
   background: var(--cloth-sunk);

@@ -1417,6 +1417,28 @@ export function createMockHost(): HostTransport {
         ? '你跳过了这两个问题，我先按「字段含义待确认」处理：全勤率暂时按有打卡记录来算，等字段含义确认后再修正。'
         : `收到，按你的选择继续：\n\n${answer.replace(/^员工的回答：\n/, '')}\n\n接下来我按这个口径计算全勤率。`
       await stream(id, finalText)
+    } else if (c.mode === 'agent' && /截图|screenshot/i.test(text)) {
+      // 模拟 AI 看了三张截图（浏览器截图、读图片）：一轮做完后「已完成 N 步」那一行右边出现缩略图（imageGallery.ts）
+      const shots = [
+        { name: '登录页.png', path: 'C:\\Users\\demo\\AppData\\Local\\Temp\\flyknit\\shot-login.png', color: ['#1d4ed8', '#60a5fa'] },
+        { name: '首页.png', path: 'C:\\Users\\demo\\AppData\\Local\\Temp\\flyknit\\shot-home.png', color: ['#065f46', '#34d399'] },
+        { name: '报表页.png', path: 'C:\\Users\\demo\\AppData\\Local\\Temp\\flyknit\\shot-report.png', color: ['#7c2d12', '#fb923c'] },
+      ]
+      for (const sh of shots) mockPreviews[sh.path] = { kind: 'image', dataUrl: svg(sh.color[0], sh.color[1], 960, 600, sh.name.replace('.png', '')) }
+      for (const sh of shots) {
+        const call = uid()
+        const args = JSON.stringify({ url: 'http://erp.local/' + sh.name })
+        list.push({ id: uid(), role: 'assistant', content: '', toolCalls: [{ id: call, name: 'browser_read', arguments: args }], createdAt: now() })
+        emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+        emit({ type: 'tool.started', conversationId: id, callId: call, name: 'browser_read', summary: sh.name, args, risk: 'auto' })
+        await sleep(300)
+        emit({ type: 'tool.finished', conversationId: id, callId: call, ok: true, output: '已截图：' + sh.name, decision: 'auto' })
+        list.push({ id: uid(), role: 'tool', content: '已截图：' + sh.name, toolCallId: call, createdAt: now(),
+          attachments: [{ fileName: sh.name, localPath: sh.path, mime: 'image/png', size: 120000 }] } as never)
+        emit({ type: 'chat.message', conversationId: id, message: list[list.length - 1] })
+      }
+      finalText = '三个页面都看过了：登录页、首页、报表页的布局正常，报表页右上角的导出按钮被遮住了一半。'
+      await stream(id, finalText)
     } else if (c.mode === 'agent' && /^(使用连接器|Use the|Dùng)/.test(text)) {
       // 模拟一次 MCP 调用：看卡片上的厂商图标、参数和返回结果
       const lead = '好的，我在腾讯文档里新建这张表格。'
