@@ -160,8 +160,12 @@ function bumpTree(conversationId: string) {
   )
 }
 
+// 注意：不能写成 `return (code.byEditor[k] ??= {...})`——第一次创建时那样返回的是原对象、不是响应式的，
+// 在它上面改（重新打开客户端时恢复标签、设当前文件），界面不会跟着变：标签出来了、编辑器却空着
 function convOf(conversationId: string): ConversationCode {
-  return (code.byEditor[editorKey(conversationId)] ??= { tabs: [], active: null, follow: true })
+  const key = editorKey(conversationId)
+  if (!code.byEditor[key]) code.byEditor[key] = { tabs: [], active: null, follow: true }
+  return code.byEditor[key]
 }
 
 /** 当前对话能不能用编码模式：开发者工具开着、办事对话、选了工作区 */
@@ -320,6 +324,19 @@ function relativeTo(root: string, full: string): string | null {
   return null
 }
 
+/** 预览里点「在编辑器里打开」：文件在这个任务的工作区里就开成标签（能改），不在返回 false */
+export async function openInEditor(conversationId: string, fullPath: string): Promise<boolean> {
+  const root = state.conversations.find((x) => x.id === conversationId)?.workspace ?? ''
+  const rel = root ? relativeTo(root, fullPath) : null
+  if (!rel) return false
+  return (await openCodeFile(conversationId, rel)) !== null
+}
+
+export function inWorkspace(conversationId: string, fullPath: string): boolean {
+  const root = state.conversations.find((x) => x.id === conversationId)?.workspace ?? ''
+  return !!root && relativeTo(root, fullPath) !== null
+}
+
 /** AI 改了文件：开着的刷新成对比；没开的「跟随 AI」时打开 */
 async function onAiChanged(conversationId: string, paths: string[]) {
   const c = convOf(conversationId)
@@ -435,7 +452,9 @@ export const expanded = reactive<Record<string, Record<string, boolean>>>(
 )
 
 export function expandedOf(conversationId: string): Record<string, boolean> {
-  return (expanded[editorKey(conversationId)] ??= {})
+  const key = editorKey(conversationId)
+  if (!expanded[key]) expanded[key] = {}
+  return expanded[key]
 }
 
 /** 这次打开客户端后已经恢复过（或者本来就是新开）的格子：只有它们的状态会写回去，免得还没恢复就被空状态覆盖 */
@@ -491,8 +510,9 @@ async function restoreEditor(conversationId: string) {
       // 读不了就跳过
     }
   }
-  if (last.active && c.tabs.some((x) => x.path === last.active)) c.active = last.active
-  else if (!c.active && c.tabs.length) c.active = c.tabs[c.tabs.length - 1].path
+  const again = last.active ? c.tabs.find((x) => samePath(x.path, last.active!)) : undefined
+  if (again) c.active = again.path
+  else if (!c.tabs.some((x) => x.path === c.active) && c.tabs.length) c.active = c.tabs[c.tabs.length - 1].path
   saveSession()
 }
 
@@ -794,7 +814,8 @@ export function pendingTurnFor(conversationId: string, fullPath: string): Change
 
 /** 保留这一轮的改动：不再提示，编辑器里这些文件的对比收起 */
 export function keepTurn(conversationId: string, turnId: string) {
-  ;(kept[conversationId] ??= []).push(turnId)
+  if (!kept[conversationId]) kept[conversationId] = []
+  kept[conversationId].push(turnId)
   saveKept()
   const turn = (state.changes[conversationId] ?? []).find((t) => t.turnId === turnId)
   for (const tab of editorOf(conversationId)?.tabs ?? []) {
