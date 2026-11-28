@@ -45,7 +45,7 @@ public sealed class RunShellTool : ITool
         {
             return systemTool;
         }
-        var decision = PermissionRules.ForCommand(ctx.Policy, ctx.EffectivePermission, ctx.Workspace, command, dir, shell);
+        var decision = PermissionRules.ForCommand(ctx.Policy, ctx.EffectivePermission, ctx.Workspace, command, dir, shell, ctx.TrustedWorkspace);
         return ctx.NetworkAllowlist
             ? PermissionRules.ForNetwork(decision, ctx.Policy.Network.EvaluateCommand(command))
             : decision;

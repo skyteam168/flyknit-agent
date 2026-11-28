@@ -224,6 +224,8 @@ public sealed class ExpertDispatcher
                 Workspace = parent.Workspace,
                 // 员工当前权限和专家限制取更严的那个：派遣不会让专家拿到比员工更大的权限
                 Permission = (PermissionMode)Math.Min((int)parent.Permission, (int)ExpertRuntime.CapPermission(snapshot, parent.Permission)),
+                // 同一个工作区：员工标了 AI 专用文件夹，专家在里面和员工一样不逐个确认（确认规则不随专家身份变）
+                WorkspaceMarkedTrusted = parent.WorkspaceMarkedTrusted,
                 RunId = record.Id,
                 Memory = parent.Memory,
                 UserRequest = request.Task,

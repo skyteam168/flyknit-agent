@@ -86,6 +86,15 @@ SETTINGS: tuple[Setting, ...] = (
         risk="关闭后 AI 可以在工作区之外读写文件。危险命令仍会拦截，但范围限制没有了。",
     ),
     Setting(
+        key="trusted_folders", kind="bool", default=False, locked=True,
+        title="AI 专用文件夹（少弹确认）",
+        risk="打开后，员工可以把一个文件夹标成「AI 专用」（比如 D:\\AIWORK，专门放 AI 的产出）。任务的工作区是这个文件夹时，"
+             "里面的删除（进回收站）、Python 脚本这类认不出的命令、只动这个文件夹的删除 / 覆盖命令都不再逐个确认。"
+             "只放宽文件夹里面：碰到文件夹外的路径照样确认，禁止规则、动态执行（下载即执行、编码命令）、系统级工具、网络白名单、"
+             "读到疑似提示词注入后的确认都不受影响。磁盘根目录、网络盘、系统目录、用户目录和桌面 / 文档 / 下载整个文件夹不能标。"
+             "标记只存在员工自己的电脑上。默认关闭。",
+    ),
+    Setting(
         key="delete_protection", kind="bool", default=True, locked=True,
         title="删除保护（回收站）",
         risk="关闭后 AI 删除的文件直接永久删除，不进回收站，无法恢复。",

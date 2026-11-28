@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, ChevronDown, ExternalLink, Folder, FolderPlus, X } from '@lucide/vue'
+import { Check, ChevronDown, ExternalLink, Folder, FolderPlus, ShieldCheck, X } from '@lucide/vue'
 import Popover from './Popover.vue'
-import { addWorkspace, loadWorkspaces, openPath, removeWorkspace, selectWorkspace, selectedWorkspace, state } from '../store'
+import { addWorkspace, loadWorkspaces, openPath, removeWorkspace, selectWorkspace, selectedWorkspace, state, toast } from '../store'
+import { loadTrust, setTrust, trustOf } from '../features/trust/store'
 
 const { t } = useI18n()
 
@@ -23,7 +24,19 @@ async function add(close: () => void) {
 
 function onToggle(toggle: () => void) {
   void loadWorkspaces()
+  void loadTrust(selectedWorkspace.value)
   toggle()
+}
+
+// AI 专用文件夹（features/trust）：IT 允许时才显示开关；能不能标、标了没有由宿主说了算
+const trustState = computed(() => trustOf(selectedWorkspace.value))
+const trusted = computed(() => !!trustState.value?.allowed && !!trustState.value.trusted)
+watch(selectedWorkspace, (path) => void loadTrust(path), { immediate: true })
+function toggleTrust() {
+  const path = selectedWorkspace.value
+  const on = !trustState.value?.trusted
+  if (on && !window.confirm(t('ui.trust.confirm', { path }))) return
+  void setTrust(path, on, (now) => toast(t(now ? 'ui.trust.on' : 'ui.trust.off', { name: label.value })))
 }
 </script>
 
@@ -34,10 +47,11 @@ function onToggle(toggle: () => void) {
         type="button"
         class="trigger"
         :class="{ open }"
-        :title="`${t('ui.workspace.title')}: ${selectedWorkspace}`"
+        :title="`${t('ui.workspace.title')}: ${selectedWorkspace}` + (trusted ? `\n${t('ui.trust.badge')}` : '')"
         @click="onToggle(toggle)"
       >
-        <Folder :size="14" />
+        <ShieldCheck v-if="trusted" :size="14" class="trusted" :aria-label="t('ui.trust.badge')" />
+        <Folder v-else :size="14" />
         <span class="label">{{ label || t('ui.workspace.title') }}</span>
         <ChevronDown :size="13" class="chev" />
       </button>
@@ -62,6 +76,16 @@ function onToggle(toggle: () => void) {
           </button>
         </span>
       </div>
+      <template v-if="trustState?.allowed">
+        <div class="sep" />
+        <label class="trust" :class="{ disabled: !!trustState.reason && !trustState.trusted }" :title="trustState.reason || t('ui.trust.hint')">
+          <input type="checkbox" :checked="trustState.trusted" :disabled="!!trustState.reason && !trustState.trusted" @change="toggleTrust" />
+          <span class="text">
+            <strong>{{ t('ui.trust.toggle') }}</strong>
+            <small class="wrap">{{ trustState.reason || t('ui.trust.hint') }}</small>
+          </span>
+        </label>
+      </template>
       <div class="sep" />
       <button type="button" class="opt add" @click="add(close)">
         <FolderPlus :size="15" class="ico" />
@@ -73,6 +97,33 @@ function onToggle(toggle: () => void) {
 </template>
 
 <style scoped>
+.trusted {
+  flex: none;
+  color: var(--green, #2f9e6b);
+}
+.trust {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.trust:hover {
+  background: var(--chip);
+}
+.trust input {
+  flex: none;
+  margin-top: 3px;
+  accent-color: var(--indigo);
+}
+.trust.disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.text small.wrap {
+  white-space: normal;
+}
 .trigger {
   display: inline-flex;
   align-items: center;

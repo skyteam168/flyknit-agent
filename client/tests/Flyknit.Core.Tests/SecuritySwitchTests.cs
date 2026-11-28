@@ -239,6 +239,8 @@ public class SecuritySwitchTests
             SecuritySettings.TeamTokenBudget,
             // AgentHost.SubtaskTokenCap 读它：派专家、开子代理时最多从主任务剩余预算里占多少（见 SubAgentTests.LimitsFollowTheSecuritySetting…）
             SecuritySettings.SubtaskTokenBudget,
+            // ToolContext.TrustedWorkspace 读它：员工标的 AI 专用文件夹，IT 允许时里面的普通操作不再逐个确认（见 TrustedFolderTests）
+            SecuritySettings.TrustedFolders,
         };
         var declared = typeof(SecuritySettings)
             .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)

@@ -60,7 +60,8 @@ public static class PermissionRules
         RegexOptions.Compiled);
 
     /// <summary>写入或删除路径。</summary>
-    public static PolicyDecision ForWrite(CommandPolicy policy, PermissionMode mode, string? workspace, string fullPath, bool delete)
+    /// <param name="trusted">工作区是员工标的 AI 专用文件夹（而且 IT 允许）：工作区里面的删除不再确认，见 <see cref="TrustedFolders"/>。</param>
+    public static PolicyDecision ForWrite(CommandPolicy policy, PermissionMode mode, string? workspace, string fullPath, bool delete, bool trusted = false)
     {
         var baseline = policy.EvaluateWrite(fullPath);
         if (baseline.Level == RiskLevel.Blocked)
@@ -80,9 +81,9 @@ public static class PermissionRules
                     return PolicyDecision.Blocked(
                         $"当前是“工作区内修改”权限，只能修改工作区 {workspace} 内的文件。请把文件放在工作区内，或让用户切换到“完全权限”");
                 }
-                return delete
-                    ? PolicyDecision.Confirm("删除文件需要确认（会移入回收站）")
-                    : PolicyDecision.Auto("工作区内的文件");
+                return !delete ? PolicyDecision.Auto("工作区内的文件")
+                    : trusted ? PolicyDecision.Auto("AI 专用文件夹里的文件（会移入回收站）")
+                    : PolicyDecision.Confirm("删除文件需要确认（会移入回收站）");
 
             default: // Full
                 if (delete && !inWorkspace)
@@ -100,7 +101,11 @@ public static class PermissionRules
     /// 只读命令任何模式都自动跑；在工作区里新建、写文件、跑构建这类也自动跑；
     /// 删除、覆盖、改注册表 / 服务 / 账号、装卸软件永远要人确认，而且不能被规则放行。
     /// </summary>
-    public static PolicyDecision ForCommand(CommandPolicy policy, PermissionMode mode, string? workspace, string command, string workingDirectory, string shell = "powershell")
+    /// <param name="trusted">
+    /// 工作区是员工标的 AI 专用文件夹（而且 IT 允许）：只动这个文件夹的命令——包括认不出的（python 脚本）和高危的（删除、覆盖）——
+    /// 和完全权限一样自动执行；碰到文件夹外的路径照样按权限档走。禁止规则、命令里的动态执行照样拦 / 问（在这之前就判了）。
+    /// </param>
+    public static PolicyDecision ForCommand(CommandPolicy policy, PermissionMode mode, string? workspace, string command, string workingDirectory, string shell = "powershell", bool trusted = false)
     {
         var baseline = policy.EvaluateCommand(command, workingDirectory);
         if (baseline.Level == RiskLevel.Blocked)
@@ -110,6 +115,9 @@ public static class PermissionRules
 
         var effect = baseline.Effect;
         var outside = OutsidePaths(command, workspace, workingDirectory);
+        // 动态执行（& $cmd、管道给 iex、Base64 编码命令、下载即执行）：实际跑什么看不出来，任何权限档、AI 专用文件夹都要人点。
+        // 以前这里只看了副作用分级，完全权限下会直接跑
+        var indirect = baseline.Level == RiskLevel.Confirm && CommandAnalyzer.Analyze(command).HasIndirection;
 
         if (mode == PermissionMode.ReadOnly)
         {
@@ -118,7 +126,7 @@ public static class PermissionRules
                 : PolicyDecision.Blocked("当前是“仅可查看”权限，只能执行查询类命令。需要执行这条命令时，请让用户切换权限");
         }
 
-        if (effect == CommandEffect.Read)
+        if (effect == CommandEffect.Read && !indirect)
         {
             return PolicyDecision.Auto(baseline.Reason) with { Effect = effect };
         }
@@ -129,6 +137,17 @@ public static class PermissionRules
         }
 
         // 高危命令：删除、覆盖、改系统。任何模式、任何规则都不能跳过确认
+        if (indirect)
+        {
+            return PolicyDecision.Confirm(baseline.Reason) with { Effect = effect };
+        }
+
+        var insideTrusted = trusted && mode != PermissionMode.ReadOnly && outside.Count == 0 && IsInWorkspace(workingDirectory, workspace);
+        if (insideTrusted && effect is CommandEffect.Destructive or CommandEffect.Unknown)
+        {
+            return PolicyDecision.Auto($"AI 专用文件夹，只影响文件夹里面：{baseline.Reason}") with { Effect = effect };
+        }
+
         if (effect == CommandEffect.Destructive)
         {
             var where = outside.Count > 0 ? $"，涉及工作区外的路径：{string.Join("、", outside.Take(3))}" : "";
@@ -145,6 +164,13 @@ public static class PermissionRules
             if (mode == PermissionMode.Full && outside.Count == 0)
             {
                 return PolicyDecision.Auto("完全权限") with { Effect = effect };
+            }
+            // 完全权限本来就能改工作区外的文件（write_file 直接放行），命令里提到工作区外的路径也一样：
+            // 比如 python -c 里读 ~\Documents\Flyknit\output 的结果。
+            // 路径解析不出来（变量、通配符），或者落在系统目录、磁盘根目录这些受保护的地方，照样问
+            if (mode == PermissionMode.Full && OutsideAllOrdinary(policy, command, workspace, workingDirectory))
+            {
+                return PolicyDecision.Auto("完全权限（涉及的工作区外路径都是普通文件夹）") with { Effect = effect };
             }
             return PolicyDecision.Confirm(baseline.Reason)
                 with { Effect = effect, Rule = Candidate(policy, shell, command, workspace, baseline) };
@@ -234,6 +260,27 @@ public static class PermissionRules
     /// 相对路径也要算——<c>..\..\secret</c> 和 <c>D:\secret</c> 指的是同一个地方，
     /// 原来只扫绝对路径等于把前者放过去了。
     /// </summary>
+    private static bool IsDriveRoot(string full) =>
+        System.Text.RegularExpressions.Regex.IsMatch(full.Trim(), @"^[A-Za-z]:[\\/]?$")
+        || (Path.GetPathRoot(full) is { Length: > 0 } root && string.Equals(full.TrimEnd('\\', '/'), root.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>命令里工作区外的路径是不是都解析得出来、而且都不是受保护的位置（系统目录、磁盘根目录）。</summary>
+    private static bool OutsideAllOrdinary(CommandPolicy policy, string command, string? workspace, string workingDirectory)
+    {
+        foreach (var path in PathResolver.FromCommand(command, workingDirectory ?? workspace))
+        {
+            if (path.Known && IsInWorkspace(path.Full!, workspace))
+            {
+                continue;
+            }
+            if (!path.Known || IsDriveRoot(path.Full!) || policy.EvaluateWrite(path.Full!).Level == RiskLevel.Blocked)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static List<string> OutsidePaths(string command, string? workspace, string? workingDirectory = null)
     {
         var list = new List<string>();

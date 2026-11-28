@@ -32,7 +32,7 @@ const confirming = ref<SecurityItem | null>(null)
 
 /** 界面按这三组排，和用户的心智对得上：能做什么 / 数据会怎样 / 发生过什么 */
 const groups = [
-  { id: 'sandbox', keys: ['sandbox', 'network_allowlist', 'system_tools'] },
+  { id: 'sandbox', keys: ['sandbox', 'trusted_folders', 'network_allowlist', 'system_tools'] },
   { id: 'data', keys: ['delete_protection', 'auto_backup', 'backup_quota_mb', 'batch_delete_threshold', 'dlp_enabled', 'dlp_contacts'] },
   { id: 'learning', keys: ['learn_preferences', 'learn_facts', 'learn_experience', 'learn_episodes', 'learn_skills'] },
   { id: 'quality', keys: ['plan_guidance', 'verify_outputs', 'long_tasks', 'run_token_budget', 'subtask_token_budget', 'browser_tools', 'background_commands', 'developer_tools', 'subagents', 'cli_access', 'sandbox_tasks', 'sandbox_network', 'sandbox_allow_ci_changes', 'sandbox_cpus', 'sandbox_memory_gb'] },
