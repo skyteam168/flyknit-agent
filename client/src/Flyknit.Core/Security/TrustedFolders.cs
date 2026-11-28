@@ -103,6 +103,11 @@ public sealed class TrustedFolders
             {
                 return "要选一个完整的文件夹路径";
             }
+            // 只写了盘符（D:）：按磁盘根目录算，不按「这个盘的当前目录」
+            if (System.Text.RegularExpressions.Regex.IsMatch(folder.Trim().Trim('"'), @"^[A-Za-z]:[\\/]?$"))
+            {
+                return "磁盘根目录不能设为 AI 专用，请在里面新建一个文件夹专门给 AI 用";
+            }
             full = Normalize(folder);
         }
         catch (Exception)
@@ -207,9 +212,20 @@ public sealed class TrustedFolders
         return Same(path, Path.GetPathRoot(path) ?? "") ? null : path;
     }
 
-    private static string Normalize(string path) => Path.GetFullPath(path.Trim().Trim('"')).TrimEnd('\\', '/') is { Length: > 0 } p
-        ? (Path.GetPathRoot(p) is { } r && r.TrimEnd('\\', '/') == p ? r : p)
-        : path;
+    /// <summary>
+    /// 完整路径，去掉末尾的斜杠；磁盘根目录保留成 `D:\`。
+    /// 不能把根目录规整成 `D:`：Windows 上 `D:` 是「D 盘的当前目录」，再规整一次就成了别的文件夹，会绕过「磁盘根目录不能标」。
+    /// </summary>
+    private static string Normalize(string path)
+    {
+        var full = Path.GetFullPath(path.Trim().Trim('"'));
+        var root = Path.GetPathRoot(full);
+        if (!string.IsNullOrEmpty(root) && Same(full, root))
+        {
+            return root;
+        }
+        return full.TrimEnd('\\', '/');
+    }
 
     private static bool Same(string a, string b) =>
         string.Equals(a.TrimEnd('\\', '/'), b.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);

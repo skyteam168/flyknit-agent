@@ -197,6 +197,10 @@ public class TrustedFolderTests : IDisposable
     {
         var store = new TrustedFolders(null);
         Assert.NotNull(store.Set(Path.GetPathRoot(_ws)!, true));
+        // 只写盘符：Windows 上 D: 是「D 盘的当前目录」，不能借它绕过根目录检查
+        Assert.NotNull(TrustedFolders.Ineligible("D:"));
+        Assert.NotNull(TrustedFolders.Ineligible(@"C:\"));
+        Assert.Empty(store.Items);
         var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         Assert.NotNull(TrustedFolders.Ineligible(profile));
         // 用户目录下第一层（桌面、文档、下载……）不能整个标；再往里一层的专用文件夹可以
