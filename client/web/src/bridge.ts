@@ -438,6 +438,9 @@ class Bridge {
   /** 重命名在没打开的文件里的改动：宿主写进工作区里的文件 */
   lspApplyEdit = (conversationId: string, edits: { path: string; edits: unknown[] }[]) =>
     this.call<LspReply & { changed?: string[] }>('lsp.applyEdit', { conversationId, edits }, undefined, 60_000)
+  // ---------- AI 专用文件夹（features/trust，宿主 Security/TrustedFolders.cs） ----------
+  trustGet = (workspace: string) => this.call<{ allowed: boolean; trusted: boolean; reason: string }>('trust.get', { workspace })
+  trustSet = (workspace: string, trusted: boolean) => this.call<{ ok: boolean; message: string; trusted: boolean }>('trust.set', { workspace, trusted })
   // ---------- 项目（左侧「项目」，features/projects） ----------
   projectList = () => this.call<ProjectInfo[]>('project.list')
   projectCreate = (p: { name: string; goal: string; notes: string; path?: string; parent?: string }) =>

@@ -132,6 +132,8 @@ def test_a_setting_only_exists_if_something_enforces_it():
         "dlp_contacts",
         # 客户端 AgentHost 读它决定这一轮有没有浏览器工具
         "browser_tools",
+        # 客户端 ToolContext.TrustedWorkspace 读它：员工标的 AI 专用文件夹里普通操作不再逐个确认（Security/TrustedFolders.cs）
+        "trusted_folders",
         # 客户端 AgentHost.Desktop 读这两项：电脑操作开关、每一步都先确认（docs/computer-use.md）
         "computer_use",
         "computer_use_confirm_all",

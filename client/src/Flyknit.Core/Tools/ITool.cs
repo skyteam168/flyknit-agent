@@ -257,6 +257,16 @@ public sealed class ToolContext
     public PermissionMode EffectivePermission =>
         Sandboxed && Permission == PermissionMode.Full ? PermissionMode.Workspace : Permission;
 
+    /// <summary>
+    /// 员工把这个任务的工作区标成了 AI 专用文件夹（宿主按本机的 <see cref="Security.TrustedFolders"/> 填）。
+    /// 还要 IT 在安全中心打开「AI 专用文件夹」才生效，见 <see cref="TrustedWorkspace"/>。
+    /// </summary>
+    public bool WorkspaceMarkedTrusted { get; init; }
+
+    /// <summary>工作区里的普通操作不再逐个确认（员工标了、IT 也允许）。只放宽工作区里面。</summary>
+    public bool TrustedWorkspace =>
+        WorkspaceMarkedTrusted && (Security?.On(Flyknit.Core.Security.SecuritySettings.TrustedFolders, fallback: false) ?? false);
+
     /// <summary>一次删除多少个文件就要强制确认。安全中心改了这里要跟着变。</summary>
     public int BatchDeleteThreshold =>
         Security?.Number(Flyknit.Core.Security.SecuritySettings.BatchDeleteThreshold,
@@ -295,6 +305,7 @@ public sealed class ToolContext
         ConversationId = ConversationId,
         Workspace = Workspace,
         Permission = (PermissionMode)Math.Min((int)Permission, (int)permission),
+        WorkspaceMarkedTrusted = WorkspaceMarkedTrusted,
         GrantId = GrantId,
         TaskId = TaskId,
         IsolatedBranch = IsolatedBranch,
@@ -340,7 +351,7 @@ public sealed class ToolContext
         {
             return PolicyDecision.Blocked("路径无效");
         }
-        return PermissionRules.ForWrite(Policy, EffectivePermission, Workspace, full, delete);
+        return PermissionRules.ForWrite(Policy, EffectivePermission, Workspace, full, delete, TrustedWorkspace);
     }
 
     public bool InWorkspace(string fullPath) => PermissionRules.IsInWorkspace(fullPath, Workspace);

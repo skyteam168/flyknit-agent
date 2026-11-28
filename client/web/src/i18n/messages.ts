@@ -1495,6 +1495,10 @@ const zh = {
           risk: '关闭后 AI 删除的文件直接永久删除，不进回收站，无法恢复。',
         },
         network_allowlist: { title: '网络访问白名单', risk: '关闭后 AI 可以访问任意网址。' },
+        trusted_folders: {
+          title: 'AI 专用文件夹（少弹确认）',
+          risk: '开启后可以把一个文件夹标成「AI 专用」。在这个文件夹里做事时，删除、运行脚本这类操作不再一个个确认；碰到文件夹外面的照样会问。',
+        },
         system_tools: {
           title: '系统级工具（注册表 / 服务 / 计划任务 / WMI）',
           risk: '开启后 AI 可以改注册表、服务和计划任务。这些东西留在工作区之外，长期生效，隔离和删除保护都管不着。',
@@ -2312,6 +2316,14 @@ const zh = {
     loading: { title: '正在启动 FlyknitBuddy…', subtitle: '准备就绪后将自动打开工作区。' },
     feedback: { up: '回答得好', learn: '已记下，会复盘这次回答并吸取教训', down: '回答得不好', regenerate: '重新生成', thanks: '感谢你的反馈' },
     edit: { title: '编辑', hint: 'Enter 发送，Esc 取消。之后的对话会被替换', cancel: '取消', send: '发送' },
+    trust: {
+      toggle: '设为 AI 专用文件夹',
+      hint: '专门给 AI 干活的文件夹：在这里删除、运行脚本不再一个个确认；碰到文件夹外面的照样会问。',
+      on: '已设为 AI 专用：{name} 里的操作不再逐个确认',
+      off: '已取消 AI 专用：{name}',
+      badge: 'AI 专用文件夹：里面的操作不再逐个确认',
+      confirm: '把「{path}」设为 AI 专用文件夹？\n\n以后 AI 在这个文件夹里删除文件（进回收站）、运行脚本都不再逐个问你，请确认里面没有重要资料。文件夹外面的操作照样会问。',
+    },
     workspace: {
       title: '工作区',
       default: '默认',
@@ -3863,6 +3875,10 @@ const vi: Messages = {
           title: 'Danh sách trang được phép truy cập',
           risk: 'Tắt rồi thì AI vào được mọi địa chỉ web.',
         },
+        trusted_folders: {
+          title: 'Thư mục dành riêng cho AI (ít hỏi xác nhận hơn)',
+          risk: 'Bật lên thì có thể đánh dấu một thư mục là «dành riêng cho AI». Làm việc trong thư mục đó, các thao tác như xoá, chạy script không phải xác nhận từng lần; đụng đến thứ bên ngoài thư mục vẫn sẽ hỏi.',
+        },
         system_tools: {
           title: 'Công cụ hệ thống (registry / dịch vụ / tác vụ định kỳ / WMI)',
           risk: 'Bật lên thì AI sửa được registry, dịch vụ và tác vụ định kỳ. Những thứ đó nằm ngoài thư mục làm việc và có hiệu lực lâu dài.',
@@ -4680,6 +4696,14 @@ const vi: Messages = {
     loading: { title: 'Đang khởi động FlyknitBuddy…', subtitle: 'Không gian làm việc sẽ tự mở khi sẵn sàng.' },
     feedback: { up: 'Câu trả lời tốt', learn: 'Đã ghi nhận, AI sẽ rút kinh nghiệm từ câu trả lời này', down: 'Câu trả lời chưa tốt', regenerate: 'Tạo lại', thanks: 'Cảm ơn phản hồi của bạn' },
     edit: { title: 'Sửa', hint: 'Enter để gửi, Esc để hủy. Phần hội thoại sau sẽ được thay thế', cancel: 'Hủy', send: 'Gửi' },
+    trust: {
+      toggle: 'Đặt làm thư mục dành riêng cho AI',
+      hint: 'Thư mục chỉ để AI làm việc: xoá, chạy script trong đây không phải xác nhận từng lần; đụng đến bên ngoài thư mục vẫn sẽ hỏi.',
+      on: 'Đã đặt {name} làm thư mục dành riêng cho AI: thao tác bên trong không hỏi từng lần nữa',
+      off: 'Đã bỏ chế độ dành riêng cho AI: {name}',
+      badge: 'Thư mục dành riêng cho AI: thao tác bên trong không hỏi từng lần',
+      confirm: 'Đặt «{path}» làm thư mục dành riêng cho AI?\n\nSau này AI xoá tệp (vào thùng rác), chạy script trong thư mục này sẽ không hỏi bạn từng lần nữa. Hãy chắc chắn bên trong không có tài liệu quan trọng. Thao tác bên ngoài thư mục vẫn sẽ hỏi.',
+    },
     workspace: {
       title: 'Thư mục làm việc',
       default: 'Mặc định',
@@ -6229,6 +6253,10 @@ const en: Messages = {
           title: 'Website allowlist',
           risk: 'Once off, the AI can reach any address on the web.',
         },
+        trusted_folders: {
+          title: 'AI-only folders (fewer confirmations)',
+          risk: 'Once on, you can mark a folder as "AI-only". Inside that folder, deleting files and running scripts no longer ask one by one; anything outside the folder still asks.',
+        },
         system_tools: {
           title: 'System tools (registry, services, scheduled tasks, WMI)',
           risk: 'Once on, the AI can change the registry, services and scheduled tasks. Those live outside the workspace and keep working after the task ends.',
@@ -7046,6 +7074,14 @@ const en: Messages = {
     loading: { title: 'Starting FlyknitBuddy…', subtitle: "Your workspace will open automatically when it's ready." },
     feedback: { up: 'Good response', learn: 'Noted. The AI will review this answer and learn from it', down: 'Bad response', regenerate: 'Regenerate', thanks: 'Thanks for your feedback' },
     edit: { title: 'Edit', hint: 'Enter to send, Esc to cancel. Later messages will be replaced', cancel: 'Cancel', send: 'Send' },
+    trust: {
+      toggle: 'Make this an AI-only folder',
+      hint: 'A folder just for the AI to work in: deleting files and running scripts here no longer ask one by one; anything outside it still asks.',
+      on: '{name} is now an AI-only folder: actions inside it no longer ask one by one',
+      off: '{name} is no longer an AI-only folder',
+      badge: 'AI-only folder: actions inside it no longer ask one by one',
+      confirm: 'Make "{path}" an AI-only folder?\n\nFrom now on the AI can delete files here (to the Recycle Bin) and run scripts without asking you each time, so make sure there is nothing important in it. Anything outside the folder still asks.',
+    },
     workspace: {
       title: 'Workspace',
       default: 'Default',

@@ -11,6 +11,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const mockSecurity = [
   { key: 'sandbox', value: true, locked: true, kind: 'bool', title: '工作区隔离', risk: '关闭后 AI 可以在工作区之外读写文件。危险命令仍会拦截，但范围限制没有了。', min: null, max: null },
   { key: 'network_allowlist', value: true, locked: true, kind: 'bool', title: '网络访问白名单', risk: '关闭后 AI 可以访问任意网址。', min: null, max: null },
+  { key: 'trusted_folders', value: true, locked: true, kind: 'bool', title: 'AI 专用文件夹（少弹确认）', risk: '开启后员工可以把一个文件夹标成 AI 专用，里面的普通操作不再逐个确认。', min: null, max: null },
   { key: 'system_tools', value: false, locked: false, kind: 'bool', title: '系统级工具（注册表 / 服务 / 计划任务 / WMI）', risk: '开启后 AI 可以调用这些工具，它们能绕过一部分文件和进程限制。', min: null, max: null },
   { key: 'delete_protection', value: true, locked: true, kind: 'bool', title: '删除保护（回收站）', risk: '关闭后 AI 删除的文件直接永久删除，不进回收站，无法恢复。', min: null, max: null },
   { key: 'auto_backup', value: true, locked: false, kind: 'bool', title: '修改文件前自动备份', risk: '关闭后 AI 覆盖文件将无法还原。删除仍会进回收站，但覆盖写不会。', min: null, max: null },
@@ -381,6 +382,8 @@ export function createMockHost(): HostTransport {
       nextRunAt: null, lastRunAt: null, lastStatus: '', lastSummary: '', lastConversationId: null, runCount: 0,
     },
   ]
+  // AI 专用文件夹（trust.get / trust.set）
+  const mockTrusted = new Set<string>()
   // 开发预览用的假产出文件
   const mockOutputs = [
     { path: 'D:\\工作区\\日报\\营业部Q3需求沟通会.pptx', name: '营业部Q3需求沟通会.pptx', extension: 'pptx', size: 2_418_000, modifiedAt: now(), previewable: true, exists: true },
@@ -2033,6 +2036,17 @@ export function createMockHost(): HostTransport {
         }
       case 'conversations.plan':
         return []
+      case 'trust.get': {
+        const ws = String(p.workspace ?? '')
+        const root = /^[A-Za-z]:\\?$/.test(ws)
+        return { allowed: true, trusted: mockTrusted.has(ws.toLowerCase()), reason: root ? '磁盘根目录不能设为 AI 专用，请在里面新建一个文件夹专门给 AI 用' : '' }
+      }
+      case 'trust.set': {
+        const ws = String(p.workspace ?? '').toLowerCase()
+        if (p.trusted) mockTrusted.add(ws)
+        else mockTrusted.delete(ws)
+        return { ok: true, message: '', trusted: !!p.trusted }
+      }
       case 'project.list':
         return mockProjects.slice().sort((a, b) => b.openedAt.localeCompare(a.openedAt))
       case 'project.create': {

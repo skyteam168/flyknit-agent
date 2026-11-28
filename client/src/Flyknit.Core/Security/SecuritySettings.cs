@@ -88,6 +88,9 @@ public sealed class SecuritySettings
     /// <summary>开发者工具（grep、multi_edit、git_*，任务走 code 场景）。默认关闭，IT 给写程序的同事打开。</summary>
     public const string DeveloperTools = "developer_tools";
 
+    /// <summary>AI 专用文件夹：员工标过的工作区里普通操作不再逐个确认（见 TrustedFolders）。默认关闭。</summary>
+    public const string TrustedFolders = "trusted_folders";
+
     /// <summary>子代理（spawn_agent，主助手按任务开分身去调研、干活）。默认关闭。</summary>
     public const string SubAgents = "subagents";
 

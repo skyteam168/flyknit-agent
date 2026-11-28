@@ -88,6 +88,9 @@ public sealed partial class AgentHost : IDisposable
     /// <summary>消息通知（docs/notices.md）：铃铛、消息中心、正文里的媒体代理。</summary>
     public Flyknit.Core.Notices.NoticeFeature Notices { get; }
 
+    /// <summary>AI 专用文件夹（员工标的、IT 允许时里面的普通操作不再逐个确认）。</summary>
+    public Flyknit.Core.Security.TrustedFolderFeature TrustedFolders { get; }
+
     /// <summary>编码模式：右侧「代码」标签读写工作区文件（Core/Code/CodeFeature）。</summary>
     public Flyknit.Core.Code.CodeFeature Code { get; }
 
@@ -442,6 +445,10 @@ public sealed partial class AgentHost : IDisposable
             _ => _settings.SoundOnFailed,
         });
         Notices = new Flyknit.Core.Notices.NoticeFeature(Server, evt => Events?.Post(evt), message => Log.Warn(message));
+        TrustedFolders = new Flyknit.Core.Security.TrustedFolderFeature(
+            new Flyknit.Core.Security.TrustedFolders(Path.Combine(AppPaths.Root, "trusted-folders.json")),
+            () => Security.On(Flyknit.Core.Security.SecuritySettings.TrustedFolders, fallback: false),
+            message => Log.Info(message));
         UserTerminals = new Flyknit.Core.Terminal.UserTerminalFeature(
             WorkspaceOf,
             () => OperatingSystem.IsWindows() && Security.On(Flyknit.Core.Security.SecuritySettings.DeveloperTools, fallback: false),
@@ -451,7 +458,7 @@ public sealed partial class AgentHost : IDisposable
             WriteRun = WriteTerminalRun,
             ResizeRun = ResizeTerminalRun,
         };
-        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code).Register(UserTerminals).Register(Projects).Register(SourceControl).Register(Lsp);
+        BridgeModules = new Flyknit.Core.Hosting.BridgeModuleRegistry().Register(Teams).Register(Notices).Register(Code).Register(UserTerminals).Register(Projects).Register(SourceControl).Register(Lsp).Register(TrustedFolders);
         _configTimer = new Timer(_ => _ = RefreshConfigAsync(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -1057,6 +1064,8 @@ public sealed partial class AgentHost : IDisposable
                 UserRequest = text,
                 Workspace = workspace,
                 Permission = permission,
+                // 员工把工作区标成了 AI 专用文件夹：IT 也允许时，里面的普通操作不再逐个确认（ToolContext.TrustedWorkspace）
+                WorkspaceMarkedTrusted = TrustedFolders.Store.Contains(workspace),
                 GrantId = grant?.Id ?? "",
                 TaskId = ticket?.TaskId ?? "",
                 RunId = runId,

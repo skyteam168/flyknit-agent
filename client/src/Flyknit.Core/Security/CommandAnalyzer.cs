@@ -157,11 +157,23 @@ public static class CommandAnalyzer
         (new Regex(@"frombase64string|downloadstring|downloadfile", RegexOptions.IgnoreCase | RegexOptions.Compiled), "命令会从网上取内容直接执行"),
         (new Regex(@"\|\s*(iex|invoke-expression|powershell|pwsh|cmd|bash|sh)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), "命令把输出管道给了解释器执行"),
         (new Regex(@"\b(runas|start-process)\b[^|]*-verb\s+runas", RegexOptions.IgnoreCase | RegexOptions.Compiled), "命令要以管理员身份运行"),
-        (new Regex(@"(?:^|[;&|]\s*)&?\s*\$[A-Za-z_]", RegexOptions.Compiled), "命令会执行变量里的内容，实际跑什么要运行时才知道"),
+        // 只有调用操作符（& $x、. $x）和 .Invoke() 才会把变量里的内容当命令跑；
+        // `$env:PYTHONIOENCODING="utf-8"` 这种赋值不是执行（以前把它也算进来，完全权限下也要员工点）
+        (new Regex(@"(?:^|[;|\n]|&&)\s*(?:&\s*|\.\s+)[""']?\$[A-Za-z_{(]", RegexOptions.Compiled), "命令会执行变量里的内容，实际跑什么要运行时才知道"),
+        (new Regex(@"\$[A-Za-z_][\w:]*\.Invoke(?:Command)?\s*\(|\[scriptblock\]\s*::\s*create", RegexOptions.IgnoreCase | RegexOptions.Compiled), "命令会执行变量里的内容，实际跑什么要运行时才知道"),
     };
 
     private static readonly Regex Separators = new(@"(?:&&|\|\||;|\||&|\r?\n)", RegexOptions.Compiled);
     private static readonly Regex RedirectTarget = new(@"(?<!\d)>{1,2}\s*(""[^""]+""|\S+)", RegexOptions.Compiled);
+
+    /// <summary>重定向到这些地方等于丢掉输出，不算写文件（`chcp 65001 > $null`）。</summary>
+    private static readonly HashSet<string> NullSinks = new(StringComparer.OrdinalIgnoreCase) { "$null", "nul", "/dev/null" };
+
+    /// <summary>
+    /// 设置这次命令用的环境变量：`$env:PYTHONIOENCODING="utf-8"`。只影响这一个命令进程，不留下任何东西。
+    /// 右边只认字面值（引号里没有 $ 和反引号、或者一个简单的词）：`$env:X = (Remove-Item a)` 右边会执行命令，不算。
+    /// </summary>
+    private static readonly Regex EnvAssignment = new(@"^\$env:[A-Za-z_][\w]*\s*=\s*(?:""[^""$`]*""|'[^']*'|[\w.:\\/-]*)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static CommandAnalysis Analyze(string command)
     {
@@ -185,7 +197,7 @@ public static class CommandAnalyzer
         foreach (Match m in RedirectTarget.Matches(command))
         {
             var target = m.Groups[1].Value.Trim('"');
-            if (target.Length > 0 && !written.Contains(target, StringComparer.OrdinalIgnoreCase))
+            if (target.Length > 0 && !NullSinks.Contains(target) && !written.Contains(target, StringComparer.OrdinalIgnoreCase))
             {
                 written.Add(target);
             }
@@ -287,7 +299,12 @@ public static class CommandAnalyzer
         var exe = Path.GetFileNameWithoutExtension(exeRaw.Trim('"', '\'', '&'));
 
         // 重定向写文件：无论什么命令，都至少算「写」
-        var redirects = written.Count > 0 && RedirectTarget.IsMatch(segment);
+        var redirects = written.Count > 0 && RedirectTarget.Matches(segment).Any(m => !NullSinks.Contains(m.Groups[1].Value.Trim('"')));
+
+        if (EnvAssignment.IsMatch(text))
+        {
+            return new CommandSegment(segment, "$env", "", CommandEffect.Read, "只是设置这次命令用的环境变量");
+        }
 
         // git / gh 按子命令加关键参数定级（push --force、branch -D、checkout -- 这类），见 DevCommandRules
         if (exe.Equals("git", StringComparison.OrdinalIgnoreCase) || exe.Equals("gh", StringComparison.OrdinalIgnoreCase))

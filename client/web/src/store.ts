@@ -457,6 +457,15 @@ export function setPreviewWidth(px: number) {
   }
 }
 
+/**
+ * 什么时候不要自动打开预览（AI 产出文件时）。功能模块登记，比如编码模式：都是代码、编辑器里就能看，
+ * 员工要看时自己点「预览」，关掉后也不再自己弹出来。只管自动打开，员工点的照常打开。
+ */
+const autoPreviewSuppressors: (() => boolean)[] = []
+export function suppressAutoPreview(when: () => boolean) {
+  autoPreviewSuppressors.push(when)
+}
+
 /** 在右侧分屏里打开一个文件 */
 export async function openPreview(file: OutputFile) {
   state.preview = { file, doc: null, loading: true, error: '' }
@@ -2323,7 +2332,7 @@ function onHostEvent(e: HostEvent) {
       const s = convState(e.conversationId)
       const last = [...s.messages].reverse().find((m) => m.role === 'assistant')
       if (last) last.outputs = [...(last.outputs ?? []), ...e.files]
-      if (state.autoPreview && e.conversationId === state.currentId && !state.preview) {
+      if (state.autoPreview && e.conversationId === state.currentId && !state.preview && !autoPreviewSuppressors.some((f) => f())) {
         // Markdown 文稿由文档画布打开（document.changed），这里不再另开一份只读预览
         const first = e.files.find((f) => f.previewable && f.exists && !/\.(md|markdown)$/i.test(f.path))
         if (first) void openPreview(first)
