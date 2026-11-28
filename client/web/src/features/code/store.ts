@@ -17,7 +17,7 @@
 import { computed, reactive, watch } from 'vue'
 import { bridge } from '../../bridge'
 import { loadLspStatus } from './lsp'
-import { convState, current, draftMode, loadChanges, moveToWorkspace, openConversation, registerFeature, send, setPlanMode, state, toast } from '../../store'
+import { closePreview, convState, current, draftMode, loadChanges, moveToWorkspace, openConversation, registerFeature, send, setPlanMode, state, suppressAutoPreview, toast } from '../../store'
 import type { ChangeTurn, CodeFile, HostEvent, UiMessage } from '../../types'
 
 export interface CodeTab {
@@ -1026,6 +1026,13 @@ watch(
 export function toggleExplorer() {
   ide.explorerOpen = !ide.explorerOpen
 }
+
+// 编码模式里 AI 产出文件时不自动在编辑器右边打开预览（都是代码，编辑器里就能看）；员工点「预览」才打开
+suppressAutoPreview(() => ideActive.value)
+// 进编码模式时，普通界面里（自动）开着的预览收起来，别带进编辑器右边
+watch(ideActive, (on, was) => {
+  if (on && !was) closePreview()
+})
 
 // 进入编码模式、切到另一个工作区的任务：恢复那个工作区上次开着的文件
 watch(
