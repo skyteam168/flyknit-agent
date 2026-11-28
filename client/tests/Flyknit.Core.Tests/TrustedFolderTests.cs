@@ -11,8 +11,21 @@ namespace Flyknit.Core.Tests;
 public class TrustedFolderTests : IDisposable
 {
     private static readonly CommandPolicy Policy = CommandPolicy.Default();
-    private readonly string _ws = Directory.CreateTempSubdirectory("aiwork").FullName;
-    private readonly string _other = Directory.CreateTempSubdirectory("elsewhere").FullName;
+    // 不放系统临时目录：Windows 上它在 AppData\Local\Temp 下面，而 AppData 本来就不能标成 AI 专用
+    private readonly string _ws = Fresh("aiwork");
+    private readonly string _other = Fresh("elsewhere");
+
+    private static string Fresh(string name) =>
+        Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "trusted-tests", name + "-" + Guid.NewGuid().ToString("N")[..8])).FullName;
+
+    [Fact]
+    public void TheSystemTempFolderCannotBeMarkedOnWindows()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.NotNull(TrustedFolders.Ineligible(Directory.CreateTempSubdirectory("t").FullName));
+        }
+    }
 
     /// <summary>工作区外的普通文件夹（命令里的路径按 Windows 写法解析，单测在 Linux 上也跑，所以用 C:\ 开头的）。</summary>
     private const string Outside = @"C:\data\考勤.json";
@@ -222,16 +235,16 @@ public class TrustedFolderTests : IDisposable
     }
 
     [Fact]
-    public void BridgeRefusesToMarkWhenITHasNotAllowedIt()
+    public async Task BridgeRefusesToMarkWhenITHasNotAllowedIt()
     {
         var store = new TrustedFolders(null);
         var allowed = false;
         var feature = new TrustedFolderFeature(store, () => allowed, _ => { });
         var args = new Flyknit.Core.Hosting.BridgeArgs(System.Text.Json.JsonSerializer.SerializeToElement(new { workspace = _ws, trusted = true }));
-        feature.HandleAsync("trust.set", args, default).GetAwaiter().GetResult();
+        await feature.HandleAsync("trust.set", args, default);
         Assert.False(store.Contains(_ws));
         allowed = true;
-        feature.HandleAsync("trust.set", args, default).GetAwaiter().GetResult();
+        await feature.HandleAsync("trust.set", args, default);
         Assert.True(store.Contains(_ws));
     }
 }
